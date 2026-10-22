@@ -1,0 +1,54 @@
+{
+  "phase": 0,
+  "state": "RED",
+  "command": ".venv/bin/python -m pytest -o addopts=\"\" -q --tb=line -rA",
+  "summary": "49 failed, 19 passed in 0.57s",
+  "counts": {
+    "failed": 49,
+    "passed": 19,
+    "total": 68
+  },
+  "failure_classes": {
+    "NotImplementedError": 23,
+    "ValidationError": 20,
+    "AssertionError": 6
+  },
+  "failures_by_file": {
+    "tests/test_api.py": 6,
+    "tests/test_contracts.py": 26,
+    "tests/test_export_contract.py": 1,
+    "tests/test_job_lifecycle.py": 12,
+    "tests/test_quotes.py": 4
+  },
+  "first_failure": {
+    "test": "tests/test_api.py::test_enrich_returns_202_with_a_pending_job",
+    "class": "NotImplementedError",
+    "message": "NotImplementedError: POST /markets/enrich is not implemented (Phase 0 RED)"
+  },
+  "first_contract_failure": {
+    "test": "tests/test_contracts.py::test_canonical_columns_v1_is_exactly_the_frozen_spec",
+    "class": "AssertionError",
+    "message": "AssertionError: CANONICAL_COLUMNS_V1 has 0 columns, expected 92"
+  },
+  "passed_tests": [
+    "tests/test_contracts.py::test_spec_fixture_is_internally_consistent",
+    "tests/test_contracts.py::test_provenance_and_signal_columns_never_become_column_93",
+    "tests/test_env.py::test_python_is_314",
+    "tests/test_env.py::test_greenlet_is_importable",
+    "tests/test_env.py::test_exact_pins_are_installed",
+    "tests/test_import_direction.py::test_app_tree_has_no_import_violations",
+    "tests/test_import_direction.py::test_http_seam_allows_httpx2_only_in_providers_http",
+    "tests/test_import_direction.py::test_checker_detects_violations[from app.config import Settings\\n-app.contracts-contracts-isolation]",
+    "tests/test_import_direction.py::test_checker_detects_violations[from app.providers.adapters import fake\\n-app.api.markets-api-no-adapters]",
+    "tests/test_import_direction.py::test_checker_detects_violations[import httpx2\\n-app.providers.adapters.fake-http-seam]",
+    "tests/test_import_direction.py::test_checker_detects_violations[import sqlalchemy\\n-app.verify.rules-verify-pure]",
+    "tests/test_import_direction.py::test_checker_detects_violations[from app.providers.registry import REGISTRY\\n-app.export.writer-export-no-providers]",
+    "tests/test_import_direction.py::test_checker_detects_violations[import pandas as pd\\n-app.export.writer-no-dataframes]",
+    "tests/test_import_direction.py::test_checker_detects_violations[import requests\\n-app.providers.http-no-legacy-transport]",
+    "tests/test_import_direction.py::test_checker_detects_violations[import importlib\\nimportlib.import_module('x')\\n-app.providers.registry-no-dynamic-import]",
+    "tests/test_import_direction.py::test_checker_detects_violations[import socket\\n-app.jobs.repository-no-raw-socket]",
+    "tests/test_no_network.py::test_outbound_tcp_connect_is_blocked",
+    "tests/test_no_network.py::test_dns_lookup_for_a_remote_host_is_blocked",
+    "tests/test_no_network.py::test_no_egress_was_attempted_by_the_preceding_imports"
+  ]
+}

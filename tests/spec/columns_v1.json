@@ -1,0 +1,279 @@
+{
+  "version": "v1",
+  "frozen": true,
+  "source": {
+    "doc": "briefs/market-engine/02-architecture.md",
+    "section": "3.8.1 Kolom kanonik v1 — 92 kolom",
+    "note": "02 overrides PLAN §4 (PLAN is an illustrative summary with different names)."
+  },
+  "total": 92,
+  "groups": [
+    {
+      "name": "Identity",
+      "declared_count": 12,
+      "columns": [
+        "instrument_id",
+        "symbol",
+        "isin",
+        "figi",
+        "name",
+        "asset_class",
+        "instrument_type",
+        "exchange",
+        "mic",
+        "currency",
+        "country",
+        "instrument_status"
+      ]
+    },
+    {
+      "name": "Classification",
+      "declared_count": 6,
+      "columns": [
+        "sector",
+        "industry",
+        "size_bucket",
+        "index_memberships",
+        "listing_date",
+        "is_primary_listing"
+      ]
+    },
+    {
+      "name": "Quote",
+      "declared_count": 13,
+      "columns": [
+        "last_price",
+        "prev_close",
+        "change_abs",
+        "change_pct",
+        "bid",
+        "ask",
+        "day_open",
+        "day_high",
+        "day_low",
+        "day_volume",
+        "turnover_value",
+        "quote_as_of",
+        "quote_delay"
+      ]
+    },
+    {
+      "name": "Market/session",
+      "declared_count": 2,
+      "columns": [
+        "market_state",
+        "session_date"
+      ]
+    },
+    {
+      "name": "EOD & technical",
+      "declared_count": 12,
+      "columns": [
+        "bars_count",
+        "first_bar_date",
+        "last_bar_date",
+        "ma_20",
+        "ma_50",
+        "ma_200",
+        "ema_12",
+        "ema_26",
+        "rsi_14",
+        "atr_14",
+        "volatility_20d",
+        "avg_volume_20d"
+      ]
+    },
+    {
+      "name": "Performance",
+      "declared_count": 9,
+      "columns": [
+        "ret_1d",
+        "ret_1w",
+        "ret_1m",
+        "ret_3m",
+        "ret_6m",
+        "ret_ytd",
+        "ret_1y",
+        "ret_3y",
+        "ret_5y"
+      ]
+    },
+    {
+      "name": "Fundamentals",
+      "declared_count": 14,
+      "columns": [
+        "market_cap",
+        "market_cap_usd",
+        "shares_outstanding",
+        "float_shares",
+        "pe_ttm",
+        "pe_forward",
+        "peg",
+        "pb",
+        "ps",
+        "ev_ebitda",
+        "eps_ttm",
+        "eps_forward",
+        "dividend_yield",
+        "payout_ratio"
+      ]
+    },
+    {
+      "name": "Statements",
+      "declared_count": 8,
+      "columns": [
+        "revenue_ttm",
+        "ebitda_ttm",
+        "net_income_ttm",
+        "fcf_ttm",
+        "total_debt",
+        "cash_and_equivalents",
+        "roe",
+        "debt_to_equity"
+      ]
+    },
+    {
+      "name": "Options",
+      "declared_count": 10,
+      "columns": [
+        "opt_expiry",
+        "opt_dte",
+        "opt_strike_atm",
+        "opt_iv_atm",
+        "opt_delta_atm",
+        "opt_gamma_atm",
+        "opt_theta_atm",
+        "opt_vega_atm",
+        "opt_open_interest_atm",
+        "opt_volume_atm"
+      ]
+    },
+    {
+      "name": "Quality",
+      "declared_count": 6,
+      "columns": [
+        "data_quality",
+        "filled_columns_count",
+        "verified_columns_count",
+        "primary_source",
+        "as_of_achieved",
+        "data_freshness_s"
+      ]
+    }
+  ],
+  "columns": [
+    "instrument_id",
+    "symbol",
+    "isin",
+    "figi",
+    "name",
+    "asset_class",
+    "instrument_type",
+    "exchange",
+    "mic",
+    "currency",
+    "country",
+    "instrument_status",
+    "sector",
+    "industry",
+    "size_bucket",
+    "index_memberships",
+    "listing_date",
+    "is_primary_listing",
+    "last_price",
+    "prev_close",
+    "change_abs",
+    "change_pct",
+    "bid",
+    "ask",
+    "day_open",
+    "day_high",
+    "day_low",
+    "day_volume",
+    "turnover_value",
+    "quote_as_of",
+    "quote_delay",
+    "market_state",
+    "session_date",
+    "bars_count",
+    "first_bar_date",
+    "last_bar_date",
+    "ma_20",
+    "ma_50",
+    "ma_200",
+    "ema_12",
+    "ema_26",
+    "rsi_14",
+    "atr_14",
+    "volatility_20d",
+    "avg_volume_20d",
+    "ret_1d",
+    "ret_1w",
+    "ret_1m",
+    "ret_3m",
+    "ret_6m",
+    "ret_ytd",
+    "ret_1y",
+    "ret_3y",
+    "ret_5y",
+    "market_cap",
+    "market_cap_usd",
+    "shares_outstanding",
+    "float_shares",
+    "pe_ttm",
+    "pe_forward",
+    "peg",
+    "pb",
+    "ps",
+    "ev_ebitda",
+    "eps_ttm",
+    "eps_forward",
+    "dividend_yield",
+    "payout_ratio",
+    "revenue_ttm",
+    "ebitda_ttm",
+    "net_income_ttm",
+    "fcf_ttm",
+    "total_debt",
+    "cash_and_equivalents",
+    "roe",
+    "debt_to_equity",
+    "opt_expiry",
+    "opt_dte",
+    "opt_strike_atm",
+    "opt_iv_atm",
+    "opt_delta_atm",
+    "opt_gamma_atm",
+    "opt_theta_atm",
+    "opt_vega_atm",
+    "opt_open_interest_atm",
+    "opt_volume_atm",
+    "data_quality",
+    "filled_columns_count",
+    "verified_columns_count",
+    "primary_source",
+    "as_of_achieved",
+    "data_freshness_s"
+  ],
+  "core_columns": [
+    "instrument_id",
+    "symbol",
+    "mic",
+    "currency",
+    "as_of_achieved"
+  ],
+  "data_quality": [
+    "identity_only",
+    "quote_only",
+    "partial",
+    "complete"
+  ],
+  "forbidden_columns": [
+    "provenance",
+    "verdict",
+    "signal_score",
+    "signal_reasons",
+    "analyst_rating",
+    "analyst_target_price"
+  ]
+}

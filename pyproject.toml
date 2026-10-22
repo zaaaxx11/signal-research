@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "market-engine"
+version = "0.1.0"
+description = "Market Enrichment Engine (MEE) — contract-first market data enrichment service"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi==0.159.1",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "sqlalchemy[asyncio]==2.1.6",
+    "alembic==1.20.1",
+    "aiosqlite==0.22.1",
+    "httpx2[http2]==2.16.0",
+    "tenacity==9.2.1",
+    "pyarrow==26.0.0",
+    "xlsxwriter==3.3.0",
+    "structlog==26.1.0",
+    "prometheus-client==0.26.0",
+    "tzdata==2026.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "hypothesis==6.170.5",
+    "time-machine==3.5.1",
+    "openpyxl==3.1.5",
+]
+stealth = ["curl_cffi==0.16.3"]
+browser = ["playwright==1.64.0"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "egress_probe: test intentionally attempts an outbound connection to prove the no-network guard bites",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:starlette.*",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
