@@ -1,0 +1,161 @@
+# Phase-4 GREEN evidence — ztockz @ 951d410 + Fase 4 implementation — 2026-10-22
+
+## 1. Suite (three consecutive runs, exact command from the brief)
+
+```
+$ cd /home/ubuntu/ztockz
+$ .venv/bin/pytest --tb=no -o addopts=""
+
+run 1: 300 passed in 16.48s
+run 2: 300 passed in 16.28s
+run 3: 300 passed in 16.54s
+```
+
+No `xfail`, no `skip`, no warning filter added, no `-k`, no plugin flags.
+`pyproject.toml` is unchanged (`addopts`, `filterwarnings = error`,
+`asyncio_mode = auto`).
+
+## 2. Composition — 147 new tests, 153 legacy tests
+
+```
+tests/test_units.py              36 passed
+tests/test_rules.py              85 passed
+tests/test_quality_verdict.py    19 passed
+tests/test_verification_wiring.py 7 passed
+                                -- 147
+tests/ (Fase 0-3, untouched)    153 passed
+                                -- 300
+```
+
+`git status --short` (before commit) shows **no** file under `tests/`,
+`tests/fixtures/`, `evidence/phase4-red.txt`, `reference/`, `alembic/` or
+`pyproject.toml` modified:
+
+```
+ M app/enrich/orchestrator.py
+ M app/jobs/ports.py
+ M app/jobs/repository.py
+ M app/verify/rules.py
+ M app/verify/units.py
+ M app/worker/runner.py
+?? app/verify/quality.py
+```
+
+## 3. Gate -> mechanism -> test
+
+| Gate (02 §5 Fase 4) | Mechanism | Test that would fail without it |
+|---|---|---|
+| 1 V1–V16 lulus/gagal | `RULES` = 16 `Rule(id, columns, severity)`; `_EVALUATORS` maps id -> pure function; a table typo raises at import | `test_the_registry_declares_v1_to_v16_in_order`, `test_the_passing_fixture_produces_no_rejection`, `test_the_failing_fixture_nulls_the_value_and_writes_a_rejection` (18 cases) |
+| 2 mutasi V4/V1 | V4 compares `market_cap` to `price × shares` (±2%, ±5% multi-class); V1 derives `change_pct` | `test_v4_market_cap_within_two_percent_of_price_times_shares`, `test_v1_zero_change_pct_beside_a_real_move_becomes_none` |
+| 3 unit | `parse_number` strict; `to_percent`/`canonical` with declared-unit precedence and the IV 5.0 ceiling | `test_dividend_yield_fraction_is_reported_as_a_percent`, `test_iv_at_or_below_five_is_read_as_a_fraction`, `test_a_sentinel_never_reaches_a_percent_column` |
+| 4 negatif semantik | a failing value is nulled (or the documented series/flag effect); never clamped | `test_v1_zero_change_pct_beside_a_real_move_becomes_none` (`None`, not `0.0`) |
+| 5 rekonsiliasi | `column_blocks` keeps rejected cells in `filled`; `reconcile` raises `QualityError`; `verdict` returns REJECT when reconciliation is false | `test_filled_cells_are_counted_even_after_a_rejection`, `test_reconcile_rejects_a_filled_count_that_does_not_add_up`, `test_verdict_rejects_when_the_report_did_not_reconcile` |
+| 6 divergensi | V14 keeps the highest-trust value, sets `disputed=True`, rejection `provider_divergence` | `test_v14_keeps_the_highest_trust_value_and_flags_the_cell` |
+| wiring P6 | `run_phases` runs the verifier, returns `rejections`/`verdict`/`quality`, reports `verify: ok` | `test_p6_runs_the_rules_and_reports_ok_not_partial`, `test_p6_returns_the_verdict_and_the_rejections` |
+| persistensi | `record_rejections` = DELETE + INSERT in one transaction (set semantics) | `test_repository_persists_rejections_once_per_write` |
+| P7 REJECT | export phase reports `skipped`; runner persists rejections, sets usage, raises; job is Failure with no artifact | `test_a_critical_rejection_refuses_the_export_and_fails_the_job` |
+
+Purity is enforced by `tests/test_import_direction.py`: `app/verify/*` imports
+no `app.contracts`, no `app.enrich`, no IO. The 92-column list and the
+option/return column literals live inside `verify/`, never imported.
+
+## 4. Mutation evidence (each test shown to bite; /tmp copies, repo never touched)
+
+```
+[ok] M1 V4 becomes a no-op                        -> 5 failed, 80 passed  (test_rules.py)
+[ok] M2 V1 becomes a no-op                        -> 9 failed, 291 passed (whole suite)
+[ok] M3 verdict ignores critical severity          -> 2 failed, 298 passed
+[ok] M4 export guard removed (`if False and ...`)  -> 1 failed (wiring)
+[ok] M5 parse_number returns 0.0 for a sentinel    -> 18 failed, 282 passed
+[ok] M6 dividend fraction not scaled by 100        -> 1 failed, 299 passed
+```
+
+M1 and M4 reproduce the RED brief's counts exactly (5 and 1). M2 reproduces 9.
+M5 fails **18** tests rather than the 10 predicted in `16-phase4-red.md` §3:
+the GREEN implementation routes every cell through `parse_number`, so the
+sentinel-to-zero mutation also corrupts the quality counters and the verdict
+path, not only the unit tests. The mutation is caught more widely, not less.
+
+Every mutation was applied to a copy under `/tmp/mee-M*`, the suite was run
+there, and the copy was deleted. `git status` in the repo stayed clean apart
+from the implementation files above.
+
+## 5. Behaviour spot-checks (real output, not assertions)
+
+Units:
+
+```
+to_percent(0.0031, dividend_yield) = 0.31
+to_percent(0.25, opt_iv_atm)       = 25.0
+to_percent(25, opt_iv_atm)         = 25.0
+parse_number("N/A")                = None
+canonical(112.7, opt_iv_atm)       = 1.127
+```
+
+V1 on the semantic-zero fixture (0.0 beside a +11.11% move):
+
+```
+change_pct -> None
+{'rule': 'V1', 'column': 'change_pct', 'reason': 'change_pct_mismatch',
+ 'value_text': '0.0', 'instrument_id': 'XNAS:TEST',
+ 'detail': 'change_pct_mismatch: quoted 0 pp vs derived 11.111111 pp'}
+```
+
+V7 on `opt_iv_atm=600` (600% = a 6.0 fraction, outside `(0, 5]`):
+
+```
+opt_iv_atm -> None ; opt_delta_atm -> None ; rejection ('V7','opt_iv_atm','iv_unit')
+```
+
+Two real jobs through `process_job` (fake fetch stub, SQLite store):
+
+```
+DEGRADED job: Success
+  verification: {'disputed': 0, 'reconciled': True, 'rejections': 1,
+                 'rules': {'V1': 1}, 'verdict': 'DEGRADED'}
+  change_pct:   {'filled': 2, 'verified': 1, 'rejected': 1, 'disputed': 0, 'empty': 0}
+  coverage:     {'filled_ratio': 0.336957, 'verified_ratio': 0.983871}
+  phase verify: {'status': 'ok', 'rows': 2,
+                 'reason': 'V1..V16: 1 rejection(s) in 2 row(s) (V1); verdict DEGRADED'}
+  audit row:    ('XNAS:BAD', 'change_pct', 'V1',
+                 'change_pct_mismatch: quoted 0 pp vs derived 11.111111 pp')
+
+REJECT job: Failure
+  error: 'error: verification verdict REJECT: 1 rejection(s) (V16); export refused (04 §5.8)'
+  artifacts: []
+  files on disk: []
+  audit row: ('XNAS:FUTR', 'quote_as_of', 'V16')
+```
+
+The REJECT job fails **after** the audit row is written: the evidence of why
+the file was refused survives the failure.
+
+## 6. Migrations
+
+**None added.** `alembic/versions/0001_init.py` already creates
+`verification_rejections` with the 02 §4.7 columns (`job_id`, `instrument_id`,
+`field`, `rule`, `value_text`, `detail`, `created_at`) and
+`ix_rejections_job`; `app/models.py::VerificationRejection` matches. A
+`0006_verification_rejections.py` would be an empty migration, so it was not
+invented.
+
+## 7. Honest limits
+
+1. **`verified_columns_count == filled_columns_count` after P6.** Every
+   surviving cell has been through the rule table for its domain; a cell no
+   rule constrains (e.g. `name`) is recorded as "not contradicted", not as
+   "independently corroborated". The alternative — reporting `0` — is the
+   fabricated-verification claim Phase 3 removed, and the wiring test forbids
+   both. This is a definition, not a measurement, and it is stated here.
+2. **V2/V3 only act on the `bars` series.** A quote-only row carries no bars,
+   so both rules are no-ops for it; the fixtures exercise the series shape P2
+   will fill.
+3. **V9 uses 30 bp of spot for equities / 15 bp for indices**, the 04 §2
+   tightening, not the looser 2%-of-spot of 02 §3.7. Both numbers are named
+   constants and only the tighter one is tested.
+4. **V13's off-session close is `session_date T20:00Z`.** The row carries no
+   exchange calendar; the request's `max_staleness_s` wins whenever it is set,
+   which is every production job (default 900 s).
+5. **V8 checks the call convention on `opt_delta_atm`** (`0 < Δ < 1`); a put
+   delta is not distinguishable from the row alone, so a negative value is
+   rejected rather than guessed.

@@ -52,6 +52,8 @@ from app.enrich.provenance import (
 )
 from app.jobs.ports import BatchRepository
 from app.jobs.repository import BATCH_FAILURE, BATCH_PROCESSING, BATCH_SUCCESS
+from app.verify import quality as verify_quality
+from app.verify import rules as verify_rules
 
 logger = logging.getLogger("mee.enrich")
 
@@ -253,6 +255,87 @@ def _freshness_seconds(row: Mapping[str, Any], now: datetime) -> int | None:
     return age if age >= 0 else None
 
 
+#: Regular-session close V13 measures "off session" against. The row carries a
+#: session date, not an exchange calendar, so one documented default beats an
+#: invented per-venue table; the request's ``max_staleness_s`` overrides it.
+DEFAULT_SESSION_CLOSE_UTC = "20:00:00+00:00"
+
+
+def _session_close(row: Mapping[str, Any]) -> str | None:
+    """``session_date`` + the documented close, as an aware ISO timestamp."""
+
+    text = str(row.get("session_date") or "").strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return f"{text[:10]}T{DEFAULT_SESSION_CLOSE_UTC}"
+    return None
+
+
+def _verification_context(
+    row: Mapping[str, Any], *, now: str, request: MarketRequest | None
+) -> dict[str, Any]:
+    """The explicit context V1..V16 may read (02 §3.7). No rule guesses one."""
+
+    return {
+        "now": now,
+        "asset_class": row.get("asset_class") or "equity",
+        "venue": row.get("mic"),
+        "market_state": row.get("market_state") or "closed",
+        "session_date": row.get("session_date"),
+        "session_close": _session_close(row),
+        "max_staleness_s": getattr(request, "max_staleness_s", None) if request is not None else None,
+        "allow_delayed": bool(getattr(request, "allow_delayed", False)) if request is not None else False,
+        # A row carries no multi-class marker and no index weight vector; the
+        # context says so instead of letting a rule assume the permissive case.
+        "multi_class": False,
+        "quote_currency": row.get("quote_currency") or row.get("currency"),
+        "risk_free_rate": 0.0,
+        "candidates": {},
+        "index": {},
+    }
+
+
+def _verify_rows(
+    rows: Sequence[dict[str, Any]], *, now: str, request: MarketRequest | None, job_id: str | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run V1..V16 over ``rows`` in place; return ``(rejections, disputed cells)``.
+
+    A rejected cell is empty afterwards, so ``verified_columns_count`` equals the
+    cells that survived — never a claim of verification for a repaired value.
+    """
+
+    rejections: list[dict[str, Any]] = []
+    disputed: list[dict[str, Any]] = []
+    for row in rows:
+        applied, found = verify_rules.apply(
+            row, context=_verification_context(row, now=now, request=request)
+        )
+        row.clear()
+        row.update(applied)
+        verified = quality.filled_columns(row)
+        row["filled_columns_count"] = verified
+        row["verified_columns_count"] = verified
+        for column, entry in provenance(row).items():
+            if isinstance(entry, dict) and quality.is_filled(row.get(column)):
+                # The verifier examined this cell and left it standing.
+                entry["verified"] = True
+        for item in found:
+            rejections.append(dict(item))
+            if str(item.get("rule")) == "V14":
+                # A disputed cell keeps its (highest-trust) value: it is not a
+                # rejected cell, so the quality report must not count it twice.
+                disputed.append(
+                    {"instrument_id": item.get("instrument_id"), "column": item.get("column")}
+                )
+    logger.info(
+        "verify done job_id=%s rows=%d rejections=%d disputed=%d",
+        job_id,
+        len(rows),
+        len(rejections),
+        len(disputed),
+    )
+    return rejections, disputed
+
+
 # ---------------------------------------------------------------------------
 # run_phases
 # ---------------------------------------------------------------------------
@@ -284,6 +367,13 @@ async def run_phases(
     materialised = [_copy_row(row) for row in (rows or ())]
     reports: list[dict[str, Any]] = []
     rejected = 0
+    #: P6 artefacts. They exist even when the plan has no ``verify`` phase, so a
+    #: caller never has to guess whether "no rejections" means "clean" or "not run".
+    rejections_all: list[dict[str, Any]] = []
+    disputed_all: list[dict[str, Any]] = []
+    quality_blocks: dict[str, dict[str, Any]] = {}
+    reconciled = True
+    verdict: str | None = None
 
     for phase in plan:
         skip = skips.get(phase.name, 0)
@@ -358,13 +448,37 @@ async def run_phases(
             )
 
         elif phase.name == "verify":
-            # Coverage is computed here; verification (V1..V16) is Fase 4, so
-            # verified_columns_count stays 0 rather than echoing filled.
+            # P6: V1..V16 run here, once, on rows the earlier phases produced.
+            # A rejected cell is nulled (or its documented series/flag effect is
+            # applied), so nothing unverified can reach P7.
+            moment = now()
             for row in materialised:
-                freshness = _freshness_seconds(row, now())
-                row["data_freshness_s"] = freshness
-                row["filled_columns_count"] = quality.filled_columns(row)
-                row["verified_columns_count"] = 0
+                row["data_freshness_s"] = _freshness_seconds(row, moment)
+            found, disputed = _verify_rows(
+                materialised, now=coerce_as_of(moment), request=request, job_id=job_id
+            )
+            rejections_all.extend(found)
+            disputed_all.extend(disputed)
+            quality_blocks = verify_quality.column_blocks(
+                materialised,
+                columns=CANONICAL_COLUMNS_V1,
+                rejections=[item for item in found if str(item.get("rule")) != "V14"],
+                disputed=disputed,
+            )
+            try:
+                verify_quality.reconcile(
+                    quality_blocks, row_count=len(materialised), columns=CANONICAL_COLUMNS_V1
+                )
+                reconciled = True
+            except verify_quality.QualityError as exc:
+                # A report that does not reconcile is a Failure, not a Success
+                # with interesting numbers (Fase 4 gate 5).
+                reconciled = False
+                logger.error("quality reconciliation failed job_id=%s: %s", job_id, exc)
+            verdict = verify_quality.verdict(
+                quality_blocks, rejections=rejections_all, reconciled=reconciled
+            )
+            for row in materialised:
                 row["data_quality"] = quality.classify(row)
             filled = 0
             for row in materialised:
@@ -380,23 +494,48 @@ async def run_phases(
                     row,
                     ("data_freshness_s",),
                     source=ENGINE_SOURCE,
-                    as_of=coerce_as_of(now()),
+                    as_of=coerce_as_of(moment),
                     trust=ENGINE_TRUST,
                 )
+            if not materialised:
+                status, reason = "skipped", "no row to verify"
+            elif not reconciled:
+                status = "ok"
+                reason = f"quality report does not reconcile; verdict {verdict}"
+            elif found:
+                status = "ok"
+                rules_hit = sorted({str(item.get("rule")) for item in found})
+                reason = (
+                    f"V1..V16: {len(found)} rejection(s) in {len(materialised)} row(s) "
+                    f"({', '.join(rules_hit)}); verdict {verdict}"
+                )
+            else:
+                status, reason = "ok", f"V1..V16: all {len(materialised)} row(s) clean; verdict {verdict}"
             report = _report(
                 phase,
-                status="partial" if materialised else "skipped",
+                status=status,
                 skipped_by_budget=skip,
                 rows=len(materialised),
-                filled=filled,
-                reason=(
-                    "verification rules V1..V16 land in Fase 4; "
-                    "verified_columns_count stays 0"
-                ),
+                filled=sum(int(row.get("verified_columns_count") or 0) for row in materialised),
+                reason=reason,
             )
 
         elif phase.name == "export":
-            if export is None:
+            if verdict == "REJECT":
+                # 04 §5.8: exporting under REJECT is forbidden. The job fails in
+                # the runner *after* the rejections are persisted, so the audit
+                # survives the failure instead of vanishing with the file.
+                report = _report(
+                    phase,
+                    status="skipped",
+                    skipped_by_budget=skip,
+                    rows=len(materialised),
+                    reason=(
+                        "export refused: verification verdict is REJECT "
+                        "(04 §5.8); no artifact was written"
+                    ),
+                )
+            elif export is None:
                 report = _report(
                     phase,
                     status="skipped",
@@ -464,6 +603,11 @@ async def run_phases(
         "rows": materialised,
         "phase_reports": reports,
         "rejected_rows": rejected,
+        "rejections": rejections_all,
+        "disputed": disputed_all,
+        "quality": quality_blocks,
+        "verdict": verdict,
+        "quality_reconciled": reconciled,
     }
 
 

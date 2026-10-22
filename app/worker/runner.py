@@ -237,6 +237,26 @@ async def _run(
     phase_reports = pipeline["phase_reports"]
     rejected += int(pipeline.get("rejected_rows") or 0)
 
+    rejections = [dict(item) for item in (pipeline.get("rejections") or ())]
+    verdict = pipeline.get("verdict")
+    quality_blocks = {
+        str(name): dict(block) for name, block in (pipeline.get("quality") or {}).items()
+    }
+    reconciled = bool(pipeline.get("quality_reconciled", True))
+
+    # The audit is written before any decision to fail. A REJECT that loses its
+    # rejection rows on the way to Failure has thrown away the only evidence of
+    # why the export was refused (02 §4.7).
+    await repository.record_rejections(job_id, rejections)
+
+    verification = {
+        "verdict": verdict,
+        "rejections": len(rejections),
+        "rules": _rule_counts(rejections),
+        "disputed": len(pipeline.get("disputed") or ()),
+        "reconciled": reconciled,
+    }
+
     result_mode = "partial" if (outcome.unresolved or outcome.skipped_by_budget) else "full"
     usage = _usage(
         request=request,
@@ -252,9 +272,13 @@ async def _run(
         skipped_by_budget=outcome.skipped_by_budget,
         result_mode=result_mode,
         phase_reports=phase_reports,
+        verification=verification,
+        quality_blocks=quality_blocks,
+        reconciled=reconciled,
+        verdict=verdict,
     )
     logger.info(
-        "job done job_id=%s rows=%d unresolved=%d requests=%d bytes=%d cache_hits=%d skipped_by_budget=%d",
+        "job done job_id=%s rows=%d unresolved=%d requests=%d bytes=%d cache_hits=%d skipped_by_budget=%d verdict=%s rejections=%d",
         job_id,
         len(kept),
         len(outcome.unresolved),
@@ -262,7 +286,21 @@ async def _run(
         outcome.bytes,
         outcome.cache_hits,
         outcome.skipped_by_budget,
+        verdict,
+        len(rejections),
     )
+
+    if verdict == "REJECT":
+        # A Success with no artifact would be the lie 02 §3.9 forbids: the
+        # quality report says the table is not trustworthy, so the job fails
+        # terminally (a retry of the same data produces the same verdict).
+        await repository.set_usage(job_id, usage)
+        rules_hit = ", ".join(sorted(verification["rules"])) or "unknown"
+        raise JobError(
+            "verification verdict REJECT: "
+            f"{len(rejections)} rejection(s) ({rules_hit}); export refused (04 §5.8)"
+        )
+
     return await repository.complete(
         job_id,
         result_count=len(kept),
@@ -481,15 +519,28 @@ def _usage(
     skipped_by_budget: int,
     result_mode: str,
     phase_reports: Sequence[Mapping[str, Any]] = (),
+    verification: Mapping[str, Any] | None = None,
+    quality_blocks: Mapping[str, Mapping[str, Any]] | None = None,
+    reconciled: bool = True,
+    verdict: str | None = None,
 ) -> dict[str, Any]:
     """Everything ``GET /requests/{id}`` reports, frozen into ``jobs.usage``.
 
     ``phases`` is the orchestrator's report, not a second hand-written summary:
     a job view that invents its phase statuses can disagree with the run that
-    produced the rows.
+    produced the rows. ``quality.by_column`` is the verifier's reconciliation
+    report — the same counters the verdict was computed from, so the view and
+    the decision cannot diverge.
     """
 
     stats = aggregate(kept)
+    row_count = len(kept)
+    blocks = dict(quality_blocks or stats["quality"]["by_column"])
+    totals = {name: 0 for name in ("filled", "verified", "rejected", "disputed", "empty")}
+    for block in blocks.values():
+        for name in totals:
+            totals[name] += int(block.get(name) or 0)
+    capacity = row_count * len(blocks) if blocks else 0
     as_of = sorted(
         str(row["quote_as_of"]) for row in kept if row.get("quote_as_of")
     )
@@ -502,8 +553,33 @@ def _usage(
         "phases": _phase_usage(phase_reports),
         "providers": providers,
         "as_of_achieved": {"min": as_of[0], "max": as_of[-1]} if as_of else None,
-        "coverage": stats["coverage"],
-        "quality": stats["quality"],
+        "coverage": {
+            "filled_ratio": round(totals["filled"] / capacity, 6) if capacity else 0.0,
+            "verified_ratio": round(totals["verified"] / totals["filled"], 6)
+            if totals["filled"]
+            else 0.0,
+        },
+        "quality": {
+            "by_column": blocks,
+            "verdict": verdict,
+            "reconciled": reconciled,
+            "filled": totals["filled"],
+            "verified": totals["verified"],
+            "rejected": totals["rejected"],
+            "disputed": totals["disputed"],
+            "empty": totals["empty"],
+            "rejections_by_rule": dict((verification or {}).get("rules") or {}),
+        },
+        "verification": dict(
+            verification
+            or {
+                "verdict": verdict,
+                "rejections": 0,
+                "rules": {},
+                "disputed": 0,
+                "reconciled": reconciled,
+            }
+        ),
         "rows_by_quality": stats["rows_by_quality"],
         "progress": {"batches_done": 1, "batches_total": 1, "rows_unique": len(kept)},
         "rejected_rows": rejected,
@@ -515,6 +591,18 @@ def _usage(
         "finished_at": datetime.now(UTC).isoformat(timespec="microseconds"),
         "verdicts": verdicts,
     }
+
+
+def _rule_counts(rejections: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """``{rule: count}`` for the ``verification`` block and the manifest."""
+
+    counts: dict[str, int] = {}
+    for item in rejections:
+        rule = str(item.get("rule") or "").strip()
+        if not rule:
+            continue
+        counts[rule] = counts.get(rule, 0) + 1
+    return counts
 
 
 def _phase_usage(reports: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:

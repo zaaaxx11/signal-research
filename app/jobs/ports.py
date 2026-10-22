@@ -83,6 +83,12 @@ class JobRepository(Protocol):
 
     async def set_usage(self, job_id: str, usage: Mapping[str, Any]) -> None: ...
 
+    async def record_rejections(
+        self, job_id: str, rejections: Iterable[Mapping[str, Any]]
+    ) -> int:
+        """Replace the job's ``verification_rejections`` rows; return the count."""
+        ...
+
 
 class QuoteRepository(Protocol):
     """Single-use quotes frozen at estimate time."""

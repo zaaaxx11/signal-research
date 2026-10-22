@@ -479,10 +479,83 @@ class SqliteJobRepository(JobRepository):
     # -- auxiliary writers -------------------------------------------------
 
     async def set_usage(self, job_id: str, usage: Mapping[str, Any]) -> None:
-        await self._one(
-            "UPDATE jobs SET usage = :usage, updated_at = :now WHERE id = :id",
-            {"id": job_id, "usage": _dumps(usage), "now": self._now_iso()},
-        )
+        # Not ``_one``: a plain UPDATE returns no rows, and ``.mappings()`` on a
+        # closed CursorResult raises. The statement is the whole contract here.
+        engine = await self._ready_engine()
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE jobs SET usage = :usage, updated_at = :now WHERE id = :id"),
+                {"id": job_id, "usage": _dumps(usage), "now": self._now_iso()},
+            )
+
+    async def record_rejections(
+        self, job_id: str, rejections: Iterable[Mapping[str, Any]]
+    ) -> int:
+        """Replace this job's ``verification_rejections`` rows; return the count.
+
+        **Set** semantics, not append: a retry re-verifies the same job and must
+        not stack a second copy of every rejection. The table's column names are
+        frozen by 02 §4.7 (``field``/``detail``); the verifier's ``column``/
+        ``reason`` spelling is accepted on the way in and stored under the
+        frozen names, so no third spelling ever appears in the database.
+        """
+
+        payload: list[dict[str, Any]] = []
+        now = self._now_iso()
+        for item in rejections:
+            if not isinstance(item, Mapping):
+                raise ValueError(f"a rejection must be a mapping, got {type(item).__name__}")
+            column = item.get("column") or item.get("field")
+            reason = item.get("reason") or item.get("detail")
+            if not isinstance(column, str) or not column.strip():
+                raise ValueError(f"rejection without a column: {dict(item)!r}")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ValueError(f"rejection without a reason: {dict(item)!r}")
+            detail = str(item.get("detail") or reason).strip()
+            if not detail.startswith(reason.strip()):
+                detail = f"{reason.strip()}: {detail}"
+            value_text = item.get("value_text")
+            payload.append(
+                {
+                    "job_id": job_id,
+                    "instrument_id": str(item.get("instrument_id") or ""),
+                    "field": column.strip(),
+                    "rule": str(item.get("rule") or "").strip(),
+                    "value_text": None if value_text is None else str(value_text),
+                    "detail": detail,
+                    "created_at": now,
+                }
+            )
+
+        engine = await self._ready_engine()
+        for attempt in range(_LOCK_RETRIES):
+            try:
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text("DELETE FROM verification_rejections WHERE job_id = :job_id"),
+                        {"job_id": job_id},
+                    )
+                    for row in payload:
+                        await connection.execute(
+                            text(
+                                """
+                                INSERT INTO verification_rejections (
+                                    job_id, instrument_id, field, rule, value_text, detail, created_at
+                                ) VALUES (
+                                    :job_id, :instrument_id, :field, :rule, :value_text, :detail, :created_at
+                                )
+                                """
+                            ),
+                            row,
+                        )
+                return len(payload)
+            except OperationalError as exc:
+                if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                    raise
+                if attempt == _LOCK_RETRIES - 1:
+                    raise
+                await asyncio.sleep(_LOCK_BACKOFF_S * (attempt + 1))
+        return 0  # pragma: no cover - the loop returns or raises
 
     async def record_artifact(
         self,
