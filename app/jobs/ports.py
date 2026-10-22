@@ -106,6 +106,15 @@ class QuoteRepository(Protocol):
         """Write ``quotes.job_id`` once the job the plan produced exists."""
         ...
 
+    async def release(self, quote_id: str) -> dict[str, Any] | None:
+        """Undo a consume when the job could not be created (compensation).
+
+        Idempotent: a quote that is already ``Open`` is left alone. The caller
+        invokes it from the failure path of ``create`` so a paid plan is never
+        burned without a job (02 §4.3, Fase 2 gate 8).
+        """
+        ...
+
     async def close(self) -> None:
         """Release the storage engine held by this repository."""
         ...

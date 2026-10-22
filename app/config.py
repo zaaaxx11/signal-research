@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,6 +29,12 @@ class Settings(BaseSettings):
     job_lease_s: int = 300
     quote_ttl_s: int = 900
     api_key_pepper: str | None = None
+    #: ``fake`` keeps the deterministic in-process provider (Phase 0/1 behaviour,
+    #: and the default so a bare checkout and the frozen suites stay offline);
+    #: ``live`` walks the registry ladder through ``app.providers.http``.
+    #: 02 §3.4 assumed one provider layer; this knob is what lets the two
+    #: execution paths coexist without a test-only backdoor.
+    provider_mode: Literal["fake", "live"] = "fake"
 
 
 def get_settings() -> Settings:

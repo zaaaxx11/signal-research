@@ -1,0 +1,226 @@
+FASE 2 GREEN — bukti eksekusi
+============================================================
+Repo      : /home/ubuntu/ztockz
+Baseline  : 7a86dec "Phase 2 RED: registry, ladder, cache, budget, verdicts and quote atomicity"
+            26 failed, 94 passed (evidence/phase2-red.txt)
+Hasil     : 120 passed, 0 failed, 0 error, 0 skip — tiga run berturut-turut
+Python    : Python 3.14.7  ·  venv .venv  ·  pytest 9.1.1 (asyncio_mode=auto)
+
+Tidak ada berkas di tests/, fixtures, atau helper yang diubah; evidence RED
+tetap utuh. `git status` di bagian 8 hanya menyentuh app/ dan evidence/.
+
+------------------------------------------------------------
+1.1 Suite penuh — run 1/3
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts=""
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+testpaths: tests
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 120 items
+
+tests/test_api.py ......                                                 [  5%]
+tests/test_cache_budget.py .....                                         [  9%]
+tests/test_contracts.py ............................                     [ 32%]
+tests/test_env.py ...                                                    [ 35%]
+tests/test_estimate.py ......                                            [ 40%]
+tests/test_export_contract.py .                                          [ 40%]
+tests/test_import_direction.py ...........                               [ 50%]
+tests/test_job_lifecycle.py ............                                 [ 60%]
+tests/test_ladder.py .........                                           [ 67%]
+tests/test_no_network.py ...                                             [ 70%]
+tests/test_quote_atomicity.py ....                                       [ 73%]
+tests/test_quote_http.py ......                                          [ 78%]
+tests/test_quotes.py ....                                                [ 81%]
+tests/test_registry.py .......                                           [ 87%]
+tests/test_resolve.py ..........                                         [ 95%]
+tests/test_verdicts.py .....                                             [100%]
+
+============================= 120 passed in 11.15s =============================
+
+(exit 0)
+
+------------------------------------------------------------
+1.2 Suite penuh — run 2/3
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts=""
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+testpaths: tests
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 120 items
+
+tests/test_api.py ......                                                 [  5%]
+tests/test_cache_budget.py .....                                         [  9%]
+tests/test_contracts.py ............................                     [ 32%]
+tests/test_env.py ...                                                    [ 35%]
+tests/test_estimate.py ......                                            [ 40%]
+tests/test_export_contract.py .                                          [ 40%]
+tests/test_import_direction.py ...........                               [ 50%]
+tests/test_job_lifecycle.py ............                                 [ 60%]
+tests/test_ladder.py .........                                           [ 67%]
+tests/test_no_network.py ...                                             [ 70%]
+tests/test_quote_atomicity.py ....                                       [ 73%]
+tests/test_quote_http.py ......                                          [ 78%]
+tests/test_quotes.py ....                                                [ 81%]
+tests/test_registry.py .......                                           [ 87%]
+tests/test_resolve.py ..........                                         [ 95%]
+tests/test_verdicts.py .....                                             [100%]
+
+============================= 120 passed in 11.32s =============================
+
+(exit 0)
+
+------------------------------------------------------------
+1.3 Suite penuh — run 3/3
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts=""
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+testpaths: tests
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 120 items
+
+tests/test_api.py ......                                                 [  5%]
+tests/test_cache_budget.py .....                                         [  9%]
+tests/test_contracts.py ............................                     [ 32%]
+tests/test_env.py ...                                                    [ 35%]
+tests/test_estimate.py ......                                            [ 40%]
+tests/test_export_contract.py .                                          [ 40%]
+tests/test_import_direction.py ...........                               [ 50%]
+tests/test_job_lifecycle.py ............                                 [ 60%]
+tests/test_ladder.py .........                                           [ 67%]
+tests/test_no_network.py ...                                             [ 70%]
+tests/test_quote_atomicity.py ....                                       [ 73%]
+tests/test_quote_http.py ......                                          [ 78%]
+tests/test_quotes.py ....                                                [ 81%]
+tests/test_registry.py .......                                           [ 87%]
+tests/test_resolve.py ..........                                         [ 95%]
+tests/test_verdicts.py .....                                             [100%]
+
+============================= 120 passed in 11.28s =============================
+
+(exit 0)
+
+------------------------------------------------------------
+2. Lima berkas Fase 2 (30 tes baru)
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts='' \
+    tests/test_registry.py tests/test_ladder.py tests/test_cache_budget.py \
+    tests/test_verdicts.py tests/test_quote_atomicity.py
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 30 items
+
+tests/test_registry.py .......                                           [ 23%]
+tests/test_ladder.py .........                                           [ 53%]
+tests/test_cache_budget.py .....                                         [ 70%]
+tests/test_verdicts.py .....                                             [ 86%]
+tests/test_quote_atomicity.py ....                                       [100%]
+
+============================== 30 passed in 4.31s ==============================
+
+(exit 0)
+
+------------------------------------------------------------
+3. Regresi Fase 0/1 (90 tes lama, tanpa perubahan)
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts='' \
+    tests/test_contracts.py tests/test_job_lifecycle.py tests/test_quotes.py \
+    tests/test_api.py tests/test_export_contract.py tests/test_import_direction.py \
+    tests/test_no_network.py tests/test_env.py tests/test_resolve.py \
+    tests/test_estimate.py tests/test_quote_http.py
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 90 items
+
+tests/test_contracts.py ............................                     [ 31%]
+tests/test_job_lifecycle.py ............                                 [ 44%]
+tests/test_quotes.py ....                                                [ 48%]
+tests/test_api.py ......                                                 [ 55%]
+tests/test_export_contract.py .                                          [ 56%]
+tests/test_import_direction.py ...........                               [ 68%]
+tests/test_no_network.py ...                                             [ 72%]
+tests/test_env.py ...                                                    [ 75%]
+tests/test_resolve.py ..........                                         [ 86%]
+tests/test_estimate.py ......                                            [ 93%]
+tests/test_quote_http.py ......                                          [100%]
+
+============================== 90 passed in 8.05s ==============================
+
+(exit 0)
+
+------------------------------------------------------------
+4. Registry: urutan ladder per kapabilitas (02 §3.4)
+------------------------------------------------------------
+$ .venv/bin/python -c '<registry order>'
+providers: sec_edgar, yahoo, stooq, nasdaq, ecb, coingecko, ishares, openfigi, finnhub, polygon
+reference         : L1 sec_edgar(T0) -> L2 coingecko(T0) -> L3 openfigi(T1)
+quote             : L1 yahoo(T0) -> L2 stooq(T0) -> L3 nasdaq(T0) -> L4 finnhub(T1) -> L5 polygon(T2)
+eod_bars          : L1 yahoo(T0) -> L2 stooq(T0) -> L3 polygon(T2)
+fundamentals      : L1 sec_edgar(T0) -> L2 yahoo(T0) -> L3 finnhub(T1)
+options           : L1 yahoo(T0) -> L2 polygon(T2)
+constituents      : L1 ishares(T0)
+corporate_actions : L1 yahoo(T0)
+fx                : L1 ecb(T0) -> L2 coingecko(T0) -> L3 polygon(T2)
+
+(exit 0)
+
+------------------------------------------------------------
+5. /providers adalah proyeksi registry (bukan daftar literal)
+------------------------------------------------------------
+$ .venv/bin/python -c '<GET /providers over ASGI>'
+rows: 10 registry: 10 names_match: True
+keyed providers without env -> available: {'openfigi': False, 'finnhub': False, 'polygon': False}
+
+(exit 0)
+
+------------------------------------------------------------
+6. Berkas yang berubah (tidak ada tests/, fixture, atau evidence RED)
+------------------------------------------------------------
+$ git status --short
+ M app/api/markets.py
+ M app/api/providers.py
+ M app/api/requests.py
+ M app/config.py
+ M app/jobs/ports.py
+ M app/jobs/quotes.py
+ M app/jobs/service.py
+ M app/providers/adapters/__init__.py
+ M app/providers/base.py
+ M app/providers/budget.py
+ M app/providers/http.py
+ M app/providers/ladder.py
+ M app/providers/registry.py
+ M app/runtime.py
+ M app/worker/runner.py
+?? app/providers/adapters/_support.py
+?? app/providers/adapters/finnhub.py
+?? app/providers/adapters/nasdaq.py
+?? app/providers/adapters/polygon.py
+?? app/providers/adapters/stooq.py
+?? app/providers/adapters/yahoo.py
+?? app/providers/cache.py
+?? app/providers/health.py
+?? app/providers/redact.py
+?? evidence/phase2-green.txt
+
+(exit 0)
+

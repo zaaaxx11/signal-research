@@ -168,6 +168,30 @@ class SqliteQuoteRepository(QuoteRepository):
         )
         return _decoded(record) if record is not None else None
 
+    async def release(self, quote_id: str) -> dict[str, Any] | None:
+        """Undo a consume whose job could not be created (compensating action).
+
+        ``consume`` → ``create`` cannot be one SQLite transaction across two
+        repositories, so the failure of the second half is compensated here: the
+        quote returns to ``Open`` with ``used_at IS NULL`` and no ``job_id``.
+
+        The ``WHERE used_at IS NOT NULL`` guard is what makes the compensation
+        safe to call unconditionally: a second release is a no-op, and a quote
+        that was never spent is not resurrected. Idempotence matters because the
+        caller runs this on a failure path that may itself be retried.
+        """
+
+        record = await self._one(
+            """
+            UPDATE quotes
+               SET used_at = NULL, status = 'Open', job_id = NULL
+             WHERE id = :id AND used_at IS NOT NULL
+            RETURNING *
+            """,
+            {"id": quote_id},
+        )
+        return _decoded(record) if record is not None else None
+
 
 def _decoded(record: Mapping[str, Any]) -> dict[str, Any]:
     """Return a copy with ``plan`` as a dict (storage keeps it as JSON text)."""

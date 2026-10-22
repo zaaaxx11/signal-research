@@ -13,9 +13,15 @@ non-canonical field name or an unknown ``market.kind`` is rejected by pydantic
 * only ``estimate`` freezes a plan and issues a single-use quote.
 
 ``async=false`` runs the job inline and answers ``200`` with the job view; the
-default answers ``202`` with the envelope and lets the runtime run it. Both paths
-call the same ``process_job``: "fast because it is small" is how a second,
-untested pipeline appears.
+default answers ``202`` and runs the job as a **response background task**:
+the body leaves before the work starts, but the work is attached to the
+response instead of a bare ``create_task``. That distinction is what stops a
+job from being destroyed mid-transaction (with an open database connection)
+when the caller's loop goes away — the failure mode a fire-and-forget task
+produces under ASGI in tests and under a cancelled request in production.
+
+Both paths call the same ``process_job``: "fast because it is small" is how a
+second, untested pipeline appears.
 """
 
 from __future__ import annotations
@@ -23,8 +29,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from starlette.background import BackgroundTask
 
 from app.auth import ApiError, owner_fingerprint
 from app.contracts import MarketRequest
@@ -63,8 +70,18 @@ def _reference(runtime: Runtime) -> Reference:
         ) from exc
 
 
+def enrich_background(runtime: Runtime, job_id: str) -> BackgroundTask:
+    """The 202 body is sent first; the job then runs as part of the response.
+
+    ``run_inline`` never raises (``Runtime._run`` logs and the repository records
+    the failure), so a background task cannot turn a sent 202 into a 500.
+    """
+
+    return BackgroundTask(runtime.run_inline, job_id)
+
+
 @router.post("/enrich", status_code=202)
-async def enrich(payload: MarketRequest, request: Request, response: Response) -> Any:
+async def enrich(payload: MarketRequest, request: Request) -> Any:
     """Create an enrichment job: 202 + envelope (or 200 + view when inline)."""
 
     runtime = runtime_of(request)
@@ -83,14 +100,16 @@ async def enrich(payload: MarketRequest, request: Request, response: Response) -
             content=await job_view(job["id"], repository=runtime.repository, api_key=api_key),
         )
 
-    runtime.spawn(job["id"])
-    response.status_code = 202
-    return {
-        "id": job["id"],
-        "status": "Pending",
-        "results_location": f"/requests/{job['id']}",
-        "expires_at": job["expires_at"],
-    }
+    return JSONResponse(
+        status_code=202,
+        content={
+            "id": job["id"],
+            "status": "Pending",
+            "results_location": f"/requests/{job['id']}",
+            "expires_at": job["expires_at"],
+        },
+        background=enrich_background(runtime, job["id"]),
+    )
 
 
 @router.post("/resolve", status_code=200)

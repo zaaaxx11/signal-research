@@ -114,21 +114,36 @@ async def _submit_from_quote(
     repository: JobRepository,
     quotes: QuoteRepository,
 ) -> JobRecord:
-    """Spend the quote, then create the job its frozen plan describes."""
+    """Spend the quote, then create the job its frozen plan describes.
+
+    Two writes, two repositories, one invariant: **a quote is never burned
+    without a job**. SQLite cannot span both repositories in one transaction, so
+    the second half is compensated: if ``create`` fails for any reason (a
+    constraint, an injected trigger, a cancelled task), :meth:`release` returns
+    the quote to ``Open`` and the original exception is re-raised. The client
+    keeps its plan and the server keeps its 5xx — what it must never do is charge
+    for a job row that does not exist.
+    """
 
     assert request.quote_id is not None  # narrowed by the caller
     consumed = await quotes.consume(request.quote_id, api_key=api_key, now=datetime.now(UTC))
     plan = QuotePlanV1.model_validate(consumed["plan"])
 
-    job = await repository.create(
-        params=frozen_params(request, plan, quote_id=consumed["id"]),
-        api_key=api_key,
-        service="market_enrich",
-        # A quote freezes the universe: the row target is the frozen symbol
-        # count, not whatever target_rows the caller's optimism requested.
-        rows_target=len(plan.universe.symbols),
-        retention_days=plan.retention_days,
-    )
+    try:
+        job = await repository.create(
+            params=frozen_params(request, plan, quote_id=consumed["id"]),
+            api_key=api_key,
+            service="market_enrich",
+            # A quote freezes the universe: the row target is the frozen symbol
+            # count, not whatever target_rows the caller's optimism requested.
+            rows_target=len(plan.universe.symbols),
+            retention_days=plan.retention_days,
+        )
+    except BaseException:
+        # Cancellation included: a half-finished submit is not a purchase.
+        await quotes.release(consumed["id"])
+        raise
+
     await quotes.attach_job(consumed["id"], job["id"])
     return job
 

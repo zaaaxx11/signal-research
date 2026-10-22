@@ -19,6 +19,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from app.api.markets import runtime_of
 from app.auth import ApiError, owner_fingerprint
@@ -121,8 +122,10 @@ async def retry_request(request_id: str, request: Request) -> dict[str, Any]:
     api_key = owner_fingerprint(request)
     await owned_job(request_id, repository=runtime.repository, api_key=api_key)
     await retry_job(request_id, repository=runtime.repository)
-    runtime.spawn(request_id)
+    # The view is rendered before the background task runs, so the caller sees
+    # Pending and the job then runs attached to this response (see api/markets).
     return JSONResponse(
         status_code=200,
         content=await job_view(request_id, repository=runtime.repository, api_key=api_key),
+        background=BackgroundTask(runtime.run_inline, request_id),
     )
