@@ -23,6 +23,7 @@ class JobRepository(Protocol):
         api_key: str,
         service: str = "market_enrich",
         rows_target: int | None = None,
+        retention_days: int = 7,
     ) -> JobRecord: ...
 
     async def get(self, job_id: str) -> JobRecord | None: ...
@@ -31,8 +32,18 @@ class JobRepository(Protocol):
         """Atomically move one Pending job to Processing and bump attempts."""
         ...
 
+    async def claim_job(self, job_id: str, worker_id: str) -> JobRecord | None:
+        """Claim one specific job; ``None`` when another worker won."""
+        ...
+
     async def complete(
-        self, job_id: str, *, result_count: int, result_mode: str = "full"
+        self,
+        job_id: str,
+        *,
+        result_count: int,
+        result_mode: str = "full",
+        rows_unresolved: int = 0,
+        usage: Mapping[str, Any] | None = None,
     ) -> JobRecord: ...
 
     async def fail(self, job_id: str, *, error: str, retryable: bool) -> JobRecord:
@@ -43,11 +54,34 @@ class JobRepository(Protocol):
         """Pending -> Failure; Processing -> set cancel flag; terminal -> 409."""
         ...
 
+    async def retry(self, job_id: str) -> JobRecord:
+        """Failure -> Pending with a fresh attempt budget (explicit retry only)."""
+        ...
+
     async def reap_stale_jobs(
         self, *, now: datetime, lease_s: int | None = None
     ) -> list[str]:
         """Return orphaned Processing rows to Pending, or fail exhausted ones."""
         ...
+
+    # -- artifacts written by the worker (02 §4.8) -------------------------
+
+    async def record_artifact(
+        self,
+        job_id: str,
+        *,
+        kind: str,
+        path: str,
+        sha256: str | None,
+        row_count: int,
+        bytes_: int = 0,
+    ) -> Mapping[str, Any]: ...
+
+    async def artifacts(self, job_id: str) -> Sequence[Mapping[str, Any]]: ...
+
+    async def artifact(self, job_id: str, kind: str) -> Mapping[str, Any] | None: ...
+
+    async def set_usage(self, job_id: str, usage: Mapping[str, Any]) -> None: ...
 
 
 class QuoteRepository(Protocol):

@@ -1,0 +1,144 @@
+MEE Phase 0 — GREEN evidence
+generated: 2026-10-22T16:44:34+00:00
+repo: /home/ubuntu/market-engine
+baseline (RED deliverable): commit 16e6aae — 49 failed, 19 passed
+state at capture: implementation in the working tree, suite 68 passed
+rule: every block below is captured stdout/stderr of the command above it; nothing is retyped.
+
+==============================================================================
+$ .venv/bin/python -c "import sys; print(sys.version)"
+==============================================================================
+3.14.7 (main, Sep  1 2026, 14:16:03) [Clang 22.1.3 ]
+
+==============================================================================
+$ .venv/bin/python -c "import importlib.metadata as m; names=['fastapi','pydantic','pydantic-settings','sqlalchemy','alembic','aiosqlite','httpx2','pytest','pytest-asyncio']; print({n: m.version(n) for n in names})"
+==============================================================================
+{'fastapi': '0.159.1', 'pydantic': '2.14.1', 'pydantic-settings': '2.16.1', 'sqlalchemy': '2.1.6', 'alembic': '1.20.1', 'aiosqlite': '0.22.1', 'httpx2': '2.16.0', 'pytest': '9.1.1', 'pytest-asyncio': '1.4.0'}
+
+==============================================================================
+$ .venv/bin/python -c "import json; s=json.load(open('tests/spec/columns_v1.json')); print('total', s['total'], 'columns', len(s['columns']), 'unique', len(set(s['columns'])))"
+==============================================================================
+total 92 columns 92 unique 92
+
+==============================================================================
+$ .venv/bin/python -c "from app.contracts import CANONICAL_COLUMNS_V1 as c, CORE_COLUMNS as k, DATA_QUALITY_VALUES as q, Capability as C; print('columns', len(c), 'unique', len(set(c)), 'core', sorted(k), 'quality', q, 'capabilities', sorted(x.value for x in C))"
+==============================================================================
+columns 92 unique 92 core ['as_of_achieved', 'currency', 'instrument_id', 'mic', 'symbol'] quality ('identity_only', 'quote_only', 'partial', 'complete') capabilities ['constituents', 'corporate_actions', 'eod_bars', 'fundamentals', 'fx', 'options', 'quote', 'reference']
+
+==============================================================================
+$ .venv/bin/pytest --tb=no
+==============================================================================
+....................................................................     [100%]
+68 passed in 4.42s
+
+==============================================================================
+$ .venv/bin/pytest --tb=no >/tmp/mee-suite.out 2>&1; echo exit=$?; tail -1 /tmp/mee-suite.out
+==============================================================================
+exit=0
+68 passed in 4.40s
+
+==============================================================================
+$ for f in tests/test_contracts.py tests/test_job_lifecycle.py tests/test_quotes.py tests/test_api.py tests/test_export_contract.py tests/test_import_direction.py tests/test_no_network.py tests/test_env.py; do printf '%-38s ' $f; .venv/bin/pytest -o addopts='' --tb=no $f | tail -1; done
+==============================================================================
+tests/test_contracts.py                ============================== 28 passed in 0.25s ==============================
+tests/test_job_lifecycle.py            ============================== 12 passed in 2.57s ==============================
+tests/test_quotes.py                   ============================== 4 passed in 1.24s ===============================
+tests/test_api.py                      ============================== 6 passed in 1.50s ===============================
+tests/test_export_contract.py          ============================== 1 passed in 0.22s ===============================
+tests/test_import_direction.py         ============================== 11 passed in 0.20s ==============================
+tests/test_no_network.py               ============================== 3 passed in 0.68s ===============================
+tests/test_env.py                      ============================== 3 passed in 0.14s ===============================
+
+==============================================================================
+$ for i in 1 2 3 4 5; do .venv/bin/pytest -o addopts='' --tb=no | tail -1; done
+==============================================================================
+============================== 68 passed in 4.35s ==============================
+============================== 68 passed in 4.41s ==============================
+============================== 68 passed in 4.40s ==============================
+============================== 68 passed in 4.48s ==============================
+============================== 68 passed in 4.52s ==============================
+
+==============================================================================
+$ git show 16e6aae:evidence/phase0-red.txt | grep -E '^(49 failed|.*failed.*passed)' | head -3
+==============================================================================
+49 failed, 19 passed in 0.57s
+
+==============================================================================
+$ .venv/bin/pytest tests/test_import_direction.py --tb=short
+==============================================================================
+...........                                                              [100%]
+11 passed in 0.20s
+
+==============================================================================
+$ .venv/bin/pytest tests/test_no_network.py --tb=short
+==============================================================================
+...                                                                      [100%]
+3 passed in 0.70s
+
+==============================================================================
+$ gate 1 — alembic upgrade head on a COPY of a live DB (02 §5 #1)
+==============================================================================
+commands:
+  cp /tmp/mee-gate/shared/live.db /tmp/mee-gate/shared/copy.db
+  .venv/bin/alembic -x db=/tmp/mee-gate/shared/copy.db upgrade head
+  python -c "PRAGMA table_info(jobs)" / SELECT from jobs
+
+gate1 ok: alembic upgrade head on copy -> no upgrade (already head); row intact id=2afcf2f4… status=Success; jobs has 20 columns; alembic_version=0001
+gate1b ok: models.py metadata == 0001_init for 9 tables (columns, nullability, defaults, indexes)
+gate2 ok: 202 -> Success result_count=3 rows_target=3 files=['csv', 'json']; csv 92 cols + 3 rows; json null-for-empty; 422/404 envelope + ownership 404 verified (len(view)=28)
+gate3 ok: reap->Pending, exhausted->Failure('timeout (attempts exhausted: 2/2)'), cancel terminal 409; quote replay/foreign->409, expired->410 ([409, 409, 410])
+gate4 ok: columns=92 groups=[12, 6, 13, 2, 12, 9, 14, 8, 10, 6] legacy=none ladder=[('fake', 'T0')]
+
+PRAGMA table_info(jobs) on the copy:
+['id', 'api_key', 'service', 'params', 'status', 'attempts', 'worker_id', 'locked_at', 'started_at', 'finished_at', 'cancel_requested', 'result_count', 'rows_target', 'rows_unresolved', 'result_mode', 'error', 'usage', 'expires_at', 'created_at', 'updated_at']
+rows 1
+alembic_version 0001
+
+alembic current (CLI, same copy):
+0001 (head)
+
+==============================================================================
+$ gate 2 — POST /markets/enrich -> 202 -> Success -> CSV 92 kolom
+==============================================================================
+gate2 ok: 202 -> Success result_count=3 rows_target=3 files=['csv', 'json']; csv 92 cols + 3 rows; json null-for-empty; 422/404 envelope + ownership 404 verified (len(view)=28)
+
+raw CSV header (first 3 names) and one data row (truncated at 240 chars):
+rows_incl_header 4 cells [92, 92, 92, 92]
+header_head ['instrument_id', 'symbol', 'isin']
+row1_head ['XNAS:AAPL', 'AAPL', 'US0378331005', 'BBG000B9XRY4', 'Apple Inc.', 'equity', 'common_stock', 'NASDAQ', 'XNAS', 'USD', 'US', 'active']
+index_memberships SPX,NDX
+
+==============================================================================
+$ gate 3/3b — lifecycle + single-use quote, outside pytest
+==============================================================================
+gate3 ok: reap->Pending, exhausted->Failure('timeout (attempts exhausted: 2/2)'), cancel terminal 409; quote replay/foreign->409, expired->410 ([409, 409, 410])
+
+==============================================================================
+$ gate 4 — guards (columns, groups, legacy imports, ladder)
+==============================================================================
+gate4 ok: columns=92 groups=[12, 6, 13, 2, 12, 9, 14, 8, 10, 6] legacy=none ladder=[('fake', 'T0')]
+
+grep for forbidden imports in app/ (expect: nothing for the first three):
+  legacy transport (urllib/requests):
+none
+  dataframe stacks (pandas/numpy/polars/fastparquet):
+none
+  httpx2 (allowed ONLY in the seam app/providers/http.py):
+app/providers/http.py:9:import httpx2
+
+==============================================================================
+$ adversarial probes (behaviour the suite does not pin)
+==============================================================================
+probe: injection: text '=' and '@' prefixed, negative number untouched
+probe: atomic: failed stream leaves no target and no tmp file
+probe: guards: 91 columns -> 422, unknown fmt -> 422, xlsx -> 501 (never a silent empty file)
+probe: quality: identity_only/quote_only/partial/complete + provenance dropped
+probe: repo: complete-on-Pending conflict, unknown id 404, reap keeps attempts, retry resets budget
+probe: preflight: 501 for capability/format/quote_id, envelope intact, only 1 job row (the valid one)
+
+==============================================================================
+$ tests/ untouched (contract files must not change)
+==============================================================================
+(empty above = untouched)
+
+

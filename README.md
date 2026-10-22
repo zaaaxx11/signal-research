@@ -1,11 +1,28 @@
 # Market Enrichment Engine (MEE)
 
-Contract-first market data enrichment service. Phase 0 = contracts, skeleton,
+Contract-first market data enrichment service. Phase 0 = contracts, schema,
 job lifecycle, fake provider, 92-column export contract.
 
-**Current state: RED.** The skeleton declares the module surface with
-`raise NotImplementedError`; `tests/` encodes the Fase-0 acceptance criteria.
-Running the suite now fails on purpose. No business logic is implemented yet.
+**Current state: GREEN.** `68 passed, 0 failed` (`evidence/phase0-green.txt`),
+five consecutive identical runs. The suite in `tests/` is the contract and was
+not modified: it went from `49 failed, 19 passed` at commit `16e6aae` to
+`68 passed` with implementation only.
+
+What exists today: the frozen vocabulary (`app/contracts.py`), the nine tables
+plus Alembic `0001` (`app/models.py`, `alembic/`), the CAS job repository and
+single-use quote store (`app/jobs/`), the deterministic fake provider reading
+`tests/fixtures/fake_universe.json` (`app/providers/adapters/fake.py`), the
+streaming export writer (`app/export/writer.py`), the in-process runner
+(`app/worker/runner.py`) and the HTTP surface `POST /markets/enrich`,
+`GET /requests/{id}`, `GET /requests/{id}/export/{fmt}`, `POST /requests/{id}/cancel`,
+`POST /requests/{id}/retry`, `GET /providers`, `GET /health`.
+
+Still stubs on purpose (later phases): `POST /markets/resolve|estimate` → 501,
+`providers/{ladder,budget,http}.py`, `enrich/orchestrator.py`, `verify/*`.
+`POST /markets/enrich` also answers 501 for a capability with no rung, a format
+without a writer (`xlsx`, `parquet`) or a `quote_id` (Phase 1) — it refuses
+before a job row exists rather than returning a `Success` that is not what was
+asked for.
 
 ## Stack (pinned, no ranges)
 
@@ -22,21 +39,38 @@ python3.14 -m venv .venv
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest                 # counts + failures
-.venv/bin/python -m pytest -o addopts="" -q --tb=line -rf   # verbose RED evidence
+.venv/bin/pytest                              # 68 passed
+.venv/bin/pytest -o addopts="" -q --tb=line    # per-test lines
 ```
 
 Fase-0 gate coverage:
 
-| Gate (02 §5) | Test |
+| Gate (02 §5) | Where it is proven |
 |---|---|
-| 1. migrations on a DB copy | not in this slice (implementation phase) |
-| 2. `POST /markets/enrich` → 202 → `Success`, CSV header exactly 92 | `tests/test_api.py`, `tests/test_export_contract.py` |
-| 3. lifecycle: transition, non-retryable failure, cancel, reap, attempts | `tests/test_job_lifecycle.py` |
-| 3b. quote single-use CAS (409) / expiry (410) | `tests/test_quotes.py` |
+| 1. `alembic upgrade head` on a copy of a live DB; `PRAGMA table_info(jobs)` | `evidence/phase0-green.txt` gate 1 + gate 1b (models vs migration, no drift) |
+| 2. `POST /markets/enrich` → 202 → `Success`, CSV header exactly 92 | `tests/test_api.py`, `tests/test_export_contract.py`, evidence gate 2 |
+| 3. lifecycle: transition, non-retryable failure, cancel, reap, attempts | `tests/test_job_lifecycle.py` (12), evidence gate 3 |
+| 3b. quote single-use CAS (409) / expiry (410) | `tests/test_quotes.py` (4), evidence gate 3 |
 | 4. `extra="forbid"` → 422 (knob, field, market kind) | `tests/test_contracts.py`, `tests/test_api.py` |
-| 5. zero network in the suite | `tests/conftest.py`, `tests/test_no_network.py` |
-| 6. import direction | `tests/test_import_direction.py` |
+| 5. zero network in the suite (and a probe proving the guard bites) | `tests/conftest.py`, `tests/test_no_network.py` |
+| 6. import direction (AST, 9 synthetic violations) | `tests/test_import_direction.py` (11) |
+
+## Database
+
+Alembic is the only source of the schema — the app never calls
+`Base.metadata.create_all`, because a second schema definition drifts silently.
+
+```bash
+alembic -x db=/tmp/copy.db upgrade head    # on a COPY, never on the live file
+alembic -x db=/tmp/copy.db current
+alembic downgrade base                     # drops the nine tables, reverse order
+```
+
+URL resolution in `alembic/env.py` (first hit wins): programmatic
+`attributes["db_url"]` → `-x db=…` → `$MEE_DB_PATH` → `alembic.ini`.
+
+SQLite runs with `journal_mode=WAL`, `busy_timeout=5000`, `foreign_keys=ON`
+(SQLite defaults FKs **off**, which would make `ON DELETE CASCADE` a comment).
 
 ## Frozen 92-column spec
 
@@ -55,25 +89,26 @@ ordered names, group counts and the `CANONICAL_COLUMNS_V1` symbol.
 app/
   contracts.py        # the single vocabulary; imports no other app.* module
   config.py           # settings, no secrets
-  main.py             # ASGI wiring (endpoints are stubs)
+  auth.py             # sha256 api-key fingerprint + ApiError envelope
+  runtime.py          # composition root: repository + in-process task spawner
+  main.py             # ASGI wiring + one error envelope
   api/                # markets, requests, providers, health
-  jobs/               # ports (Protocol), errors, repository, quotes, service
+  jobs/               # ports (Protocol), errors, repository (CAS), quotes, service
   worker/runner.py    # process_job: the one execution path
-  providers/          # base, registry, ladder, budget, http seam, adapters/fake
-  enrich/             # orchestrator
-  verify/             # pure rules + units
-  export/writer.py    # csv/json/xlsx/parquet contract
-  models.py, db.py    # ORM + async engine (stubs)
-tests/
-  spec/columns_v1.json
-  fixtures/fake_universe.json
-  conftest.py         # autouse no-network guard
-  _import_rules.py    # AST dependency checker
-  _support.py         # spec loader, ASGI client, polling helper
+  providers/          # base, registry, ladder (Phase 2), budget (Phase 2), http seam
+  providers/adapters/ # fake.py (fixture-driven, zero egress)
+  enrich/             # quality.py (coverage counters), orchestrator (Phase 3)
+  verify/             # pure rules + units (Phase 4)
+  export/writer.py    # streaming csv/json; xlsx & parquet answer 501
+  models.py, db.py    # nine tables + async engine (PRAGMAs, alembic upgrade)
+alembic/
+  env.py, versions/0001_init.py
+tests/                # untouched contract suite
 ```
 
 ## Next step
 
-Implement against the tests, in this order: `contracts.py` → `jobs/repository.py`
-+ `jobs/quotes.py` → `api/*` + `providers/adapters/fake.py` → `export/writer.py`.
+Phase 1: `resolve/{intent,aliases,universe,estimator}.py`, `POST /markets/resolve`
+and `POST /markets/estimate` (which creates the quote that `POST /markets/enrich`
+already accepts as `quote_id`), then seed `instruments` for XNAS + XIDX.
 Do not weaken a test to make it pass; the tests are the contract.

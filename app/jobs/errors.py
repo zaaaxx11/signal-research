@@ -19,6 +19,16 @@ class JobTerminal(JobError):
     status_code = 409
 
 
+class RequestNotServable(JobError):
+    """The request is valid but this deployment cannot honour it (501).
+
+    Raised *before* a job row exists: a job that cannot produce what was asked
+    for is a failed job with a misleading ``Success`` waiting to happen.
+    """
+
+    status_code = 501
+
+
 class QuoteError(Exception):
     """Base class for quote errors."""
 
