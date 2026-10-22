@@ -37,11 +37,14 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, Sequence
 
 from app.config import get_settings
 from app.contracts import CANONICAL_COLUMNS_V1, Capability, MarketKind, MarketRequest
+from app.enrich.orchestrator import EXPORT_CHUNK_SIZE, run_phases
+from app.enrich.phases import DEFAULT_PHASES, phase_named
 from app.enrich.quality import aggregate, finalize_row, missing_core_columns
+from app.enrich.stream import RowStream
 from app.export.writer import write_export
 from app.jobs.errors import JobError, JobNotFound
 from app.jobs.ports import JobRecord, JobRepository
@@ -55,6 +58,11 @@ logger = logging.getLogger("mee.worker")
 
 FAKE_MODE = "fake"
 LIVE_MODE = "live"
+
+#: Cells the quote phase owns. ``_row_from`` must not pre-fill them: the
+#: orchestrator's quote phase is the one place that conflates quote
+#: observations into a row (fill-only-empty + trust ordering, 02 §3.5).
+_QUOTE_COLUMNS: frozenset[str] = frozenset(phase_named("quote").columns)
 
 #: Verdict kinds that a second attempt can plausibly change (02 §3.9).
 RETRYABLE_KINDS: tuple[str, ...] = ("throttled", "blocked", "5xx", "timeout", "circuit_open")
@@ -192,17 +200,42 @@ async def _run(
 
     directory = _export_dir(export_dir)
     written: dict[str, dict[str, Any]] = {}
-    for fmt in request.format:
-        result = write_export(kept, fmt, directory / f"{job_id}.{fmt}", columns=CANONICAL_COLUMNS_V1)
-        await repository.record_artifact(
-            job_id,
-            kind=fmt,
-            path=result.path,
-            sha256=result.sha256,
-            row_count=result.row_count,
-            bytes_=result.bytes,
-        )
-        written[fmt] = {"bytes": result.bytes, "sha256": result.sha256}
+
+    async def _export(rows: list[dict[str, Any]]) -> None:
+        """P7: write every requested format, streaming the table in chunks."""
+
+        for fmt in request.format:
+            artifact = write_export(
+                RowStream(rows, chunk_size=EXPORT_CHUNK_SIZE).iter_rows(),
+                fmt,
+                directory / f"{job_id}.{fmt}",
+                columns=CANONICAL_COLUMNS_V1,
+            )
+            await repository.record_artifact(
+                job_id,
+                kind=fmt,
+                path=str(artifact.path),
+                sha256=artifact.sha256,
+                row_count=artifact.row_count,
+                bytes_=artifact.bytes,
+            )
+            written[fmt] = {"bytes": artifact.bytes, "sha256": artifact.sha256}
+
+    # The production entrypoint drives the phase table, explicitly. A default
+    # argument would hide the production order from every observer (Fase 3
+    # gate 1, the ``FallbackLadder`` lesson).
+    pipeline = await run_phases(
+        DEFAULT_PHASES,
+        rows=kept,
+        observations=outcome.observations,
+        job_id=job_id,
+        request=request,
+        export=_export,
+        skipped_by_budget={"quote": outcome.skipped_by_budget},
+    )
+    kept = pipeline["rows"]
+    phase_reports = pipeline["phase_reports"]
+    rejected += int(pipeline.get("rejected_rows") or 0)
 
     result_mode = "partial" if (outcome.unresolved or outcome.skipped_by_budget) else "full"
     usage = _usage(
@@ -218,8 +251,7 @@ async def _run(
         providers=outcome.providers,
         skipped_by_budget=outcome.skipped_by_budget,
         result_mode=result_mode,
-        reference_status="ok",
-        quote_status="partial" if outcome.unresolved else "ok",
+        phase_reports=phase_reports,
     )
     logger.info(
         "job done job_id=%s rows=%d unresolved=%d requests=%d bytes=%d cache_hits=%d skipped_by_budget=%d",
@@ -257,6 +289,9 @@ class _Outcome:
     bytes: int = 0
     cache_hits: int = 0
     skipped_by_budget: int = 0
+    #: ``instrument_id -> observations``. The quote phase conflates these into
+    #: the row, so the fetch path never writes a quote cell itself.
+    observations: dict[str, list[Any]] = field(default_factory=dict)
 
     def serve(self, symbol: str, kind: str) -> None:
         self.verdicts[kind] = self.verdicts.get(kind, 0) + 1
@@ -360,6 +395,10 @@ async def _fetch_live(
             rows[instrument.instrument_id] = _row_from(
                 instrument, result.observations, request=request, source=result.rung
             )
+            # The quote cells are filled by the orchestrator's P1 through
+            # ``conflate``, from the adapter's own observations (source, trust
+            # and as_of come from the adapter, never from the orchestrator).
+            outcome.observations[instrument.instrument_id] = list(result.observations)
         else:
             # An "ok" whose parser produced nothing is an empty answer, not a
             # served row — the reason must say so rather than echoing "ok".
@@ -402,9 +441,12 @@ def _row_from(
         value = item["value_num"] if item.get("value_num") is not None else item.get("value_text")
         if value is None:
             continue
-        row[name] = value
         if name == "quote_as_of":
             as_of = str(value)
+        if name in _QUOTE_COLUMNS:
+            # Owned by P1: conflating observations is its job, not this one's.
+            continue
+        row[name] = value
     if as_of:
         row["as_of_achieved"] = as_of
     return finalize_row(row)
@@ -438,10 +480,14 @@ def _usage(
     providers: dict[str, dict[str, Any]],
     skipped_by_budget: int,
     result_mode: str,
-    reference_status: str = "ok",
-    quote_status: str = "ok",
+    phase_reports: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Everything ``GET /requests/{id}`` reports, frozen into ``jobs.usage``."""
+    """Everything ``GET /requests/{id}`` reports, frozen into ``jobs.usage``.
+
+    ``phases`` is the orchestrator's report, not a second hand-written summary:
+    a job view that invents its phase statuses can disagree with the run that
+    produced the rows.
+    """
 
     stats = aggregate(kept)
     as_of = sorted(
@@ -453,16 +499,7 @@ def _usage(
         "credits_total": 0,
         "cache_hits": cache_hits,
         "skipped_by_budget": skipped_by_budget,
-        "phases": {
-            "reference": {"status": reference_status, "rows": len(kept)},
-            "quote": {
-                "status": quote_status,
-                "rows": len(kept),
-                "skipped_by_budget": skipped_by_budget,
-            },
-            "verify": {"status": "skipped", "reason": "verifier lands in Phase 4"},
-            "export": {"status": "ok", "files": sorted(written)},
-        },
+        "phases": _phase_usage(phase_reports),
         "providers": providers,
         "as_of_achieved": {"min": as_of[0], "max": as_of[-1]} if as_of else None,
         "coverage": stats["coverage"],
@@ -478,6 +515,26 @@ def _usage(
         "finished_at": datetime.now(UTC).isoformat(timespec="microseconds"),
         "verdicts": verdicts,
     }
+
+
+def _phase_usage(reports: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Project the phase reports into the ``usage.phases`` document."""
+
+    phases: dict[str, dict[str, Any]] = {}
+    for report in reports:
+        name = str(report.get("name") or "")
+        if not name:  # pragma: no cover - every report has a name
+            continue
+        entry: dict[str, Any] = {
+            "status": report.get("status"),
+            "capability": report.get("capability"),
+            "skipped_by_budget": int(report.get("skipped_by_budget") or 0),
+            "rows": int(report.get("rows") or 0),
+        }
+        if report.get("reason"):
+            entry["reason"] = report["reason"]
+        phases[name] = entry
+    return phases
 
 
 def _worker_id() -> str:

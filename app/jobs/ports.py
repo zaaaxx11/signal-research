@@ -7,7 +7,7 @@ possible without rewriting the worker. They are signatures only — no logic.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 #: A job row as a plain mapping, so ports stay storage-agnostic.
 JobRecord = dict[str, Any]
@@ -123,9 +123,27 @@ class QuoteRepository(Protocol):
 class BatchRepository(Protocol):
     """Per-batch checkpoint rows (02 §4.2). Phase 3 deliverable."""
 
-    async def mark(
-        self, job_id: str, batch_index: int, *, status: str, row_count: int = 0
-    ) -> None: ...
+    async def ensure_batches(
+        self, job_id: str, batches: Iterable[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Insert the plan, idempotent on ``UNIQUE(job_id, batch_index)``."""
+        ...
+
+    async def mark_batch(
+        self,
+        job_id: str,
+        batch_index: int,
+        *,
+        status: str,
+        row_count: int = 0,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        """Upsert one checkpoint; ``row_count`` is SET, never accumulated."""
+        ...
+
+    async def batches(self, job_id: str) -> list[dict[str, Any]]:
+        """The plan in ``batch_index`` order."""
+        ...
 
 
 class ArtifactRepository(Protocol):

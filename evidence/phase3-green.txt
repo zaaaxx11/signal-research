@@ -1,0 +1,151 @@
+# Phase-3 GREEN evidence — ztockz @ cb03b9c + Fase 3 implementation — 2026-10-22
+
+## 1. Suite (three consecutive runs, exact command from the brief)
+
+```
+$ cd /home/ubuntu/ztockz
+$ .venv/bin/pytest --tb=no -o addopts=""
+
+run 1: 153 passed in 14.60s
+run 2: 153 passed in 14.78s
+run 3: 153 passed in 14.65s
+$ echo $?          # (unpiped run) -> 0
+```
+
+No `xfail`, no `skip`, no warning filter added, no `-k`, no `-p no:cacheprovider`.
+`pyproject.toml` is unchanged (`addopts`, `filterwarnings = error`, `asyncio_mode = auto`).
+
+## 2. Composition — 33 new tests, 120 legacy tests
+
+```
+tests/test_phases.py            7 passed in 1.48s
+tests/test_conflate.py         10 passed in 0.59s
+tests/test_provenance.py        6 passed in 1.54s
+tests/test_resume_stream.py    10 passed in 1.59s
+                               -- 33
+
+$ .venv/bin/pytest --tb=no -o addopts="" -q \
+    tests/test_contracts.py tests/test_job_lifecycle.py tests/test_quotes.py \
+    tests/test_api.py tests/test_export_contract.py tests/test_import_direction.py \
+    tests/test_no_network.py tests/test_env.py tests/test_resolve.py \
+    tests/test_estimate.py tests/test_quote_http.py tests/test_registry.py \
+    tests/test_ladder.py tests/test_cache_budget.py tests/test_verdicts.py \
+    tests/test_quote_atomicity.py
+120 passed in 13.01s
+```
+
+`git status --short` shows **no** file under `tests/`, `reference/`, `alembic/` or
+`pyproject.toml` changed. RED evidence (`evidence/phase3-red.txt`) is untouched.
+
+```
+ M app/enrich/orchestrator.py
+ M app/jobs/ports.py
+ M app/jobs/repository.py
+ M app/worker/runner.py
+?? app/enrich/conflate.py
+?? app/enrich/phases.py
+?? app/enrich/provenance.py
+?? app/enrich/stream.py
+```
+
+## 3. Gate -> mechanism -> test
+
+| Gate (02 §5 Fase 3) | Mechanism | Test that would fail without it |
+|---|---|---|
+| 1 production phase order | `runner._run` calls `run_phases(DEFAULT_PHASES, ...)` positionally; the orchestrator has **no default** for `phases` | `test_process_job_builds_the_orchestrator_with_default_phases` |
+| 1 phase table is a partition | `Phase.__post_init__` rejects non-canonical columns; `_assert_partition()` runs at import | `test_phase_columns_partition_the_frozen_92_columns`, `test_phase_rejects_a_non_canonical_column` |
+| 1 only P0/P7 fatal | `DEFAULT_PHASES` flags; non-fatal handlers degrade and report | `test_only_reference_and_export_are_fatal` |
+| 2 fill-only-empty | `conflate.write_if_empty` writes only into an empty cell unless trust/verified says otherwise | `test_fill_only_empty_keeps_the_first_value_and_its_source`, `test_blank_values_never_fill_a_cell` |
+| 3 trust beats arrival order | `conflate.beats`: lower trust wins; equal trust loses unless newly `verified` | `test_trust_beats_arrival_order[vendor-first]`, `[...aggregator-first]`, `test_equal_trust_does_not_overwrite`, `test_verified_value_replaces_unverified_at_equal_trust` |
+| 4 provenance exact | every phase stamps the cells it owns, then `_audit_provenance` proves equality and drops orphans | `test_every_row_has_provenance_for_every_filled_cell` (set **equality**) |
+| 4 provenance not column 93 | `PROVENANCE_KEY = "_provenance"`; the writer emits `columns` only | `test_provenance_key_is_not_an_export_column`, `test_export_keeps_provenance_out_of_the_table` |
+| 5 resume | `run_batches` skips `Success` batches when `resume=True`; sink failure marks `Failure` and propagates | `test_resume_skips_successful_batches_without_duplicating_rows` |
+| 5 idempotent `row_count` | `mark_batch` is `SET`; `UNIQUE(job_id, batch_index)` makes `ensure_batches` idempotent | `test_checkpoint_rows_are_upserts_not_accumulators`, `test_replaying_a_batch_does_not_change_row_count` |
+| 6 streaming | `RowStream` yields `list` chunks via `islice`, one chunk of lookahead | `test_row_stream_never_reads_more_than_one_chunk_ahead`, `..._peak_memory_stays_bounded_by_the_chunk` |
+| 7 unique rows | `run_batches._unique_rows` dedupes on `instrument_id` | `test_batch_row_count_deduplicates_instrument_ids` |
+
+## 4. Mutation evidence (each test shown to bite)
+
+Driver: `/home/ubuntu/.hermes/cache/scratch/mutate_phase3.py` (copy -> mutate ->
+run -> restore; tree restored afterwards, `33 passed` for the four Phase-3
+files).
+
+```
+[ok] M1 flip trust ordering (fill-only-empty only)        -> FAIL (1 failed, 1 passed)
+[ok] M2 equal trust overwrites (last writer wins)         -> FAIL (1 failed)
+[ok] M3 stream materialises the source list(rows)         -> FAIL (1 failed)
+[ok] M4 checkpoint accumulates row_count                  -> FAIL (1 failed)
+[ok] M5 resume ignores Success batches (re-buys them)     -> FAIL (1 failed)
+[ok] M6 production entrypoint reorders the phases         -> FAIL (1 failed)
+[ok] M6b run_phases gains `phases=DEFAULT_PHASES` default
+         and the runner stops passing it explicitly       -> FAIL (1 failed)
+[ok] M7 rows_unique drops resumed batches                 -> FAIL (1 failed)
+[ok] M8 stamping removed AND audit disabled               -> FAIL (1 failed, 5 passed)
+[ok] M9 stamping removed, audit still active              -> PASS (6 passed)
+```
+
+M9 is deliberate and is the one non-failing mutation: provenance is ensured
+twice — each phase attributes its own cells, and `_audit_provenance` then
+attributes any leftover filled cell to the phase that owns its column. Removing
+only the second layer leaves the table correct, so the invariant is guaranteed
+by construction rather than by one failing line. M8 removes both and the
+equality test fails.
+
+## 5. Behaviour spot-checks (real output, not assertions)
+
+```
+$ run_phases(DEFAULT_PHASES, rows=<fake AAPL row>, job_id="probe")
+filled: 36 prov: 36
+equal: True
+sample last_price:      {'source': 'fake', 'as_of': '2026-10-21T20:00:00+00:00', 'status': 'ok', 'trust': 4, 'verified': False}
+sample as_of_achieved:  {'source': 'fake', 'as_of': '2026-10-21T20:00:00+00:00', 'status': 'ok', 'trust': 4, 'verified': False}
+sample data_freshness_s:{'source': 'engine:quality', 'as_of': '2026-10-22T18:53:48.853144+00:00', 'status': 'ok', 'trust': 3, 'verified': False}
+data_quality: quote_only   filled_columns_count: 36
+reports: reference:ok quote:ok eod:skipped performance:skipped fundamentals:skipped options:skipped verify:partial export:skipped
+second pass over the same rows -> stable: True (no duplicate records, no drift)
+```
+
+Trust ordering through the orchestrator (not only through the unit test):
+
+```
+vendor then aggregator: (20.0, 'vendor', 2)
+aggregator then vendor: (20.0, 'vendor', 2)
+```
+
+Live path end to end (registry ladder + mock transport, no sockets):
+
+```
+$ harness.run_job(["AAPL"])
+status: Success rows: 1 mode: full
+phases: {'reference': 'ok', 'quote': 'ok', 'eod': 'skipped', 'performance': 'skipped',
+         'fundamentals': 'skipped', 'options': 'skipped', 'verify': 'partial', 'export': 'ok'}
+csv last_price: 231.5   quote_as_of: 2026-10-22T13:58:00+00:00   quote_delay: ''
+data_quality: quote_only  filled: 16  header columns: 92
+```
+
+`quote_delay` is empty because the Yahoo adapter does not emit it. That is the
+intended behaviour: no sentinel, no invented value.
+
+## 6. Migrations
+
+**None added.** `alembic/versions/0001_init.py` already creates `job_batches`
+(with `ux_job_batches_job_index`) and `job_artifacts`, and `app/models.py`
+matches. Phase 3 adds no column, so 0004/0005 would be empty migrations; the
+brief allows them only if a test demands them, and no test does.
+
+## 7. Honest gaps (unchanged from RED, not hidden)
+
+1. **Resume is proved by batch status, not by artifact backing.** 02 §3.5 wants a
+   `Success` batch skipped only when its artifact still backs every row. Per-batch
+   artifact naming is not part of the export contract yet (kind = format), so
+   inventing it now would freeze an unagreed convention. This remains a Fase 5
+   item (`14-phase3-red.md` §3.2).
+2. **Per-phase deadline is still untested.** `phase_reports` carries
+   `skipped_by_budget`, but there is no injectable clock/deadline contract for a
+   phase yet; the cross-rung budget is already covered by Fase 2.
+3. **`verify` reports `partial`.** `verified_columns_count` stays `0` because
+   V1..V16 are Fase 4. Reporting `filled == verified` would be a fabricated
+   verification claim.
+4. **`eod`/`performance`/`fundamentals`/`options` report `skipped`.** The phases
+   are declared, ordered and reported, but no adapter is wired into the worker
+   for those capabilities yet. A phase that did not run does not report `ok`.

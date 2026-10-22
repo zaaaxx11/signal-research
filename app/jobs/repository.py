@@ -26,7 +26,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -41,6 +41,17 @@ PROCESSING = "Processing"
 SUCCESS = "Success"
 FAILURE = "Failure"
 TERMINAL = frozenset({SUCCESS, FAILURE})
+
+#: Batch checkpoint states (02 §4.2). ``Skipped`` is deliberate, not an error.
+BATCH_PENDING = "Pending"
+BATCH_PROCESSING = "Processing"
+BATCH_SUCCESS = "Success"
+BATCH_FAILURE = "Failure"
+BATCH_SKIPPED = "Skipped"
+BATCH_STATUSES = frozenset(
+    {BATCH_PENDING, BATCH_PROCESSING, BATCH_SUCCESS, BATCH_FAILURE, BATCH_SKIPPED}
+)
+BATCH_TERMINAL = frozenset({BATCH_SUCCESS, BATCH_FAILURE, BATCH_SKIPPED})
 
 #: SQLite is single-writer: a second connection waits, and if the wait is
 #: longer than ``busy_timeout`` we retry instead of failing the job.
@@ -523,6 +534,133 @@ class SqliteJobRepository(JobRepository):
             {"id": job_id, "kind": kind},
         )
 
+    # -- batch checkpoints (02 §4.2, Fase 3) -------------------------------
+
+    async def ensure_batches(
+        self, job_id: str, batches: Iterable[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Insert the batch plan, idempotent on ``UNIQUE(job_id, batch_index)``.
+
+        A retry re-uses the same checkpoint rows instead of stacking a second
+        plan beside the first: ``Replaying a batch must not add a row`` is a
+        property of the store, not of the caller's discipline.
+        """
+
+        plan = [self._batch_payload(job_id, batch) for batch in batches]
+        if plan:
+            engine = await self._ready_engine()
+            async with engine.begin() as connection:
+                for payload in plan:
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO job_batches (
+                                id, job_id, batch_index, universe_slice,
+                                symbols_expected, status, row_count
+                            ) VALUES (
+                                :id, :job_id, :batch_index, :universe_slice,
+                                :symbols_expected, 'Pending', 0
+                            )
+                            ON CONFLICT(job_id, batch_index) DO NOTHING
+                            """
+                        ),
+                        payload,
+                    )
+        return await self.batches(job_id)
+
+    async def mark_batch(
+        self,
+        job_id: str,
+        batch_index: int,
+        *,
+        status: str,
+        row_count: int = 0,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        """Upsert one checkpoint with **SET** semantics.
+
+        ``row_count`` is the number of unique rows the last execution
+        contributed — never a running total. An accumulator would turn a retry
+        into double counting, and a ``row_count`` that grows on replay makes the
+        idempotency gate unobservable.
+        """
+
+        if status not in BATCH_STATUSES:
+            raise ValueError(
+                f"unknown batch status {status!r}; expected one of {sorted(BATCH_STATUSES)}"
+            )
+        if not isinstance(row_count, int) or isinstance(row_count, bool) or row_count < 0:
+            raise ValueError(f"row_count must be an int >= 0, got {row_count!r}")
+
+        record = await self._one(
+            """
+            UPDATE job_batches
+               SET status = :status,
+                   row_count = :row_count,
+                   error = :error,
+                   started_at = COALESCE(started_at, :now),
+                   finished_at = CASE
+                       WHEN :status IN ('Success', 'Failure', 'Skipped') THEN :now
+                       ELSE finished_at
+                   END
+             WHERE job_id = :job_id AND batch_index = :batch_index
+            RETURNING *
+            """,
+            {
+                "job_id": job_id,
+                "batch_index": int(batch_index),
+                "status": status,
+                "row_count": int(row_count),
+                "error": error,
+                "now": self._now_iso(),
+            },
+        )
+        if record is None:
+            raise JobNotFound(f"job {job_id} has no batch {batch_index}")
+        return record
+
+    async def batches(self, job_id: str) -> list[dict[str, Any]]:
+        """The batch plan in execution order (``batch_index`` ascending)."""
+
+        return await self._all(
+            "SELECT * FROM job_batches WHERE job_id = :id ORDER BY batch_index",
+            {"id": job_id},
+        )
+
+    @staticmethod
+    def _batch_payload(job_id: str, batch: Mapping[str, Any]) -> dict[str, Any]:
+        """Normalise one plan entry into an ``INSERT`` payload.
+
+        Accepts either the plan shape (``universe_slice``) or the compact test
+        shape (``symbols``), and derives ``symbols_expected`` when it is absent
+        so the two forms cannot disagree about how many symbols a batch covers.
+        """
+
+        index = batch.get("batch_index")
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+            raise ValueError(f"batch_index must be an int >= 0, got {index!r}")
+
+        universe = batch.get("universe_slice")
+        symbols = batch.get("symbols")
+        if universe is None:
+            universe = {"symbols": list(symbols or [])}
+        if symbols is None and isinstance(universe, Mapping):
+            symbols = universe.get("symbols") or []
+
+        expected = batch.get("symbols_expected")
+        if expected is None:
+            expected = len(symbols or [])
+        if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
+            raise ValueError(f"symbols_expected must be an int >= 0, got {expected!r}")
+
+        return {
+            "id": str(uuid.uuid4()),
+            "job_id": job_id,
+            "batch_index": index,
+            "universe_slice": _dumps(universe),
+            "symbols_expected": expected,
+        }
+
 
 async def open_repository(
     db_path: str | Path,
@@ -553,6 +691,13 @@ def parse_record_times(record: Mapping[str, Any]) -> dict[str, datetime | None]:
 
 
 __all__ = [
+    "BATCH_FAILURE",
+    "BATCH_PENDING",
+    "BATCH_PROCESSING",
+    "BATCH_SKIPPED",
+    "BATCH_STATUSES",
+    "BATCH_SUCCESS",
+    "BATCH_TERMINAL",
     "FAILURE",
     "PENDING",
     "PROCESSING",
