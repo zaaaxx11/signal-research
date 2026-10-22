@@ -31,6 +31,7 @@ Budget exhaustion is **not** in that list: it is a property of the result
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -41,11 +42,11 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.config import get_settings
 from app.contracts import CANONICAL_COLUMNS_V1, Capability, MarketKind, MarketRequest
-from app.enrich.orchestrator import EXPORT_CHUNK_SIZE, run_phases
+from app.enrich.orchestrator import run_phases
 from app.enrich.phases import DEFAULT_PHASES, phase_named
 from app.enrich.quality import aggregate, finalize_row, missing_core_columns
-from app.enrich.stream import RowStream
-from app.export.writer import write_export
+from app.export.manifest import file_sha256, read_manifest
+from app.export.pipeline import export_job
 from app.jobs.errors import JobError, JobNotFound
 from app.jobs.ports import JobRecord, JobRepository
 from app.jobs.repository import PENDING, PROCESSING
@@ -106,6 +107,18 @@ def _export_dir(export_dir: str | Path | None) -> Path:
     directory = Path(export_dir) if export_dir is not None else Path(get_settings().export_dir)
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def _digest(document: Any) -> str:
+    """``sha256:<hex>`` over a canonical document (key order never matters)."""
+
+    if isinstance(document, str):
+        payload = document.encode("utf-8")
+    else:
+        payload = json.dumps(
+            document, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 async def process_job(
@@ -201,25 +214,97 @@ async def _run(
     directory = _export_dir(export_dir)
     written: dict[str, dict[str, Any]] = {}
 
-    async def _export(rows: list[dict[str, Any]]) -> None:
-        """P7: write every requested format, streaming the table in chunks."""
+    def _metadata(rows: list[dict[str, Any]], context: Mapping[str, Any]) -> dict[str, Any]:
+        """The job's own provenance block for the manifest (19 §4.4).
 
-        for fmt in request.format:
-            artifact = write_export(
-                RowStream(rows, chunk_size=EXPORT_CHUNK_SIZE).iter_rows(),
-                fmt,
-                directory / f"{job_id}.{fmt}",
-                columns=CANONICAL_COLUMNS_V1,
-            )
+        Every number here is measured on this run: the hashes are over the
+        frozen ``params`` and the executed export plan, the provider counters
+        come from the outcome the fetch path metered, and the quality counters
+        are the verify phase's own report. Nothing is defaulted, so
+        ``quality.provenance`` names the job instead of a placeholder.
+        """
+
+        blocks = {str(name): dict(block) for name, block in (context.get("quality") or {}).items()}
+        if blocks:
+            filled = sum(int(block.get("filled") or 0) for block in blocks.values())
+            verified = sum(int(block.get("verified") or 0) for block in blocks.values())
+            capacity = len(rows) * len(blocks)
+        else:  # pragma: no cover - a plan without a verify phase has no blocks
+            stats = aggregate(rows)
+            filled = sum(int(entry["filled"]) for entry in stats["quality"]["by_column"].values())
+            verified = 0
+            capacity = len(rows) * len(CANONICAL_COLUMNS_V1)
+        return {
+            "request_hash": _digest(job["params"]),
+            "plan_hash": _digest(
+                {
+                    "job_id": job_id,
+                    "columns": list(CANONICAL_COLUMNS_V1),
+                    "formats": list(request.format),
+                    "as_of": request.as_of.isoformat(),
+                }
+            ),
+            "as_of_requested": request.as_of.isoformat(),
+            "providers": [
+                {
+                    "name": str(name),
+                    "requests": int(bucket.get("requests") or 0),
+                    "bytes": int(bucket.get("bytes") or 0),
+                    "verdicts": dict(bucket.get("verdicts") or {}),
+                }
+                for name, bucket in outcome.providers.items()
+            ],
+            "usage": {
+                "requests_total": outcome.requests,
+                "bytes_total": outcome.bytes,
+                "credits_total": 0,
+                "cache_hits": outcome.cache_hits,
+                "skipped_by_budget": outcome.skipped_by_budget,
+            },
+            "quality": {
+                "filled_ratio": round(filled / capacity, 6) if capacity else 0.0,
+                "verified_ratio": round(verified / filled, 6) if filled else 0.0,
+                "rejections_by_rule": _rule_counts(context.get("rejections") or ()),
+                "verdict": context.get("verdict"),
+                "reconciled": context.get("reconciled"),
+                "provenance": f"job:{job_id}",
+            },
+        }
+
+    async def _export(rows: list[dict[str, Any]], context: Mapping[str, Any]) -> None:
+        """P7: one bundle — the data files, the manifest and the custody log."""
+
+        report = export_job(
+            rows,
+            job_id=job_id,
+            directory=directory,
+            columns=CANONICAL_COLUMNS_V1,
+            formats=request.format,
+            metadata=_metadata(rows, context),
+            expected_rows=len(rows),
+        )
+        # The manifest is the bundle's own record of what it hashed; registering
+        # the artifacts from it keeps ``job_artifacts`` and ``verify_manifest``
+        # from disagreeing about a byte.
+        manifest = read_manifest(report.manifest_path)
+        entries = {
+            str(entry.get("name")): entry for entry in (manifest.get("files") or ())
+        }
+        for fmt, path in report.files.items():
+            entry = entries.get(Path(path).name) or {}
+            digest = str(entry.get("sha256") or file_sha256(path))
+            size = int(entry.get("bytes") or Path(path).stat().st_size)
+            counted = entry.get("row_count")
+            row_count = int(counted) if counted is not None else int(report.row_count)
             await repository.record_artifact(
                 job_id,
                 kind=fmt,
-                path=str(artifact.path),
-                sha256=artifact.sha256,
-                row_count=artifact.row_count,
-                bytes_=artifact.bytes,
+                path=str(path),
+                sha256=digest,
+                row_count=row_count,
+                bytes_=size,
             )
-            written[fmt] = {"bytes": artifact.bytes, "sha256": artifact.sha256}
+            written[fmt] = {"bytes": size, "sha256": digest}
 
     # The production entrypoint drives the phase table, explicitly. A default
     # argument would hide the production order from every observer (Fase 3
@@ -384,26 +469,21 @@ async def _fetch_live(
     fields: set[str],
     ladder_factory: Callable[..., Any] | None,
 ) -> _Outcome:
-    """Walk the registry ladder once per symbol, on one per-job budget."""
+    """Walk the registry ladder once per capability per symbol, on one budget.
+
+    Every capability the request asks for is walked. The quote rung owns the
+    row's existence — a row without a quote is not exported (02 §3.8.1) — while
+    the deeper rungs (EOD, fundamentals, options) contribute cells to the same
+    row and fail in isolation: a missing options chain leaves the EOD and
+    fundamentals cells standing and records the reason in ``unresolved``.
+    """
 
     if ladder_factory is None:
         raise JobError(
             "MEE_PROVIDER_MODE=live requires a ladder factory; the runtime must pass "
             "Runtime.ladder so the worker and the tests walk the same rungs"
         )
-    unsupported = [
-        capability.value
-        for capability in request.enrichment
-        if capability is not Capability.QUOTE
-    ]
-    if unsupported:
-        # Silently producing a quote-only row for a job that asked for
-        # fundamentals is the "Success with empty columns" lie 02 §3.9 exists to
-        # prevent. Fase 2 wires the QUOTE ladder only; say so instead.
-        raise JobError(
-            "live provider mode implements the QUOTE capability only in Fase 2; "
-            "requested: " + ", ".join(sorted(unsupported))
-        )
+    capabilities = tuple(dict.fromkeys(request.enrichment or (Capability.QUOTE,)))
     budget = Budget(
         requests=request.budget.requests,
         credits=request.budget.credits,
@@ -415,33 +495,54 @@ async def _fetch_live(
 
     for symbol in symbols:
         instrument = InstrumentRef.from_symbol(symbol, venue=request.market.venue)
-        result = await ladder.fetch(Capability.QUOTE, instrument, fields)
-        outcome.requests += result.requests
-        outcome.bytes += result.bytes
-        outcome.cache_hits += result.cache_hits
-        outcome.skipped_by_budget += result.skipped_by_budget
-        for attempt in result.attempts:
-            outcome.meter(
-                str(attempt["provider"]),
-                requests=int(attempt.get("requests") or 0),
-                bytes_=int(attempt.get("bytes") or 0),
-                verdict=str(attempt.get("verdict") or "unknown"),
-            )
+        merged: list[Any] = []
+        quote_rung: str | None = None
+        quoted = False
 
-        if result.verdict.ok and result.observations:
-            outcome.serve(symbol, "ok")
-            rows[instrument.instrument_id] = _row_from(
-                instrument, result.observations, request=request, source=result.rung
-            )
-            # The quote cells are filled by the orchestrator's P1 through
-            # ``conflate``, from the adapter's own observations (source, trust
-            # and as_of come from the adapter, never from the orchestrator).
-            outcome.observations[instrument.instrument_id] = list(result.observations)
-        else:
+        for capability in capabilities:
+            result = await ladder.fetch(capability, instrument, fields)
+            outcome.requests += result.requests
+            outcome.bytes += result.bytes
+            outcome.cache_hits += result.cache_hits
+            outcome.skipped_by_budget += result.skipped_by_budget
+            for attempt in result.attempts:
+                outcome.meter(
+                    str(attempt["provider"]),
+                    requests=int(attempt.get("requests") or 0),
+                    bytes_=int(attempt.get("bytes") or 0),
+                    verdict=str(attempt.get("verdict") or "unknown"),
+                )
+
+            served = bool(result.verdict.ok and result.observations)
+            if served:
+                merged.extend(result.observations)
+                if capability is Capability.QUOTE:
+                    quoted = True
+                    quote_rung = result.rung
+                continue
+
             # An "ok" whose parser produced nothing is an empty answer, not a
-            # served row — the reason must say so rather than echoing "ok".
+            # served cell — the reason must say so rather than echoing "ok".
             reason = result.verdict.kind if not result.verdict.ok else "empty"
-            outcome.reject(symbol, reason)
+            if capability is Capability.QUOTE:
+                outcome.reject(symbol, reason)
+            else:
+                # Isolation: the quote still carries the row; the missing block
+                # is reported instead of silently empty (result_mode=partial).
+                outcome.unresolved.append(
+                    {"input": symbol, "reason": f"{capability.value}:{reason}"}
+                )
+
+        if not quoted or not merged:
+            continue
+        outcome.serve(symbol, "ok")
+        rows[instrument.instrument_id] = _row_from(
+            instrument, merged, request=request, source=quote_rung
+        )
+        # The quote cells are filled by the orchestrator's P1 through
+        # ``conflate``, from the adapter's own observations (source, trust and
+        # as_of come from the adapter, never from the orchestrator).
+        outcome.observations[instrument.instrument_id] = merged
 
     outcome.rows = list(rows.values())
     return outcome

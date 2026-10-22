@@ -53,11 +53,11 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 FORMATS: tuple[str, ...] = ("csv", "json", "xlsx", "jsonl", "parquet")
 
 #: Formats the API advertises because the *runner* materialises them today.
-#: Fase 5 gives the writer all of ``FORMATS``; wiring the worker to emit xlsx/
-#: jsonl/parquet (and flipping this tuple) is the remaining step (18 §5.1).
-#: Until then the HTTP surface keeps answering 501 for those formats instead of
-#: promising a file no worker writes.
-IMPLEMENTED_FORMATS: tuple[str, ...] = ("csv", "json")
+#: Fase 6 wires the worker through ``app.export.pipeline.export_job``, which
+#: writes every one of ``FORMATS`` plus the manifest and the custody log, so the
+#: advertised tuple and the writer's tuple are now the same thing. Narrowing it
+#: again would be a promise the download route cannot keep.
+IMPLEMENTED_FORMATS: tuple[str, ...] = FORMATS
 
 _INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 #: A spreadsheet cell cannot hold more than 32,767 characters (02 §3.8.2).

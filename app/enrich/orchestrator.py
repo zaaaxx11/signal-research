@@ -77,7 +77,7 @@ _CANONICAL: frozenset[str] = frozenset(CANONICAL_COLUMNS_V1)
 
 EngineCall = Callable[[Sequence[str]], Awaitable[Iterable[Mapping[str, Any]]]]
 SinkCall = Callable[[int, Sequence[Mapping[str, Any]]], Awaitable[Any]]
-ExportCall = Callable[[list[dict[str, Any]]], Awaitable[None]]
+ExportCall = Callable[[list[dict[str, Any]], Mapping[str, Any]], Awaitable[None]]
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +545,20 @@ async def run_phases(
                 )
             else:
                 try:
-                    await export(materialised)
+                    # The export sink receives the *verified* table and the
+                    # quality/rejection report the verify phase just produced.
+                    # A manifest that claims a quality block has to be handed the
+                    # real numbers instead of re-deriving them from the rows
+                    # (a re-derivation would go blind to the rules that fired).
+                    await export(
+                        materialised,
+                        {
+                            "verdict": verdict,
+                            "reconciled": reconciled,
+                            "rejections": [dict(item) for item in rejections_all],
+                            "quality": {str(name): dict(block) for name, block in quality_blocks.items()},
+                        },
+                    )
                 except Exception as exc:
                     reports.append(
                         _report(
