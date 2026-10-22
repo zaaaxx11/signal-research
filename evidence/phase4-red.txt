@@ -1,0 +1,33 @@
+# Fase 4 RED — verifier V1..V16, units, quality, wiring P6
+# 2026-10-22T19:22:15Z  repo=df06bec
+
+$ .venv/bin/python -m pytest --tb=no -o addopts="" -q
+FAILED tests/test_verification_wiring.py::test_a_clean_job_reports_pass_and_writes_no_rejection
+FAILED tests/test_verification_wiring.py::test_a_critical_rejection_refuses_the_export_and_fails_the_job
+147 failed, 153 passed in 15.26s
+
+$ per-file (new suite)
+tests/test_units.py                      36 failed in 0.28s
+tests/test_rules.py                      85 failed in 0.58s
+tests/test_quality_verdict.py            19 failed in 0.26s
+tests/test_verification_wiring.py        7 failed in 1.40s
+
+$ failure shapes (new suite)
+      2 AssertionError
+     19 ModuleNotFoundError
+    145 NotImplementedError
+
+$ old suite alone (Phase 0-3, new files ignored)
+153 passed in 14.35s
+
+# Mutation evidence (salinan /tmp, bukan repo): setiap mutasi memerahkan tes
+M1  cabut V4 (market_cap)                      -> 5 failed (V4 table + 2 named + value_text)
+M2  cabut V1 (change_pct)                      -> 9 failed (V1 named, table, P6 wiring, job)
+M3  verdict mengabaikan rule critical          -> 2 failed (verdict V9, export REJECT)
+M4  cabut penjagaan export saat REJECT         -> 1 failed (export ditolak)
+M5  parse_number mengembalikan 0.0 utk sentinel-> 10 failed (units)
+M6  dividend fraction tidak dikali 100         -> 1 failed (0.0031 -> 0.31)
+
+# Satisfiability probe (salinan /tmp/mee-sat4, tidak pernah masuk repo)
+# app/verify/{units,rules,quality}.py + P6/P7 orchestrator + runner + record_rejections
+300 passed in 15.16s

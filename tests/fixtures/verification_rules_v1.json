@@ -1,0 +1,22 @@
+{
+  "version": "v1",
+  "source": "02-architecture §3.7 + 04-adversarial §2",
+  "rules": [
+    {"id": "V1", "severity": "major", "column": "change_pct", "reasons": ["change_pct_mismatch"]},
+    {"id": "V2", "severity": "major", "column": "day_high", "reasons": ["ohlc_order"]},
+    {"id": "V3", "severity": "major", "column": "last_bar_date", "reasons": ["bar_dates_not_strict"]},
+    {"id": "V4", "severity": "major", "column": "market_cap", "reasons": ["market_cap_mismatch"]},
+    {"id": "V5", "severity": "major", "column": "pe_ttm", "reasons": ["pe_mismatch"]},
+    {"id": "V6", "severity": "major", "column": "dividend_yield", "reasons": ["dividend_yield_unit", "dividend_yield_inconsistent"]},
+    {"id": "V7", "severity": "critical", "column": "opt_iv_atm", "reasons": ["iv_unit"]},
+    {"id": "V8", "severity": "major", "column": "opt_delta_atm", "reasons": ["greek_sign"]},
+    {"id": "V9", "severity": "critical", "column": "opt_iv_atm", "reasons": ["parity_violation"]},
+    {"id": "V10", "severity": "major", "column": "index_memberships", "reasons": ["index_weight_sum"]},
+    {"id": "V11", "severity": "critical", "column": "last_price", "reasons": ["currency_mismatch"]},
+    {"id": "V12", "severity": "major", "column": "ret_1d", "reasons": ["split_inconsistent"]},
+    {"id": "V13", "severity": "major", "column": "quote_as_of", "reasons": ["stale_quote"]},
+    {"id": "V14", "severity": "major", "column": "last_price", "reasons": ["provider_divergence"]},
+    {"id": "V15", "severity": "critical", "column": "day_volume", "reasons": ["nonpositive", "unit_anomaly"]},
+    {"id": "V16", "severity": "critical", "column": "quote_as_of", "reasons": ["future_as_of"]}
+  ]
+}
