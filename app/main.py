@@ -42,7 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     runtime = Runtime(settings or get_settings())
     application = FastAPI(
-        title="Market Enrichment Engine",
+        title="Ztockz",
         version=__version__,
         docs_url=None,
         redoc_url=None,

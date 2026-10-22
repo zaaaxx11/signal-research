@@ -1,6 +1,6 @@
-# Market Enrichment Engine (MEE)
+# Ztockz
 
-Contract-first market data enrichment service. Phase 0 = contracts, schema,
+Contract-first market data enrichment service (formerly MEE). Phase 0 = contracts, schema,
 job lifecycle, fake provider, 92-column export contract.
 
 **Current state: GREEN.** `68 passed, 0 failed` (`evidence/phase0-green.txt`),

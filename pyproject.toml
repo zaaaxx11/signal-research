@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "market-engine"
+name = "ztockz"
 version = "0.1.0"
-description = "Market Enrichment Engine (MEE) — contract-first market data enrichment service"
+description = "Ztockz — contract-first market data enrichment service"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "fastapi==0.159.1",

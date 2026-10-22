@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="MEE_", extra="forbid")
 
-    db_path: Path = Path("mee.db")
+    db_path: Path = Path("ztockz.db")
     export_dir: Path = Path("out")
     max_attempts: int = 3
     job_lease_s: int = 300
