@@ -1,0 +1,1037 @@
+{
+  "schema": "mee.reference.v1",
+  "version": "2026-10-22",
+  "note": "Reference master untuk suite Fase 1: 2 venue (XNAS + XIDX). Identitas (MIC/symbol/nama/sector) adalah nyata; angka adv_usd hanya orde besaran untuk skor likuiditas dan diberi label sintetis. isin hanya diisi bila checksum sudah diverifikasi (Luhn ISIN). File ini adalah sumber seed DAN oracle tes: resolver tidak boleh mengembalikan instrumen di luar file ini.",
+  "venues": [
+    {
+      "mic": "XNAS",
+      "name": "Nasdaq",
+      "country": "US",
+      "timezone": "America/New_York",
+      "default_currency": "USD",
+      "is_24_7": false
+    },
+    {
+      "mic": "XIDX",
+      "name": "Bursa Efek Indonesia",
+      "country": "ID",
+      "timezone": "Asia/Jakarta",
+      "default_currency": "IDR",
+      "is_24_7": false
+    }
+  ],
+  "jurisdictions": {
+    "indonesia": {
+      "venue": "XIDX",
+      "country": "ID",
+      "aliases": [
+        "indonesia",
+        "indonesian",
+        "idx",
+        "bei"
+      ]
+    },
+    "united states": {
+      "venue": "XNAS",
+      "country": "US",
+      "aliases": [
+        "us",
+        "usa",
+        "united states",
+        "america",
+        "nasdaq"
+      ]
+    }
+  },
+  "sector_keywords": {
+    "banks": [
+      "bank",
+      "banks",
+      "banking",
+      "perbankan",
+      "perbankan indonesia"
+    ],
+    "technology": [
+      "technology",
+      "tech",
+      "software",
+      "semiconductor",
+      "teknologi"
+    ],
+    "communication_services": [
+      "telecom",
+      "telecommunications",
+      "media",
+      "telekomunikasi"
+    ],
+    "consumer_discretionary": [
+      "consumer discretionary",
+      "autos",
+      "retail"
+    ],
+    "consumer_staples": [
+      "consumer staples",
+      "staples"
+    ],
+    "healthcare": [
+      "healthcare",
+      "pharma",
+      "health"
+    ],
+    "energy": [
+      "energy",
+      "coal",
+      "oil",
+      "gas"
+    ],
+    "materials": [
+      "materials",
+      "mining",
+      "cement",
+      "metals"
+    ],
+    "financials": [
+      "financials",
+      "payments",
+      "insurance"
+    ]
+  },
+  "asset_class_keywords": {
+    "equity": [
+      "stock",
+      "stocks",
+      "equity",
+      "equities",
+      "saham",
+      "share"
+    ],
+    "etf": [
+      "etf",
+      "fund",
+      "tracker"
+    ],
+    "crypto": [
+      "crypto",
+      "cryptocurrency",
+      "coin",
+      "token",
+      "kripto"
+    ]
+  },
+  "size_keywords": {
+    "top": [
+      "top",
+      "largest",
+      "biggest",
+      "terbesar"
+    ],
+    "count_pattern": "top <n>"
+  },
+  "instruments": [
+    {
+      "instrument_id": "XNAS:AAPL",
+      "symbol": "AAPL",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Apple Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "technology",
+      "industry": "consumer electronics",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": "US0378331005",
+      "adv_usd": 11000000000,
+      "aliases": [
+        "Apple",
+        "Apple Inc",
+        "Apple Computer"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:MSFT",
+      "symbol": "MSFT",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Microsoft Corporation",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "technology",
+      "industry": "software infrastructure",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": "US5949181045",
+      "adv_usd": 8500000000,
+      "aliases": [
+        "Microsoft",
+        "Microsoft Corp",
+        "Microsoft Corp."
+      ]
+    },
+    {
+      "instrument_id": "XNAS:NVDA",
+      "symbol": "NVDA",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "NVIDIA Corporation",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "technology",
+      "industry": "semiconductors",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": "US67066G1040",
+      "adv_usd": 32000000000,
+      "aliases": [
+        "Nvidia",
+        "NVIDIA"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:GOOGL",
+      "symbol": "GOOGL",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Alphabet Inc. Class A",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "internet content",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 6200000000,
+      "aliases": [
+        "Alphabet",
+        "Alphabet Inc",
+        "Alphabet Inc. Class A",
+        "Google"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:GOOG",
+      "symbol": "GOOG",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Alphabet Inc. Class C",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "internet content",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 5100000000,
+      "aliases": [
+        "Alphabet",
+        "Alphabet Inc",
+        "Alphabet Inc. Class C"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:AMZN",
+      "symbol": "AMZN",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Amazon.com Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_discretionary",
+      "industry": "internet retail",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 5800000000,
+      "aliases": [
+        "Amazon",
+        "Amazon.com"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:META",
+      "symbol": "META",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Meta Platforms Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "internet content",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 4400000000,
+      "aliases": [
+        "Meta",
+        "Meta Platforms"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:TSLA",
+      "symbol": "TSLA",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Tesla Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_discretionary",
+      "industry": "auto manufacturers",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": "US88160R1014",
+      "adv_usd": 9600000000,
+      "aliases": [
+        "Tesla"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:JPM",
+      "symbol": "JPM",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "JPMorgan Chase & Co.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "diversified banks",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 2100000000,
+      "aliases": [
+        "JPMorgan",
+        "JPMorgan Chase",
+        "Chase"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:QQQ",
+      "symbol": "QQQ",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Invesco QQQ Trust Series 1",
+      "asset_class": "etf",
+      "instrument_type": "etf",
+      "sector": null,
+      "industry": "index tracker",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 7800000000,
+      "aliases": [
+        "QQQ Trust",
+        "Invesco QQQ"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:COST",
+      "symbol": "COST",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Costco Wholesale Corporation",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_staples",
+      "industry": "discount stores",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1400000000,
+      "aliases": [
+        "Costco"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:JNJ",
+      "symbol": "JNJ",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Johnson & Johnson",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "healthcare",
+      "industry": "pharmaceuticals",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1100000000,
+      "aliases": [
+        "Johnson and Johnson"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:XOM",
+      "symbol": "XOM",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Exxon Mobil Corporation",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "energy",
+      "industry": "integrated oil & gas",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1600000000,
+      "aliases": [
+        "Exxon",
+        "ExxonMobil"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:V",
+      "symbol": "V",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Visa Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "financials",
+      "industry": "payment networks",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1900000000,
+      "aliases": [
+        "Visa"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:WMT",
+      "symbol": "WMT",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Walmart Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_staples",
+      "industry": "discount stores",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1200000000,
+      "aliases": [
+        "Walmart"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:NFLX",
+      "symbol": "NFLX",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Netflix Inc.",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "streaming entertainment",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1800000000,
+      "aliases": [
+        "Netflix"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:FOXA",
+      "symbol": "FOXA",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Fox Corporation Class A",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "broadcasting",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 90000000,
+      "aliases": [
+        "Fox Corporation",
+        "Fox Corp",
+        "Fox Corporation Class A"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:FOX",
+      "symbol": "FOX",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Fox Corporation Class B",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "broadcasting",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 12000000,
+      "aliases": [
+        "Fox Corporation",
+        "Fox Corp",
+        "Fox Corporation Class B"
+      ]
+    },
+    {
+      "instrument_id": "XNAS:TLK",
+      "symbol": "TLK",
+      "mic": "XNAS",
+      "exchange": "Nasdaq",
+      "currency": "USD",
+      "name": "Telkom Indonesia (ADR)",
+      "asset_class": "equity",
+      "instrument_type": "adr",
+      "sector": "communication_services",
+      "industry": "telecom services",
+      "country": "US",
+      "status": "active",
+      "is_primary_listing": false,
+      "isin": null,
+      "adv_usd": 40000000,
+      "aliases": [
+        "Telkom Indonesia",
+        "Telkom",
+        "PT Telkom Indonesia"
+      ],
+      "provider_bindings": {
+        "yahoo": "TLK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BBCA",
+      "symbol": "BBCA",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Central Asia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": "ID1000109507",
+      "adv_usd": 48000000,
+      "aliases": [
+        "Bank Central Asia",
+        "Bank Central Asia Tbk",
+        "BCA"
+      ],
+      "provider_bindings": {
+        "yahoo": "BBCA.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BBRI",
+      "symbol": "BBRI",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Rakyat Indonesia (Persero) Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 41000000,
+      "aliases": [
+        "Bank Rakyat Indonesia",
+        "Bank BRI",
+        "BRI"
+      ],
+      "provider_bindings": {
+        "yahoo": "BBRI.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BMRI",
+      "symbol": "BMRI",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Mandiri (Persero) Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 39000000,
+      "aliases": [
+        "Bank Mandiri",
+        "Mandiri"
+      ],
+      "provider_bindings": {
+        "yahoo": "BMRI.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BBNI",
+      "symbol": "BBNI",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Negara Indonesia (Persero) Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 14000000,
+      "aliases": [
+        "Bank Negara Indonesia",
+        "BNI"
+      ],
+      "provider_bindings": {
+        "yahoo": "BBNI.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BBTN",
+      "symbol": "BBTN",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Tabungan Negara (Persero) Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 6000000,
+      "aliases": [
+        "Bank Tabungan Negara",
+        "BTN"
+      ],
+      "provider_bindings": {
+        "yahoo": "BBTN.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BRIS",
+      "symbol": "BRIS",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Syariah Indonesia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 9000000,
+      "aliases": [
+        "Bank Syariah Indonesia",
+        "BSI"
+      ],
+      "provider_bindings": {
+        "yahoo": "BRIS.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BJTM",
+      "symbol": "BJTM",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Pembangunan Daerah Jawa Timur Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 2000000,
+      "aliases": [
+        "Bank Jatim"
+      ],
+      "provider_bindings": {
+        "yahoo": "BJTM.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:BNGA",
+      "symbol": "BNGA",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank CIMB Niaga Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 4000000,
+      "aliases": [
+        "Bank CIMB Niaga",
+        "CIMB Niaga"
+      ],
+      "provider_bindings": {
+        "yahoo": "BNGA.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:ARTO",
+      "symbol": "ARTO",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Jago Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 5000000,
+      "aliases": [
+        "Bank Jago",
+        "Jago"
+      ],
+      "provider_bindings": {
+        "yahoo": "ARTO.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:PNBN",
+      "symbol": "PNBN",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Bank Pan Indonesia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "banks",
+      "industry": "banks",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 1500000,
+      "aliases": [
+        "Bank Pan Indonesia",
+        "Panin Bank"
+      ],
+      "provider_bindings": {
+        "yahoo": "PNBN.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:TLKM",
+      "symbol": "TLKM",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Telkom Indonesia (Persero) Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "communication_services",
+      "industry": "telecom services",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 22000000,
+      "aliases": [
+        "Telkom Indonesia",
+        "Telkom",
+        "PT Telkom Indonesia"
+      ],
+      "provider_bindings": {
+        "yahoo": "TLKM.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:ASII",
+      "symbol": "ASII",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Astra International Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_discretionary",
+      "industry": "auto manufacturers",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 18000000,
+      "aliases": [
+        "Astra International",
+        "Astra"
+      ],
+      "provider_bindings": {
+        "yahoo": "ASII.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:UNVR",
+      "symbol": "UNVR",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Unilever Indonesia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_staples",
+      "industry": "household products",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 7000000,
+      "aliases": [
+        "Unilever Indonesia"
+      ],
+      "provider_bindings": {
+        "yahoo": "UNVR.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:ICBP",
+      "symbol": "ICBP",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Indofood CBP Sukses Makmur Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_staples",
+      "industry": "packaged foods",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 5500000,
+      "aliases": [
+        "Indofood CBP",
+        "Indofood"
+      ],
+      "provider_bindings": {
+        "yahoo": "ICBP.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:GOTO",
+      "symbol": "GOTO",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT GoTo Gojek Tokopedia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "technology",
+      "industry": "internet platform",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 11000000,
+      "aliases": [
+        "GoTo",
+        "Gojek Tokopedia"
+      ],
+      "provider_bindings": {
+        "yahoo": "GOTO.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:ADRO",
+      "symbol": "ADRO",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Adaro Energy Indonesia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "energy",
+      "industry": "coal",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 8000000,
+      "aliases": [
+        "Adaro",
+        "Adaro Energy"
+      ],
+      "provider_bindings": {
+        "yahoo": "ADRO.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:ANTM",
+      "symbol": "ANTM",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Aneka Tambang Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "materials",
+      "industry": "gold & base metals",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 6500000,
+      "aliases": [
+        "Aneka Tambang",
+        "Antam"
+      ],
+      "provider_bindings": {
+        "yahoo": "ANTM.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:CPIN",
+      "symbol": "CPIN",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Charoen Pokphand Indonesia Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "consumer_staples",
+      "industry": "packaged foods",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 3500000,
+      "aliases": [
+        "Charoen Pokphand"
+      ],
+      "provider_bindings": {
+        "yahoo": "CPIN.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:KLBF",
+      "symbol": "KLBF",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Kalbe Farma Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "healthcare",
+      "industry": "pharmaceuticals",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 4200000,
+      "aliases": [
+        "Kalbe Farma",
+        "Kalbe"
+      ],
+      "provider_bindings": {
+        "yahoo": "KLBF.JK"
+      }
+    },
+    {
+      "instrument_id": "XIDX:SMGR",
+      "symbol": "SMGR",
+      "mic": "XIDX",
+      "exchange": "Bursa Efek Indonesia",
+      "currency": "IDR",
+      "name": "PT Semen Indonesia (Persero) Tbk",
+      "asset_class": "equity",
+      "instrument_type": "common_stock",
+      "sector": "materials",
+      "industry": "cement",
+      "country": "ID",
+      "status": "active",
+      "is_primary_listing": true,
+      "isin": null,
+      "adv_usd": 2800000,
+      "aliases": [
+        "Semen Indonesia",
+        "Semen Gresik"
+      ],
+      "provider_bindings": {
+        "yahoo": "SMGR.JK"
+      }
+    }
+  ],
+  "ambiguous": [
+    {
+      "query": "Alphabet",
+      "kind": "share_class",
+      "candidates": [
+        "XNAS:GOOGL",
+        "XNAS:GOOG"
+      ],
+      "why": "Dua kelas saham emiten yang sama (Class A / Class C); query nama tidak boleh memilih salah satu (03 §3.1 A3)."
+    },
+    {
+      "query": "Fox Corporation",
+      "kind": "share_class",
+      "candidates": [
+        "XNAS:FOXA",
+        "XNAS:FOX"
+      ],
+      "why": "Dua kelas saham emiten yang sama (Class A / Class B); memilih berdasarkan urutan provider adalah anti-pola 03 §3.7."
+    }
+  ]
+}
