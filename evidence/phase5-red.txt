@@ -1,0 +1,348 @@
+# Fase 5 RED — pytest evidence
+# commit: 693fb14
+# date: 2026-10-22T20:01:18Z
+
+...........................................................FFFFFFFFFFFFF [ 20%]
+FFFFFFFFFFFFFFFFFFFF................................FFFFFFFFFFFFF....... [ 40%]
+.....................................................................FFF [ 60%]
+FFFFFFFFFFF............................................................. [ 80%]
+........................................................................ [100%]
+=================================== FAILURES ===================================
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:124: NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+E   NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:124: NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+E   NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:124: NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:124: NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+E   NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:124: NotImplementedError: app.export.writer is missing xlsx_sheet_names, XLSX_SHEET_ROW_LIMIT (Fase 5 RED)
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.pipeline'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.pipeline is not implemented yet (Fase 5 RED): No module named 'app.export.pipeline'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:654: NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+E   NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:654: NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+E   NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:654: NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+E   NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+/home/ubuntu/ztockz/tests/_phase5.py:473: NotImplementedError: SqliteJobRepository.purge_jobs(job_ids) is missing (Fase 5 RED)
+E   ModuleNotFoundError: No module named 'app.export.cleanup'
+
+The above exception was the direct cause of the following exception:
+E   NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+/home/ubuntu/ztockz/tests/_phase5.py:116: NotImplementedError: app.export.cleanup is not implemented yet (Fase 5 RED): No module named 'app.export.cleanup'
+=========================== short test summary info ============================
+FAILED tests/test_export_formats.py::test_one_run_writes_all_four_formats - N...
+FAILED tests/test_export_formats.py::test_the_default_formats_are_the_four_data_formats
+FAILED tests/test_export_formats.py::test_csv_reimports_to_the_source_table
+FAILED tests/test_export_formats.py::test_csv_neutralises_formula_injection_and_round_trips_as_text
+FAILED tests/test_export_formats.py::test_a_real_zero_is_not_an_empty_cell - ...
+FAILED tests/test_export_formats.py::test_unicode_commas_quotes_and_newlines_survive_csv
+FAILED tests/test_export_formats.py::test_jsonl_has_exactly_one_line_per_row
+FAILED tests/test_export_formats.py::test_jsonl_keeps_lists_as_json_instead_of_python_repr
+FAILED tests/test_export_formats.py::test_xlsx_has_no_formula_cells_at_all - ...
+FAILED tests/test_export_formats.py::test_xlsx_data_sheet_cells_match_the_source_row
+FAILED tests/test_export_formats.py::test_xlsx_formula_injection_is_text_not_a_formula
+FAILED tests/test_export_formats.py::test_xlsx_has_data_quality_and_providers_sheets
+FAILED tests/test_export_formats.py::test_parquet_schema_is_explicit_and_complete
+FAILED tests/test_export_formats.py::test_parquet_returns_every_cell - NotImp...
+FAILED tests/test_export_formats.py::test_parquet_mixed_type_column_becomes_string
+FAILED tests/test_export_formats.py::test_the_xlsx_sheet_limit_is_fifty_thousand_rows
+FAILED tests/test_export_formats.py::test_xlsx_sheet_names_split_a_large_table
+FAILED tests/test_export_formats.py::test_xlsx_workbook_really_splits_at_the_configured_limit
+FAILED tests/test_export_formats.py::test_xlsx_sheet_names_reject_a_non_positive_limit[0]
+FAILED tests/test_export_formats.py::test_xlsx_sheet_names_reject_a_non_positive_limit[-1]
+FAILED tests/test_export_resume.py::test_a_rerun_with_the_same_options_is_byte_identical
+FAILED tests/test_export_resume.py::test_a_rerun_does_not_duplicate_files_or_leave_temporaries
+FAILED tests/test_export_resume.py::test_content_sha256_depends_on_content_not_shard_size
+FAILED tests/test_export_resume.py::test_a_missing_output_file_is_rebuilt_on_the_next_run
+FAILED tests/test_export_resume.py::test_the_shard_plan_covers_every_row_exactly_once
+FAILED tests/test_export_resume.py::test_the_shard_plan_rejects_a_non_positive_size[0]
+FAILED tests/test_export_resume.py::test_the_shard_plan_rejects_a_non_positive_size[-1]
+FAILED tests/test_export_resume.py::test_a_failure_at_shard_three_finalises_the_earlier_shards
+FAILED tests/test_export_resume.py::test_resume_only_writes_the_remaining_shards
+FAILED tests/test_export_resume.py::test_resume_finishes_with_every_row_exactly_once
+FAILED tests/test_export_resume.py::test_resume_is_recorded_in_the_custody_log
+FAILED tests/test_export_resume.py::test_a_failed_export_is_recorded_before_the_error_is_raised
+FAILED tests/test_export_resume.py::test_export_reads_the_source_one_shard_at_a_time
+FAILED tests/test_manifest.py::test_manifest_describes_every_data_file - NotI...
+FAILED tests/test_manifest.py::test_manifest_does_not_count_itself_or_the_custody_log
+FAILED tests/test_manifest.py::test_manifest_row_coverage_is_one_hundred_percent
+FAILED tests/test_manifest.py::test_manifest_carries_the_frozen_metadata - No...
+FAILED tests/test_manifest.py::test_verify_manifest_accepts_a_clean_manifest
+FAILED tests/test_manifest.py::test_verify_manifest_detects_a_tampered_file
+FAILED tests/test_manifest.py::test_verify_manifest_detects_a_missing_file - ...
+FAILED tests/test_manifest.py::test_verify_manifest_detects_a_coverage_lie - ...
+FAILED tests/test_manifest.py::test_export_refuses_to_claim_coverage_it_did_not_write
+FAILED tests/test_manifest.py::test_custody_is_append_only_and_records_every_step
+FAILED tests/test_manifest.py::test_custody_format_records_match_the_manifest_hashes
+FAILED tests/test_manifest.py::test_custody_is_not_rewritten_by_a_second_export
+FAILED tests/test_manifest.py::test_the_exported_csv_really_holds_every_row
+FAILED tests/test_retention.py::test_the_default_retention_policy_is_thirty_days
+FAILED tests/test_retention.py::test_default_retention_keeps_a_ten_day_old_expired_job
+FAILED tests/test_retention.py::test_default_retention_purges_a_job_past_thirty_days
+FAILED tests/test_retention.py::test_an_unexpired_job_is_never_purged_even_when_old
+FAILED tests/test_retention.py::test_an_explicit_policy_purges_only_the_expired_job
+FAILED tests/test_retention.py::test_sweep_unlinks_every_file_before_it_deletes_a_row
+FAILED tests/test_retention.py::test_a_failed_unlink_leaves_every_row_in_place
+FAILED tests/test_retention.py::test_a_failed_unlink_is_named_in_the_report
+FAILED tests/test_retention.py::test_sweep_refuses_to_unlink_outside_the_export_root
+FAILED tests/test_retention.py::test_a_dry_run_reports_without_deleting_anything
+FAILED tests/test_retention.py::test_a_second_sweep_is_a_no_op - NotImplement...
+FAILED tests/test_retention.py::test_a_purge_is_written_to_the_chain_of_custody
+FAILED tests/test_retention.py::test_purge_jobs_removes_the_children_in_one_transaction
+FAILED tests/test_retention.py::test_sweep_never_touches_a_custody_log_from_another_job
+60 failed, 300 passed in 17.98s
+
+# failure kinds (one per failing test, from JUnit XML):
+  NotImplementedError: 60
