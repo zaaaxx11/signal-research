@@ -19,6 +19,11 @@ class Settings(BaseSettings):
 
     db_path: Path = Path("ztockz.db")
     export_dir: Path = Path("out")
+    #: Reference master (02 §3.3). ``None`` → the repo seed at
+    #: ``reference/venue_master.json``; ``MEE_REFERENCE_PATH`` overrides it.
+    #: Not defaulted to a path here so a missing file is an explicit error at
+    #: load time, not a surprising import of a module that happens to exist.
+    reference_path: Path | None = None
     max_attempts: int = 3
     job_lease_s: int = 300
     quote_ttl_s: int = 900

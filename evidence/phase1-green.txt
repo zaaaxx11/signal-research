@@ -1,0 +1,164 @@
+FASE 1 GREEN — bukti eksekusi
+============================================================
+Repo      : /home/ubuntu/ztockz
+Baseline  : 6b70a59 "Phase 1 RED: resolver, estimate and quote-over-HTTP contracts"
+            21 failed, 69 passed (evidence/phase1-red.txt)
+Hasil     : 90 passed, 0 failed, 0 error, 0 skip
+Python    : 3.14.x  ·  venv .venv  ·  pytest 9.1.1 (asyncio_mode=auto)
+
+Semua perintah dijalankan dari /home/ubuntu/ztockz. Tidak ada tes, fixture,
+helper, atau evidence RED yang diubah: `git status` sebelum commit hanya
+menyentuh `app/`, `reference/`, dan `evidence/` (laporan briefs/ berada di luar
+repo).
+
+------------------------------------------------------------
+1. Suite penuh (gerbang utama)
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts=""
+............................................................ [ 80%]
+............................................................ [100%]
+============================== 90 passed in 8.50s ==============================
+
+(exit 0; 90 = 68 tes Fase 0 + 22 tes Fase 1)
+
+------------------------------------------------------------
+2. Tiga berkas Fase 1 (resolver, estimator, quote-over-HTTP)
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts="" \
+    tests/test_resolve.py tests/test_estimate.py tests/test_quote_http.py
+============================== 22 passed in 4.37s ==============================
+
+  test_resolve.py      10 passed   (1 guard fixture + 9 kontrak)
+  test_estimate.py      6 passed
+  test_quote_http.py    6 passed
+
+------------------------------------------------------------
+3. Regresi Fase 0 (delapan berkas asli, tanpa perubahan)
+------------------------------------------------------------
+$ .venv/bin/python -m pytest --tb=no -o addopts="" \
+    tests/test_contracts.py tests/test_job_lifecycle.py tests/test_quotes.py \
+    tests/test_api.py tests/test_export_contract.py tests/test_import_direction.py \
+    tests/test_no_network.py tests/test_env.py
+============================== 68 passed in 4.81s ==============================
+
+Termasuk test_import_direction.py (AST dependency rules) dan
+test_no_network.py (nol egress) — keduanya hijau tanpa pengecualian baru.
+
+------------------------------------------------------------
+4. Migrasi: satu head, skema tidak berubah
+------------------------------------------------------------
+$ .venv/bin/alembic -x db=/tmp/mee-alembic/a.db upgrade head
+$ .venv/bin/alembic heads
+0001 (head)
+
+$ sqlite3 /tmp/mee-alembic/a.db "select version_num from alembic_version"
+0001
+
+Tabel setelah upgrade (9 + alembic_version):
+  alembic_version, instrument_aliases, instruments, job_artifacts, job_batches,
+  jobs, observations, provider_health, quotes, verification_rejections
+
+Keputusan: tidak ada 0002. 0001_init sudah membuat quotes (termasuk
+expires_at NOT NULL, used_at, job_id) serta instruments/instrument_aliases;
+Fase 1 tidak menambah DDL. Migrasi data untuk seed juga ditolak: sumber
+kebenaran master adalah file, bukan salinan SQL yang bisa drift
+(lihat 11-phase1-green.md §4).
+
+------------------------------------------------------------
+5. Seed dua venue (idempoten, dari file master)
+------------------------------------------------------------
+$ MEE_DB_PATH=/tmp/mee-seed/s.db MEE_REFERENCE_PATH=tests/fixtures/reference_venue.json \
+    .venv/bin/python -m app.resolve.seed
+seeded 39 instruments from .../tests/fixtures/reference_venue.json into /tmp/mee-seed/s.db
+
+$ (perintah yang sama dijalankan dua kali — hasil identik, tanpa error)
+
+Isi tabel setelah seed:
+  instruments          39
+  instrument_aliases  151
+  per venue           XIDX 20, XNAS 19
+  contoh              XIDX:BBCA 'PT Bank Central Asia Tbk' active
+  contoh alias        ('bbca','ticker',1.0), ('bca','name',0.95),
+                      ('bank central asia','name',0.95)
+
+------------------------------------------------------------
+6. Batas 100 simbol diuji di luar fixture (univers 250 instrumen)
+------------------------------------------------------------
+Fixture Fase 1 terbesar hanya 20 instrumen, jadi chunking >100 tidak terpicu
+oleh suite. Probe manual (master sintetis 250 instrumen XNAS, teks
+"technology in nasdaq", /markets/estimate):
+
+  250-instrument plan batches: [100, 100, 50] total: 250 unique: 250
+  plan_hash recomputes from storage: True
+  quote universe size: 250
+
+Artinya: tiap batch ≤ 100, indeks kontigu, simbol unik dan terurut, dan
+plan_hash dapat dihitung ulang dari baris quotes yang tersimpan (bukan hanya
+oleh proses yang menulisnya). Probe memakai salinan repo di /tmp, tidak
+mengubah repo.
+
+------------------------------------------------------------
+7. Quote beku dijalankan end-to-end (di luar assertion suite)
+------------------------------------------------------------
+Estimate watchlist [MSFT, AAPL] (6 kolom) → enrich dengan market ["NVDA"],
+as_of lain, async=false:
+
+  HTTP 200, status Success, rows_target=2, result_count=2,
+  quotes.job_id == job id
+
+Suite hanya memeriksa 202 + jobs.params (sesuai gerbang), jadi hasil Success
+ini adalah bukti tambahan bahwa plan beku benar-benar dapat dieksekusi worker,
+bukan sekadar JSON yang lolos validasi.
+
+------------------------------------------------------------
+8. Mutasi: tes tetap menggigit pada implementasi nyata
+------------------------------------------------------------
+Empat mutan pada salinan /tmp (bukan repo), satu tes penjaga per mutan:
+
+  [plan-order-input]            urutan plan dibalik (symbol desc)
+      → FAILED test_estimate.py::test_plan_batches_are_materialised_ordered_and_capped
+  [enrich-uses-payload]         params memakai payload pemanggil, bukan plan beku
+      → FAILED test_quote_http.py::test_enrich_consumes_the_quote_and_uses_the_frozen_plan
+  [estimate-scales-with-target] mid dikalikan target_rows/100
+      → FAILED test_estimate.py::test_estimate_does_not_depend_on_target_rows
+  [quote-id-ignored]            cabang quote_id dimatikan
+      → FAILED test_quote_http.py::test_unknown_quote_id_is_409_not_404
+
+4/4 terbunuh. (RED brief §5 sudah membuktikan 6/6 pada implementasi buangan;
+ini memastikan implementasi GREEN tidak "lulus karena tes melemah".)
+
+------------------------------------------------------------
+9. Determininisme & plan_hash (properti yang di-assert suite)
+------------------------------------------------------------
+- Dua estimate untuk spec sama: canonical_json(plan) identik dan
+  plan["estimate"] identik (test_estimate_is_deterministic_byte_for_byte).
+- quote plan_hash: sha256:<64 hex>, sama untuk dua quote dengan plan sama.
+- plan_hash == sha256(canonical_json(stored_plan minus plan_hash)) — yaitu
+  hash dapat direkonstruksi dari baris quotes (diverifikasi di probe §6).
+
+------------------------------------------------------------
+10. Status berkas
+------------------------------------------------------------
+Baru:
+  app/resolve/__init__.py
+  app/resolve/reference.py
+  app/resolve/aliases.py
+  app/resolve/intent.py
+  app/resolve/universe.py
+  app/resolve/estimator.py
+  app/resolve/seed.py
+  reference/venue_master.json          (seed 39 instrumen, 2 venue)
+  evidence/phase1-green.txt            (berkas ini)
+  briefs/market-engine/11-phase1-green.md
+
+Diubah (app/ saja):
+  app/config.py        + reference_path (MEE_REFERENCE_PATH)
+  app/runtime.py       + quote store, + ensure_reference_seeded
+  app/api/markets.py   resolve|estimate nyata + enrich meneruskan quotes
+  app/jobs/service.py  konsumsi quote_id → params dari plan beku → job → job_id
+  app/jobs/quotes.py   + attach_job (quotes.job_id setelah job ada)
+  app/jobs/ports.py    + attach_job, + close pada QuoteRepository
+  app/db.py            perbaikan ResourceWarning: sqlite3.Connection ditutup
+                       (pre-existing; muncul setelah jalur quote aktif)
+
+Tidak diubah: tests/**, tests/fixtures/**, tests/_phase1.py, evidence/phase1-red.txt.

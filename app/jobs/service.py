@@ -16,12 +16,13 @@ route handler:
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
-from app.contracts import MarketKind, MarketRequest
+from app.contracts import MarketKind, MarketRequest, QuotePlanV1
 from app.export.writer import IMPLEMENTED_FORMATS
 from app.jobs.errors import JobNotFound, JobTerminal, RequestNotServable
-from app.jobs.ports import JobRecord, JobRepository
+from app.jobs.ports import JobRecord, JobRepository, QuoteRepository
 from app.jobs.repository import FAILURE, PROCESSING
 from app.providers.registry import REGISTRY, ladder_for
 
@@ -43,16 +44,30 @@ def wire_status(status: str) -> str:
 
 
 async def submit_enrich(
-    request: MarketRequest, *, api_key: str, repository: JobRepository
+    request: MarketRequest,
+    *,
+    api_key: str,
+    repository: JobRepository,
+    quotes: QuoteRepository | None = None,
 ) -> JobRecord:
     """Freeze the request into ``jobs.params`` and return the created job.
 
-    Three preflight checks run **before** the row exists, because a job that
-    cannot honour the request is a ``Success``-shaped lie waiting to happen:
+    Preflight checks run **before** anything is spent, because a job that cannot
+    honour the request is a ``Success``-shaped lie waiting to happen:
 
     * a capability with no rung in ``REGISTRY`` (Phase 0 has ``quote`` only);
     * an output format whose writer is a later phase (``xlsx``, ``parquet``);
-    * a ``quote_id`` — accepted by the contract, consumed by Phase 1.
+
+    Then, when the caller presents a ``quote_id``, the order is fixed:
+
+    1. **consume** the quote (409 replay/foreign, 410 expired) — the single-use
+       CAS is the only thing standing between two jobs and one sold plan;
+    2. build ``params`` from the **frozen plan**, not from the caller's
+       ``market`` / ``fields`` / ``as_of`` (gate 4: the plan wins);
+    3. create the job, then write ``quotes.job_id`` — the column is metadata
+       *after* the job exists, never a reservation before it.
+
+    A refusal therefore leaves no job row and does not spend the quote.
     """
 
     missing = [capability.value for capability in request.enrichment if not ladder_for(capability)]
@@ -72,9 +87,14 @@ async def submit_enrich(
         )
 
     if request.quote_id is not None:
-        raise RequestNotServable(
-            "quote_id is refused rather than ignored: single-use quote consumption "
-            "is wired in Phase 1 (POST /markets/estimate)"
+        if quotes is None:
+            # Never silently ignore the id: an unhonoured quote is a plan the
+            # client thinks it bought (02 §3.2).
+            raise RequestNotServable(
+                "quote_id was presented but no quote store is configured for this deployment"
+            )
+        return await _submit_from_quote(
+            request, api_key=api_key, repository=repository, quotes=quotes
         )
 
     params = request.model_dump(mode="json")
@@ -85,6 +105,61 @@ async def submit_enrich(
         rows_target=rows_target_for(request),
         retention_days=request.retention_days,
     )
+
+
+async def _submit_from_quote(
+    request: MarketRequest,
+    *,
+    api_key: str,
+    repository: JobRepository,
+    quotes: QuoteRepository,
+) -> JobRecord:
+    """Spend the quote, then create the job its frozen plan describes."""
+
+    assert request.quote_id is not None  # narrowed by the caller
+    consumed = await quotes.consume(request.quote_id, api_key=api_key, now=datetime.now(UTC))
+    plan = QuotePlanV1.model_validate(consumed["plan"])
+
+    job = await repository.create(
+        params=frozen_params(request, plan, quote_id=consumed["id"]),
+        api_key=api_key,
+        service="market_enrich",
+        # A quote freezes the universe: the row target is the frozen symbol
+        # count, not whatever target_rows the caller's optimism requested.
+        rows_target=len(plan.universe.symbols),
+        retention_days=plan.retention_days,
+    )
+    await quotes.attach_job(consumed["id"], job["id"])
+    return job
+
+
+def frozen_params(
+    request: MarketRequest, plan: QuotePlanV1, *, quote_id: str
+) -> dict[str, Any]:
+    """``jobs.params`` as the quote froze it (02 §4.1, gate 4).
+
+    ``market`` becomes a watchlist of the frozen symbols even when the caller
+    asked with a filter: the worker must execute a materialised universe, and a
+    filter re-evaluated tomorrow is a different plan. Keys stay inside
+    ``MarketSpec`` so ``MarketRequest.model_validate`` accepts the document in
+    the worker (``extra="forbid"``).
+    """
+
+    params = request.model_dump(mode="json")
+    params["market"] = {
+        "kind": MarketKind.WATCHLIST.value,
+        "symbols": list(plan.universe.symbols),
+        "venue": plan.universe.venue or plan.universe.mic,
+        "sector": plan.universe.sector,
+    }
+    params["fields"] = list(plan.fields)
+    params["as_of"] = plan.freshness.as_of.isoformat()
+    params["max_staleness_s"] = plan.freshness.max_staleness_s
+    params["allow_delayed"] = plan.freshness.allow_delayed
+    params["budget"] = plan.budget.model_dump(mode="json")
+    params["retention_days"] = plan.retention_days
+    params["quote_id"] = quote_id
+    return params
 
 
 async def cancel_job(job_id: str, *, repository: JobRepository) -> JobRecord:
@@ -199,6 +274,7 @@ __all__ = [
     "FAILURE",
     "RequestNotServable",
     "cancel_job",
+    "frozen_params",
     "job_view",
     "owned_job",
     "retry_job",

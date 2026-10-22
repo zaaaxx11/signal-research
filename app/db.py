@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +90,10 @@ def alembic_config(db_path: str | Path) -> Config:
 def _has_jobs_table(db_path: Path) -> bool:
     if not db_path.exists():
         return False
-    with sqlite3.connect(db_path) as connection:
+    # ``closing`` matters: ``with sqlite3.connect(...)`` commits but does not
+    # close, and the suite runs with ``filterwarnings = error`` — a connection
+    # left to the GC becomes a ResourceWarning that fails an unrelated test.
+    with closing(sqlite3.connect(db_path)) as connection:
         row = connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"
         ).fetchone()

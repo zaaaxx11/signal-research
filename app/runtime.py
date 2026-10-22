@@ -20,7 +20,11 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings, get_settings
+from app.jobs.ports import QuoteRepository
+from app.jobs.quotes import SqliteQuoteRepository
 from app.jobs.repository import SqliteJobRepository
+from app.resolve.reference import Reference
+from app.resolve.seed import seed_reference
 from app.worker.runner import process_job
 
 logger = logging.getLogger("mee.runtime")
@@ -36,6 +40,9 @@ class Runtime:
             max_attempts=self.settings.max_attempts,
             lease_s=self.settings.job_lease_s,
         )
+        self.quotes: QuoteRepository = SqliteQuoteRepository(self.settings.db_path)
+        #: Reference masters already copied into this database (path, fingerprint).
+        self._seeded: set[tuple[str, str]] = set()
         self._tasks: set[asyncio.Task[Any]] = set()
 
     @property
@@ -61,6 +68,20 @@ class Runtime:
 
         await self._run(job_id)
 
+    async def ensure_reference_seeded(self, reference: Reference) -> None:
+        """Copy the reference master into ``instruments`` (idempotent, once).
+
+        Keyed by ``(database, master fingerprint)`` so a long-lived process seeds
+        each database once, and a master that changes on disk is re-seeded on
+        the next request rather than silently serving the old rows.
+        """
+
+        key = (str(Path(self.settings.db_path).resolve()), reference.fingerprint)
+        if key in self._seeded:
+            return
+        await seed_reference(self.settings.db_path, reference)
+        self._seeded.add(key)
+
     async def _run(self, job_id: str) -> None:
         try:
             await process_job(job_id, repository=self.repository, export_dir=self.export_dir)
@@ -78,6 +99,7 @@ class Runtime:
     async def aclose(self) -> None:
         await self.drain()
         await self.repository.close()
+        await self.quotes.close()
 
 
 __all__ = ["Runtime"]

@@ -102,6 +102,14 @@ class QuoteRepository(Protocol):
         """CAS ``used_at WHERE used_at IS NULL``; 409 if already used/foreign."""
         ...
 
+    async def attach_job(self, quote_id: str, job_id: str) -> dict[str, Any] | None:
+        """Write ``quotes.job_id`` once the job the plan produced exists."""
+        ...
+
+    async def close(self) -> None:
+        """Release the storage engine held by this repository."""
+        ...
+
 
 class BatchRepository(Protocol):
     """Per-batch checkpoint rows (02 §4.2). Phase 3 deliverable."""

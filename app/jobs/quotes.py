@@ -154,6 +154,20 @@ class SqliteQuoteRepository(QuoteRepository):
             raise QuoteAlreadyUsed(f"quote {quote_id} was already used")
         return _decoded(consumed)
 
+    async def attach_job(self, quote_id: str, job_id: str) -> dict[str, Any] | None:
+        """Link a spent quote to the job it produced (``quotes.job_id``, 02 §4.3).
+
+        Written **after** the job exists — the column is metadata on the quote,
+        not a reservation. A missing row returns ``None`` instead of inventing
+        one: the caller has already validated the id via :meth:`consume`.
+        """
+
+        record = await self._one(
+            "UPDATE quotes SET job_id = :job_id WHERE id = :id RETURNING *",
+            {"id": quote_id, "job_id": job_id},
+        )
+        return _decoded(record) if record is not None else None
+
 
 def _decoded(record: Mapping[str, Any]) -> dict[str, Any]:
     """Return a copy with ``plan`` as a dict (storage keeps it as JSON text)."""
