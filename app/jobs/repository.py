@@ -607,6 +607,89 @@ class SqliteJobRepository(JobRepository):
             {"id": job_id, "kind": kind},
         )
 
+    # -- retention (02 §4.8, Fase 5) ---------------------------------------
+
+    async def expired_jobs(
+        self, now: datetime, retention_days: int = 30
+    ) -> list[dict[str, Any]]:
+        """Jobs that may be purged: expired **and** older than the day floor.
+
+        The two conditions answer different questions. ``expires_at`` says the
+        job may no longer be served (downloads already answer ``410``); the
+        floor says the deployment has kept the data long enough to let go of it.
+        Dropping either one deletes something a caller still expects:
+
+        * expiry alone destroys a seven-day job on day eight, even though the
+          default policy is thirty days;
+        * the floor alone destroys a job whose expiry was deliberately extended.
+
+        ISO-8601 UTC text columns make ``<=`` both a lexical and a chronological
+        comparison (``iso`` always writes microseconds and an offset).
+        """
+
+        if now.tzinfo is None:
+            raise ValueError("naive datetimes are not allowed in retention")
+        if (
+            isinstance(retention_days, bool)
+            or not isinstance(retention_days, int)
+            or retention_days < 0
+        ):
+            raise ValueError(f"retention_days must be an int >= 0, got {retention_days!r}")
+        floor = iso(now - timedelta(days=retention_days))
+        return await self._all(
+            """
+            SELECT * FROM jobs
+             WHERE expires_at IS NOT NULL
+               AND expires_at <= :now
+               AND created_at <= :floor
+             ORDER BY created_at, id
+            """,
+            {"now": iso(now), "floor": floor},
+        )
+
+    async def all_artifacts(self) -> list[dict[str, Any]]:
+        """Every artifact row (the sweeper validates its blast radius first)."""
+
+        return await self._all("SELECT * FROM job_artifacts ORDER BY job_id, kind")
+
+    async def purge_jobs(self, job_ids: Iterable[str]) -> int:
+        """Delete the artifacts, rejections, batches and job rows in **one** transaction.
+
+        ``observations`` is deliberately untouched: it is append-only with a
+        separate retention policy (02 §4.6) and its ``job_id`` FK is
+        ``ON DELETE SET NULL``, so the measurement survives the job that
+        fetched it. A partial purge is not a state this method can return.
+        """
+
+        ids = [str(job_id) for job_id in job_ids]
+        if not ids:
+            return 0
+
+        engine = await self._ready_engine()
+        for attempt in range(_LOCK_RETRIES):
+            try:
+                async with engine.begin() as connection:
+                    for job_id in ids:
+                        for table in ("job_artifacts", "verification_rejections", "job_batches"):
+                            await connection.execute(
+                                text(f"DELETE FROM {table} WHERE job_id = :job_id"),
+                                {"job_id": job_id},
+                            )
+                    deleted = 0
+                    for job_id in ids:
+                        result = await connection.execute(
+                            text("DELETE FROM jobs WHERE id = :job_id"), {"job_id": job_id}
+                        )
+                        deleted += int(result.rowcount or 0)
+                return deleted
+            except OperationalError as exc:
+                if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                    raise
+                if attempt == _LOCK_RETRIES - 1:
+                    raise
+                await asyncio.sleep(_LOCK_BACKOFF_S * (attempt + 1))
+        return 0  # pragma: no cover - the loop returns or raises
+
     # -- batch checkpoints (02 §4.2, Fase 3) -------------------------------
 
     async def ensure_batches(

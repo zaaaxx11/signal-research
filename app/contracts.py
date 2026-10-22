@@ -257,7 +257,7 @@ class VerdictKind(str, Enum):
     MISMATCH = "mismatch"
 
 
-OutputFormat = Literal["csv", "json", "xlsx", "parquet"]
+OutputFormat = Literal["csv", "json", "xlsx", "jsonl", "parquet"]
 PlanMode = Literal["balanced", "fast", "cheap"]
 
 #: ``Observation.unit`` — a unit is a closed vocabulary, not a free string.

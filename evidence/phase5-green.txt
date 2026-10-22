@@ -1,0 +1,81 @@
+# Phase-5 GREEN evidence — ztockz @ a2333da + Fase 5 implementation — 2026-10-22
+
+## 1. Suite (three consecutive runs, exact command from the brief)
+
+```
+$ cd /home/ubuntu/ztockz
+$ .venv/bin/pytest --tb=no -o addopts=""
+
+run 1: 360 passed in 20.37s
+run 2: 360 passed in 20.78s
+run 3: 360 passed in 20.86s
+```
+
+No `xfail`, no `skip`, no warning filter added, no `-k`, no plugin flags.
+`pyproject.toml` is unchanged (`addopts`, `filterwarnings = error`,
+`asyncio_mode = auto`). The RED evidence (`evidence/phase5-red.txt`) reports
+`60 failed, 300 passed`; the difference is exactly the 60 Phase-5 tests, and no
+Fase 0–4 test changed state.
+
+## 2. Composition — 60 new tests, 300 legacy tests
+
+```
+tests/test_export_formats.py      20 passed
+tests/test_manifest.py            13 passed
+tests/test_export_resume.py       13 passed
+tests/test_retention.py           14 passed
+                                 -- 60
+tests/ (Fase 0–4, untouched)     300 passed
+                                 -- 360
+```
+
+`git status --short` (before commit) shows **no** file under `tests/`,
+`tests/fixtures/`, `tests/spec/`, `evidence/phase5-red.txt`, `reference/`,
+`alembic/` or `pyproject.toml` modified:
+
+```
+ M app/export/writer.py
+ M app/jobs/repository.py
+?? app/export/cleanup.py
+?? app/export/manifest.py
+?? app/export/pipeline.py
+```
+
+## 3. Artifact properties, measured outside the suite
+
+A six-row fixture exported once into a scratch directory (independent probe, not
+a test):
+
+```
+data files            job-probe.{csv,xlsx,jsonl,parquet}   (4)
+parquet columns       92, order == CANONICAL_COLUMNS_V1
+parquet metadata      b"mee.columns_version" -> b"v1"
+parquet types         1 bool, 10 int64, 54 double, 27 string (sum 92)
+xlsx sheets           ['data', 'quality', 'providers']
+xlsx formula cells    0  (openpyxl data_type == "f" over every sheet)
+xlsx quality rows     93 (header + one per canonical column)
+manifest verify       ok=True, problems=(), files_checked=4
+custody events        export_started, shard_written, format_written x4,
+                      manifest_written, export_completed
+```
+
+Determinism (the same table at `rows_per_shard` 2, 5 and 1000):
+
+```
+content_sha256        identical in all three runs
+csv / xlsx / jsonl / parquet sha256   identical in all three runs
+rerun                 shards_written=(), shards_skipped=(0,), resumed=True,
+                      every artifact byte-identical, content_sha256 unchanged
+```
+
+Injected failure in the format stage (probe patch, not a test): the run leaves
+`.<job>.parts/shard-000.jsonl` and `job.custody.jsonl` with a final
+`export_failed` record, and **no** data file and **no** manifest.
+
+## 4. Migration
+
+No `0007` was added. Nothing new is persisted: the manifest and both custody
+logs are files, `job_artifacts` already carries `kind/path/bytes/row_count/
+sha256`, and `purge_jobs` deletes existing rows only. Adding a revision with no
+schema change would be a lie in the migration history, so `alembic/` is
+untouched.

@@ -32,6 +32,7 @@ router = APIRouter(prefix="/requests", tags=["requests"])
 MEDIA_TYPES: dict[str, str] = {
     "csv": "text/csv; charset=utf-8",
     "json": "application/json",
+    "jsonl": "application/x-ndjson",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "parquet": "application/vnd.apache.parquet",
 }
