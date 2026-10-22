@@ -1,0 +1,89 @@
+# Fase 6 RED (wiring) — pytest evidence
+# base commit: b0d6aac (+ working tree)
+# date: 2026-10-22T20:41:07Z
+# command: .venv/bin/pytest --tb=line -o addopts=""
+
+........................................................................ [ 19%]
+........................................................................ [ 38%]
+........................................................................ [ 57%]
+........................................................................ [ 76%]
+........................................................................ [ 95%]
+F.FFFFFFFFFFFFFF                                                         [100%]
+=================================== FAILURES ===================================
+E   AssertionError: the writer produces every format, so the runner (and therefore the API) must advertise all of them; IMPLEMENTED_FORMATS=('csv', 'json') vs FORMATS=('csv', 'json', 'xlsx', 'jsonl', 'parquet') (19 §4.1: the tuple is raised by the wiring step)
+    assert ('csv', 'json') == ('csv', 'json...l', 'parquet')
+      
+      Right contains 3 more items, first extra item: 'xlsx'
+      Use -v to get more diff
+/home/ubuntu/ztockz/tests/test_wiring_formats.py:55: AssertionError: the writer produces every format, so the runner (and therefore the API) must advertise all of them; IMPLEMENTED_FORMATS=('csv', 'json') vs FORMATS=('csv', 'json', 'xlsx', 'jsonl', 'parquet') (19 §4.1: the tuple is raised by the wiring step)
+E   AssertionError: POST /markets/enrich format=['xlsx', 'jsonl', 'parquet'] -> 501: {"error":"request_not_servable","errorMessage":"export writer not implemented for: jsonl, parquet, xlsx; available: csv, json"}
+    assert 501 == 200
+     +  where 501 = <Response [501 Not Implemented]>.status_code
+/home/ubuntu/ztockz/tests/test_wiring_formats.py:35: AssertionError: POST /markets/enrich format=['xlsx', 'jsonl', 'parquet'] -> 501: {"error":"request_not_servable","errorMessage":"export writer not implemented for: jsonl, parquet, xlsx; available: csv, json"}
+E   AssertionError: POST /markets/enrich format=['csv', 'xlsx', 'jsonl', 'parquet'] -> 501: {"error":"request_not_servable","errorMessage":"export writer not implemented for: jsonl, parquet, xlsx; available: csv, json"}
+    assert 501 == 200
+     +  where 501 = <Response [501 Not Implemented]>.status_code
+/home/ubuntu/ztockz/tests/test_wiring_formats.py:35: AssertionError: POST /markets/enrich format=['csv', 'xlsx', 'jsonl', 'parquet'] -> 501: {"error":"request_not_servable","errorMessage":"export writer not implemented for: jsonl, parquet, xlsx; available: csv, json"}
+E   AssertionError: the runner wrote four data files but no manifest: the bundle is unsigned and the download route has nothing to verify against
+    assert False
+     +  where False = exists()
+     +    where exists = PosixPath('/home/ubuntu/.hermes/cache/scratch/pytest-of-ubuntu/pytest-1779/test_runner_writes_four_format0/exports/b95828c1-63dd-4119-952d-265691f7a3fa.manifest.json').exists
+/home/ubuntu/ztockz/tests/test_wiring_formats.py:194: AssertionError: the runner wrote four data files but no manifest: the bundle is unsigned and the download route has nothing to verify against
+E   AssertionError: POST /markets/enrich format=['jsonl'] -> 501: {"error":"request_not_servable","errorMessage":"export writer not implemented for: jsonl; available: csv, json"}
+    assert 501 == 200
+     +  where 501 = <Response [501 Not Implemented]>.status_code
+/home/ubuntu/ztockz/tests/test_wiring_formats.py:35: AssertionError: POST /markets/enrich format=['jsonl'] -> 501: {"error":"request_not_servable","errorMessage":"export writer not implemented for: jsonl; available: csv, json"}
+E   AssertionError: REGISTRY lists yahoo as a rung for quote/eod_bars/fundamentals/options, but the adapter declares only ['eod_bars', 'quote']; an undeclared capability makes HttpAdapter.fetch raise 'does not implement' for a rung that is supposed to answer
+    assert {<Capability....OTE: 'quote'>} <= {<Capability....OTE: 'quote'>}
+      
+      Extra items in the left set:
+      <Capability.OPTIONS: 'options'>
+      <Capability.FUNDAMENTALS: 'fundamentals'>
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:87: AssertionError: REGISTRY lists yahoo as a rung for quote/eod_bars/fundamentals/options, but the adapter declares only ['eod_bars', 'quote']; an undeclared capability makes HttpAdapter.fetch raise 'does not implement' for a rung that is supposed to answer
+E   AssertionError: the EOD parse left these cells empty: ['bars_count', 'first_bar_date', 'last_bar_date', 'ma_20', 'ma_50', 'ma_200', 'ema_12', 'ema_26', 'rsi_14', 'atr_14', 'volatility_20d', 'avg_volume_20d', 'ret_1d', 'ret_1w', 'ret_1m', 'ret_3m', 'ret_6m', 'ret_ytd', 'ret_1y', 'ret_3y', 'ret_5y']; it produced ['currency', 'day_high', 'day_low', 'day_volume', 'last_price', 'prev_close', 'quote_as_of'] — a chart body with 5y of daily bars is enough for every one of them
+    assert not ['bars_count', 'first_bar_date', 'last_bar_date', 'ma_20', 'ma_50', 'ma_200', ...]
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:106: AssertionError: the EOD parse left these cells empty: ['bars_count', 'first_bar_date', 'last_bar_date', 'ma_20', 'ma_50', 'ma_200', 'ema_12', 'ema_26', 'rsi_14', 'atr_14', 'volatility_20d', 'avg_volume_20d', 'ret_1d', 'ret_1w', 'ret_1m', 'ret_3m', 'ret_6m', 'ret_ytd', 'ret_1y', 'ret_3y', 'ret_5y']; it produced ['currency', 'day_high', 'day_low', 'day_volume', 'last_price', 'prev_close', 'quote_as_of'] — a chart body with 5y of daily bars is enough for every one of them
+E   AssertionError: performance cells missing from the EOD parse: ['ret_1d', 'ret_1w', 'ret_1m', 'ret_3m', 'ret_6m', 'ret_ytd', 'ret_1y', 'ret_3y', 'ret_5y']
+    assert not ['ret_1d', 'ret_1w', 'ret_1m', 'ret_3m', 'ret_6m', 'ret_ytd', ...]
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:160: AssertionError: performance cells missing from the EOD parse: ['ret_1d', 'ret_1w', 'ret_1m', 'ret_3m', 'ret_6m', 'ret_ytd', 'ret_1y', 'ret_3y', 'ret_5y']
+E   AssertionError: the EOD parse produced no bars_count
+    assert 'bars_count' in {'last_price': 348.22, 'prev_close': 148.69, 'day_high': 348.36, 'day_low': 342.28, ...}
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:179: AssertionError: the EOD parse produced no bars_count
+E   AssertionError: EOD needs daily bars: https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1m&range=1d&includePrePost=false&events=div%2Csplit
+    assert 'interval=1d' in 'https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1m&range=1d&includePrePost=false&events=div%2Csplit'
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:216: AssertionError: EOD needs daily bars: https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1m&range=1d&includePrePost=false&events=div%2Csplit
+E   AssertionError: quoteSummary left these columns empty: ['market_cap', 'market_cap_usd', 'shares_outstanding', 'float_shares', 'pe_ttm', 'pe_forward', 'peg', 'pb', 'ps', 'ev_ebitda', 'eps_ttm', 'eps_forward', 'dividend_yield', 'payout_ratio', 'revenue_ttm', 'ebitda_ttm', 'net_income_ttm', 'fcf_ttm', 'total_debt', 'cash_and_equivalents', 'roe', 'debt_to_equity']; it produced []
+    assert not ['market_cap', 'market_cap_usd', 'shares_outstanding', 'float_shares', 'pe_ttm', 'pe_forward', ...]
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:236: AssertionError: quoteSummary left these columns empty: ['market_cap', 'market_cap_usd', 'shares_outstanding', 'float_shares', 'pe_ttm', 'pe_forward', 'peg', 'pb', 'ps', 'ev_ebitda', 'eps_ttm', 'eps_forward', 'dividend_yield', 'payout_ratio', 'revenue_ttm', 'ebitda_ttm', 'net_income_ttm', 'fcf_ttm', 'total_debt', 'cash_and_equivalents', 'roe', 'debt_to_equity']; it produced []
+E   AssertionError: the adapter does not declare fundamentals, so it cannot be asked for them
+    assert <Capability.FUNDAMENTALS: 'fundamentals'> in frozenset({<Capability.EOD_BARS: 'eod_bars'>, <Capability.QUOTE: 'quote'>})
+     +  where <Capability.FUNDAMENTALS: 'fundamentals'> = Capability.FUNDAMENTALS
+     +  and   frozenset({<Capability.EOD_BARS: 'eod_bars'>, <Capability.QUOTE: 'quote'>}) = <app.providers.adapters.yahoo.YahooAdapter object at 0xe517b224fd90>.capabilities
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:277: AssertionError: the adapter does not declare fundamentals, so it cannot be asked for them
+E   AssertionError: the options parse left these cells empty: ['opt_expiry', 'opt_dte', 'opt_strike_atm', 'opt_iv_atm', 'opt_delta_atm', 'opt_gamma_atm', 'opt_theta_atm', 'opt_vega_atm', 'opt_open_interest_atm', 'opt_volume_atm']; it produced []
+    assert not ['opt_expiry', 'opt_dte', 'opt_strike_atm', 'opt_iv_atm', 'opt_delta_atm', 'opt_gamma_atm', ...]
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:312: AssertionError: the options parse left these cells empty: ['opt_expiry', 'opt_dte', 'opt_strike_atm', 'opt_iv_atm', 'opt_delta_atm', 'opt_gamma_atm', 'opt_theta_atm', 'opt_vega_atm', 'opt_open_interest_atm', 'opt_volume_atm']; it produced []
+E   AssertionError: the adapter does not declare options, so it cannot be asked for a chain
+    assert <Capability.OPTIONS: 'options'> in frozenset({<Capability.EOD_BARS: 'eod_bars'>, <Capability.QUOTE: 'quote'>})
+     +  where <Capability.OPTIONS: 'options'> = Capability.OPTIONS
+     +  and   frozenset({<Capability.EOD_BARS: 'eod_bars'>, <Capability.QUOTE: 'quote'>}) = <app.providers.adapters.yahoo.YahooAdapter object at 0xe517c17c5490>.capabilities
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:407: AssertionError: the adapter does not declare options, so it cannot be asked for a chain
+E   AssertionError: the live path still refuses a four-capability request: live provider mode implements the QUOTE capability only in Fase 2; requested: eod_bars, fundamentals, options
+/home/ubuntu/ztockz/tests/test_yahoo_capabilities.py:462: AssertionError: the live path still refuses a four-capability request: live provider mode implements the QUOTE capability only in Fase 2; requested: eod_bars, fundamentals, options
+=========================== short test summary info ============================
+FAILED tests/test_wiring_formats.py::test_implemented_formats_covers_every_writer_format
+FAILED tests/test_wiring_formats.py::test_enrich_writes_xlsx_jsonl_parquet_and_a_manifest
+FAILED tests/test_wiring_formats.py::test_export_route_serves_each_wired_format_with_its_media_type
+FAILED tests/test_wiring_formats.py::test_runner_writes_four_formats_with_a_manifest_and_row_count
+FAILED tests/test_wiring_formats.py::test_jsonl_artifact_is_one_json_object_per_row
+FAILED tests/test_yahoo_capabilities.py::test_adapter_declares_quote_eod_fundamentals_and_options
+FAILED tests/test_yahoo_capabilities.py::test_eod_parse_reports_bars_and_technicals
+FAILED tests/test_yahoo_capabilities.py::test_eod_parse_computes_every_performance_return
+FAILED tests/test_yahoo_capabilities.py::test_eod_parse_drops_a_bar_that_violates_the_ohlc_envelope
+FAILED tests/test_yahoo_capabilities.py::test_eod_fetch_requests_five_years_of_daily_bars
+FAILED tests/test_yahoo_capabilities.py::test_fundamentals_parse_fills_all_22_columns
+FAILED tests/test_yahoo_capabilities.py::test_fundamentals_fetch_asks_quote_summary_for_the_four_modules
+FAILED tests/test_yahoo_capabilities.py::test_options_parse_selects_the_thirty_dte_atm_call
+FAILED tests/test_yahoo_capabilities.py::test_options_fetch_resolves_the_expiry_nearest_thirty_dte
+FAILED tests/test_yahoo_capabilities.py::test_live_fetch_accepts_four_capabilities_and_fills_their_cells
+15 failed, 361 passed in 21.18s

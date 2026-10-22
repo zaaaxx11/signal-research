@@ -1,0 +1,64 @@
+{
+  "quoteSummary": {
+    "result": [
+      {
+        "price": {
+          "maxAge": 1,
+          "currency": "USD",
+          "symbol": "AAPL",
+          "exchangeName": "NMS",
+          "fullExchangeName": "NasdaqGS",
+          "quoteType": "EQUITY",
+          "regularMarketPrice": 348.22,
+          "regularMarketTime": 1792699201,
+          "regularMarketVolume": 43272015,
+          "marketCap": 5167584800000,
+          "shortName": "Apple Inc.",
+          "longName": "Apple Inc."
+        },
+        "summaryDetail": {
+          "maxAge": 1,
+          "currency": "USD",
+          "marketCap": 5167584800000,
+          "trailingPE": 32.51,
+          "forwardPE": 28.4,
+          "priceToSalesTrailing12Months": 8.9,
+          "dividendYield": 0.0044,
+          "payoutRatio": 0.156,
+          "beta": 1.09,
+          "trailingAnnualDividendYield": 0.0044,
+          "fiftyTwoWeekHigh": 355.4,
+          "fiftyTwoWeekLow": 168.2
+        },
+        "defaultKeyStatistics": {
+          "maxAge": 1,
+          "sharesOutstanding": 14840000000,
+          "floatShares": 14790000000,
+          "trailingEps": 10.71,
+          "forwardEps": 12.26,
+          "pegRatio": 2.31,
+          "priceToBook": 48.2,
+          "enterpriseToEbitda": 24.7,
+          "bookValue": 7.22,
+          "enterpriseValue": 5214800000000
+        },
+        "financialData": {
+          "maxAge": 1,
+          "currentPrice": 348.22,
+          "totalRevenue": 416161000000,
+          "ebitda": 138000000000,
+          "netIncomeToCommon": 112010000000,
+          "freeCashflow": 108800000000,
+          "totalDebt": 106600000000,
+          "totalCash": 65200000000,
+          "returnOnEquity": 1.716,
+          "debtToEquity": 152.53,
+          "targetMeanPrice": 372.4,
+          "recommendationKey": "buy",
+          "numberOfAnalystOpinions": 38
+        }
+      }
+    ],
+    "error": null
+  }
+}

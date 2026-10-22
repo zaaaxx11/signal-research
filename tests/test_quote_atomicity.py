@@ -144,13 +144,13 @@ async def test_preflight_refusal_does_not_consume_the_quote(
         response = await client.post(
             "/markets/enrich",
             json=enrich_with_quote_payload(
-                quote_id, format=["xlsx"], **{"async": False}
+                quote_id, format=["xml"], **{"async": False}
             ),
         )
 
-        assert response.status_code == 501, (
-            "an unimplemented writer is a preflight refusal (501), not a spent quote: "
-            f"{response.status_code} {response.text}"
+        assert response.status_code == 422, (
+            "an unknown output format is refused by validation (422) and the quote "
+            f"must not be spent on it: {response.status_code} {response.text}"
         )
         state = quote_state(_db(tmp_path), quote_id)
         assert state["used_at"] is None
