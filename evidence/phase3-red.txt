@@ -1,0 +1,66 @@
+# Phase-3 RED evidence — ztockz @ 967db96 (Fase 2 GREEN) — 2026-10-22
+
+## Suite on the committed tree (RED)
+
+$ .venv/bin/python -m pytest -o addopts="" -q --tb=no
+...........FFFFFFFFFF................................................... [ 47%]
+......................FFFFFFFFFFFFF...............................FFFFFF [ 94%]
+FFFF.....                                                                [100%]
+33 failed, 120 passed in 13.21s
+
+## The 120 Phase 0/1/2 tests are untouched and green
+
+$ .venv/bin/python -m pytest -o addopts="" -q --tb=no \
+    tests/test_contracts.py tests/test_job_lifecycle.py tests/test_quotes.py \
+    tests/test_api.py tests/test_export_contract.py tests/test_import_direction.py \
+    tests/test_no_network.py tests/test_env.py tests/test_resolve.py \
+    tests/test_estimate.py tests/test_quote_http.py tests/test_registry.py \
+    tests/test_ladder.py tests/test_cache_budget.py tests/test_verdicts.py \
+    tests/test_quote_atomicity.py
+120 passed in 11.58s
+
+No file under tests/ or reference/ from an earlier phase was modified
+(`git status` = 5 new files under tests/).
+
+## Per file (33 new tests)
+
+tests/test_phases.py           7 failed
+tests/test_conflate.py        10 failed
+tests/test_provenance.py       6 failed
+tests/test_resume_stream.py   10 failed
+
+## Failure classes (pytest --junitxml)
+
+NotImplementedError: 27   # pin, missing module/API: phases, conflate, provenance,
+                          # stream.RowStream, orchestrator.run_batches, repo batch methods
+AssertionError:       6   # process_job does not call run_phases (gate 1), so the three
+                          # job-level phase gates and three provenance gates cannot run
+(no TypeError, no ImportError, no collection error, no pytest.fail)
+
+## Satisfiability probe (throwaway implementation, NOT committed, deleted)
+
+A minimal Phase-3 implementation was written in a copy at /tmp/mee-sat3 and the
+whole suite run there:
+
+$ cd /tmp/mee-sat3 && /home/ubuntu/ztockz/.venv/bin/python -m pytest -o addopts="" -q
+153 passed in 14.15s
+
+33 new + 120 old, with no assertion weakened. Files touched in the copy:
+
+  app/enrich/phases.py         Phase + DEFAULT_PHASES (P0..P7, 92-column partition)
+  app/enrich/provenance.py     PROVENANCE_KEY, provenance(), filled_cells(), record()
+  app/enrich/conflate.py       write_if_empty() + merge()
+  app/enrich/stream.py         RowStream (one chunk ahead, .count)
+  app/enrich/orchestrator.py   run_phases() (fetch -> provenance -> reports)
+                               run_batches() (resume, depth-first checkpoint)
+  app/worker/runner.py         _run() delegates the fetch to run_phases(phases=DEFAULT_PHASES)
+  app/jobs/repository.py       ensure_batches/mark_batch/batches (SET semantics)
+
+$ rm -rf /tmp/mee-sat3
+
+## Note on migrations
+
+0004/0005 were not required: alembic/versions/0001_init.py already creates
+`job_batches` (with UNIQUE(job_id, batch_index)) and `job_artifacts`
+(UNIQUE(job_id, kind)), and the ORM models match the DDL. No new column is
+introduced by Fase 3.
