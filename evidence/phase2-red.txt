@@ -1,0 +1,57 @@
+# Phase-2 RED evidence — ztockz @ 0e907a5 (Fase 1 GREEN) — 2026-10-22T17:52Z
+
+## Suite on the committed tree (RED)
+
+$ .venv/bin/python -m pytest -o addopts="" -q --tb=no
+......FFFFF............................................................. [ 60%]
+FFFFFFFFF...FF............F.FFF...........FFFFF                          [100%]
+26 failed, 94 passed in 10.66s
+
+## The 90 Phase 0/1 tests are untouched and green
+
+$ .venv/bin/python -m pytest -o addopts="" -q --tb=no tests/test_contracts.py \
+    tests/test_job_lifecycle.py tests/test_quotes.py tests/test_api.py \
+    tests/test_export_contract.py tests/test_import_direction.py \
+    tests/test_no_network.py tests/test_env.py tests/test_resolve.py \
+    tests/test_estimate.py tests/test_quote_http.py
+90 passed in 7.75s
+
+## Per file (30 new tests)
+
+tests/test_registry.py           5 failed, 2 passed
+tests/test_ladder.py             9 failed
+tests/test_cache_budget.py       5 failed
+tests/test_verdicts.py           5 failed
+tests/test_quote_atomicity.py    2 failed, 2 passed
+
+## Failure classes (pytest --junitxml)
+
+NotImplementedError: 13   # pinned Phase-2 seam missing (Ladder/Budget/Runtime.ladder)
+AssertionError:      13   # observable contract violated (registry, meter, transaction)
+(pytest.fail is not used; no TypeError/ImportError escapes, no collection errors)
+
+## Satisfiability probe (throwaway implementation, NOT committed, deleted)
+
+A minimal Phase-2 implementation was written in a copy at /tmp/mee-sat and the
+whole suite run there:
+
+$ cd /tmp/mee-sat && /home/ubuntu/ztockz/.venv/bin/python -m pytest -o addopts="" -q
+120 passed in 11.36s
+
+Files touched in the throwaway copy (proves the suite is implementable without
+weakening an assertion):
+
+  app/providers/registry.py     9 declared providers, explicit per-capability order
+  app/providers/budget.py       requests/credits/seconds + spend/snapshot
+  app/providers/ladder.py       Ladder/Rung/LadderResult, skip/cache/health records
+  app/providers/cache.py        session-scoped CacheKey + 15 s TTL
+  app/providers/health.py       provider_health upsert (last_verdict/failures)
+  app/providers/adapters/http_quote.py  yahoo/stooq/nasdaq/finnhub/polygon
+  app/api/providers.py          available = key present
+  app/config.py                 MEE_PROVIDER_MODE=fake|live (default fake)
+  app/runtime.py                Runtime.ladder() + live mode
+  app/worker/runner.py          live path: ladder per request budget/as_of
+  app/jobs/quotes.py            release() compensation
+  app/jobs/service.py           consume -> create, release on failure
+
+$ rm -rf /tmp/mee-sat
