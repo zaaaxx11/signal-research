@@ -12,3 +12,10 @@ dist/
 build/
 *.egg-info/
 .mee/
+.env
+.env.*
+!.env.example
+*.log
+output/
+.ruff_cache/
+.mypy_cache/
