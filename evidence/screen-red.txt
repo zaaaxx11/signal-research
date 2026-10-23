@@ -1,0 +1,1050 @@
+# Screen S0 RED — pytest evidence
+# commit: 56db4d9
+# date: 2026-10-23T10:28:48Z
+
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF                             [100%]
+=================================== FAILURES ===================================
+___________________ test_us_universe_keeps_only_common_stock ___________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:40: in test_us_universe_keeps_only_common_stock
+    rows = _universe("us")
+           ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+__________ test_market_cap_floor_is_inclusive_at_one_hundred_million ___________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:53: in test_market_cap_floor_is_inclusive_at_one_hundred_million
+    build = S.universe().build_universe
+            ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+______________ test_otc_listing_is_excluded_even_when_it_is_large ______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:74: in test_otc_listing_is_excluded_even_when_it_is_large
+    rows = S.universe().build_universe(
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+____________ test_cross_listed_issuer_collapses_to_one_primary_row _____________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:87: in test_cross_listed_issuer_collapses_to_one_primary_row
+    rows = _universe("us")
+           ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+____________ test_universe_is_smaller_than_the_raw_provider_answer _____________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:103: in test_universe_is_smaller_than_the_raw_provider_answer
+    rows = _universe("us")
+           ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+______________ test_no_issuer_appears_twice_under_different_names ______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:114: in test_no_issuer_appears_twice_under_different_names
+    rows = _universe("us")
+           ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+____________________ test_us_tab_contains_us_listings_only _____________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:128: in test_us_tab_contains_us_listings_only
+    rows = _universe("us")
+           ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+__________ test_global_tab_is_ex_us_and_drops_issuers_the_us_tab_owns __________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:137: in test_global_tab_is_ex_us_and_drops_issuers_the_us_tab_owns
+    rows = _universe("global")
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+_________ test_global_keeps_the_most_liquid_listing_of_a_non_us_issuer _________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:153: in test_global_keeps_the_most_liquid_listing_of_a_non_us_issuer
+    rows = _universe("global")
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+___________________ test_the_two_tabs_do_not_share_a_symbol ____________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:163: in test_the_two_tabs_do_not_share_a_symbol
+    us = {row["symbol"] for row in _universe("us")}
+                                   ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+______________________ test_ranking_is_stable_across_runs ______________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:176: in test_ranking_is_stable_across_runs
+    first = _universe("us")
+            ^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+____________ test_rank_is_contiguous_and_keeps_input_order_for_ties ____________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:189: in test_rank_is_contiguous_and_keeps_input_order_for_ties
+    ranked = S.rank().rank_rows(rows, "market_cap")
+             ^^^^^^^^
+tests/_screen.py:180: in rank
+    module = _load("app.screen.rank")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.rank is not implemented yet (Screen S0 RED): No module named 'app.screen'
+_____________ test_each_sort_orders_by_its_own_transparent_metric ______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:200: in test_each_sort_orders_by_its_own_transparent_metric
+    ranked = {sort: S.rank().rank_rows(_universe("us"), sort) for sort in S.SORTS}
+                    ^^^^^^^^
+tests/_screen.py:180: in rank
+    module = _load("app.screen.rank")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.rank is not implemented yet (Screen S0 RED): No module named 'app.screen'
+________________ test_turnover_usd_is_never_invented_without_fx ________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_universe.py:219: in test_turnover_usd_is_never_invented_without_fx
+    rows = _universe("global")
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_screen_universe.py:25: in _universe
+    return S.universe().build_universe(S.scan_rows(region), region=region)
+           ^^^^^^^^^^^^
+tests/_screen.py:174: in universe
+    module = _load("app.screen.universe")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.universe is not implemented yet (Screen S0 RED): No module named 'app.screen'
+_____________ test_scanner_declares_every_field_the_contract_maps ______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:33: in test_scanner_declares_every_field_the_contract_maps
+    declared = tuple(S.scanner().SCAN_COLUMNS)
+                     ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+_________________ test_parse_maps_every_declared_field_by_name _________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:53: in test_parse_maps_every_declared_field_by_name
+    page = S.scanner().parse_scan(body, tuple(body["columns"]))
+           ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+________________ test_parse_maps_by_column_name_not_by_position ________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:75: in test_parse_maps_by_column_name_not_by_position
+    page = S.scanner().parse_scan(body, columns)
+           ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+_______ test_parse_of_an_empty_body_reports_zero_without_inventing_rows ________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:88: in test_parse_of_an_empty_body_reports_zero_without_inventing_rows
+    page = S.scanner().parse_scan({"totalCount": 0, "data": []}, tuple(S.scan_columns()))
+           ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+________________ test_fetch_scans_the_us_endpoint_exactly_once _________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:102: in test_fetch_scans_the_us_endpoint_exactly_once
+    page = await S.scanner().fetch_scan("us")
+                 ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+______________ test_fetch_scans_the_global_endpoint_exactly_once _______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:122: in test_fetch_scans_the_global_endpoint_exactly_once
+    page = await S.scanner().fetch_scan("global")
+                 ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+____________ test_html_served_with_200_is_blocked_and_never_retried ____________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_scanner.py:134: in test_html_served_with_200_is_blocked_and_never_retried
+    with pytest.raises(S.scanner().ScanBlocked) as info:
+                       ^^^^^^^^^^^
+tests/_screen.py:168: in scanner
+    module = _load("app.screen.scanner")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.scanner is not implemented yet (Screen S0 RED): No module named 'app.screen'
+____________ test_browse_returns_exactly_twenty_rows_of_the_us_tab _____________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:32: in test_browse_returns_exactly_twenty_rows_of_the_us_tab
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_________ test_a_limit_above_the_display_size_does_not_widen_the_page __________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:64: in test_a_limit_above_the_display_size_does_not_widen_the_page
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_______________ test_snapshot_constants_are_the_revised_contract _______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.screen'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:81: in test_snapshot_constants_are_the_revised_contract
+    assert S.snapshot().SNAPSHOT_TTL_S == 300, (
+           ^^^^^^^^^^^^
+tests/_screen.py:186: in snapshot
+    module = _load("app.screen.snapshot")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.screen.snapshot is not implemented yet (Screen S0 RED): No module named 'app.screen'
+_____ test_two_reads_inside_the_ttl_share_one_snapshot_and_send_no_request _____
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:91: in test_two_reads_inside_the_ttl_share_one_snapshot_and_send_no_request
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+________ test_a_read_after_three_hundred_seconds_refreshes_the_snapshot ________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:114: in test_a_read_after_three_hundred_seconds_refreshes_the_snapshot
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_______________ test_market_cap_sort_orders_the_universe_by_size _______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:139: in test_market_cap_sort_orders_the_universe_by_size
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+__________________ test_turnover_sort_orders_by_traded_value ___________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:150: in test_turnover_sort_orders_by_traded_value
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+__________________ test_gainers_sort_orders_by_change_percent __________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:162: in test_gainers_sort_orders_by_change_percent
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+__________________ test_global_tab_serves_ex_us_issuers_only ___________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:178: in test_global_tab_serves_ex_us_issuers_only
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_________________ test_us_and_global_displays_share_no_symbol __________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:194: in test_us_and_global_displays_share_no_symbol
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+____________ test_screen_rows_stores_only_the_twenty_displayed_rows ____________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:207: in test_screen_rows_stores_only_the_twenty_displayed_rows
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+______________________ test_an_unknown_region_is_rejected ______________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_api.py:227: in test_an_unknown_region_is_rejected
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+________________ test_bundle_has_an_all_scope_and_a_top20_scope ________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:59: in test_bundle_has_an_all_scope_and_a_top20_scope
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+________ test_all_scope_is_fetched_on_demand_not_from_the_display_rows _________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:87: in test_all_scope_is_fetched_on_demand_not_from_the_display_rows
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+__________ test_each_scope_manifest_hashes_the_artifacts_it_describes __________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:121: in test_each_scope_manifest_hashes_the_artifacts_it_describes
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_____________ test_all_scope_manifest_promises_the_total_it_wrote ______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:146: in test_all_scope_manifest_promises_the_total_it_wrote
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_________________ test_four_formats_are_written_for_each_scope _________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:165: in test_four_formats_are_written_for_each_scope
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+______________ test_all_and_top20_line_counts_match_the_manifest _______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:180: in test_all_and_top20_line_counts_match_the_manifest
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_________ test_deep_engine_is_called_once_with_the_top_twenty_symbols __________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:204: in test_deep_engine_is_called_once_with_the_top_twenty_symbols
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+_________________ test_the_light_scope_carries_no_deep_columns _________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:219: in test_the_light_scope_carries_no_deep_columns
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+______________ test_post_export_publishes_all_and_top20_artifacts ______________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:237: in test_post_export_publishes_all_and_top20_artifacts
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+___________________ test_export_of_an_unknown_screen_is_404 ____________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:281: in test_export_of_an_unknown_screen_is_404
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+____________________ test_export_rejects_an_unknown_format _____________________
+tests/_screen.py:149: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.api.screens'
+
+The above exception was the direct cause of the following exception:
+tests/test_screen_export.py:291: in test_export_rejects_an_unknown_format
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:340: in screen_client
+    screens_api()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^^
+tests/_screen.py:204: in screens_api
+    module = _load("app.api.screens")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_screen.py:151: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.api.screens is not implemented yet (Screen S0 RED): No module named 'app.api.screens'
+=========================== short test summary info ============================
+FAILED tests/test_screen_universe.py::test_us_universe_keeps_only_common_stock
+FAILED tests/test_screen_universe.py::test_market_cap_floor_is_inclusive_at_one_hundred_million
+FAILED tests/test_screen_universe.py::test_otc_listing_is_excluded_even_when_it_is_large
+FAILED tests/test_screen_universe.py::test_cross_listed_issuer_collapses_to_one_primary_row
+FAILED tests/test_screen_universe.py::test_universe_is_smaller_than_the_raw_provider_answer
+FAILED tests/test_screen_universe.py::test_no_issuer_appears_twice_under_different_names
+FAILED tests/test_screen_universe.py::test_us_tab_contains_us_listings_only
+FAILED tests/test_screen_universe.py::test_global_tab_is_ex_us_and_drops_issuers_the_us_tab_owns
+FAILED tests/test_screen_universe.py::test_global_keeps_the_most_liquid_listing_of_a_non_us_issuer
+FAILED tests/test_screen_universe.py::test_the_two_tabs_do_not_share_a_symbol
+FAILED tests/test_screen_universe.py::test_ranking_is_stable_across_runs - No...
+FAILED tests/test_screen_universe.py::test_rank_is_contiguous_and_keeps_input_order_for_ties
+FAILED tests/test_screen_universe.py::test_each_sort_orders_by_its_own_transparent_metric
+FAILED tests/test_screen_universe.py::test_turnover_usd_is_never_invented_without_fx
+FAILED tests/test_screen_scanner.py::test_scanner_declares_every_field_the_contract_maps
+FAILED tests/test_screen_scanner.py::test_parse_maps_every_declared_field_by_name
+FAILED tests/test_screen_scanner.py::test_parse_maps_by_column_name_not_by_position
+FAILED tests/test_screen_scanner.py::test_parse_of_an_empty_body_reports_zero_without_inventing_rows
+FAILED tests/test_screen_scanner.py::test_fetch_scans_the_us_endpoint_exactly_once
+FAILED tests/test_screen_scanner.py::test_fetch_scans_the_global_endpoint_exactly_once
+FAILED tests/test_screen_scanner.py::test_html_served_with_200_is_blocked_and_never_retried
+FAILED tests/test_screen_api.py::test_browse_returns_exactly_twenty_rows_of_the_us_tab
+FAILED tests/test_screen_api.py::test_a_limit_above_the_display_size_does_not_widen_the_page
+FAILED tests/test_screen_api.py::test_snapshot_constants_are_the_revised_contract
+FAILED tests/test_screen_api.py::test_two_reads_inside_the_ttl_share_one_snapshot_and_send_no_request
+FAILED tests/test_screen_api.py::test_a_read_after_three_hundred_seconds_refreshes_the_snapshot
+FAILED tests/test_screen_api.py::test_market_cap_sort_orders_the_universe_by_size
+FAILED tests/test_screen_api.py::test_turnover_sort_orders_by_traded_value - ...
+FAILED tests/test_screen_api.py::test_gainers_sort_orders_by_change_percent
+FAILED tests/test_screen_api.py::test_global_tab_serves_ex_us_issuers_only - ...
+FAILED tests/test_screen_api.py::test_us_and_global_displays_share_no_symbol
+FAILED tests/test_screen_api.py::test_screen_rows_stores_only_the_twenty_displayed_rows
+FAILED tests/test_screen_api.py::test_an_unknown_region_is_rejected - NotImpl...
+FAILED tests/test_screen_export.py::test_bundle_has_an_all_scope_and_a_top20_scope
+FAILED tests/test_screen_export.py::test_all_scope_is_fetched_on_demand_not_from_the_display_rows
+FAILED tests/test_screen_export.py::test_each_scope_manifest_hashes_the_artifacts_it_describes
+FAILED tests/test_screen_export.py::test_all_scope_manifest_promises_the_total_it_wrote
+FAILED tests/test_screen_export.py::test_four_formats_are_written_for_each_scope
+FAILED tests/test_screen_export.py::test_all_and_top20_line_counts_match_the_manifest
+FAILED tests/test_screen_export.py::test_deep_engine_is_called_once_with_the_top_twenty_symbols
+FAILED tests/test_screen_export.py::test_the_light_scope_carries_no_deep_columns
+FAILED tests/test_screen_export.py::test_post_export_publishes_all_and_top20_artifacts
+FAILED tests/test_screen_export.py::test_export_of_an_unknown_screen_is_404
+FAILED tests/test_screen_export.py::test_export_rejects_an_unknown_format - N...
+44 failed in 1.70s
