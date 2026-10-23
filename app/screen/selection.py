@@ -42,6 +42,23 @@ maps :class:`SelectionError` to the ``{error, errorMessage}`` envelope. The
 published request schema is :data:`SELECTION_REQUEST_SCHEMA`, served at
 ``GET /screens/select/schema`` and mirrored byte-for-byte at
 ``schemas/stock_selection_request_v1.json``.
+
+Two optional knobs shape the answer
+-----------------------------------
+
+``asset_class`` (``stock`` default, or ``etf``) picks the universe. It is
+resolved per mode: a ``criteria`` query knows its region, so ``us_etf`` implies
+``etf`` and ``global`` + ``etf`` is refused; a ``symbols`` lookup takes the
+region from its snapshot and ``None`` means "the snapshot's own family". The
+ETF universe is ``type=fund``/``subtype=etf`` with no cap floor — the same
+criteria language, a different market.
+
+``view`` (one of :data:`app.screen.views.VIEW_NAMES`) shapes every response row
+as that Finviz tab: ``rank``/``symbol``/``as_of`` plus one cell per declared view
+column, filled from the parity metrics the bulk scan carries
+(:data:`VIEW_FIELDS`). Without ``view`` the row is the light browse row, exactly
+as before; an unknown view is a 422 (:class:`SelectionError` code
+``unknown_view``) before a row is read.
 """
 
 from __future__ import annotations
@@ -50,6 +67,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.screen import rank as ranking
+from app.screen import views as screen_views
 from app.screen.filter_fields import (
     CATALOGUE,
     FilterKeyError,
@@ -57,7 +75,7 @@ from app.screen.filter_fields import (
 )
 from app.screen.filters import FIELDS, OPERATORS, apply_filters, compile_filter
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, display_row
-from app.screen.universe import REGIONS
+from app.screen.universe import ASSET_CLASSES, REGIONS, asset_class_for
 
 #: The two modes. A selection is exactly one of them; the payload may not mix.
 MODES: tuple[str, ...] = ("criteria", "symbols")
@@ -75,10 +93,80 @@ DEFAULT_SORT = "market_cap"
 
 #: Top-level keys a selection may carry (the strict contract).
 SELECTION_KEYS: frozenset[str] = frozenset(
-    {"mode", "region", "criteria", "symbols", "source", "snapshot_id"}
+    {
+        "mode",
+        "region",
+        "asset_class",
+        "view",
+        "criteria",
+        "symbols",
+        "source",
+        "snapshot_id",
+    }
 )
 CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit"})
 FILTER_KEYS: frozenset[str] = frozenset({"key", "field", "op", "value"})
+
+#: View column (a Finviz quote metric key) → the canonical parity row field that
+#: can answer it. One table, for the same reason :data:`app.screen.universe.
+#: PARITY_FIELDS` is one table: a view is a layout decision, and the *source* of
+#: every cell has to be stated once instead of being guessed per call site.
+#:
+#: A view column with no entry here is still emitted — with ``None`` — because a
+#: table whose shape depends on the payload cannot be compared between two runs.
+#: The bulk scan simply does not carry those metrics yet: enterprise value,
+#: income/sales, the per-share book and cash, insider/institutional ownership,
+#: employees, index membership, ATR and the 3-year window. ``volatility`` is two
+#: cells (week and month) in Finviz, so one key cannot name one column.
+VIEW_FIELDS: Mapping[str, str] = {
+    # -- identity / light cells that are also view columns
+    "price": "price",
+    "change_pct": "change_pct",
+    "volume": "volume",
+    "market_cap": "market_cap_usd",
+    # -- valuation
+    "pe": "pe_ttm",
+    "forward_pe": "pe_forward",
+    "peg": "peg",
+    "ps": "ps",
+    "pb": "pb",
+    "pfcf": "pfcf",
+    "ev_ebitda": "ev_ebitda",
+    # -- financial (levels the bulk scan really carries)
+    "eps_next_y": "eps_forecast_next_fy",
+    "eps_next_q": "eps_forecast_next_fq",
+    "roa": "roa",
+    "roe": "roe",
+    "roic": "roic",
+    "gross_margin": "gross_margin",
+    "oper_margin": "oper_margin",
+    "profit_margin": "profit_margin",
+    "quick_ratio": "quick_ratio",
+    "current_ratio": "current_ratio",
+    "debt_to_equity": "debt_to_equity",
+    # -- ownership (share counts only; holdings are not in a bulk scan)
+    "shares_outstanding": "shares_outstanding",
+    "shares_float": "float_shares",
+    # -- technicals
+    "sma20": "sma_20",
+    "sma50": "sma_50",
+    "sma200": "sma_200",
+    "rsi_14": "rsi_14",
+    "beta": "beta_1y",
+    "week52_high": "high_52w",
+    "week52_low": "low_52w",
+    # -- performance
+    "perf_week": "ret_1w",
+    "perf_month": "ret_1m",
+    "perf_quarter": "ret_3m",
+    "perf_half_y": "ret_6m",
+    "perf_ytd": "ret_ytd",
+    "perf_year": "ret_1y",
+    "perf_5y": "ret_5y",
+    "perf_10y": "ret_10y",
+    # -- profile / events
+    "ipo": "listing_date",
+}
 
 #: Where a misplaced knob belongs — used to turn "unexpected key" into a fix.
 _HINTS: Mapping[str, str] = {
@@ -86,6 +174,34 @@ _HINTS: Mapping[str, str] = {
     "sort": "'sort' belongs inside 'criteria'",
     "filters": "'filters' belongs inside 'criteria'",
 }
+
+#: View columns that read a cell every universe row already carries (the light
+#: row), not a parity metric. Kept explicit so the boot check below can tell
+#: "light by design" from "a parity field that does not exist".
+_VIEW_LIGHT_FIELDS: frozenset[str] = frozenset(
+    {"price", "change_pct", "volume", "market_cap_usd"}
+)
+
+
+def _validate_view_fields() -> None:
+    """Fail at import: a view cell must point at a column a row really carries."""
+
+    from app.screen.universe import PARITY_FIELDS
+
+    known = set(PARITY_FIELDS.values()) | set(_VIEW_LIGHT_FIELDS)
+    unknown = sorted(set(VIEW_FIELDS.values()) - known)
+    if unknown:
+        raise RuntimeError(
+            f"VIEW_FIELDS names field(s) no row carries: {unknown}; "
+            "they are neither a light column nor a PARITY_FIELDS target"
+        )
+    declared = set().union(*(set(columns) for columns in screen_views.VIEW_COLUMNS.values()))
+    stray = sorted(set(VIEW_FIELDS) - declared)
+    if stray:
+        raise RuntimeError(f"VIEW_FIELDS maps column(s) no view declares: {stray}")
+
+
+_validate_view_fields()
 
 
 class SelectionError(ValueError):
@@ -127,7 +243,13 @@ class Criterion:
 
 @dataclass(frozen=True, slots=True)
 class SelectionRequest:
-    """A validated selection: the mode's own knobs, never a mixture."""
+    """A validated selection: the mode's own knobs, never a mixture.
+
+    ``asset_class`` is resolved for ``criteria`` (the region is known there) and
+    kept as the caller's explicit choice for ``symbols`` — that mode learns its
+    region from the snapshot, so ``None`` means "use the snapshot's tab family".
+    ``view`` is the optional Finviz layout the response rows are shaped as.
+    """
 
     mode: str
     region: str | None
@@ -137,6 +259,8 @@ class SelectionRequest:
     symbols: tuple[str, ...]
     source: str | None
     snapshot_id: str | None
+    asset_class: str | None = None
+    view: str | None = None
 
     @property
     def is_criteria(self) -> bool:
@@ -186,6 +310,31 @@ def _sort(raw: Any) -> str:
             f"unknown sort {raw!r}; expected one of {', '.join(ranking.SORTS)}"
         )
     return str(raw)
+
+
+def _asset_class(raw: Any) -> str | None:
+    """The optional instrument family; ``None`` is "the region's own family"."""
+
+    if raw is None:
+        return None
+    if raw not in ASSET_CLASSES:
+        raise SelectionError(
+            f"unknown asset_class {raw!r}; expected one of {', '.join(ASSET_CLASSES)}"
+        )
+    return str(raw)
+
+
+def _view_name(raw: Any) -> str | None:
+    """The optional Finviz view; an unknown tab is a 422, never a light row."""
+
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw not in screen_views.VIEW_NAMES:
+        raise SelectionError(
+            f"unknown view {raw!r}; expected one of {', '.join(screen_views.VIEW_NAMES)}",
+            code="unknown_view",
+        )
+    return raw
 
 
 def _criterion(item: Any, index: int) -> Criterion:
@@ -274,6 +423,11 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         raise SelectionError(
             f"unknown region {region!r}; expected one of {', '.join(REGIONS)}"
         )
+    family_raw = _asset_class(payload.get("asset_class"))
+    try:
+        family = asset_class_for(str(region), family_raw)
+    except ValueError as exc:
+        raise SelectionError(str(exc)) from exc
     return SelectionRequest(
         mode="criteria",
         region=str(region),
@@ -283,6 +437,8 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         symbols=(),
         source=None,
         snapshot_id=None,
+        asset_class=family,
+        view=_view_name(payload.get("view")),
     )
 
 
@@ -343,6 +499,8 @@ def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
         symbols=tuple(symbols),
         source=str(source),
         snapshot_id=snapshot_id,
+        asset_class=_asset_class(payload.get("asset_class")),
+        view=_view_name(payload.get("view")),
     )
 
 
@@ -484,6 +642,28 @@ def _resolved(
     return found[: request.limit], len(found), tuple(missing)
 
 
+def view_row(row: Mapping[str, Any], name: str, *, as_of: str) -> dict[str, Any]:
+    """One selection row shaped as view ``name`` — identity + view columns.
+
+    This is deliberately **not** the light row: a view request asks for the
+    columns of that Finviz tab, one cell per declared column in view order.
+    ``rank``/``symbol``/``as_of`` stay so the row is still addressable and
+    dated; everything else is looked up through :data:`VIEW_FIELDS` and copied
+    verbatim (a column the bulk scan does not carry is ``None``, never ``0``).
+    """
+
+    definition = screen_views.view(name)
+    shaped: dict[str, Any] = {
+        "rank": int(row["rank"]),
+        "symbol": row.get("symbol"),
+        "as_of": as_of,
+    }
+    for column in definition.columns:
+        field = VIEW_FIELDS.get(column)
+        shaped[column] = row.get(field) if field is not None else None
+    return shaped
+
+
 def select_rows(
     rows: Sequence[Mapping[str, Any]],
     request: SelectionRequest,
@@ -524,7 +704,12 @@ def select_rows(
         sort = None
         echoed_snapshot = snapshot_id
 
-    page = tuple(display_row(row, as_of=as_of) for row in selected)
+    if request.view:
+        page = tuple(
+            view_row(row, request.view, as_of=as_of) for row in selected
+        )
+    else:
+        page = tuple(display_row(row, as_of=as_of) for row in selected)
     return Selection(
         mode=request.mode,
         region=region,
@@ -594,6 +779,26 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "region": {
             "enum": list(REGIONS),
             "description": "Criteria only: the universe tab to query.",
+        },
+        "asset_class": {
+            "enum": list(ASSET_CLASSES),
+            "default": "stock",
+            "description": (
+                "Both modes: the instrument family. `stock` (default) and `etf` "
+                "are different universes — `us_etf` implies `etf`, and `global` "
+                "is stock-only. The ETF universe is `type=fund` + `subtype=etf` "
+                "with no market-cap floor and the same OTC exclusion."
+            ),
+        },
+        "view": {
+            "enum": list(screen_views.VIEW_NAMES),
+            "description": (
+                "Both modes: shape every response row as one of the six Finviz "
+                "views. A viewed row carries `rank`/`symbol`/`as_of` plus one "
+                "cell per declared view column, filled from the parity metrics "
+                "the bulk scan carries (missing columns stay null, never 0); "
+                "without `view` the row is the light screen row."
+            ),
         },
         "criteria": {
             "type": "object",
@@ -720,10 +925,12 @@ __all__ = [
     "SELECTION_KEYS",
     "SELECTION_REQUEST_SCHEMA",
     "SOURCES",
+    "VIEW_FIELDS",
     "Criterion",
     "Selection",
     "SelectionError",
     "SelectionRequest",
     "parse_selection",
     "select_rows",
+    "view_row",
 ]

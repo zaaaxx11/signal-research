@@ -39,12 +39,48 @@ from app.providers import http as provider_http
 
 #: ``region`` → the scanner path. US has its own endpoint (america) and the
 #: global one carries every other venue; a single endpoint would double count.
+#: ``us_etf`` is the US fund tab: the *same* america endpoint and the same
+#: universe rules, addressed with ``type=fund``/``subtype=etf`` (see
+#: :func:`asset_class_for`).
 REGION_PATHS: dict[str, str] = {
     "us": "/america/scan",
     "global": "/global/scan",
+    "us_etf": "/america/scan",
 }
 REGIONS: tuple[str, ...] = tuple(REGION_PATHS)
 SCANNER_HOST = "https://scanner.tradingview.com"
+
+#: Instrument families the screen addresses. ``stock`` is the default and the
+#: one the browse tab has always scanned; ``etf`` is the US fund tab.
+ASSET_CLASSES: tuple[str, ...] = ("stock", "etf")
+STOCK_TYPE = "stock"
+ETF_TYPE = "fund"
+ETF_SUBTYPE = "etf"
+
+#: The browse contract's US floor, inclusive. It is a property of the *stock*
+#: tab, not of the market: an ETF screen has no cap floor (a USD 5M fund is a
+#: listed fund), which is why the floor is resolved from the asset class
+#: instead of being a bare function default.
+DEFAULT_STOCK_FLOOR = 100_000_000
+
+
+class _DefaultFloor:
+    """Sentinel for "use the asset class's own floor".
+
+    ``min_market_cap=None`` already means *no floor* (the selection contract
+    relies on it), so the default cannot be ``None`` without losing that
+    distinction. This sentinel keeps both meanings: omitted → stock 100M / ETF
+    none; explicit ``None`` → no floor; explicit number → that floor.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "DEFAULT_FLOOR"
+
+
+DEFAULT_FLOOR = _DefaultFloor()
+
 
 #: Rows one page may return. The display only needs 20 and the universe filter
 #: runs locally, so the page is deliberately small: a single request, not a
@@ -80,15 +116,55 @@ SCAN_COLUMNS: tuple[str, ...] = (
     "price_52_week_low",
 )
 
+#: ETFs report AUM (``aum``) and no ``market_cap_basic``; a fund screen that
+#: asked only for market cap would rank 5.7k funds as "unknown". The ETF scan
+#: therefore carries the AUM column and the universe uses it as the cap.
+ETF_SCAN_COLUMNS: tuple[str, ...] = SCAN_COLUMNS + ("aum",)
+
 #: The market the US tab scans. ``global`` sends every market the venue list
-#: names; the universe splits the tabs afterwards.
+#: names; the universe splits the tabs afterwards. ``us_etf`` scans the same
+#: America market as ``us`` — the instrument family is a filter, not a venue.
 REGION_MARKETS: dict[str, tuple[str, ...]] = {
     "us": ("america",),
     # TradingView has no ``global`` *market id*: sending ``markets=["global"]``
     # answers an empty page. Omitting the key scans every venue; the universe
     # layer removes US issuers for the Global tab.
     "global": (),
+    "us_etf": ("america",),
 }
+
+
+def asset_class_for(region: str, asset_class: str | None = None) -> str:
+    """Resolve the instrument family of ``region`` (``stock`` or ``etf``).
+
+    ``us_etf`` is *defined* as the US fund tab, so it can only ever be ``etf``:
+    a caller that asks for ``asset_class="stock"`` there is contradicting the
+    region name and gets a ``ValueError`` instead of a silently empty screen.
+    ``us`` may explicitly ask for ``etf`` (the ETF universe without the tab
+    alias), while ``global`` is stock-only in this product — the ETF contract
+    is US (PLAN-finviz-parity.md §2).
+    """
+
+    if region not in REGION_PATHS:
+        raise ValueError(f"unknown scan region {region!r}; expected one of {', '.join(REGIONS)}")
+    inferred = "etf" if region == "us_etf" else "stock"
+    if asset_class is None:
+        return inferred
+    if asset_class not in ASSET_CLASSES:
+        raise ValueError(
+            f"unknown asset_class {asset_class!r}; expected one of {', '.join(ASSET_CLASSES)}"
+        )
+    if region == "us_etf" and asset_class != "etf":
+        raise ValueError(
+            f"region 'us_etf' is the US ETF tab; asset_class must be 'etf', got {asset_class!r}"
+        )
+    if region == "global" and asset_class == "etf":
+        raise ValueError(
+            "the ETF screen is US-only (region 'us' or 'us_etf'); region 'global' "
+            "is not an ETF universe"
+        )
+    return asset_class
+
 
 REQUEST_HEADERS: dict[str, str] = {
     "accept": "application/json",
@@ -141,8 +217,9 @@ def scan_body(
     columns: Sequence[str] | None = None,
     offset: int = 0,
     limit: int = PAGE_ROWS,
-    min_market_cap: float | None = 100_000_000,
+    min_market_cap: float | None | _DefaultFloor = DEFAULT_FLOOR,
     subtype: str | None = "common",
+    asset_class: str | None = None,
 ) -> dict[str, Any]:
     """The POST body for one page of ``region``.
 
@@ -162,21 +239,46 @@ def scan_body(
     * ``subtype=None`` scans every subtype of ``type=stock`` (the Finviz panel
       addresses stocks, not only common shares).
 
-    Neither ``None`` relaxes ``type=stock`` or the OTC exclusion: a fund is not a
+    ``asset_class='etf'`` (or ``region='us_etf'``) swaps the type gate to
+    ``type=fund`` + ``subtype=etf``. The ETF contract has **no cap floor**: an
+    omitted ``min_market_cap`` sends no cap filter, because a small fund is
+    still a listed fund. ``subtype`` is pinned to ``etf`` there — a fund without
+    the subtype gate would also admit closed-end funds and commodity pools,
+    which are not the Finviz ETF universe. OTC exclusion and the US market stay
+    on in both families: a pink-sheet fund is out of scope whatever the class.
+
+    Neither ``None`` relaxes the type gate or the OTC exclusion: a fund is not a
     stock and a pink sheet is out of scope, whatever the caller asks for.
     """
 
     if region not in REGION_PATHS:
         raise ValueError(f"unknown scan region {region!r}; expected one of {', '.join(REGIONS)}")
-    requested = tuple(columns or SCAN_COLUMNS)
+    family = asset_class_for(region, asset_class)
+    requested = tuple(columns) if columns is not None else (
+        ETF_SCAN_COLUMNS if family == "etf" else SCAN_COLUMNS
+    )
     filters: list[dict[str, Any]] = [
-        {"left": "type", "operation": "equal", "right": "stock"},
+        {
+            "left": "type",
+            "operation": "equal",
+            "right": STOCK_TYPE if family == "stock" else ETF_TYPE,
+        },
     ]
-    if subtype is not None:
+    if family == "etf":
+        filters.append({"left": "subtype", "operation": "equal", "right": ETF_SUBTYPE})
+    elif subtype is not None:
         filters.append({"left": "subtype", "operation": "equal", "right": subtype})
-    if min_market_cap is not None:
+    floor = min_market_cap
+    if isinstance(floor, _DefaultFloor):
+        floor = DEFAULT_STOCK_FLOOR if family == "stock" else None
+    if floor is not None:
+        value = (
+            floor
+            if isinstance(floor, (int, float)) and not isinstance(floor, bool)
+            else float(floor)
+        )
         filters.append(
-            {"left": "market_cap_basic", "operation": "greater", "right": min_market_cap}
+            {"left": "market_cap_basic", "operation": "greater", "right": value}
         )
     filters.append({"left": "exchange", "operation": "not_in_range", "right": ["OTC", "PNK"]})
     body: dict[str, Any] = {
@@ -255,8 +357,9 @@ async def fetch_scan(
     timeout_s: float = 20.0,
     offset: int = 0,
     limit: int = PAGE_ROWS,
-    min_market_cap: float | None = 100_000_000,
+    min_market_cap: float | None | _DefaultFloor = DEFAULT_FLOOR,
     subtype: str | None = "common",
+    asset_class: str | None = None,
 ) -> ScanPage:
     """Fetch one page for ``region`` — exactly one request, no retry.
 
@@ -264,9 +367,10 @@ async def fetch_scan(
     failure is terminal here: the caller (the snapshot layer) decides whether to
     serve a stale snapshot, and it never re-asks the same request in this call.
 
-    ``min_market_cap``/``subtype`` reach :func:`scan_body` unchanged; ``None``
-    drops that provider filter (see there for why a selection needs the wider
-    page while the browse display does not).
+    ``min_market_cap``/``subtype``/``asset_class`` reach :func:`scan_body`
+    unchanged; ``None`` drops a provider filter (see there for why a selection
+    needs the wider page while the browse display does not, and why the ETF
+    family has no cap floor by default).
     """
 
     url = scan_url(region)
@@ -277,6 +381,7 @@ async def fetch_scan(
         limit=limit,
         min_market_cap=min_market_cap,
         subtype=subtype,
+        asset_class=asset_class,
     )
     async with provider_http.build_client(
         timeout_s=timeout_s, headers=dict(REQUEST_HEADERS)
@@ -309,7 +414,7 @@ async def fetch_scan(
 
     if not isinstance(document, Mapping):
         raise ScanError(f"scanner body is not a JSON object for {url}")
-    page = parse_scan(document, tuple(columns or SCAN_COLUMNS))
+    page = parse_scan(document, tuple(body["columns"]))
     return ScanPage(
         total_count=page.total_count, rows=page.rows, region=region, received=page.received
     )
@@ -321,8 +426,9 @@ async def fetch_all(
     columns: Sequence[str] | None = None,
     timeout_s: float = 20.0,
     max_rows: int | None = None,
-    min_market_cap: float | None = 100_000_000,
+    min_market_cap: float | None | _DefaultFloor = DEFAULT_FLOOR,
     subtype: str | None = "common",
+    asset_class: str | None = None,
 ) -> ScanPage:
     """Page through the whole scanner result for an on-demand export.
 
@@ -331,9 +437,9 @@ async def fetch_all(
     is the provider's promise, so the loop stops when the received rows reach
     it (or when a page stops making progress, which would otherwise spin).
 
-    Every page is requested with the **same** ``min_market_cap``/``subtype`` as
-    the first: a second page that silently re-applied the cap would drop rows
-    the caller asked for and still look complete.
+    Every page is requested with the **same** ``min_market_cap``/``subtype``/
+    ``asset_class`` as the first: a second page that silently re-applied the cap
+    would drop rows the caller asked for and still look complete.
     """
 
     first = await fetch_scan(
@@ -342,6 +448,7 @@ async def fetch_all(
         timeout_s=timeout_s,
         min_market_cap=min_market_cap,
         subtype=subtype,
+        asset_class=asset_class,
     )
     rows = list(first.rows)
     total = first.total_count
@@ -355,6 +462,7 @@ async def fetch_all(
             offset=len(rows),
             min_market_cap=min_market_cap,
             subtype=subtype,
+            asset_class=asset_class,
         )
         if not page.rows:
             break
@@ -371,15 +479,23 @@ async def fetch_all(
 
 
 __all__ = [
+    "ASSET_CLASSES",
+    "DEFAULT_FLOOR",
+    "DEFAULT_STOCK_FLOOR",
+    "ETF_SUBTYPE",
+    "ETF_TYPE",
+    "ETF_SCAN_COLUMNS",
     "FIRST_PAGE",
     "PAGE_ROWS",
     "REGIONS",
     "REGION_PATHS",
     "SCANNER_HOST",
     "SCAN_COLUMNS",
+    "STOCK_TYPE",
     "ScanBlocked",
     "ScanError",
     "ScanPage",
+    "asset_class_for",
     "fetch_all",
     "fetch_scan",
     "parse_scan",

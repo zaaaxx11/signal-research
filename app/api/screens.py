@@ -64,13 +64,14 @@ from app.screen.selection import (
 )
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
 from app.screen.scanner import FULL_SCAN_ROWS, ScanError, fetch_scan
-from app.screen.universe import PARITY_COLUMNS, build_universe
+from app.screen.universe import PARITY_COLUMNS, asset_class_for, build_universe
 
 router = APIRouter(prefix="/screens", tags=["screens"])
 
 #: ``region`` is a closed vocabulary (PLAN-screen.md §2): ``idx`` is not a
 #: smaller US, and a silently-ignored region would serve the wrong tab.
-Region = Literal["us", "global"]
+#: ``us_etf`` is the US fund tab (``type=fund``/``subtype=etf``).
+Region = Literal["us", "global", "us_etf"]
 #: The three transparent sorts (PLAN §3).
 Sort = Literal["market_cap", "turnover", "gainers"]
 
@@ -173,6 +174,7 @@ async def select(request: Request) -> dict[str, Any]:
         assert selection.region is not None  # parse_selection requires it
         region = selection.region
         source = SOURCE
+        family = selection.asset_class or asset_class_for(region)
     else:
         snapshot = await runtime.screen_repository.get(selection.snapshot_id or "")
         if snapshot is None:
@@ -193,6 +195,15 @@ async def select(request: Request) -> dict[str, Any]:
         region = str(snapshot["region"])
         source = str(selection.source)
         snapshot_id = selection.snapshot_id
+        try:
+            family = asset_class_for(region, selection.asset_class)
+        except ValueError as exc:
+            # A symbols selection may not relabel the snapshot's own tab: an
+            # ETF snapshot is the ETF universe, and a caller asking for stocks
+            # against it is contradicted by the snapshot it named.
+            raise ApiError(
+                status_code=422, error="asset_class_mismatch", message=str(exc)
+            ) from exc
 
     try:
         if selection.is_criteria:
@@ -201,18 +212,25 @@ async def select(request: Request) -> dict[str, Any]:
             # columns, and it drops both provider filters that would hide rows:
             # there is no 100M floor and no `subtype=common` gate, because a
             # selection answers over the stock market, not over the display's
-            # subset. `type=stock` and the OTC exclusion stay on.
+            # subset. `type=stock` (or type=fund/subtype=etf for the ETF
+            # universe) and the OTC exclusion stay on.
             page = await fetch_scan(
                 region,
                 limit=FULL_SCAN_ROWS,
                 columns=PARITY_COLUMNS,
                 min_market_cap=None,
                 subtype=None,
+                asset_class=family,
             )
         else:
-            # A ticker lookup needs no metric: the light row (and the light scan)
-            # is the whole answer, and 60 columns for 20 tickers is waste.
-            page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
+            # A ticker lookup needs no metric unless the caller asked for a
+            # view: then the view cells must come from the parity scan.
+            page = await fetch_scan(
+                region,
+                limit=FULL_SCAN_ROWS,
+                columns=PARITY_COLUMNS if selection.view else None,
+                asset_class=family,
+            )
     except ScanError as exc:
         raise ApiError(
             status_code=503,
@@ -225,12 +243,18 @@ async def select(request: Request) -> dict[str, Any]:
         universe = build_universe(
             page.rows,
             region=region,
-            min_market_cap=0,
+            min_market_cap=None if family == "etf" else 0,
             columns=PARITY_COLUMNS,
             allow_any_subtype=True,
+            asset_class=family,
         )
     else:
-        universe = build_universe(page.rows, region=region)
+        universe = build_universe(
+            page.rows,
+            region=region,
+            columns=PARITY_COLUMNS if selection.view else None,
+            asset_class=family,
+        )
     moment = datetime.now(UTC).isoformat(timespec="microseconds")
     answer = select_rows(
         universe,

@@ -3,15 +3,21 @@
 The scanner answers with what the venue lists; the universe answers with what a
 *screen* means. Four decisions, each a gate in PLAN-screen.md §2/§8:
 
-1. **Common stock only.** ``type=stock`` and ``subtype=common``; an ETF, a REIT,
-   a warrant and a preferred share are different instruments with different
-   risk, and a default equity screen that quietly mixes them is not a screen.
+1. **One instrument family per tab.** The stock tabs are ``type=stock`` (with
+   ``subtype=common`` on the browse display); the ``us_etf`` tab is
+   ``type=fund`` + ``subtype=etf``. An ETF, a REIT, a warrant and a preferred
+   share are different instruments with different risk, and a default equity
+   screen that quietly mixes them is not a screen. The ETF tab is a region
+   rather than a flag so a snapshot, an export and a selection all name the same
+   universe.
 2. **At least USD 100 million of market cap by default, boundary included.**
    ``>=``, not ``>``: the contract names a floor, and a company worth exactly the
    floor is inside it. A row whose cap the provider did not send is dropped —
    "unknown" is not "large enough". ``min_market_cap`` lowers the floor for a
    nano-cap view (``0`` admits every priced common stock); "unknown" still loses
-   even at zero, because a missing cap is not a cap of zero.
+   even at zero, because a missing cap is not a cap of zero. The floor belongs to
+   the *stock* screen; the ETF universe has none (``min_market_cap=None``) and
+   keeps an unreported cap as unknown.
 3. **No OTC/pink sheet**, whatever the cap: those listings are out of scope.
 4. **One issuer, one row.** NVDA trades on NASDAQ, SIX, BX, MUN and TRADEGATE;
    a universe that keeps five rows for one company both distorts the ranking and
@@ -58,12 +64,29 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.screen.scanner import SCAN_COLUMNS
+from app.screen.scanner import (
+    ASSET_CLASSES,
+    DEFAULT_FLOOR,
+    DEFAULT_STOCK_FLOOR,
+    ETF_SUBTYPE,
+    ETF_TYPE,
+    REGIONS as SCAN_REGIONS,
+    SCAN_COLUMNS,
+    STOCK_TYPE,
+    asset_class_for as _scan_asset_class_for,
+)
 
-#: PLAN-screen.md §2: market cap floor, inclusive.
-MIN_MARKET_CAP_USD = 100_000_000
+#: PLAN-screen.md §2: market cap floor, inclusive. One number, imported from the
+#: scanner instead of retyped, so the two layers cannot drift.
+MIN_MARKET_CAP_USD = DEFAULT_STOCK_FLOOR
 
-REGIONS: tuple[str, ...] = ("us", "global")
+#: The three tabs the product ships: two stock tabs and the US ETF tab. The ETF
+#: tab is a first-class region (not a sort flag) because every layer already
+#: keys a snapshot by ``(region, sort)`` and because the instrument family is a
+#: property of the tab a reader opens.
+REGIONS: tuple[str, ...] = SCAN_REGIONS
+ETF_REGION = "us_etf"
+
 
 #: TradingView exchange code → MIC. Only US venues are mapped; every other
 #: exchange keeps the code the provider printed rather than a guessed MIC.
@@ -71,6 +94,10 @@ MIC_BY_EXCHANGE: dict[str, str] = {
     "NASDAQ": "XNAS",
     "NYSE": "XNYS",
     "AMEX": "XASE",
+    # CBOE lists ETFs too (IROC and others); leaving it unmapped made the ETF
+    # universe silently drop ~1.7k live rows because ``is_us`` only knew the
+    # three stock venues.
+    "CBOE": "XCBO",
 }
 US_EXCHANGES: frozenset[str] = frozenset(MIC_BY_EXCHANGE.values())
 #: OTC/pink sheet listings, in provider and MIC spelling. Out of scope.
@@ -78,9 +105,22 @@ OTC_EXCHANGES: frozenset[str] = frozenset(
     {"OTC", "OTCBB", "OTCQX", "OTCQB", "PNK", "PINK", "GREY", "OTCMKTS"}
 )
 
-#: The provider's own vocabulary for "common stock".
-COMMON_TYPE = "stock"
+#: The provider's own vocabulary for the two families. ``COMMON_TYPE`` keeps its
+#: historical name (``stock``) so every existing caller reads unchanged.
+COMMON_TYPE = STOCK_TYPE
 COMMON_SUBTYPE = "common"
+
+
+def asset_class_for(region: str, asset_class: str | None = None) -> str:
+    """Resolve ``stock``/``etf`` for ``region`` — one rule, shared with the scanner.
+
+    ``us_etf`` is the ETF tab, ``us``/``global`` default to stock, and an
+    explicit family is honoured on ``us`` (the ETF universe without the tab
+    alias). ``global`` + ``etf`` is refused: the ETF contract is US-only.
+    """
+
+    return _scan_asset_class_for(region, asset_class)
+
 
 #: Provider column → canonical row field, for the metrics the light row does not
 #: carry. The provider names are TradingView's scanner vocabulary, verified live
@@ -90,6 +130,8 @@ COMMON_SUBTYPE = "common"
 #: scan always sends (a price multiple can still be null per row, which is what
 #: ``PARITY_NULLABLE`` records).
 PARITY_FIELDS: Mapping[str, str] = {
+    # -- fund size (ETFs report AUM, not market cap)
+    "aum": "aum_usd",
     # -- valuation multiples
     "price_earnings_ttm": "pe_ttm",
     "price_earnings_forward": "pe_forward",
@@ -267,7 +309,8 @@ def parity_pairs(columns: Sequence[str] | None) -> tuple[tuple[str, str], ...]:
 def _normalize(
     row: Mapping[str, Any],
     *,
-    min_market_cap: float,
+    min_market_cap: float | None,
+    asset_class: str,
     allow_any_subtype: bool = False,
     metrics: tuple[tuple[str, str], ...] = (),
 ) -> dict[str, Any] | None:
@@ -278,9 +321,15 @@ def _normalize(
     before returning.
     """
 
-    if str(row.get("type") or "").strip().lower() != COMMON_TYPE:
+    expected_type = STOCK_TYPE if asset_class == "stock" else ETF_TYPE
+    if str(row.get("type") or "").strip().lower() != expected_type:
         return None
-    if not allow_any_subtype and str(row.get("subtype") or "").strip().lower() != COMMON_SUBTYPE:
+    if asset_class == "etf":
+        # A fund tab is the ETF universe: closed-end funds, commodity pools and
+        # preferred shares are other instruments with other risk.
+        if str(row.get("subtype") or "").strip().lower() != ETF_SUBTYPE:
+            return None
+    elif not allow_any_subtype and str(row.get("subtype") or "").strip().lower() != COMMON_SUBTYPE:
         return None
 
     exchange = str(row.get("exchange") or "").strip().upper()
@@ -288,7 +337,17 @@ def _normalize(
         return None
 
     market_cap = _number(row.get("market_cap_basic"))
-    if market_cap is None or market_cap < min_market_cap:
+    if asset_class == "etf" and market_cap is None:
+        # Funds report AUM under ``aum`` and leave ``market_cap_basic`` empty.
+        # AUM is the fund's size, the number a market-cap column means for an
+        # ETF; using it is a documented mapping, not a fabricated market cap.
+        market_cap = _metric(row.get("aum"))
+    if min_market_cap is not None and (
+        market_cap is None or market_cap < min_market_cap
+    ):
+        # A floor is a claim about size: a row with no cap cannot prove it fits.
+        # With no floor (the ETF contract) an unreported cap is simply unknown
+        # and the instrument stays, with ``market_cap_usd=None``.
         return None
 
     symbol = str(row.get("symbol") or "").strip()
@@ -382,19 +441,29 @@ def build_universe(
     rows: Iterable[Mapping[str, Any]],
     *,
     region: str,
-    min_market_cap: float = MIN_MARKET_CAP_USD,
+    min_market_cap: float | None | object = DEFAULT_FLOOR,
     columns: Sequence[str] | None = None,
     allow_any_subtype: bool = False,
+    asset_class: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Filter ``rows`` into the issuers of ``region`` (``us`` or ``global``).
+    """Filter ``rows`` into the issuers of ``region`` (``us``/``global``/``us_etf``).
 
     Dedupe runs **before** the tab split and over the whole input, so an issuer
     with a US listing cannot appear in the Global tab under a foreign venue.
 
     ``min_market_cap`` is the inclusive USD floor; the default keeps the
-    documented USD 100 million screen. Passing ``0`` is the explicit nano-cap
-    view: every common listing with a reported cap survives, while a row with no
-    cap at all is still dropped (unknown is not zero).
+    documented USD 100 million screen for stocks. Passing ``0`` is the explicit
+    nano-cap view: every common listing with a reported cap survives, while a
+    row with no cap at all is still dropped (unknown is not zero). Passing
+    ``None`` means *no floor at all* — the ETF default — and there a row whose
+    cap the provider did not send stays with ``market_cap_usd=None``.
+
+    ``asset_class`` selects the instrument family. It defaults to the region's
+    own family (``us_etf`` → ``etf``, everything else → ``stock``), so every
+    existing call is unchanged; an explicit ``"etf"`` on ``us`` builds the ETF
+    universe without the tab alias. The family gates are structural: a stock
+    screen never admits ``type=fund`` and the ETF screen never admits
+    ``type=stock``; OTC stays out of both.
 
     ``columns`` names the provider columns the scan asked for. When it includes
     parity metrics (:data:`PARITY_COLUMNS`), each row also carries their
@@ -402,19 +471,32 @@ def build_universe(
     the light row, unchanged.
 
     ``allow_any_subtype`` relaxes the ``subtype=common`` gate, which is what a
-    selection over the *whole* universe needs: the Finviz filter panel addresses
-    a stock market, not only its common shares. ``type=stock`` is still
-    enforced, so a fund or an ETF cannot enter through the wider door.
+    selection over the *whole* stock universe needs: the Finviz filter panel
+    addresses a stock market, not only its common shares. ``type=stock`` is
+    still enforced, so a fund or an ETF cannot enter through the wider door; the
+    flag has no meaning on the ETF tab, where ``subtype=etf`` is the definition.
     """
 
     if region not in REGIONS:
         raise ValueError(f"unknown region {region!r}; expected one of {', '.join(REGIONS)}")
 
-    floor = _number(min_market_cap)
-    if floor is None or floor < 0:
-        raise ValueError(
-            f"min_market_cap must be a non-negative number, got {min_market_cap!r}"
-        )
+    family = asset_class_for(region, asset_class)
+    if min_market_cap is DEFAULT_FLOOR:
+        floor: float | None = MIN_MARKET_CAP_USD if family == "stock" else None
+    elif min_market_cap is None:
+        floor = None
+    else:
+        floor = _number(min_market_cap)
+        if floor is None or floor < 0:
+            raise ValueError(
+                f"min_market_cap must be a non-negative number, got {min_market_cap!r}"
+            )
+        if family == "etf" and floor == 0:
+            # The ETF contract has no cap floor. Callers that pass the stock
+            # sentinel (0 = admit nano caps) must not accidentally require a
+            # reported cap: most ETFs have ``market_cap_basic=None``, and
+            # ``cap is None`` would drop the entire tab.
+            floor = None
 
     metrics = parity_pairs(columns)
     chosen: dict[tuple[str, float], dict[str, Any]] = {}
@@ -422,6 +504,7 @@ def build_universe(
         candidate = _normalize(
             row,
             min_market_cap=floor,
+            asset_class=family,
             allow_any_subtype=allow_any_subtype,
             metrics=metrics,
         )
@@ -442,7 +525,7 @@ def build_universe(
             "usa",
             "us",
         }
-        if region == "us" and not is_us:
+        if region in ("us", ETF_REGION) and not is_us:
             continue
         if region == "global" and (is_us or is_us_issuer):
             # The global endpoint returns foreign *listings* of US issuers
@@ -458,8 +541,12 @@ def build_universe(
 
 
 __all__ = [
+    "ASSET_CLASSES",
     "COMMON_SUBTYPE",
     "COMMON_TYPE",
+    "ETF_REGION",
+    "ETF_SUBTYPE",
+    "ETF_TYPE",
     "MIC_BY_EXCHANGE",
     "MIN_MARKET_CAP_USD",
     "OTC_EXCHANGES",
@@ -469,6 +556,7 @@ __all__ = [
     "REGIONS",
     "UNIVERSE_COLUMNS",
     "US_EXCHANGES",
+    "asset_class_for",
     "build_universe",
     "issuer_key",
     "mic_for",

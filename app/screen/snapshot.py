@@ -6,7 +6,9 @@ consequences the code has to earn:
 
 * a snapshot is keyed by ``(region, sort)`` and lives ``SNAPSHOT_TTL_S`` = 300 s;
   a read inside the window sends **zero** provider requests, a read after it
-  refreshes once;
+  refreshes once. The three regions are ``us``, ``global`` and ``us_etf`` — the
+  ETF tab is a region, not a flag, because the instrument family belongs to the
+  question a reader is asking (see :mod:`app.screen.scanner`);
 * ``total`` is the post-filter/post-dedupe universe size, so it is normal for
   ``total`` (23) to be larger than the rows served (20).
 

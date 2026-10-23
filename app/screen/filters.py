@@ -90,6 +90,7 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "turnover": "number",
         "turnover_usd": "number",
         "market_cap_usd": "number",
+        "aum_usd": "number",
         "is_primary": "bool",
         # -- valuation multiples (provider column in parentheses)
         "pe_ttm": "number",  # price_earnings_ttm

@@ -38,7 +38,7 @@ SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
             "type": "string",
             "description": "Opaque snapshot id; the same value for every read inside the 300 s window.",
         },
-        "region": {"type": "string", "enum": ["us", "global"]},
+        "region": {"type": "string", "enum": ["us", "global", "us_etf"]},
         "sort": {"type": "string", "enum": ["market_cap", "turnover", "gainers"]},
         "source": {"type": "string", "examples": ["tradingview"]},
         "as_of": {"type": "string", "format": "date-time"},

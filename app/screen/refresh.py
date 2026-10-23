@@ -30,15 +30,22 @@ from typing import Any, Awaitable, Callable, Iterator, Sequence
 from app.config import get_settings
 from app.screen.repository import SqliteScreenRepository
 from app.screen.snapshot import SNAPSHOT_TTL_S, Snapshot, refresh_screen
+from app.screen.universe import REGIONS as SCREEN_REGIONS
 
 logger = logging.getLogger("mee.screen.refresh")
 
 #: Same window as the display snapshot. One constant, not two.
 REFRESH_INTERVAL_S = SNAPSHOT_TTL_S
-REGIONS: tuple[str, ...] = ("us", "global")
+#: The three tabs, including the US ETF tab. A region is a tab: ``us_etf``
+#: scans ``type=fund``/``subtype=etf`` over the same America venue.
+REGIONS: tuple[str, ...] = SCREEN_REGIONS
 #: The two tabs the product ships. ``gainers`` stays on demand until it has a
 #: dedicated UI surface; refreshing a sort nobody reads is wasted provider load.
 SORTS: tuple[str, ...] = ("market_cap", "turnover")
+#: The six snapshots one pass writes: 2 stock regions x 2 sorts + the 2 ETF
+#: screens. The name is ``<region>_<sort>`` — the same spelling the screen id
+#: carries (``scr_us_etf_market_cap_<stamp>``) and the one a report/client reads.
+SCREENS: tuple[str, ...] = tuple(f"{region}_{sort}" for region in REGIONS for sort in SORTS)
 
 RefreshCall = Callable[..., Awaitable[Snapshot]]
 
@@ -77,6 +84,7 @@ async def refresh_all_screens(
                 )
                 results.append(
                     {
+                        "screen": f"{region}_{sort}",
                         "region": region,
                         "sort": sort,
                         "status": "ok",
@@ -90,6 +98,7 @@ async def refresh_all_screens(
                 logger.exception("screen refresh failed region=%s sort=%s", region, sort)
                 results.append(
                     {
+                        "screen": f"{region}_{sort}",
                         "region": region,
                         "sort": sort,
                         "status": "failed",
@@ -100,6 +109,7 @@ async def refresh_all_screens(
     return {
         "as_of": moment.isoformat(timespec="microseconds"),
         "interval_s": REFRESH_INTERVAL_S,
+        "screens": list(SCREENS),
         "ok": sum(1 for item in results if item["status"] == "ok"),
         "failed": sum(1 for item in results if item["status"] == "failed"),
         "results": results,
@@ -219,6 +229,7 @@ if __name__ == "__main__":  # pragma: no cover - process entrypoint
 __all__ = [
     "REFRESH_INTERVAL_S",
     "REGIONS",
+    "SCREENS",
     "SORTS",
     "main",
     "refresh_all_screens",

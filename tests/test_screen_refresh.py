@@ -1,4 +1,4 @@
-"""The five-minute refresh loop: every pair, and one failure does not stop the rest."""
+"""The five-minute refresh loop: every screen, and one failure does not stop the rest."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.screen import refresh as refresh_mod
-from app.screen.refresh import REGIONS, SORTS, refresh_all_screens
+from app.screen.refresh import REGIONS, SCREENS, SORTS, refresh_all_screens
 
 
 @dataclass
@@ -24,7 +24,7 @@ def _snapshot(region: str, sort: str) -> _FakeSnapshot:
     )
 
 
-async def test_refresh_covers_both_tabs_and_both_sorts() -> None:
+async def test_refresh_covers_every_tab_and_both_sorts() -> None:
     calls: list[tuple[str, str]] = []
 
     async def fake(region: str, sort: str, **_kwargs: Any) -> _FakeSnapshot:
@@ -34,9 +34,13 @@ async def test_refresh_covers_both_tabs_and_both_sorts() -> None:
     report = await refresh_all_screens(object(), refresh=fake)  # type: ignore[arg-type]
 
     assert calls == [(region, sort) for region in REGIONS for sort in SORTS]
-    assert report["ok"] == 4
+    assert len(calls) == 6, "two stock tabs + the US ETF tab, two sorts each"
+    assert report["ok"] == 6
     assert report["failed"] == 0
     assert report["interval_s"] == 300
+    assert report["screens"] == list(SCREENS)
+    assert {"us_etf_market_cap", "us_etf_turnover"} <= set(report["screens"])
+    assert [row["screen"] for row in report["results"]] == list(SCREENS)
     assert [row["screen_id"] for row in report["results"]] == [
         f"scr_{region}_{sort}" for region in REGIONS for sort in SORTS
     ]
@@ -54,10 +58,11 @@ async def test_one_tab_failure_does_not_skip_the_next_pair() -> None:
     report = await refresh_all_screens(object(), refresh=fake)  # type: ignore[arg-type]
 
     assert calls == [(region, sort) for region in REGIONS for sort in SORTS]
-    assert report["ok"] == 3
+    assert report["ok"] == 5
     assert report["failed"] == 1
     failed = [row for row in report["results"] if row["status"] == "failed"]
     assert failed and failed[0]["region"] == "us" and failed[0]["sort"] == "turnover"
+    assert failed[0]["screen"] == "us_turnover"
     assert "scanner blocked" in failed[0]["error"]
 
 

@@ -27,7 +27,8 @@
       "type": "string",
       "enum": [
         "us",
-        "global"
+        "global",
+        "us_etf"
       ]
     },
     "sort": {
@@ -173,3 +174,4 @@
     }
   }
 }
+
