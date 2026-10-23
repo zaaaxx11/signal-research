@@ -25,7 +25,7 @@ from typing import Any, Mapping
 from app.screen import rank as ranking
 from app.screen import universe as universes
 from app.screen.repository import SqliteScreenRepository
-from app.screen.scanner import ScanBlocked, ScanError, fetch_scan
+from app.screen.scanner import FULL_SCAN_ROWS, ScanBlocked, ScanError, fetch_scan
 
 #: The display window: five minutes (user revision of PLAN §4).
 SNAPSHOT_TTL_S = 300
@@ -113,7 +113,9 @@ async def refresh_screen(
     """
 
     moment = now or datetime.now(UTC)
-    page = await fetch_scan(region)
+    # One large request gives the exact post-filter total, not the first 5k
+    # page's partial count. Observed live: 65k rows in ~7 s for Global.
+    page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
     universe = universes.build_universe(page.rows, region=region)
     ranked = ranking.rank_rows(universe, sort)
     displayed = ranking.top_rows(ranked, DISPLAY_ROWS)

@@ -80,17 +80,36 @@ def mic_for(exchange: Any) -> str:
     return MIC_BY_EXCHANGE.get(code, code)
 
 
-def issuer_key(description: Any, market_cap: float | None) -> tuple[str, float]:
-    """The dedupe key: normalised issuer name + the market cap.
+def issuer_key(description: Any, market_cap: float | None) -> tuple[str, int]:
+    """The dedupe key: normalised issuer name + a million-dollar cap bucket.
 
-    Documented limitation (22-screen-red.md §4): two different companies that
-    share a name *and* a market cap would be merged. ISIN/FIGI are not in the
-    scan payload, so a key that pretends to have them would be worse.
+    Two listings of one issuer report the same cap with floating noise
+    (Tencent: ``...763.4693`` vs ``...763.46924``), so exact float equality
+    fails and the same company enters the top 20 twice. The cap is therefore
+    bucketed to USD 1M. Share-class suffixes (``Class A``/``Class H``) are
+    removed for the same reason: ICBC's A and H lines are one issuer.
+
+    Documented limitation: two different companies sharing a name *and* a
+    million-dollar cap would be merged. ISIN/FIGI are not in the scan payload,
+    so a key that pretends to have them would be worse.
     """
 
     name = " ".join(str(description or "").casefold().replace("\u00a0", " ").split())
     name = name.strip(" .,;")
-    return name, float(market_cap or 0.0)
+    # "industrial and commercial bank ... class h", "Novartis AG TEMP" and
+    # "Nestle S.A. ADR" are the same issuer in another line, not a new company.
+    import re
+
+    suffix = re.compile(
+        r"\s+(?:class\s+[a-z]|temp|temporary|reg|registered|adr|gdr|"
+        r"spon\s+adr|sponsored\s+adr)\b\.?$"
+    )
+    while True:
+        cleaned = suffix.sub("", name).strip(" .,;")
+        if cleaned == name:
+            break
+        name = cleaned
+    return name, int(round(float(market_cap or 0.0) / 1_000_000.0))
 
 
 def _number(value: Any) -> float | None:
@@ -153,18 +172,59 @@ def _normalize(row: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+#: Where an issuer's price is discovered / most useful to a reader. A listing
+#: on a major venue beats a cross-listing on an obscure one even when the
+#: obscure venue reports a larger local turnover.
+MAJOR_EXCHANGES: frozenset[str] = frozenset(
+    {
+        "XNAS",
+        "XNYS",
+        "XASE",
+        "HKEX",
+        "SSE",
+        "SZSE",
+        "TWSE",
+        "TPEX",
+        "KRX",
+        "KOSDAQ",
+        "TSE",
+        "JPX",
+        "EURONEXT",
+        "XETR",
+        "SIX",
+        "LSE",
+        "NSE",
+        "BSE",
+        "TSX",
+        "ASX",
+        "BVMF",
+        "BMV",
+        "TADAWUL",
+    }
+)
+
+
+def _venue_priority(exchange: Any) -> int:
+    code = str(exchange or "").upper()
+    if code in US_EXCHANGES:
+        return 3
+    if code in MAJOR_EXCHANGES:
+        return 2
+    return 1
+
+
 def _preferred(candidate: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
     """Is ``candidate`` a better representative of the same issuer?
 
-    US listing first (it is where the issuer's price is discovered), then the
-    largest traded value, then the earliest row: a tie never reshuffles between
-    two runs of the same input.
+    US listing first (it is where the issuer's price is discovered), then a
+    major venue over a cross-listing, then the largest traded value, then the
+    earliest row: a tie never reshuffles between two runs of the same input.
     """
 
-    candidate_us = candidate["exchange"] in US_EXCHANGES
-    current_us = current["exchange"] in US_EXCHANGES
-    if candidate_us != current_us:
-        return candidate_us
+    candidate_priority = _venue_priority(candidate["exchange"])
+    current_priority = _venue_priority(current["exchange"])
+    if candidate_priority != current_priority:
+        return candidate_priority > current_priority
     return (_number(candidate.get("turnover")) or 0.0) > (_number(current.get("turnover")) or 0.0)
 
 

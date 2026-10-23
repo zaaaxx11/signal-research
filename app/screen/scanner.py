@@ -52,6 +52,10 @@ SCANNER_HOST = "https://scanner.tradingview.com"
 PAGE_ROWS = 5_000
 #: The page index a single-request scan always asks for.
 FIRST_PAGE = 1
+#: One request large enough to hold the filtered live universe (observed
+#: 65k rows for Global, 3.9k for US). Above this the snapshot falls back to
+#: ``fetch_all``; the display refresh should not page 13 times.
+FULL_SCAN_ROWS = 100_000
 
 #: Fields the scan asks for. The first block is what the screen row needs; the
 #: last three (``type``/``subtype``/``currency``) exist so the universe filter and

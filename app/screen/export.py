@@ -30,7 +30,8 @@ from app.export.writer import FORMATS, write_table
 from app.screen import rank as ranking
 from app.screen import universe as universes
 from app.screen.repository import SqliteScreenRepository
-from app.screen.scanner import fetch_all
+from app.screen.symbols import provider_symbol
+from app.screen.scanner import FULL_SCAN_ROWS, fetch_all, fetch_scan
 
 #: Rows the deep engine may enrich. Never the whole universe.
 DEEP_ROWS = 20
@@ -235,15 +236,21 @@ async def export_bundle(
 
     # ``all`` is the universe as it is *now*, not the twenty rows on screen: the
     # display table is a cache of the top of the ranking, not the universe.
-    page = await fetch_all(region)
+    # One large request is enough for the observed live universe; the paging
+    # fallback only runs if the provider has more rows than the window.
+    page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
+    if page.received < page.total_count:
+        page = await fetch_all(region)
     universe = universes.build_universe(page.rows, region=region)
     ranked = ranking.rank_rows(universe, sort)
     light = [_light_row(row, as_of=as_of, source=source) for row in ranked]
 
     displayed = await repository.rows(screen_id)
-    symbols = [str(row["symbol"]) for row in displayed[:DEEP_ROWS]]
-    if not symbols:
-        symbols = [str(row["symbol"]) for row in ranked[:DEEP_ROWS]]
+    source_rows = displayed or ranked
+    symbols = [
+        provider_symbol(row.get("symbol"), row.get("exchange"))
+        for row in source_rows[:DEEP_ROWS]
+    ]
     deep = [_canonical_row(row) for row in await deep_engine(symbols)]
 
     root = Path(directory)
