@@ -1,0 +1,803 @@
+# Source Graph SG0 RED — pytest evidence
+# commit: e70e740
+# date: 2026-10-23T16:22:51Z
+# command: .venv/bin/python -m pytest -o addopts='' -q
+# shape: 23 NotImplementedError (app.sources.* missing) + 24 AssertionError (reference/source_graph.json, schemas/source_graph_v1.json missing); 0 collection errors
+
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 45%]
+........................................................................ [ 60%]
+........................................................................ [ 75%]
+.....FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.................... [ 90%]
+............................................                             [100%]
+=================================== FAILURES ===================================
+________________ test_reference_graph_is_one_versioned_document ________________
+tests/test_source_graph.py:42: in test_reference_graph_is_one_versioned_document
+    document = SG.graph_doc()
+               ^^^^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_______ test_fields_are_exactly_the_92_canonical_columns_in_export_order _______
+tests/test_source_graph.py:50: in test_fields_are_exactly_the_92_canonical_columns_in_export_order
+    entries = SG.fields()
+              ^^^^^^^^^^^
+tests/_source_graph.py:348: in fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_________________ test_field_groups_match_the_plan_group_table _________________
+tests/test_source_graph.py:60: in test_field_groups_match_the_plan_group_table
+    declared = {entry["column"]: entry["group"] for entry in SG.fields()}
+                                                             ^^^^^^^^^^^
+tests/_source_graph.py:348: in fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_________ test_every_field_declares_a_primary_and_its_candidate_lists __________
+tests/test_source_graph.py:80: in test_every_field_declares_a_primary_and_its_candidate_lists
+    for entry in SG.fields():
+                 ^^^^^^^^^^^
+tests/_source_graph.py:348: in fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_______________ test_every_field_primary_is_a_live_allowed_node ________________
+tests/test_source_graph.py:96: in test_every_field_primary_is_a_live_allowed_node
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+__________ test_fallbacks_are_unique_never_the_primary_and_resolvable __________
+tests/test_source_graph.py:119: in test_fallbacks_are_unique_never_the_primary_and_resolvable
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_______________ test_crosschecks_are_independent_of_the_primary ________________
+tests/test_source_graph.py:130: in test_crosschecks_are_independent_of_the_primary
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+________________ test_last_price_has_an_independent_crosscheck _________________
+tests/test_source_graph.py:142: in test_last_price_has_an_independent_crosscheck
+    entry = SG.field_entry("last_price")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:353: in field_entry
+    for entry in fields(document):
+                 ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:348: in fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+___________________________ test_node_ids_are_unique ___________________________
+tests/test_source_graph.py:155: in test_node_ids_are_unique
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_____________________ test_nodes_declare_the_full_envelope _____________________
+tests/test_source_graph.py:177: in test_nodes_declare_the_full_envelope
+    for node in SG.nodes():
+                ^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+________________________ test_plan_sources_are_present _________________________
+tests/test_source_graph.py:203: in test_plan_sources_are_present
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_______________________ test_access_limits_are_declared ________________________
+tests/test_source_graph.py:210: in test_access_limits_are_declared
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+___________________ test_ibkr_is_unwired_and_never_a_primary ___________________
+tests/test_source_graph.py:225: in test_ibkr_is_unwired_and_never_a_primary
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+______________ test_derived_nodes_declare_inputs_and_methodology _______________
+tests/test_source_graph.py:237: in test_derived_nodes_declare_inputs_and_methodology
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+______________________ test_edges_are_structurally_valid _______________________
+tests/test_source_graph.py:256: in test_edges_are_structurally_valid
+    index = SG.nodes_by_id()
+            ^^^^^^^^^^^^^^^^
+tests/_source_graph.py:387: in nodes_by_id
+    for node in nodes(document):
+                ^^^^^^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_______________ test_provides_edges_declare_capability_and_trust _______________
+tests/test_source_graph.py:277: in test_provides_edges_declare_capability_and_trust
+    for edge in SG.edges():
+                ^^^^^^^^^^
+tests/_source_graph.py:405: in edges
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+___________________ test_derived_from_edges_agree_with_nodes ___________________
+tests/test_source_graph.py:287: in test_derived_from_edges_agree_with_nodes
+    for node in SG.nodes()
+                ^^^^^^^^^^
+tests/_source_graph.py:376: in nodes
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+____________ test_edge_conditions_are_declared_in_a_checkable_form _____________
+tests/test_source_graph.py:304: in test_edge_conditions_are_declared_in_a_checkable_form
+    for edge in SG.edges():
+                ^^^^^^^^^^
+tests/_source_graph.py:405: in edges
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_ test_last_price_us_resolves_to_yahoo_with_finviz_as_fallback_and_crosscheck __
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:330: in test_last_price_us_resolves_to_yahoo_with_finviz_as_fallback_and_crosscheck
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_____________ test_last_price_global_resolution_never_uses_finviz ______________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:357: in test_last_price_global_resolution_never_uses_finviz
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+__________ test_last_price_without_market_context_does_not_assume_us ___________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:374: in test_last_price_without_market_context_does_not_assume_us
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+______________ test_resolver_keeps_the_declared_us_fallback_order ______________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:386: in test_resolver_keeps_the_declared_us_fallback_order
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+______________________ test_unknown_field_is_a_key_error _______________________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:402: in test_unknown_field_is_a_key_error
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_______ test_beta_declares_its_window_and_tradingview_1y_is_not_primary ________
+tests/test_source_graph.py:411: in test_beta_declares_its_window_and_tradingview_1y_is_not_primary
+    entry = SG.screen_field_entry("beta")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:367: in screen_field_entry
+    for entry in screen_fields(document):
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:360: in screen_fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+_____ test_52_week_extremes_never_come_from_the_finviz_screener[high_52w] ______
+tests/test_source_graph.py:431: in test_52_week_extremes_never_come_from_the_finviz_screener
+    entry = SG.screen_field_entry(column)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:367: in screen_field_entry
+    for entry in screen_fields(document):
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:360: in screen_fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+______ test_52_week_extremes_never_come_from_the_finviz_screener[low_52w] ______
+tests/test_source_graph.py:431: in test_52_week_extremes_never_come_from_the_finviz_screener
+    entry = SG.screen_field_entry(column)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:367: in screen_field_entry
+    for entry in screen_fields(document):
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:360: in screen_fields
+    document = graph_doc() if document is None else document
+               ^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+______________ test_capability_quote_is_ordered_by_trust_then_id _______________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:445: in test_capability_quote_is_ordered_by_trust_then_id
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_______ test_capability_resolution_excludes_blocked_and_unwired_sources ________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:461: in test_capability_resolution_excludes_blocked_and_unwired_sources
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_________ test_capability_resolution_excludes_robots_disallowed_routes _________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:475: in test_capability_resolution_excludes_robots_disallowed_routes
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_______________________ test_resolvers_are_deterministic _______________________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:489: in test_resolvers_are_deterministic
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+____________________ test_production_graph_validates_clean _____________________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:504: in test_production_graph_validates_clean
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_______ test_validator_rejects_a_broken_graph[beta_tradingview_primary] ________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:514: in test_validator_rejects_a_broken_graph
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_____________ test_validator_rejects_a_broken_graph[derived_cycle] _____________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:514: in test_validator_rejects_a_broken_graph
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+__________ test_validator_rejects_a_broken_graph[duplicate_fallback] ___________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:514: in test_validator_rejects_a_broken_graph
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+________ test_validator_rejects_a_broken_graph[high52w_finviz_screener] ________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:514: in test_validator_rejects_a_broken_graph
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+____________ test_validator_rejects_a_broken_graph[missing_primary] ____________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:514: in test_validator_rejects_a_broken_graph
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_______ test_validator_rejects_a_broken_graph[robots_disallowed_primary] _______
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph.py:514: in test_validator_rejects_a_broken_graph
+    graph = SG.graph_module()
+            ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_____________ test_reference_graph_and_schema_name_no_credentials ______________
+tests/test_source_graph.py:528: in test_reference_graph_and_schema_name_no_credentials
+    for label, document in (("graph", SG.graph_doc()), ("schema", SG.schema_doc())):
+                                      ^^^^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+________________ test_graph_endpoint_serves_the_reference_file _________________
+tests/test_source_graph_api.py:50: in test_graph_endpoint_serves_the_reference_file
+    document = SG.graph_doc()
+               ^^^^^^^^^^^^^^
+tests/_source_graph.py:304: in graph_doc
+    raise AssertionError(
+E   AssertionError: reference/source_graph.json is missing: SG0 requires one machine-readable graph file (nodes, edges, 92 fields, screen_fields)
+____________ test_graph_endpoint_reads_the_loader_not_a_python_copy ____________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:65: in test_graph_endpoint_reads_the_loader_not_a_python_copy
+    module = SG.graph_module()
+             ^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:267: in graph_module
+    module = _load("app.sources.graph")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.graph is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+___________________ test_graph_response_covers_the_92_fields ___________________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:82: in test_graph_response_covers_the_92_fields
+    async with SG.sources_client(tmp_path, monkeypatch) as client:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:629: in sources_client
+    api_module()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^
+tests/_source_graph.py:290: in api_module
+    module = _load("app.sources.api")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.api is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+____________ test_field_endpoint_returns_the_last_price_resolution _____________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:98: in test_field_endpoint_returns_the_last_price_resolution
+    async with SG.sources_client(tmp_path, monkeypatch) as client:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:629: in sources_client
+    api_module()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^
+tests/_source_graph.py:290: in api_module
+    module = _load("app.sources.api")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.api is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_____________ test_field_endpoint_applies_the_us_only_finviz_gate ______________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:113: in test_field_endpoint_applies_the_us_only_finviz_gate
+    async with SG.sources_client(tmp_path, monkeypatch) as client:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:629: in sources_client
+    api_module()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^
+tests/_source_graph.py:290: in api_module
+    module = _load("app.sources.api")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.api is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+______________ test_unknown_field_is_404_with_the_error_envelope _______________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:128: in test_unknown_field_is_404_with_the_error_envelope
+    async with SG.sources_client(tmp_path, monkeypatch) as client:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:629: in sources_client
+    api_module()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^
+tests/_source_graph.py:290: in api_module
+    module = _load("app.sources.api")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.api is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+_______________ test_schema_endpoint_serves_the_published_schema _______________
+tests/test_source_graph_api.py:145: in test_schema_endpoint_serves_the_published_schema
+    artifact = SG.schema_doc()
+               ^^^^^^^^^^^^^^^
+tests/_source_graph.py:316: in schema_doc
+    raise AssertionError(
+E   AssertionError: schemas/source_graph_v1.json is missing: the graph schema must exist as a repo artifact, not only as a Python literal
+______________________ test_the_three_read_routes_answer _______________________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:172: in test_the_three_read_routes_answer
+    async with SG.sources_client(tmp_path, monkeypatch) as client:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:629: in sources_client
+    api_module()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^
+tests/_source_graph.py:290: in api_module
+    module = _load("app.sources.api")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.api is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+____________________ test_no_response_carries_a_credential _____________________
+tests/_source_graph.py:246: in _load
+    return importlib.import_module(module_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'app.sources'
+
+The above exception was the direct cause of the following exception:
+tests/test_source_graph_api.py:181: in test_no_response_carries_a_credential
+    async with SG.sources_client(tmp_path, monkeypatch) as client:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../.hermes/tools/python-3.14.7+20260901-linux-arm64/lib/python3.14/contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:629: in sources_client
+    api_module()  # RED: the router module must exist before the app is built
+    ^^^^^^^^^^^^
+tests/_source_graph.py:290: in api_module
+    module = _load("app.sources.api")
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_source_graph.py:248: in _load
+    raise NotImplementedError(
+E   NotImplementedError: app.sources.api is not implemented yet (Source Graph SG0 RED): No module named 'app.sources'
+=========================== short test summary info ============================
+FAILED tests/test_source_graph.py::test_reference_graph_is_one_versioned_document
+FAILED tests/test_source_graph.py::test_fields_are_exactly_the_92_canonical_columns_in_export_order
+FAILED tests/test_source_graph.py::test_field_groups_match_the_plan_group_table
+FAILED tests/test_source_graph.py::test_every_field_declares_a_primary_and_its_candidate_lists
+FAILED tests/test_source_graph.py::test_every_field_primary_is_a_live_allowed_node
+FAILED tests/test_source_graph.py::test_fallbacks_are_unique_never_the_primary_and_resolvable
+FAILED tests/test_source_graph.py::test_crosschecks_are_independent_of_the_primary
+FAILED tests/test_source_graph.py::test_last_price_has_an_independent_crosscheck
+FAILED tests/test_source_graph.py::test_node_ids_are_unique - AssertionError:...
+FAILED tests/test_source_graph.py::test_nodes_declare_the_full_envelope - Ass...
+FAILED tests/test_source_graph.py::test_plan_sources_are_present - AssertionE...
+FAILED tests/test_source_graph.py::test_access_limits_are_declared - Assertio...
+FAILED tests/test_source_graph.py::test_ibkr_is_unwired_and_never_a_primary
+FAILED tests/test_source_graph.py::test_derived_nodes_declare_inputs_and_methodology
+FAILED tests/test_source_graph.py::test_edges_are_structurally_valid - Assert...
+FAILED tests/test_source_graph.py::test_provides_edges_declare_capability_and_trust
+FAILED tests/test_source_graph.py::test_derived_from_edges_agree_with_nodes
+FAILED tests/test_source_graph.py::test_edge_conditions_are_declared_in_a_checkable_form
+FAILED tests/test_source_graph.py::test_last_price_us_resolves_to_yahoo_with_finviz_as_fallback_and_crosscheck
+FAILED tests/test_source_graph.py::test_last_price_global_resolution_never_uses_finviz
+FAILED tests/test_source_graph.py::test_last_price_without_market_context_does_not_assume_us
+FAILED tests/test_source_graph.py::test_resolver_keeps_the_declared_us_fallback_order
+FAILED tests/test_source_graph.py::test_unknown_field_is_a_key_error - NotImp...
+FAILED tests/test_source_graph.py::test_beta_declares_its_window_and_tradingview_1y_is_not_primary
+FAILED tests/test_source_graph.py::test_52_week_extremes_never_come_from_the_finviz_screener[high_52w]
+FAILED tests/test_source_graph.py::test_52_week_extremes_never_come_from_the_finviz_screener[low_52w]
+FAILED tests/test_source_graph.py::test_capability_quote_is_ordered_by_trust_then_id
+FAILED tests/test_source_graph.py::test_capability_resolution_excludes_blocked_and_unwired_sources
+FAILED tests/test_source_graph.py::test_capability_resolution_excludes_robots_disallowed_routes
+FAILED tests/test_source_graph.py::test_resolvers_are_deterministic - NotImpl...
+FAILED tests/test_source_graph.py::test_production_graph_validates_clean - No...
+FAILED tests/test_source_graph.py::test_validator_rejects_a_broken_graph[beta_tradingview_primary]
+FAILED tests/test_source_graph.py::test_validator_rejects_a_broken_graph[derived_cycle]
+FAILED tests/test_source_graph.py::test_validator_rejects_a_broken_graph[duplicate_fallback]
+FAILED tests/test_source_graph.py::test_validator_rejects_a_broken_graph[high52w_finviz_screener]
+FAILED tests/test_source_graph.py::test_validator_rejects_a_broken_graph[missing_primary]
+FAILED tests/test_source_graph.py::test_validator_rejects_a_broken_graph[robots_disallowed_primary]
+FAILED tests/test_source_graph.py::test_reference_graph_and_schema_name_no_credentials
+FAILED tests/test_source_graph_api.py::test_graph_endpoint_serves_the_reference_file
+FAILED tests/test_source_graph_api.py::test_graph_endpoint_reads_the_loader_not_a_python_copy
+FAILED tests/test_source_graph_api.py::test_graph_response_covers_the_92_fields
+FAILED tests/test_source_graph_api.py::test_field_endpoint_returns_the_last_price_resolution
+FAILED tests/test_source_graph_api.py::test_field_endpoint_applies_the_us_only_finviz_gate
+FAILED tests/test_source_graph_api.py::test_unknown_field_is_404_with_the_error_envelope
+FAILED tests/test_source_graph_api.py::test_schema_endpoint_serves_the_published_schema
+FAILED tests/test_source_graph_api.py::test_the_three_read_routes_answer - No...
+FAILED tests/test_source_graph_api.py::test_no_response_carries_a_credential
+47 failed, 429 passed in 33.40s
