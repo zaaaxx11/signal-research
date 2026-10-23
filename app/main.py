@@ -21,6 +21,7 @@ from app.config import Settings, get_settings
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
 from app.runtime import Runtime
+from app.sources.api import router as sources_router
 
 
 def _envelope(error: str, message: str) -> dict[str, str]:
@@ -74,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(requests.router)
     application.include_router(providers.router)
     mount_router(application, screens.router)
+    mount_router(application, sources_router)
 
     @application.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError) -> JSONResponse:

@@ -1,0 +1,612 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ztockz.local/schemas/source-graph-v1.json",
+  "title": "SourceGraphV1",
+  "description": "Which source may fill each of the 92 canonical columns, in which order the substitutes may be tried, which independent source may contradict the value, and how it is computed. The graph stores no market value and no credential: it is a decision map, not a quote store.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "nodes",
+    "edges",
+    "fields",
+    "screen_fields"
+  ],
+  "properties": {
+    "version": {
+      "const": "source-graph-v1"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "conflict_policy": {
+      "type": "string",
+      "description": "What the resolver does when two sources disagree. The only legal value is the primary-wins policy: two feeds are never averaged."
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Metadata SG1 writes on every filled cell.",
+      "additionalProperties": true
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The closed vocabulary of sources; ids are unique.",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Relations between sources. A fallback or crosscheck edge is per-field and must name one of the fields; a derived_from edge must come from a derived node.",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 92,
+      "maxItems": 92,
+      "description": "Exactly the 92 canonical columns in export order, one entry each, so a coverage hole is a schema violation and not a missing row.",
+      "items": {
+        "$ref": "#/$defs/field"
+      }
+    },
+    "screen_fields": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Fields of the TradingView screen snapshot that are not export columns (beta with its window, and the two 52-week extremes).",
+      "items": {
+        "$ref": "#/$defs/screenField"
+      }
+    }
+  },
+  "$defs": {
+    "when": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "Predicate a candidate applies under. Only these keys are evaluated; a predicate whose fact the caller did not supply is not applied (fail-closed).",
+      "properties": {
+        "mic": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "country": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "asset_class": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "region": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node id of a fallback or cross-check source."
+        },
+        "when": {
+          "$ref": "#/$defs/when"
+        },
+        "via": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The route the value must be taken from. `quote` is the only legal route for a Finviz 52-week extreme: the screener column is percent distance, not a price.",
+          "examples": [
+            "quote"
+          ]
+        },
+        "beta_window": {
+          "type": "string",
+          "enum": [
+            "1y",
+            "5y"
+          ],
+          "description": "Window of a beta candidate; a 1y beta is not a 5y beta."
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "authority",
+        "trust",
+        "delay",
+        "license",
+        "robots",
+        "status",
+        "access",
+        "capabilities"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "regulator",
+            "exchange",
+            "issuer",
+            "vendor",
+            "platform",
+            "aggregator",
+            "broker",
+            "news",
+            "derived"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "official",
+            "licensed",
+            "aggregator",
+            "derived",
+            "opinion"
+          ]
+        },
+        "trust": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "1 official, 4 scrape \u2014 the Observation trust scale."
+        },
+        "delay": {
+          "type": "string",
+          "enum": [
+            "realtime",
+            "realtime_ish",
+            "delayed_15m",
+            "delayed",
+            "eod",
+            "near_realtime",
+            "event",
+            "job_time"
+          ]
+        },
+        "license": {
+          "type": "string",
+          "minLength": 1
+        },
+        "robots": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "disallowed",
+            "mixed",
+            "unknown"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "partial",
+            "blocked",
+            "unwired"
+          ]
+        },
+        "access": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Route -> verdict for this source. `robots_disallowed` and `none` forbid production use of that route.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "reference",
+              "quote",
+              "eod_bars",
+              "fundamentals",
+              "options",
+              "constituents",
+              "corporate_actions",
+              "fx",
+              "news",
+              "screener"
+            ]
+          }
+        },
+        "derived_from": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Inputs of a derived node; must be acyclic."
+        },
+        "methodology": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Formula/version a derived node is computed with."
+        },
+        "beta_windows": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "1y",
+              "5y"
+            ]
+          },
+          "description": "Beta windows this source actually computes."
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "relation"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string",
+          "enum": [
+            "provides",
+            "fallback",
+            "crosscheck",
+            "derived_from",
+            "same_as",
+            "conflicts_with"
+          ]
+        },
+        "field": {
+          "type": "string",
+          "description": "Required for a fallback or crosscheck edge."
+        },
+        "capability": {
+          "type": "string",
+          "enum": [
+            "reference",
+            "quote",
+            "eod_bars",
+            "fundamentals",
+            "options",
+            "constituents",
+            "corporate_actions",
+            "fx",
+            "news",
+            "screener"
+          ]
+        },
+        "trust": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "via": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Route the value must come from; `quote` on a Finviz 52-week edge records that the screener column is not a price."
+        },
+        "when": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/when"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ],
+          "description": "Predicate object, or a prose note on the relation."
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "column",
+        "group",
+        "type",
+        "primary",
+        "fallbacks",
+        "crosschecks",
+        "methodology"
+      ],
+      "properties": {
+        "column": {
+          "type": "string",
+          "enum": [
+            "instrument_id",
+            "symbol",
+            "isin",
+            "figi",
+            "name",
+            "asset_class",
+            "instrument_type",
+            "exchange",
+            "mic",
+            "currency",
+            "country",
+            "instrument_status",
+            "sector",
+            "industry",
+            "size_bucket",
+            "index_memberships",
+            "listing_date",
+            "is_primary_listing",
+            "last_price",
+            "prev_close",
+            "change_abs",
+            "change_pct",
+            "bid",
+            "ask",
+            "day_open",
+            "day_high",
+            "day_low",
+            "day_volume",
+            "turnover_value",
+            "quote_as_of",
+            "quote_delay",
+            "market_state",
+            "session_date",
+            "bars_count",
+            "first_bar_date",
+            "last_bar_date",
+            "ma_20",
+            "ma_50",
+            "ma_200",
+            "ema_12",
+            "ema_26",
+            "rsi_14",
+            "atr_14",
+            "volatility_20d",
+            "avg_volume_20d",
+            "ret_1d",
+            "ret_1w",
+            "ret_1m",
+            "ret_3m",
+            "ret_6m",
+            "ret_ytd",
+            "ret_1y",
+            "ret_3y",
+            "ret_5y",
+            "market_cap",
+            "market_cap_usd",
+            "shares_outstanding",
+            "float_shares",
+            "pe_ttm",
+            "pe_forward",
+            "peg",
+            "pb",
+            "ps",
+            "ev_ebitda",
+            "eps_ttm",
+            "eps_forward",
+            "dividend_yield",
+            "payout_ratio",
+            "revenue_ttm",
+            "ebitda_ttm",
+            "net_income_ttm",
+            "fcf_ttm",
+            "total_debt",
+            "cash_and_equivalents",
+            "roe",
+            "debt_to_equity",
+            "opt_expiry",
+            "opt_dte",
+            "opt_strike_atm",
+            "opt_iv_atm",
+            "opt_delta_atm",
+            "opt_gamma_atm",
+            "opt_theta_atm",
+            "opt_vega_atm",
+            "opt_open_interest_atm",
+            "opt_volume_atm",
+            "data_quality",
+            "filled_columns_count",
+            "verified_columns_count",
+            "primary_source",
+            "as_of_achieved",
+            "data_freshness_s"
+          ]
+        },
+        "group": {
+          "type": "string",
+          "enum": [
+            "reference",
+            "quote",
+            "eod_bars",
+            "performance",
+            "fundamentals",
+            "options",
+            "verify"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "number",
+            "string",
+            "date",
+            "timestamp",
+            "boolean",
+            "object"
+          ]
+        },
+        "primary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallbacks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "crosschecks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "methodology": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "screenField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "column",
+        "group",
+        "type",
+        "primary",
+        "fallbacks",
+        "crosschecks",
+        "methodology"
+      ],
+      "properties": {
+        "column": {
+          "type": "string",
+          "enum": [
+            "beta",
+            "high_52w",
+            "low_52w"
+          ]
+        },
+        "group": {
+          "type": "string",
+          "enum": [
+            "reference",
+            "quote",
+            "eod_bars",
+            "performance",
+            "fundamentals",
+            "options",
+            "verify"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "number",
+            "string",
+            "date",
+            "timestamp",
+            "boolean",
+            "object"
+          ]
+        },
+        "primary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallbacks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "crosschecks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "methodology": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beta_window": {
+          "type": "string",
+          "enum": [
+            "1y",
+            "5y"
+          ],
+          "description": "Canonical beta window; 5y for a comparable beta."
+        }
+      }
+    }
+  }
+}

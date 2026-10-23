@@ -1,0 +1,3697 @@
+{
+  "version": "source-graph-v1",
+  "title": "Ztockz Source Graph v1",
+  "description": "One machine-readable decision map: for each of the 92 canonical columns and each screen-only field it names the primary source, the ordered fallbacks, the independent cross-checks, the methodology and the access constraints. The graph stores no market value and no credential.",
+  "conflict_policy": "do not average; primary wins; crosscheck is a verdict input",
+  "provenance": {
+    "written_by": "SG1",
+    "fields": [
+      "source_id",
+      "source_type",
+      "methodology",
+      "delay",
+      "trust",
+      "as_of"
+    ],
+    "note": "every filled cell carries the winning source, its delay and when it was observed"
+  },
+  "nodes": [
+    {
+      "id": "sec_edgar",
+      "label": "SEC EDGAR (XBRL filings)",
+      "kind": "regulator",
+      "authority": "official",
+      "trust": 1,
+      "delay": "eod",
+      "license": "public_domain",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "reference": "allowed",
+        "fundamentals": "allowed",
+        "constituents": "allowed",
+        "corporate_actions": "allowed",
+        "quote": "none",
+        "eod_bars": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "reference",
+        "fundamentals",
+        "constituents",
+        "corporate_actions"
+      ],
+      "notes": "10-K/10-Q/8-K XBRL; the only source allowed to be canonical for statements"
+    },
+    {
+      "id": "nasdaq",
+      "label": "Nasdaq (exchange site)",
+      "kind": "exchange",
+      "authority": "official",
+      "trust": 2,
+      "delay": "delayed",
+      "license": "public_web_terms",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "allowed",
+        "reference": "allowed",
+        "session": "allowed",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "quote",
+        "reference"
+      ],
+      "notes": "session calendar and delayed last sale; official for market_state, not for price"
+    },
+    {
+      "id": "ecb",
+      "label": "European Central Bank reference rates",
+      "kind": "regulator",
+      "authority": "official",
+      "trust": 1,
+      "delay": "eod",
+      "license": "public_domain",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "fx": "allowed",
+        "reference": "allowed",
+        "quote": "none",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "fx",
+        "reference"
+      ],
+      "notes": "daily EUR reference rates; the only FX cross-rate source in the graph"
+    },
+    {
+      "id": "ishares",
+      "label": "iShares fund pages (holdings)",
+      "kind": "issuer",
+      "authority": "official",
+      "trust": 1,
+      "delay": "eod",
+      "license": "public_web_terms",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "reference": "allowed",
+        "constituents": "allowed",
+        "corporate_actions": "allowed",
+        "fundamentals": "limited",
+        "quote": "none",
+        "eod_bars": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "reference",
+        "constituents",
+        "corporate_actions",
+        "fundamentals"
+      ],
+      "notes": "ETF holdings file is the index-membership oracle"
+    },
+    {
+      "id": "company_ir",
+      "label": "Company investor-relations site",
+      "kind": "issuer",
+      "authority": "official",
+      "trust": 1,
+      "delay": "event",
+      "license": "public_web_terms",
+      "robots": "mixed",
+      "status": "active",
+      "access": {
+        "news": "allowed",
+        "fundamentals": "allowed",
+        "corporate_actions": "allowed",
+        "quote": "none",
+        "eod_bars": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "news",
+        "fundamentals",
+        "corporate_actions"
+      ],
+      "notes": "press releases and dividend notices; event-driven, never a price"
+    },
+    {
+      "id": "openfigi",
+      "label": "OpenFIGI mapping API",
+      "kind": "vendor",
+      "authority": "licensed",
+      "trust": 2,
+      "delay": "eod",
+      "license": "free_key",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "reference": "key_required",
+        "quote": "none",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "reference"
+      ],
+      "notes": "FIGI/ISIN mapping at share-class level"
+    },
+    {
+      "id": "finnhub",
+      "label": "Finnhub",
+      "kind": "vendor",
+      "authority": "licensed",
+      "trust": 2,
+      "delay": "realtime",
+      "license": "commercial_key",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "key_required",
+        "reference": "key_required",
+        "eod_bars": "key_required",
+        "fundamentals": "key_required",
+        "options": "none"
+      },
+      "capabilities": [
+        "quote",
+        "reference",
+        "eod_bars",
+        "fundamentals"
+      ],
+      "notes": "last trade with a token; a second vendor for fundamentals"
+    },
+    {
+      "id": "polygon",
+      "label": "Polygon.io",
+      "kind": "vendor",
+      "authority": "licensed",
+      "trust": 2,
+      "delay": "realtime",
+      "license": "paid_key",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "key_required",
+        "eod_bars": "key_required",
+        "options": "key_required",
+        "fundamentals": "key_required",
+        "reference": "none"
+      },
+      "capabilities": [
+        "quote",
+        "eod_bars",
+        "options",
+        "fundamentals"
+      ],
+      "notes": "options chain with greeks; SIP quotes on the paid tier"
+    },
+    {
+      "id": "yahoo",
+      "label": "Yahoo Finance",
+      "kind": "aggregator",
+      "authority": "licensed",
+      "trust": 3,
+      "delay": "realtime_ish",
+      "license": "free_limited",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "allowed",
+        "reference": "allowed",
+        "eod_bars": "allowed",
+        "fundamentals": "allowed",
+        "options": "allowed",
+        "corporate_actions": "allowed",
+        "bulk": "limited"
+      },
+      "capabilities": [
+        "reference",
+        "quote",
+        "eod_bars",
+        "fundamentals",
+        "options",
+        "corporate_actions"
+      ],
+      "beta_windows": [
+        "5y"
+      ],
+      "notes": "crumb/cookie warm-up; beta is the 5-year monthly figure and its window must travel with it"
+    },
+    {
+      "id": "stooq",
+      "label": "Stooq",
+      "kind": "aggregator",
+      "authority": "aggregator",
+      "trust": 3,
+      "delay": "eod",
+      "license": "public_web_terms",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "limited",
+        "eod_bars": "allowed",
+        "reference": "limited",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "quote",
+        "eod_bars"
+      ],
+      "notes": "free daily bars; the second bar source a technical can be recomputed from"
+    },
+    {
+      "id": "coingecko",
+      "label": "CoinGecko",
+      "kind": "aggregator",
+      "authority": "aggregator",
+      "trust": 3,
+      "delay": "realtime",
+      "license": "free_limited",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "allowed",
+        "reference": "allowed",
+        "eod_bars": "allowed",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "quote",
+        "reference",
+        "eod_bars"
+      ],
+      "notes": "crypto only; 24/7 session, no MIC"
+    },
+    {
+      "id": "google_finance",
+      "label": "Google Finance",
+      "kind": "aggregator",
+      "authority": "aggregator",
+      "trust": 4,
+      "delay": "delayed",
+      "license": "public_web_terms",
+      "robots": "allowed",
+      "status": "partial",
+      "access": {
+        "quote": "limited",
+        "reference": "limited",
+        "per_symbol": "limited",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "quote",
+        "reference"
+      ],
+      "notes": "per-symbol page, no bulk; a last-resort fallback for a symbol"
+    },
+    {
+      "id": "barchart",
+      "label": "Barchart",
+      "kind": "platform",
+      "authority": "opinion",
+      "trust": 4,
+      "delay": "delayed",
+      "license": "free_limited",
+      "robots": "mixed",
+      "status": "partial",
+      "access": {
+        "quote": "limited",
+        "eod_bars": "limited",
+        "options": "limited",
+        "fundamentals": "none"
+      },
+      "capabilities": [
+        "quote",
+        "eod_bars",
+        "options"
+      ],
+      "notes": "consensus estimates are opinion, not fact; only used as a cross-check for forward figures"
+    },
+    {
+      "id": "tradingview",
+      "label": "TradingView scanner",
+      "kind": "platform",
+      "authority": "aggregator",
+      "trust": 4,
+      "delay": "delayed_15m",
+      "license": "public_web_terms",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "quote": "allowed",
+        "eod_bars": "allowed",
+        "scanner": "allowed",
+        "screener": "allowed",
+        "fundamentals": "none",
+        "options": "none",
+        "export": "none"
+      },
+      "capabilities": [
+        "quote",
+        "eod_bars"
+      ],
+      "beta_windows": [
+        "1y"
+      ],
+      "notes": "scanner endpoint is 15m delayed; no export; computes beta_1_year only"
+    },
+    {
+      "id": "finviz",
+      "label": "Finviz",
+      "kind": "platform",
+      "authority": "aggregator",
+      "trust": 4,
+      "delay": "delayed",
+      "license": "free_limited",
+      "robots": "mixed",
+      "status": "active",
+      "access": {
+        "quote": "allowed",
+        "screener": "robots_disallowed",
+        "export": "elite_only",
+        "fundamentals": "allowed",
+        "eod_bars": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "quote",
+        "fundamentals",
+        "screener"
+      ],
+      "beta_windows": [
+        "5y"
+      ],
+      "notes": "robots.txt forbids the screener; its high52w/low52w column is percent distance, market_cap is USD millions"
+    },
+    {
+      "id": "ibkr",
+      "label": "Interactive Brokers gateway",
+      "kind": "broker",
+      "authority": "official",
+      "trust": 1,
+      "delay": "realtime",
+      "license": "broker_agreement",
+      "robots": "unknown",
+      "status": "unwired",
+      "access": {
+        "quote": "gateway",
+        "reference": "gateway",
+        "eod_bars": "gateway",
+        "fundamentals": "gateway",
+        "options": "gateway"
+      },
+      "capabilities": [
+        "quote",
+        "reference",
+        "eod_bars",
+        "fundamentals",
+        "options"
+      ],
+      "notes": "no gateway in this deployment; never a primary until one exists"
+    },
+    {
+      "id": "gdelt",
+      "label": "GDELT",
+      "kind": "news",
+      "authority": "aggregator",
+      "trust": 4,
+      "delay": "near_realtime",
+      "license": "public_dataset",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "news": "limited",
+        "quote": "none",
+        "reference": "none",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "news"
+      ],
+      "notes": "5-second pacing; a news signal, never a price"
+    },
+    {
+      "id": "google_news_rss",
+      "label": "Google News RSS",
+      "kind": "news",
+      "authority": "aggregator",
+      "trust": 4,
+      "delay": "near_realtime",
+      "license": "public_rss",
+      "robots": "allowed",
+      "status": "active",
+      "access": {
+        "news": "allowed",
+        "quote": "none",
+        "reference": "none",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "news"
+      ],
+      "notes": "headlines by query; the article is the source, the RSS is only the index"
+    },
+    {
+      "id": "engine:identity",
+      "label": "Entity resolution (internal)",
+      "kind": "derived",
+      "authority": "derived",
+      "trust": 2,
+      "delay": "job_time",
+      "license": "internal",
+      "robots": "unknown",
+      "status": "active",
+      "access": {
+        "reference": "internal",
+        "quote": "none",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "reference"
+      ],
+      "derived_from": [
+        "openfigi",
+        "sec_edgar"
+      ],
+      "methodology": "identity-v1: (mic, symbol) from reference/venue_master.json joined to FIGI/ISIN; a provider-internal id is never exported",
+      "notes": "the only node allowed to mint instrument_id"
+    },
+    {
+      "id": "engine:technicals",
+      "label": "Technical indicators (internal)",
+      "kind": "derived",
+      "authority": "derived",
+      "trust": 2,
+      "delay": "job_time",
+      "license": "internal",
+      "robots": "unknown",
+      "status": "active",
+      "access": {
+        "eod_bars": "internal",
+        "reference": "none",
+        "quote": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "eod_bars"
+      ],
+      "derived_from": [
+        "yahoo",
+        "tradingview"
+      ],
+      "methodology": "technicals-v1: SMA/EMA, Wilder RSI-14 and ATR-14, 20-day volatility and average volume from adjusted daily bars",
+      "notes": "computed, not scraped: a platform's Buy label is an opinion"
+    },
+    {
+      "id": "engine:performance",
+      "label": "Return and size buckets (internal)",
+      "kind": "derived",
+      "authority": "derived",
+      "trust": 2,
+      "delay": "job_time",
+      "license": "internal",
+      "robots": "unknown",
+      "status": "active",
+      "access": {
+        "eod_bars": "internal",
+        "reference": "internal",
+        "quote": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "eod_bars",
+        "reference"
+      ],
+      "derived_from": [
+        "yahoo"
+      ],
+      "methodology": "performance-v1: close-to-close returns over 1d/1w/1m/3m/6m/ytd/1y/3y/5y from adjusted closes; size_bucket from USD market cap",
+      "notes": "window arithmetic on stored bars, never a vendor's precomputed return"
+    },
+    {
+      "id": "engine:quality",
+      "label": "Quality ledger (internal)",
+      "kind": "derived",
+      "authority": "derived",
+      "trust": 2,
+      "delay": "job_time",
+      "license": "internal",
+      "robots": "unknown",
+      "status": "active",
+      "access": {
+        "reference": "internal",
+        "quote": "none",
+        "eod_bars": "none",
+        "fundamentals": "none",
+        "options": "none"
+      },
+      "capabilities": [
+        "reference"
+      ],
+      "derived_from": [
+        "engine:technicals",
+        "engine:performance"
+      ],
+      "methodology": "quality-v1: filled/verified column counts, the data_quality enum of app.contracts and the achieved freshness, from the verification ledger",
+      "notes": "the six verify columns; no provider access at all"
+    }
+  ],
+  "edges": [
+    {
+      "from": "yahoo",
+      "to": "engine:technicals",
+      "relation": "provides",
+      "capability": "eod_bars",
+      "trust": 3
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "provides",
+      "capability": "eod_bars",
+      "trust": 4
+    },
+    {
+      "from": "yahoo",
+      "to": "engine:performance",
+      "relation": "provides",
+      "capability": "eod_bars",
+      "trust": 3
+    },
+    {
+      "from": "openfigi",
+      "to": "engine:identity",
+      "relation": "provides",
+      "capability": "reference",
+      "trust": 2
+    },
+    {
+      "from": "sec_edgar",
+      "to": "engine:identity",
+      "relation": "provides",
+      "capability": "reference",
+      "trust": 1
+    },
+    {
+      "from": "engine:identity",
+      "to": "openfigi",
+      "relation": "derived_from"
+    },
+    {
+      "from": "engine:identity",
+      "to": "sec_edgar",
+      "relation": "derived_from"
+    },
+    {
+      "from": "engine:technicals",
+      "to": "yahoo",
+      "relation": "derived_from"
+    },
+    {
+      "from": "engine:technicals",
+      "to": "tradingview",
+      "relation": "derived_from"
+    },
+    {
+      "from": "engine:performance",
+      "to": "yahoo",
+      "relation": "derived_from"
+    },
+    {
+      "from": "engine:quality",
+      "to": "engine:technicals",
+      "relation": "derived_from"
+    },
+    {
+      "from": "engine:quality",
+      "to": "engine:performance",
+      "relation": "derived_from"
+    },
+    {
+      "from": "openfigi",
+      "to": "engine:identity",
+      "relation": "fallback",
+      "field": "instrument_id"
+    },
+    {
+      "from": "google_finance",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "symbol"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "symbol"
+    },
+    {
+      "from": "ishares",
+      "to": "openfigi",
+      "relation": "fallback",
+      "field": "isin"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "openfigi",
+      "relation": "fallback",
+      "field": "isin"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "openfigi",
+      "relation": "fallback",
+      "field": "figi"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "name"
+    },
+    {
+      "from": "company_ir",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "name"
+    },
+    {
+      "from": "openfigi",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "asset_class"
+    },
+    {
+      "from": "coingecko",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "asset_class"
+    },
+    {
+      "from": "openfigi",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "instrument_type"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "instrument_type"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "exchange"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "exchange"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "mic"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "mic"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "currency"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "country"
+    },
+    {
+      "from": "ishares",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "country"
+    },
+    {
+      "from": "nasdaq",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "instrument_status"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "instrument_status"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "sector"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "sector"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "industry"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "industry"
+    },
+    {
+      "from": "yahoo",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "size_bucket"
+    },
+    {
+      "from": "company_ir",
+      "to": "ishares",
+      "relation": "fallback",
+      "field": "index_memberships"
+    },
+    {
+      "from": "nasdaq",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "listing_date"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "listing_date"
+    },
+    {
+      "from": "yahoo",
+      "to": "engine:identity",
+      "relation": "fallback",
+      "field": "is_primary_listing"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "last_price",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "last_price"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "prev_close",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "prev_close"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "change_abs"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "change_abs",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "change_pct"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "change_pct",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "bid"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "bid"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "ask"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "ask"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_open"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_open"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_high"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_high"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_low"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_low"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_volume"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "day_volume"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "turnover_value"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "quote_as_of"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "quote_as_of"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "quote_delay"
+    },
+    {
+      "from": "yahoo",
+      "to": "nasdaq",
+      "relation": "fallback",
+      "field": "market_state"
+    },
+    {
+      "from": "yahoo",
+      "to": "nasdaq",
+      "relation": "fallback",
+      "field": "session_date"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "bars_count"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "bars_count"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "first_bar_date"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "last_bar_date"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "last_bar_date"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "ma_20"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "ma_50"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "ma_200"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "ema_12"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "ema_26"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "rsi_14"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "atr_14"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "volatility_20d"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:technicals",
+      "relation": "fallback",
+      "field": "avg_volume_20d"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_1d"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_1w"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_1m"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_3m"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_6m"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_ytd"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_1y"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_3y"
+    },
+    {
+      "from": "tradingview",
+      "to": "engine:performance",
+      "relation": "fallback",
+      "field": "ret_5y"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "market_cap"
+    },
+    {
+      "from": "finnhub",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "market_cap"
+    },
+    {
+      "from": "finnhub",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "market_cap_usd"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "shares_outstanding"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "shares_outstanding"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "float_shares"
+    },
+    {
+      "from": "finnhub",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "float_shares"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "pe_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "pe_ttm"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "pe_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "pe_forward"
+    },
+    {
+      "from": "finnhub",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "pe_forward"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "peg"
+    },
+    {
+      "from": "finnhub",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "peg"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "pb"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "pb"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "ps"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "ps"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "ev_ebitda"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "ev_ebitda"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "eps_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "eps_ttm"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "eps_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "eps_forward"
+    },
+    {
+      "from": "finnhub",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "eps_forward"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "dividend_yield",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      },
+      "via": "quote"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "dividend_yield"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "payout_ratio"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "payout_ratio"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "revenue_ttm"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "revenue_ttm"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "ebitda_ttm"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "ebitda_ttm"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "net_income_ttm"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "net_income_ttm"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "fcf_ttm"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "fcf_ttm"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "total_debt"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "total_debt"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "cash_and_equivalents"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "cash_and_equivalents"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "roe"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "roe"
+    },
+    {
+      "from": "yahoo",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "debt_to_equity"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "fallback",
+      "field": "debt_to_equity"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_expiry"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_dte"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_strike_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_iv_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_delta_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_gamma_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_theta_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_vega_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_open_interest_atm"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "opt_volume_atm"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "engine:identity",
+      "relation": "crosscheck",
+      "field": "instrument_id"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "symbol"
+    },
+    {
+      "from": "ishares",
+      "to": "openfigi",
+      "relation": "crosscheck",
+      "field": "isin"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "name"
+    },
+    {
+      "from": "coingecko",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "asset_class",
+      "when": {
+        "asset_class": "crypto"
+      }
+    },
+    {
+      "from": "ishares",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "instrument_type"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "exchange"
+    },
+    {
+      "from": "openfigi",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "mic"
+    },
+    {
+      "from": "ecb",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "currency"
+    },
+    {
+      "from": "openfigi",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "country"
+    },
+    {
+      "from": "tradingview",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "instrument_status"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "sector"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "industry"
+    },
+    {
+      "from": "tradingview",
+      "to": "ishares",
+      "relation": "crosscheck",
+      "field": "index_memberships"
+    },
+    {
+      "from": "ishares",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "listing_date"
+    },
+    {
+      "from": "nasdaq",
+      "to": "engine:identity",
+      "relation": "crosscheck",
+      "field": "is_primary_listing"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "last_price",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "last_price"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "prev_close"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "prev_close"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "change_abs"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "change_pct"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "bid"
+    },
+    {
+      "from": "polygon",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "ask"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "day_open"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "day_high"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "day_low"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "day_volume"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "turnover_value"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "quote_as_of"
+    },
+    {
+      "from": "nasdaq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "quote_delay"
+    },
+    {
+      "from": "tradingview",
+      "to": "nasdaq",
+      "relation": "crosscheck",
+      "field": "market_state"
+    },
+    {
+      "from": "tradingview",
+      "to": "nasdaq",
+      "relation": "crosscheck",
+      "field": "session_date"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "bars_count"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "first_bar_date"
+    },
+    {
+      "from": "stooq",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "last_bar_date"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "ma_20"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "ma_50"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "ma_200"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "ema_12"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "ema_26"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "rsi_14"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "atr_14"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "volatility_20d"
+    },
+    {
+      "from": "stooq",
+      "to": "engine:technicals",
+      "relation": "crosscheck",
+      "field": "avg_volume_20d"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "market_cap"
+    },
+    {
+      "from": "ecb",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "market_cap_usd"
+    },
+    {
+      "from": "finnhub",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "shares_outstanding"
+    },
+    {
+      "from": "sec_edgar",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "float_shares"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "pe_ttm"
+    },
+    {
+      "from": "barchart",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "pe_forward"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "pb"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "ps"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "ev_ebitda"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "eps_ttm"
+    },
+    {
+      "from": "barchart",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "eps_forward"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "revenue_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "ebitda_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "net_income_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "fcf_ttm"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "total_debt"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "cash_and_equivalents"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "roe"
+    },
+    {
+      "from": "finviz",
+      "to": "sec_edgar",
+      "relation": "crosscheck",
+      "field": "debt_to_equity"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "beta",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "beta"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "high_52w",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      },
+      "via": "quote"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "high_52w"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "low_52w",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      },
+      "via": "quote"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "fallback",
+      "field": "low_52w"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "beta",
+      "when": {
+        "mic": [
+          "XNAS",
+          "XNYS",
+          "XASE"
+        ]
+      }
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "high_52w"
+    },
+    {
+      "from": "tradingview",
+      "to": "yahoo",
+      "relation": "crosscheck",
+      "field": "low_52w"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "conflicts_with",
+      "field": "high_52w",
+      "when": "screener column is percent distance from the extreme, not a price"
+    },
+    {
+      "from": "finviz",
+      "to": "yahoo",
+      "relation": "conflicts_with",
+      "field": "low_52w",
+      "when": "screener column is percent distance from the extreme, not a price"
+    }
+  ],
+  "fields": [
+    {
+      "column": "instrument_id",
+      "group": "reference",
+      "type": "string",
+      "primary": "engine:identity",
+      "fallbacks": [
+        {
+          "id": "openfigi"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "methodology": "identity-v1: FIGI composite plus (mic, symbol) from the venue master; a provider-internal id is never exported"
+    },
+    {
+      "column": "symbol",
+      "group": "reference",
+      "type": "string",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "google_finance"
+        },
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "ticker as the venue prints it; a .JK/.L suffix is mapped to a MIC by the venue master, the Yahoo symbol is not an id"
+    },
+    {
+      "column": "isin",
+      "group": "reference",
+      "type": "string",
+      "primary": "openfigi",
+      "fallbacks": [
+        {
+          "id": "ishares"
+        },
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "ishares"
+        }
+      ],
+      "methodology": "ISIN from the mapping API at share-class level; never inferred from a ticker"
+    },
+    {
+      "column": "figi",
+      "group": "reference",
+      "type": "string",
+      "primary": "openfigi",
+      "fallbacks": [
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "composite FIGI at share-class level, not the venue-specific FIGI"
+    },
+    {
+      "column": "name",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "company_ir"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "legal issuer name from the filing cover; a vendor display name is fallback only"
+    },
+    {
+      "column": "asset_class",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "openfigi"
+        },
+        {
+          "id": "coingecko"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "coingecko",
+          "when": {
+            "asset_class": "crypto"
+          }
+        }
+      ],
+      "methodology": "SEC instrument type mapped to equity/etf/fund/crypto; crypto can only come from CoinGecko"
+    },
+    {
+      "column": "instrument_type",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "openfigi"
+        },
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "ishares"
+        }
+      ],
+      "methodology": "common stock / ETF / ADR / fund from the filing, never from a screener label"
+    },
+    {
+      "column": "exchange",
+      "group": "reference",
+      "type": "string",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "exchange short code from the venue master, not the vendor's own label"
+    },
+    {
+      "column": "mic",
+      "group": "reference",
+      "type": "string",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "openfigi"
+        }
+      ],
+      "methodology": "ISO 10383 MIC resolved through reference/venue_master.json; an unknown venue produces no row"
+    },
+    {
+      "column": "currency",
+      "group": "reference",
+      "type": "string",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "ecb"
+        }
+      ],
+      "methodology": "trading currency of the listing, from the venue master; ECB is the reference list, not the source of the code"
+    },
+    {
+      "column": "country",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "ishares"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "openfigi"
+        }
+      ],
+      "methodology": "country of incorporation (not of listing): the two differ for an ADR and the column is incorporation"
+    },
+    {
+      "column": "instrument_status",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "active/delisted/suspended from the filing plus the exchange notice"
+    },
+    {
+      "column": "sector",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "SIC code mapped through the sector table; a vendor label is fallback only and its taxonomy version is recorded"
+    },
+    {
+      "column": "industry",
+      "group": "reference",
+      "type": "string",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "SIC code to industry at the documented two-digit granularity"
+    },
+    {
+      "column": "size_bucket",
+      "group": "reference",
+      "type": "string",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "market-cap buckets on the USD cap: mega >= 200B, large >= 10B, mid >= 2B, small >= 300M, micro below"
+    },
+    {
+      "column": "index_memberships",
+      "group": "reference",
+      "type": "object",
+      "primary": "ishares",
+      "fallbacks": [
+        {
+          "id": "company_ir"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "ETF holdings as the membership oracle; an index change is confirmed by the issuer's press release; the column is a list, never a boolean"
+    },
+    {
+      "column": "listing_date",
+      "group": "reference",
+      "type": "date",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "ishares"
+        }
+      ],
+      "methodology": "first trade date from the exchange calendar; the filing date when the company listed later"
+    },
+    {
+      "column": "is_primary_listing",
+      "group": "reference",
+      "type": "boolean",
+      "primary": "engine:identity",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "true for the listing with the highest turnover_value among the issuer's listings (the screen dedupe rule)"
+    },
+    {
+      "column": "last_price",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "last trade in the listing currency; the delayed tier is named in quote_delay, and two feeds are never averaged"
+    },
+    {
+      "column": "prev_close",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "previous official session close, unadjusted for the current day's split"
+    },
+    {
+      "column": "change_abs",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "last_price - prev_close, computed never copied from a vendor's change field"
+    },
+    {
+      "column": "change_pct",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "change_abs / prev_close * 100, four decimals"
+    },
+    {
+      "column": "bid",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "methodology": "best bid at quote_as_of; 0 when the book is closed"
+    },
+    {
+      "column": "ask",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "nasdaq"
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "methodology": "best ask at quote_as_of; 0 when the book is closed"
+    },
+    {
+      "column": "day_open",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "stooq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "first print of the session, not the previous close"
+    },
+    {
+      "column": "day_high",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "stooq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "session high as printed by the venue"
+    },
+    {
+      "column": "day_low",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "stooq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "session low as printed by the venue"
+    },
+    {
+      "column": "day_volume",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "stooq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "shares traded this session; odd lots are not added twice"
+    },
+    {
+      "column": "turnover_value",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "day_volume * VWAP (last_price when VWAP is missing), in the listing currency"
+    },
+    {
+      "column": "quote_as_of",
+      "group": "quote",
+      "type": "timestamp",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        },
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "exchange timestamp of the print, in UTC"
+    },
+    {
+      "column": "quote_delay",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "nasdaq"
+        }
+      ],
+      "methodology": "seconds between the exchange print and quote_as_of; 0 means realtime"
+    },
+    {
+      "column": "market_state",
+      "group": "quote",
+      "type": "string",
+      "primary": "nasdaq",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "pre/open/post/closed from the exchange calendar, not guessed from the clock"
+    },
+    {
+      "column": "session_date",
+      "group": "quote",
+      "type": "date",
+      "primary": "nasdaq",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "trading date of the session the quote belongs to"
+    },
+    {
+      "column": "bars_count",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "stooq"
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "number of adjusted daily bars actually stored for the instrument"
+    },
+    {
+      "column": "first_bar_date",
+      "group": "eod_bars",
+      "type": "date",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "date of the oldest stored bar"
+    },
+    {
+      "column": "last_bar_date",
+      "group": "eod_bars",
+      "type": "date",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "stooq"
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "date of the newest stored bar; a stale bar is visible here"
+    },
+    {
+      "column": "ma_20",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "simple mean of the last 20 adjusted closes (technicals-v1)"
+    },
+    {
+      "column": "ma_50",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "simple mean of the last 50 adjusted closes (technicals-v1)"
+    },
+    {
+      "column": "ma_200",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "simple mean of the last 200 adjusted closes (technicals-v1)"
+    },
+    {
+      "column": "ema_12",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "EMA with alpha = 2/(12+1) over adjusted closes (technicals-v1)"
+    },
+    {
+      "column": "ema_26",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "EMA with alpha = 2/(26+1) over adjusted closes (technicals-v1)"
+    },
+    {
+      "column": "rsi_14",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "Wilder RSI-14 over adjusted closes (technicals-v1)"
+    },
+    {
+      "column": "atr_14",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "Wilder ATR-14 from the true range over 14 sessions (technicals-v1)"
+    },
+    {
+      "column": "volatility_20d",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "standard deviation of 20 daily log returns, annualised by sqrt(252)"
+    },
+    {
+      "column": "avg_volume_20d",
+      "group": "eod_bars",
+      "type": "number",
+      "primary": "engine:technicals",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "stooq"
+        }
+      ],
+      "methodology": "mean volume of the last 20 sessions (technicals-v1)"
+    },
+    {
+      "column": "ret_1d",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 1 session on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_1w",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 5 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_1m",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 21 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_3m",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 63 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_6m",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 126 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_ytd",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close of the last session of the previous year to the latest close (performance-v1)"
+    },
+    {
+      "column": "ret_1y",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 252 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_3y",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 756 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "ret_5y",
+      "group": "performance",
+      "type": "number",
+      "primary": "engine:performance",
+      "fallbacks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "close/close over 1260 sessions on adjusted closes (performance-v1)"
+    },
+    {
+      "column": "market_cap",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "methodology": "shares_outstanding * last_price in the listing currency; Finviz reports USD millions and is multiplied by 1e6"
+    },
+    {
+      "column": "market_cap_usd",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "ecb"
+        }
+      ],
+      "methodology": "market_cap converted with the ECB reference rate of session_date"
+    },
+    {
+      "column": "shares_outstanding",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finnhub"
+        }
+      ],
+      "methodology": "dei:EntityCommonStockSharesOutstanding from the latest cover page"
+    },
+    {
+      "column": "float_shares",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "methodology": "free float from the vendor; SEC only when the cover page states it"
+    },
+    {
+      "column": "pe_ttm",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "GAAP TTM EPS from XBRL; adjusted EPS is never mixed in without its methodology"
+    },
+    {
+      "column": "pe_forward",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "barchart"
+        }
+      ],
+      "methodology": "consensus forward EPS: an estimate and flagged as opinion, never as reported"
+    },
+    {
+      "column": "peg",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "pe_ttm / expected growth; the growth window and horizon are recorded with the value"
+    },
+    {
+      "column": "pb",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "market_cap / book value from the balance sheet"
+    },
+    {
+      "column": "ps",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "market_cap / revenue_ttm"
+    },
+    {
+      "column": "ev_ebitda",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "EV = market_cap + total_debt - cash; EBITDA TTM from XBRL"
+    },
+    {
+      "column": "eps_ttm",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "diluted GAAP EPS, TTM sum of four quarters"
+    },
+    {
+      "column": "eps_forward",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "barchart"
+        }
+      ],
+      "methodology": "consensus estimate; never presented as a reported figure"
+    },
+    {
+      "column": "dividend_yield",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz",
+          "via": "quote",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "sec_edgar"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "canonical percent: the Yahoo fraction is multiplied by 100, the Finviz percent is taken as printed"
+    },
+    {
+      "column": "payout_ratio",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "dividends paid / net_income_ttm, both from XBRL"
+    },
+    {
+      "column": "revenue_ttm",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "XBRL Revenues, four quarters, one taxonomy version"
+    },
+    {
+      "column": "ebitda_ttm",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "OperatingIncome + DepreciationAndAmortisation, TTM"
+    },
+    {
+      "column": "net_income_ttm",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "NetIncomeLoss, TTM"
+    },
+    {
+      "column": "fcf_ttm",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "cash flow from operations - capex, TTM"
+    },
+    {
+      "column": "total_debt",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "short-term + long-term debt from the balance sheet"
+    },
+    {
+      "column": "cash_and_equivalents",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finnhub"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "CashAndCashEquivalentsAtCarryingValue"
+    },
+    {
+      "column": "roe",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "net_income_ttm / average equity"
+    },
+    {
+      "column": "debt_to_equity",
+      "group": "fundamentals",
+      "type": "number",
+      "primary": "sec_edgar",
+      "fallbacks": [
+        {
+          "id": "yahoo"
+        },
+        {
+          "id": "finviz"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz"
+        }
+      ],
+      "methodology": "total_debt / equity, both from the same balance sheet"
+    },
+    {
+      "column": "opt_expiry",
+      "group": "options",
+      "type": "date",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "nearest expiry that has a quoted ATM strike"
+    },
+    {
+      "column": "opt_dte",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "calendar days from session_date to opt_expiry"
+    },
+    {
+      "column": "opt_strike_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "strike nearest to last_price among the quoted strikes"
+    },
+    {
+      "column": "opt_iv_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "implied volatility at the ATM strike as a decimal, never a percent"
+    },
+    {
+      "column": "opt_delta_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "delta of the ATM call at opt_expiry"
+    },
+    {
+      "column": "opt_gamma_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "gamma of the ATM call at opt_expiry"
+    },
+    {
+      "column": "opt_theta_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "theta per calendar day of the ATM call"
+    },
+    {
+      "column": "opt_vega_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "vega per volatility point of the ATM call"
+    },
+    {
+      "column": "opt_open_interest_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "open interest at the ATM strike, both sides summed"
+    },
+    {
+      "column": "opt_volume_atm",
+      "group": "options",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "polygon"
+        }
+      ],
+      "crosschecks": [],
+      "methodology": "contracts traded today at the ATM strike"
+    },
+    {
+      "column": "data_quality",
+      "group": "verify",
+      "type": "string",
+      "primary": "engine:quality",
+      "fallbacks": [],
+      "crosschecks": [],
+      "methodology": "enum identity_only/quote_only/partial/complete from app.contracts.DATA_QUALITY_VALUES"
+    },
+    {
+      "column": "filled_columns_count",
+      "group": "verify",
+      "type": "number",
+      "primary": "engine:quality",
+      "fallbacks": [],
+      "crosschecks": [],
+      "methodology": "count of the 92 columns carrying a non-null value in this row"
+    },
+    {
+      "column": "verified_columns_count",
+      "group": "verify",
+      "type": "number",
+      "primary": "engine:quality",
+      "fallbacks": [],
+      "crosschecks": [],
+      "methodology": "count of columns that passed the verdict rules in app/verify"
+    },
+    {
+      "column": "primary_source",
+      "group": "verify",
+      "type": "string",
+      "primary": "engine:quality",
+      "fallbacks": [],
+      "crosschecks": [],
+      "methodology": "source_id of the winning primary per row, written by SG1 provenance"
+    },
+    {
+      "column": "as_of_achieved",
+      "group": "verify",
+      "type": "timestamp",
+      "primary": "engine:quality",
+      "fallbacks": [],
+      "crosschecks": [],
+      "methodology": "oldest as_of among the cells that were used"
+    },
+    {
+      "column": "data_freshness_s",
+      "group": "verify",
+      "type": "number",
+      "primary": "engine:quality",
+      "fallbacks": [],
+      "crosschecks": [],
+      "methodology": "now - as_of_achieved in seconds at export time"
+    }
+  ],
+  "screen_fields": [
+    {
+      "column": "beta",
+      "group": "performance",
+      "type": "number",
+      "primary": "yahoo",
+      "beta_window": "5y",
+      "fallbacks": [
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "tradingview",
+          "beta_window": "1y"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "finviz",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        }
+      ],
+      "methodology": "5-year monthly beta against the listing's benchmark index; the window is stored in beta_window because a 1-year beta is not a 5-year beta"
+    },
+    {
+      "column": "high_52w",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz",
+          "via": "quote",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "highest intraday price of the trailing 52 weeks; Finviz only through its quote page, because the screener column is percent distance, not a price"
+    },
+    {
+      "column": "low_52w",
+      "group": "quote",
+      "type": "number",
+      "primary": "yahoo",
+      "fallbacks": [
+        {
+          "id": "finviz",
+          "via": "quote",
+          "when": {
+            "mic": [
+              "XNAS",
+              "XNYS",
+              "XASE"
+            ]
+          }
+        },
+        {
+          "id": "tradingview"
+        }
+      ],
+      "crosschecks": [
+        {
+          "id": "tradingview"
+        }
+      ],
+      "methodology": "lowest intraday price of the trailing 52 weeks; Finviz only through its quote page, because the screener column is percent distance, not a price"
+    }
+  ]
+}

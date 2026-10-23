@@ -1,0 +1,184 @@
+# Source Graph SG0 GREEN — pytest evidence (three consecutive full runs)
+# date: 2026-10-23T16:39:58Z
+# command: cd /home/ubuntu/ztockz && .venv/bin/pytest --tb=no -o addopts=""
+# shape: 47 Source Graph tests (38 tests/test_source_graph.py + 9 tests/test_source_graph_api.py)
+#        went 47 FAILED -> 47 passed; 429 legacy tests unchanged (476 total, 0 skipped, 0 xfail).
+
+===== run 1 =====
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 476 items
+
+tests/test_api.py ......                                                 [  1%]
+tests/test_cache_budget.py .....                                         [  2%]
+tests/test_conflate.py ..........                                        [  4%]
+tests/test_contracts.py ............................                     [ 10%]
+tests/test_env.py ...                                                    [ 10%]
+tests/test_estimate.py ......                                            [ 12%]
+tests/test_export_contract.py .                                          [ 12%]
+tests/test_export_formats.py ....................                        [ 16%]
+tests/test_export_resume.py .............                                [ 19%]
+tests/test_import_direction.py ...........                               [ 21%]
+tests/test_job_lifecycle.py ............                                 [ 24%]
+tests/test_ladder.py .........                                           [ 26%]
+tests/test_manifest.py .............                                     [ 28%]
+tests/test_no_network.py ...                                             [ 29%]
+tests/test_phases.py .......                                             [ 30%]
+tests/test_provenance.py ......                                          [ 32%]
+tests/test_quality_verdict.py ...................                        [ 36%]
+tests/test_quote_atomicity.py ....                                       [ 36%]
+tests/test_quote_http.py ......                                          [ 38%]
+tests/test_quotes.py ....                                                [ 39%]
+tests/test_registry.py .......                                           [ 40%]
+tests/test_resolve.py ..........                                         [ 42%]
+tests/test_resume_stream.py ..........                                   [ 44%]
+tests/test_retention.py ..............                                   [ 47%]
+tests/test_rules.py .................................................... [ 58%]
+.................................                                        [ 65%]
+tests/test_screen_api.py ............                                    [ 68%]
+tests/test_screen_export.py ...........                                  [ 70%]
+tests/test_screen_live_contract.py ....                                  [ 71%]
+tests/test_screen_refresh.py ...                                         [ 71%]
+tests/test_screen_scanner.py .......                                     [ 73%]
+tests/test_screen_schema.py ..                                           [ 73%]
+tests/test_screen_universe.py ..............                             [ 76%]
+tests/test_source_graph.py ......................................        [ 84%]
+tests/test_source_graph_api.py .........                                 [ 86%]
+tests/test_units.py ....................................                 [ 94%]
+tests/test_verdicts.py .....                                             [ 95%]
+tests/test_verification_wiring.py .......                                [ 96%]
+tests/test_wiring_formats.py ......                                      [ 97%]
+tests/test_yahoo_capabilities.py ..........                              [100%]
+
+============================= 476 passed in 31.58s =============================
+
+===== run 2 =====
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 476 items
+
+tests/test_api.py ......                                                 [  1%]
+tests/test_cache_budget.py .....                                         [  2%]
+tests/test_conflate.py ..........                                        [  4%]
+tests/test_contracts.py ............................                     [ 10%]
+tests/test_env.py ...                                                    [ 10%]
+tests/test_estimate.py ......                                            [ 12%]
+tests/test_export_contract.py .                                          [ 12%]
+tests/test_export_formats.py ....................                        [ 16%]
+tests/test_export_resume.py .............                                [ 19%]
+tests/test_import_direction.py ...........                               [ 21%]
+tests/test_job_lifecycle.py ............                                 [ 24%]
+tests/test_ladder.py .........                                           [ 26%]
+tests/test_manifest.py .............                                     [ 28%]
+tests/test_no_network.py ...                                             [ 29%]
+tests/test_phases.py .......                                             [ 30%]
+tests/test_provenance.py ......                                          [ 32%]
+tests/test_quality_verdict.py ...................                        [ 36%]
+tests/test_quote_atomicity.py ....                                       [ 36%]
+tests/test_quote_http.py ......                                          [ 38%]
+tests/test_quotes.py ....                                                [ 39%]
+tests/test_registry.py .......                                           [ 40%]
+tests/test_resolve.py ..........                                         [ 42%]
+tests/test_resume_stream.py ..........                                   [ 44%]
+tests/test_retention.py ..............                                   [ 47%]
+tests/test_rules.py .................................................... [ 58%]
+.................................                                        [ 65%]
+tests/test_screen_api.py ............                                    [ 68%]
+tests/test_screen_export.py ...........                                  [ 70%]
+tests/test_screen_live_contract.py ....                                  [ 71%]
+tests/test_screen_refresh.py ...                                         [ 71%]
+tests/test_screen_scanner.py .......                                     [ 73%]
+tests/test_screen_schema.py ..                                           [ 73%]
+tests/test_screen_universe.py ..............                             [ 76%]
+tests/test_source_graph.py ......................................        [ 84%]
+tests/test_source_graph_api.py .........                                 [ 86%]
+tests/test_units.py ....................................                 [ 94%]
+tests/test_verdicts.py .....                                             [ 95%]
+tests/test_verification_wiring.py .......                                [ 96%]
+tests/test_wiring_formats.py ......                                      [ 97%]
+tests/test_yahoo_capabilities.py ..........                              [100%]
+
+============================= 476 passed in 31.49s =============================
+
+===== run 3 =====
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/ubuntu/ztockz
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, time-machine-3.5.1, anyio-4.15.1, hypothesis-6.170.5
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 476 items
+
+tests/test_api.py ......                                                 [  1%]
+tests/test_cache_budget.py .....                                         [  2%]
+tests/test_conflate.py ..........                                        [  4%]
+tests/test_contracts.py ............................                     [ 10%]
+tests/test_env.py ...                                                    [ 10%]
+tests/test_estimate.py ......                                            [ 12%]
+tests/test_export_contract.py .                                          [ 12%]
+tests/test_export_formats.py ....................                        [ 16%]
+tests/test_export_resume.py .............                                [ 19%]
+tests/test_import_direction.py ...........                               [ 21%]
+tests/test_job_lifecycle.py ............                                 [ 24%]
+tests/test_ladder.py .........                                           [ 26%]
+tests/test_manifest.py .............                                     [ 28%]
+tests/test_no_network.py ...                                             [ 29%]
+tests/test_phases.py .......                                             [ 30%]
+tests/test_provenance.py ......                                          [ 32%]
+tests/test_quality_verdict.py ...................                        [ 36%]
+tests/test_quote_atomicity.py ....                                       [ 36%]
+tests/test_quote_http.py ......                                          [ 38%]
+tests/test_quotes.py ....                                                [ 39%]
+tests/test_registry.py .......                                           [ 40%]
+tests/test_resolve.py ..........                                         [ 42%]
+tests/test_resume_stream.py ..........                                   [ 44%]
+tests/test_retention.py ..............                                   [ 47%]
+tests/test_rules.py .................................................... [ 58%]
+.................................                                        [ 65%]
+tests/test_screen_api.py ............                                    [ 68%]
+tests/test_screen_export.py ...........                                  [ 70%]
+tests/test_screen_live_contract.py ....                                  [ 71%]
+tests/test_screen_refresh.py ...                                         [ 71%]
+tests/test_screen_scanner.py .......                                     [ 73%]
+tests/test_screen_schema.py ..                                           [ 73%]
+tests/test_screen_universe.py ..............                             [ 76%]
+tests/test_source_graph.py ......................................        [ 84%]
+tests/test_source_graph_api.py .........                                 [ 86%]
+tests/test_units.py ....................................                 [ 94%]
+tests/test_verdicts.py .....                                             [ 95%]
+tests/test_verification_wiring.py .......                                [ 96%]
+tests/test_wiring_formats.py ......                                      [ 97%]
+tests/test_yahoo_capabilities.py ..........                              [100%]
+
+============================= 476 passed in 31.79s =============================
+
+===== deliverable checks (same commit) =====
+$ .venv/bin/python -m app.sources.graph --validate
+source-graph OK: source-graph-v1: 22 nodes, 221 edges, 92 fields, 3 screen fields (/home/ubuntu/ztockz/reference/source_graph.json)
+
+$ python -c 'validate reference/source_graph.json against schemas/source_graph_v1.json (draft 2020-12)'
+0 schema errors; fields=92 screen_fields=3 nodes=22 edges=221
+
+$ validator vs the six mutated graphs (tests/_source_graph.bad_graph)
+  beta_tradingview_primary: GraphInvalid: beta primary 'tradingview' cannot fill beta_window='5y': it computes ['1y']
+  derived_cycle: GraphInvalid: derived_from cycle: engine:performance -> engine:technicals -> engine:performance
+  duplicate_fallback: GraphInvalid: field 'last_price' has duplicate fallback entries: ['finviz', 'finviz']
+  high52w_finviz_screener: GraphInvalid: high_52w primary 'finviz' is the screener column: percent distance from the extreme, not a price; use the quote page (via='quote')
+  missing_primary: GraphInvalid: field 'last_price' has no primary: every column needs one live source
+  robots_disallowed_primary: GraphInvalid: field 'last_price' primary 'finviz_screener_bot' is robots-disallowed: robots.txt forbids the access this column needs
+
+$ resolver, fail-closed
+  last_price     (no context): primary=yahoo fallbacks=['tradingview'] crosschecks=['nasdaq']
+  last_price  {"mic": "XNAS"}: primary=yahoo fallbacks=['finviz', 'tradingview'] crosschecks=['finviz', 'nasdaq']
+  last_price  {"mic": "XTKS"}: primary=yahoo fallbacks=['tradingview'] crosschecks=['nasdaq']
+
+$ .venv/bin/python -m app.sources.graph --capability screener
+[]
