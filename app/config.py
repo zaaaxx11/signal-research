@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +36,15 @@ class Settings(BaseSettings):
     #: 02 §3.4 assumed one provider layer; this knob is what lets the two
     #: execution paths coexist without a test-only backdoor.
     provider_mode: Literal["fake", "live"] = "fake"
+    #: ``GET /market/quote`` (P8). ``max_symbols`` is the request ceiling the
+    #: route enforces, ``batch_size`` the Yahoo per-request ceiling (never > 20);
+    #: ``stale_after_s`` is the engine's staleness threshold and ``timeout_s``
+    #: the per-provider HTTP read timeout. No credential belongs to either
+    #: endpoint, so nothing secret lives here either.
+    quote_max_symbols: int = Field(default=100, ge=1, le=100)
+    quote_batch_size: int = Field(default=20, ge=1, le=20)
+    quote_stale_after_s: float = Field(default=5.0, gt=0)
+    quote_timeout_s: float = Field(default=10.0, gt=0)
 
 
 def get_settings() -> Settings:

@@ -27,16 +27,29 @@ and a fake clock. Nothing here opens a socket or imports an adapter.
   (``up``/``down``/``flat``); with no ``prev_close`` it is ``unknown``, not
   ``flat``. ``velocity`` is the price change per second over the recent tick
   window, signed the same way, and ``None`` until two distinct ticks exist.
+
+**Batches.** ``poll`` asks one symbol at a time; ``poll_many`` is the async twin
+the HTTP layer uses. A source that declares ``fetch_many`` is asked **once** for
+the symbols still unresolved (Yahoo answers twenty per request), the rest are
+asked per symbol. Every answer is judged by the same rules as a single poll, so
+a batch cannot bypass the stale/failover/dedupe contract. State is only mutated
+between awaits, so two concurrent ``poll_many`` calls cannot corrupt a tick.
+A source that declares ``accept_stale`` ends the search for a symbol with its
+stale answer, still flagged — that is for a primary whose backups are per-symbol
+fallbacks that cannot be fresher, where otherwise a closed market would cost one
+fallback request per symbol.
 """
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections import deque
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import Enum
+from typing import Any
 
 #: A quote older than this is stale (PLAN P2 gate: "stale > 5 s ditandai").
 STALE_AFTER_S = 5.0
@@ -119,18 +132,23 @@ class SourceQuote:
 
     A source either returns a ``SourceQuote`` or ``None`` (nothing there). It
     never returns zeros to mean "unknown": omitted fields stay ``None``.
+    ``realtime`` is the provider's own claim (Nasdaq publishes ``isRealTime``);
+    ``None`` means the provider did not say, never "yes".
     """
 
     last: float
     ts_exchange: datetime
     prev_close: float | None = None
     volume: float | None = None
+    realtime: bool | None = None
 
     def __post_init__(self) -> None:
         _positive(self.last, "last")
         _optional_positive(self.prev_close, "prev_close")
         _optional_non_negative(self.volume, "volume")
         _aware(self.ts_exchange, "ts_exchange")
+        if self.realtime is not None and not isinstance(self.realtime, bool):
+            raise TypeError(f"realtime must be a bool or None, got {self.realtime!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,17 +227,45 @@ class QuoteSource:
 
     ``fetch(symbol)`` returns a ``SourceQuote`` or ``None``; it may raise, and
     the engine will move to the next source and record the attempt.
+
+    ``fetch_many(symbols)`` is the batch twin: it returns a mapping from every
+    requested symbol to its answer (``None`` for "this source does not know
+    it"), which is how a twenty-symbol HTTP request becomes twenty ticks. A
+    source may implement only one of the two; the engine records a clear ERROR
+    attempt when a sync poll meets a batch-only source, instead of pretending
+    the source had nothing.
+
+    ``accept_stale`` says a stale answer from **this** source ends the search
+    for that symbol: the tick is served with ``stale=True`` rather than asking a
+    later source. It is for a primary whose backup is a *per-symbol fallback*
+    (Nasdaq is one request per symbol, US-only and delayed 15 minutes), where
+    "maybe the backup is fresher" costs seconds and can never be true. A source
+    that leaves it ``False`` keeps the original rule: a fresher backup wins.
     """
 
     name: str
-    fetch: Callable[[str], SourceQuote | None]
+    fetch: Callable[[str], SourceQuote | None | Awaitable[SourceQuote | None]] | None = None
+    fetch_many: (
+        Callable[
+            [Sequence[str]],
+            Mapping[str, SourceQuote | None] | Awaitable[Mapping[str, SourceQuote | None]],
+        ]
+        | None
+    ) = None
+    accept_stale: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError("source name must be a non-empty string")
         object.__setattr__(self, "name", self.name.strip())
-        if not callable(self.fetch):
+        if self.fetch is not None and not callable(self.fetch):
             raise TypeError("source fetch must be callable")
+        if self.fetch_many is not None and not callable(self.fetch_many):
+            raise TypeError("source fetch_many must be callable")
+        if self.fetch is None and self.fetch_many is None:
+            raise ValueError("a QuoteSource needs fetch or fetch_many")
+        if not isinstance(self.accept_stale, bool):
+            raise TypeError(f"accept_stale must be a bool, got {self.accept_stale!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,10 +393,20 @@ class QuoteEngine:
 
         key = self._symbol(symbol)
         now = self.clock_now()
-        state = self._states.setdefault(key, _SymbolState(deque(maxlen=self._max_ticks)))
+        state = self._state(key)
         stale_candidates: list[QuoteTick] = []
 
         for source in self._sources:
+            if source.fetch is None:
+                # A batch-only source has no single-symbol answer; saying
+                # "empty" here would be a lie about the data.
+                self._record(
+                    key,
+                    source.name,
+                    SourceOutcome.ERROR,
+                    "batch-only source; use poll_many()",
+                )
+                continue
             try:
                 raw = source.fetch(key)
             except Exception as exc:  # a broken feed is a failover, not a crash
@@ -358,6 +414,19 @@ class QuoteEngine:
                 continue
             if raw is None:
                 self._record(key, source.name, SourceOutcome.EMPTY)
+                continue
+            if not isinstance(raw, SourceQuote):
+                got = (
+                    "an awaitable (async source; use poll_many())"
+                    if inspect.isawaitable(raw)
+                    else type(raw).__name__
+                )
+                self._record(
+                    key,
+                    source.name,
+                    SourceOutcome.ERROR,
+                    f"invalid quote: a source must return SourceQuote or None, got {got}",
+                )
                 continue
             try:
                 tick = self._tick(key, raw, source.name, now, state)
@@ -371,6 +440,10 @@ class QuoteEngine:
                     SourceOutcome.STALE,
                     f"age={tick.age_s(now):.3f}s",
                 )
+                if source.accept_stale:
+                    # This source's stale answer is the answer; a later fallback
+                    # cannot be fresher, and asking costs a request per symbol.
+                    return self._accept(key, state, tick, now)
                 stale_candidates.append(tick)
                 continue
             self._record(key, source.name, SourceOutcome.OK)
@@ -387,6 +460,96 @@ class QuoteEngine:
                 stale=state.latest.is_stale(now, self._stale_after_s),
             )
         return None
+
+    async def poll_many(self, symbols: Iterable[str]) -> dict[str, QuoteTick | None]:
+        """Poll many symbols through the sources, batching where a source can.
+
+        Sources with ``fetch_many`` are asked **once** for the symbols still
+        unresolved; a source without it is asked per symbol. Judging is the same
+        as :meth:`poll`: a fresh answer wins, identical prints are deduped and a
+        symbol nobody answered is ``None`` — never a zero quote. A stale answer
+        is parked and a later source may beat it, unless the source declared
+        ``accept_stale`` (a primary whose backups cannot be fresher): then the
+        stale tick is served, flagged, and the search for that symbol ends.
+
+        The order of the returned mapping is the caller's order, deduplicated;
+        a symbol that appears twice is polled once.
+        """
+
+        requested: list[str] = []
+        for symbol in symbols:
+            key = self._symbol(symbol)
+            if key not in requested:
+                requested.append(key)
+        if not requested:
+            return {}
+
+        results: dict[str, QuoteTick | None] = dict.fromkeys(requested)
+        pending: list[str] = list(requested)
+        stale_candidates: dict[str, QuoteTick] = {}
+
+        for source in self._sources:
+            if not pending:
+                break
+            if source.fetch_many is not None:
+                answers = await self._batch(source, pending)
+                if answers is None:
+                    # The whole source failed; every pending symbol was recorded.
+                    continue
+                # The data clock restarts when the answer *arrives*: a two-second
+                # HTTP round-trip must not be served as a two-second-fresher quote.
+                now = self.clock_now()
+                for key in list(pending):
+                    if key in answers:
+                        self._judge(
+                            key,
+                            answers[key],
+                            source.name,
+                            now,
+                            results,
+                            pending,
+                            stale_candidates,
+                            accept_stale=source.accept_stale,
+                        )
+                continue
+            # A per-symbol source is judged as each answer lands, so the first
+            # Nasdaq fallback is not re-stamped with the last symbol's arrival
+            # time (which would make a fresh quote look stale).
+            for key in list(pending):
+                try:
+                    raw = source.fetch(key) if source.fetch is not None else None
+                    if inspect.isawaitable(raw):
+                        raw = await raw
+                except Exception as exc:
+                    self._record(
+                        key, source.name, SourceOutcome.ERROR, f"{type(exc).__name__}: {exc}"
+                    )
+                    continue
+                self._judge(
+                    key,
+                    raw,
+                    source.name,
+                    self.clock_now(),
+                    results,
+                    pending,
+                    stale_candidates,
+                    accept_stale=source.accept_stale,
+                )
+
+        now = self.clock_now()
+        for key in pending:
+            candidate = stale_candidates.get(key)
+            if candidate is not None:
+                results[key] = self._accept(key, self._state(key), candidate, now)
+                continue
+            state = self._states.get(key)
+            if state is not None and state.latest is not None:
+                # Serve memory, re-aged on this clock: never as fresh.
+                results[key] = replace(
+                    state.latest,
+                    stale=state.latest.is_stale(now, self._stale_after_s),
+                )
+        return results
 
     def poll_all(self) -> dict[str, QuoteTick | None]:
         """Poll every watchlist symbol, in order; one failure does not stop the rest."""
@@ -417,6 +580,80 @@ class QuoteEngine:
         return tuple(state.ticks) if state is not None else ()
 
     # -- internals ---------------------------------------------------------
+
+    def _state(self, key: str) -> _SymbolState:
+        return self._states.setdefault(key, _SymbolState(deque(maxlen=self._max_ticks)))
+
+    async def _batch(
+        self, source: QuoteSource, symbols: Sequence[str]
+    ) -> dict[str, Any] | None:
+        """One source's answers for ``symbols``; ``None`` when the source failed.
+
+        The mapping carries **every** requested key: a symbol the provider
+        skipped is explicitly ``None`` (EMPTY), never "not asked".
+        """
+
+        fetch_many = source.fetch_many
+        if fetch_many is None:  # pragma: no cover - callers check first
+            return None
+        try:
+            raw = fetch_many(tuple(symbols))
+            if inspect.isawaitable(raw):
+                raw = await raw
+            if not isinstance(raw, Mapping):
+                raise TypeError(
+                    f"fetch_many must return a mapping, got {type(raw).__name__}"
+                )
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            for key in symbols:
+                self._record(key, source.name, SourceOutcome.ERROR, detail)
+            return None
+        # Keys are normalized: a source that echoes ``aapl`` still answers the
+        # engine's ``AAPL``, and a symbol it skipped is explicitly None.
+        normalized = {str(name).strip().upper(): answer for name, answer in raw.items()}
+        return {key: normalized.get(key) for key in symbols}
+
+    def _judge(
+        self,
+        key: str,
+        raw: Any,
+        source_name: str,
+        now: datetime,
+        results: dict[str, QuoteTick | None],
+        pending: list[str],
+        stale_candidates: dict[str, QuoteTick],
+        *,
+        accept_stale: bool = False,
+    ) -> None:
+        """Try one answer: accept it, park it as stale, or record why not."""
+
+        if raw is None:
+            self._record(key, source_name, SourceOutcome.EMPTY)
+            return
+        state = self._state(key)
+        try:
+            tick = self._tick(key, raw, source_name, now, state)
+        except (TypeError, ValueError) as exc:
+            self._record(key, source_name, SourceOutcome.ERROR, f"invalid quote: {exc}")
+            return
+        if tick.stale:
+            self._record(
+                key, source_name, SourceOutcome.STALE, f"age={tick.age_s(now):.3f}s"
+            )
+            if accept_stale:
+                results[key] = self._accept(key, state, tick, now)
+                if key in pending:
+                    pending.remove(key)
+                return
+            earlier = stale_candidates.get(key)
+            if earlier is None or tick.ts_exchange > earlier.ts_exchange:
+                stale_candidates[key] = tick
+            return
+        self._record(key, source_name, SourceOutcome.OK)
+        results[key] = self._accept(key, state, tick, now)
+        if key in pending:
+            pending.remove(key)
 
     def _tick(
         self,

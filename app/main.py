@@ -15,7 +15,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api import health, markets, providers, requests, screens
+from app.api import health, market, markets, providers, requests, screens
 from app.auth import ApiError
 from app.config import Settings, get_settings
 from app.export.writer import ExportFormatError, ExportFormatPending
@@ -69,8 +69,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     application.state.runtime = runtime
+    #: ``GET /market/quote`` builds its engine on first use (settings are the
+    #: only input); tests and operators may replace it without a code path.
+    application.state.quote_engine = None
 
     application.include_router(health.router)
+    mount_router(application, market.router)
     application.include_router(markets.router)
     application.include_router(requests.router)
     application.include_router(providers.router)
