@@ -1,0 +1,20 @@
+{
+  "mode": "criteria",
+  "region": "us",
+  "criteria": {
+    "filters": [
+      {
+        "key": "cap",
+        "op": "gte",
+        "value": 1000000000
+      },
+      {
+        "field": "sector",
+        "op": "eq",
+        "value": "Technology"
+      }
+    ],
+    "sort": "market_cap",
+    "limit": 20
+  }
+}

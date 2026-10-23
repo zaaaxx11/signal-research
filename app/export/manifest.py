@@ -1,7 +1,7 @@
 """Export manifest and chain-of-custody (02 §4.5/§4.8, Fase 5 gate 2).
 
 The manifest is the document that makes an export auditable *after* the process
-that wrote it is gone. Three properties are deliberate:
+that wrote it is gone. Four properties are deliberate:
 
 * **It never describes itself.** ``files`` lists data files only; the manifest
   and the custody log are not in it, because a checksum list that contains its
@@ -15,6 +15,13 @@ that wrote it is gone. Three properties are deliberate:
   the caller (or from the shard plan) and ``rows_written`` from each writer's
   own count; ``ratio`` is only ``1.0`` when the two agree for the table *and*
   for every format.
+* **The selection is recorded, not inferred.** A bundle answers a question, so
+  :func:`audit_block` pins the six fields that name it — ``selection_id``,
+  ``filter_hash``, ``view``, ``source_graph_version``, ``criteria_snapshot``
+  and ``as_of`` — with ``None`` for anything the writer was not told. An empty
+  criteria document is a claim ("this selection had no criteria"), so absence
+  is written as ``null`` instead; :data:`MANIFEST_VERSION` lets a reader tell
+  which shape of document it is holding.
 
 The custody log is append-only JSONL with a monotonically increasing ``seq``
 and an aware-UTC ``at``. "We deleted it" without "what it was" is not an audit,
@@ -34,6 +41,26 @@ from typing import Any, Iterable, Mapping
 #: Bumped when ``CANONICAL_COLUMNS_V1`` changes; stamped on the Parquet schema
 #: and in the manifest so a file can always be matched to its column contract.
 COLUMNS_VERSION = "v1"
+
+#: Version of the manifest **document** this module writes and can verify. A
+#: manifest that does not declare it predates the field and is still read with
+#: v1 semantics — every key it carries is a subset of v1 — but a document that
+#: declares a version this reader does not know is not silently accepted: the
+#: audit guarantee of v1 cannot be assumed for a shape it never saw.
+MANIFEST_VERSION = "v1"
+
+#: What a manifest records about the *question* that produced the table, as
+#: opposed to the table itself. Every name is written even when the value is
+#: unknown, so a reader can tell "not recorded" (``None``) from "recorded as
+#: this" with one lookup instead of a ``KeyError``-versus-``None`` puzzle.
+AUDIT_FIELDS: tuple[str, ...] = (
+    "selection_id",
+    "filter_hash",
+    "view",
+    "source_graph_version",
+    "criteria_snapshot",
+    "as_of",
+)
 
 
 def utc_now() -> datetime:
@@ -98,6 +125,31 @@ def write_manifest(path: str | Path, manifest: Mapping[str, Any]) -> Path:
     return target
 
 
+def audit_block(values: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The audit block of a manifest: one key per :data:`AUDIT_FIELDS`.
+
+    A value the writer was not given stays ``None`` — never ``""``, never
+    ``{}``, never something re-derived from the rows. ``criteria_snapshot`` is
+    where that matters most: an empty document reads as "a selection with no
+    criteria", which is a claim, while ``None`` reads as "this bundle did not
+    record the criteria", which is the truth.
+
+    An unknown key is refused rather than dropped: a field silently discarded
+    from an audit document is an audit defect, not a cosmetic one.
+    """
+
+    block: dict[str, Any] = {name: None for name in AUDIT_FIELDS}
+    if values is None:
+        return block
+    unknown = sorted(key for key in values if key not in AUDIT_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"unknown audit field(s) {unknown}; expected any of {', '.join(AUDIT_FIELDS)}"
+        )
+    block.update({key: value for key, value in values.items()})
+    return block
+
+
 def verify_manifest(path: str | Path) -> ManifestCheck:
     """Recompute every hash and every coverage number the manifest claims.
 
@@ -115,6 +167,21 @@ def verify_manifest(path: str | Path) -> ManifestCheck:
         return ManifestCheck(ok=False, problems=(f"manifest unreadable: {exc}",), files_checked=0)
 
     problems: list[str] = []
+    declared = manifest.get("manifest_version")
+    if declared is not None and declared != MANIFEST_VERSION:
+        problems.append(
+            f"manifest_version {declared!r} is not supported; this reader verifies "
+            f"{MANIFEST_VERSION!r} and cannot vouch for a shape it does not know"
+        )
+
+    if "as_of" in manifest:
+        as_of = manifest.get("as_of")
+        if not isinstance(as_of, str) or not as_of.strip():
+            problems.append(
+                f"as_of {as_of!r} is not a non-empty ISO-8601 timestamp: a bundle "
+                "that cannot date its table cannot be audited"
+            )
+
     files = manifest.get("files")
     if not isinstance(files, list):
         return ManifestCheck(
@@ -254,9 +321,12 @@ class CustodyLog:
 
 
 __all__ = [
+    "AUDIT_FIELDS",
     "COLUMNS_VERSION",
     "CustodyLog",
+    "MANIFEST_VERSION",
     "ManifestCheck",
+    "audit_block",
     "file_sha256",
     "iso",
     "read_custody",

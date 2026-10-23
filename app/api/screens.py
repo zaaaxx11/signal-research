@@ -1,9 +1,23 @@
-"""``GET /screens`` and ``POST /screens/{id}/export``.
+"""``GET /screens``, ``POST /screens/select`` and ``POST /screens/{id}/export``.
 
 Browse is a display, so the route has one job: serve the snapshot document. It
 never paginates (no ``cursor`` parameter exists) and it never lets ``limit``
 widen the page — ``limit`` is accepted so a client that already sends it is not
 broken by a 422, and ignored past :data:`~app.screen.snapshot.DISPLAY_ROWS`.
+
+Select is the query half: ``POST /screens/select`` takes the two-mode JSON
+selection (a criteria query or an explicit ticker list) and answers the page
+**plus the post-filter total**, because a display that only says "20 rows" is
+how a five-row filter gets read as a five-stock market. It runs one bulk scan
+per call for the same reason the export's ``all`` scope does: ``screen_rows``
+holds the 20 displayed rows, and a total computed over those 20 would be a
+number nobody can reproduce. ``GET /screens/select/schema`` serves the request
+schema — the same document that ships at
+``schemas/stock_selection_request_v1.json``.
+
+Validation lives in :mod:`app.screen.selection` (one
+:class:`~app.screen.selection.SelectionError`, one 422 code per failure kind), so
+this module only maps a validated request onto a scan and the executor.
 
 Export is the two-scope bundle and it runs as a **response background task**,
 the same way ``POST /markets/enrich`` runs a job: the 202 body leaves first, the
@@ -15,6 +29,8 @@ neither leaves a Pending job behind to poll forever.
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -35,8 +51,15 @@ from app.screen.export import (
     export_bundle,
 )
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
-from app.screen.snapshot import DISPLAY_ROWS, load_screen
-from app.screen.scanner import ScanError
+from app.screen.selection import (
+    SELECTION_REQUEST_SCHEMA,
+    SelectionError,
+    parse_selection,
+    select_rows,
+)
+from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
+from app.screen.scanner import FULL_SCAN_ROWS, ScanError, fetch_scan
+from app.screen.universe import build_universe
 
 router = APIRouter(prefix="/screens", tags=["screens"])
 
@@ -89,6 +112,104 @@ async def schema() -> dict[str, object]:
     """The JSON Schema for a browse response, versioned with the route."""
 
     return SCREEN_RESPONSE_SCHEMA
+
+
+@router.get("/select/schema")
+async def selection_schema() -> dict[str, object]:
+    """The JSON Schema for a ``POST /screens/select`` body.
+
+    Served from the module that validates with it, so the published contract and
+    the validator cannot drift: the same object is written to
+    ``schemas/stock_selection_request_v1.json``.
+    """
+
+    return SELECTION_REQUEST_SCHEMA
+
+
+@router.post("/select")
+async def select(request: Request) -> dict[str, Any]:
+    """Answer a two-mode selection: a criteria query or an explicit ticker list.
+
+    The body is validated by :func:`app.screen.selection.parse_selection`, not by
+    a pydantic model, because the failure messages are part of the product here:
+    an unknown operator or an unavailable Finviz key has to name itself and say
+    *why* it cannot run, and FastAPI's ``detail`` list cannot carry that sentence.
+    Every rejection therefore lands in the same ``{error, errorMessage}``
+    envelope as the rest of the API.
+
+    One bulk scan per call (never the 20 stored display rows) is what makes
+    ``total`` a post-filter number over the whole universe. A ticker list is
+    resolved against the snapshot named by ``snapshot_id``: unknown snapshot is a
+    404 before any scan is spent, and a snapshot built from another source is a
+    422 instead of being relabelled with the requested one. The snapshot names
+    *which* universe the tickers are looked up in; the rows are read now and the
+    response dates them with its own ``as_of``, never with the snapshot's.
+    """
+
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ApiError(
+            status_code=422,
+            error="invalid_json",
+            message=f"the selection body is not valid JSON: {exc}",
+        ) from exc
+
+    try:
+        selection = parse_selection(payload)
+    except SelectionError as exc:
+        raise ApiError(
+            status_code=exc.status_code, error=exc.code, message=str(exc)
+        ) from exc
+
+    runtime = runtime_of(request)
+    snapshot_id: str | None = None
+    if selection.is_criteria:
+        assert selection.region is not None  # parse_selection requires it
+        region = selection.region
+        source = SOURCE
+    else:
+        snapshot = await runtime.screen_repository.get(selection.snapshot_id or "")
+        if snapshot is None:
+            raise ApiError(
+                status_code=404,
+                error="snapshot_not_found",
+                message=f"snapshot {selection.snapshot_id} does not exist",
+            )
+        if snapshot.get("source") != selection.source:
+            raise ApiError(
+                status_code=422,
+                error="source_mismatch",
+                message=(
+                    f"snapshot {selection.snapshot_id} was built from source "
+                    f"{snapshot.get('source')!r}, not {selection.source!r}"
+                ),
+            )
+        region = str(snapshot["region"])
+        source = str(selection.source)
+        snapshot_id = selection.snapshot_id
+
+    try:
+        page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
+    except ScanError as exc:
+        raise ApiError(
+            status_code=503,
+            error="scanner_unavailable",
+            message=f"the scanner could not answer the selection: {exc}",
+        ) from exc
+
+    # The universe, not the display table: the total must count every match.
+    universe = build_universe(page.rows, region=region)
+    moment = datetime.now(UTC).isoformat(timespec="microseconds")
+    answer = select_rows(
+        universe,
+        selection,
+        region=region,
+        as_of=moment,
+        source=source,
+        snapshot_id=snapshot_id,
+    )
+    return answer.as_document()
 
 
 @router.post("/{screen_id}/export", status_code=202)
@@ -198,4 +319,12 @@ async def run_screen_export(
         await jobs.fail(job_id, error=f"{type(exc).__name__}: {exc}", retryable=False)
 
 
-__all__ = ["SCREEN_EXPORT_SERVICE", "browse", "export", "router", "run_screen_export"]
+__all__ = [
+    "SCREEN_EXPORT_SERVICE",
+    "browse",
+    "export",
+    "router",
+    "run_screen_export",
+    "select",
+    "selection_schema",
+]

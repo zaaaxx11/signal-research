@@ -1,0 +1,46 @@
+{
+  "description": "Frozen spec for the Screen P4 export-audit contract. The field lists are written by hand (not imported from the module under test) so a bundle that drops or invents an audit field fails against this document, not against itself.",
+  "audit_fields": [
+    "selection_id",
+    "filter_hash",
+    "view",
+    "source_graph_version",
+    "criteria_snapshot",
+    "as_of"
+  ],
+  "metadata_fields": [
+    "selection_id",
+    "filter_hash",
+    "view",
+    "source_graph_version",
+    "criteria_snapshot"
+  ],
+  "metadata": {
+    "selection_id": "sel_us_market_cap_quality_0001",
+    "filter_hash": "us:market_cap:v1",
+    "view": "overview",
+    "source_graph_version": "source-graph-v1",
+    "criteria_snapshot": {
+      "region": "us",
+      "sort": "market_cap",
+      "view": "overview",
+      "filters": [
+        {
+          "field": "market_cap_usd",
+          "op": "gte",
+          "value": 100000000
+        },
+        {
+          "field": "sector",
+          "op": "contains",
+          "value": "Technology"
+        }
+      ],
+      "tickers": []
+    }
+  },
+  "forged": {
+    "as_of": "1999-12-31T23:59:59+00:00",
+    "selecton_id": "sel_typo_0001"
+  }
+}
