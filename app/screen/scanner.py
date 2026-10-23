@@ -80,7 +80,10 @@ SCAN_COLUMNS: tuple[str, ...] = (
 #: names; the universe splits the tabs afterwards.
 REGION_MARKETS: dict[str, tuple[str, ...]] = {
     "us": ("america",),
-    "global": ("global",),
+    # TradingView has no ``global`` *market id*: sending ``markets=["global"]``
+    # answers an empty page. Omitting the key scans every venue; the universe
+    # layer removes US issuers for the Global tab.
+    "global": (),
 }
 
 REQUEST_HEADERS: dict[str, str] = {
@@ -128,7 +131,13 @@ class ScanPage:
     received: int = 0
 
 
-def scan_body(region: str, *, columns: Sequence[str] | None = None) -> dict[str, Any]:
+def scan_body(
+    region: str,
+    *,
+    columns: Sequence[str] | None = None,
+    offset: int = 0,
+    limit: int = PAGE_ROWS,
+) -> dict[str, Any]:
     """The POST body for one page of ``region``.
 
     ``filter`` is expressed as a filter list rather than left to the universe
@@ -141,7 +150,7 @@ def scan_body(region: str, *, columns: Sequence[str] | None = None) -> dict[str,
     if region not in REGION_PATHS:
         raise ValueError(f"unknown scan region {region!r}; expected one of {', '.join(REGIONS)}")
     requested = tuple(columns or SCAN_COLUMNS)
-    return {
+    body: dict[str, Any] = {
         "filter": [
             {"left": "type", "operation": "equal", "right": "stock"},
             {"left": "subtype", "operation": "equal", "right": "common"},
@@ -149,12 +158,15 @@ def scan_body(region: str, *, columns: Sequence[str] | None = None) -> dict[str,
             {"left": "exchange", "operation": "not_in_range", "right": ["OTC", "PNK"]},
         ],
         "options": {"lang": "en"},
-        "markets": list(REGION_MARKETS[region]),
         "symbols": {"query": {"types": []}, "tickers": []},
         "columns": list(requested),
         "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc"},
-        "range": [0, PAGE_ROWS],
+        "range": [max(0, int(offset)), max(0, int(offset)) + max(1, int(limit))],
     }
+    markets = REGION_MARKETS[region]
+    if markets:
+        body["markets"] = list(markets)
+    return body
 
 
 def scan_url(region: str) -> str:
@@ -213,7 +225,12 @@ def _looks_like_html(content_type: str, payload: bytes) -> bool:
 
 
 async def fetch_scan(
-    region: str, *, columns: Sequence[str] | None = None, timeout_s: float = 20.0
+    region: str,
+    *,
+    columns: Sequence[str] | None = None,
+    timeout_s: float = 20.0,
+    offset: int = 0,
+    limit: int = PAGE_ROWS,
 ) -> ScanPage:
     """Fetch one page for ``region`` — exactly one request, no retry.
 
@@ -223,7 +240,7 @@ async def fetch_scan(
     """
 
     url = scan_url(region)
-    body = scan_body(region, columns=columns)
+    body = scan_body(region, columns=columns, offset=offset, limit=limit)
     async with provider_http.build_client(
         timeout_s=timeout_s, headers=dict(REQUEST_HEADERS)
     ) as client:
@@ -261,6 +278,47 @@ async def fetch_scan(
     )
 
 
+async def fetch_all(
+    region: str,
+    *,
+    columns: Sequence[str] | None = None,
+    timeout_s: float = 20.0,
+    max_rows: int | None = None,
+) -> ScanPage:
+    """Page through the whole scanner result for an on-demand export.
+
+    The display path deliberately sends one request and keeps the top 20; a
+    full export is the only caller allowed to walk every page. ``totalCount``
+    is the provider's promise, so the loop stops when the received rows reach
+    it (or when a page stops making progress, which would otherwise spin).
+    """
+
+    first = await fetch_scan(region, columns=columns, timeout_s=timeout_s)
+    rows = list(first.rows)
+    total = first.total_count
+    if max_rows is not None:
+        total = min(total, max(0, int(max_rows)))
+    while len(rows) < total:
+        page = await fetch_scan(
+            region,
+            columns=columns,
+            timeout_s=timeout_s,
+            offset=len(rows),
+        )
+        if not page.rows:
+            break
+        rows.extend(page.rows)
+        if len(page.rows) < min(PAGE_ROWS, total - (len(rows) - len(page.rows))):
+            # A short page means the provider has no more rows to give.
+            break
+    return ScanPage(
+        total_count=total,
+        rows=rows[:total] if max_rows is not None else rows,
+        region=region,
+        received=len(rows),
+    )
+
+
 __all__ = [
     "FIRST_PAGE",
     "PAGE_ROWS",
@@ -271,6 +329,7 @@ __all__ = [
     "ScanBlocked",
     "ScanError",
     "ScanPage",
+    "fetch_all",
     "fetch_scan",
     "parse_scan",
     "scan_body",

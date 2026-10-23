@@ -30,7 +30,7 @@ from app.export.writer import FORMATS, write_table
 from app.screen import rank as ranking
 from app.screen import universe as universes
 from app.screen.repository import SqliteScreenRepository
-from app.screen.scanner import fetch_scan
+from app.screen.scanner import fetch_all
 
 #: Rows the deep engine may enrich. Never the whole universe.
 DEEP_ROWS = 20
@@ -235,7 +235,7 @@ async def export_bundle(
 
     # ``all`` is the universe as it is *now*, not the twenty rows on screen: the
     # display table is a cache of the top of the ranking, not the universe.
-    page = await fetch_scan(region)
+    page = await fetch_all(region)
     universe = universes.build_universe(page.rows, region=region)
     ranked = ranking.rank_rows(universe, sort)
     light = [_light_row(row, as_of=as_of, source=source) for row in ranked]

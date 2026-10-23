@@ -192,9 +192,19 @@ def build_universe(rows: Iterable[Mapping[str, Any]], *, region: str) -> list[di
     universe: list[dict[str, Any]] = []
     for candidate in chosen.values():
         is_us = candidate["exchange"] in US_EXCHANGES
+        is_us_issuer = str(candidate.get("country") or "").strip().casefold() in {
+            "united states",
+            "united states of america",
+            "usa",
+            "us",
+        }
         if region == "us" and not is_us:
             continue
-        if region == "global" and is_us:
+        if region == "global" and (is_us or is_us_issuer):
+            # The global endpoint returns foreign *listings* of US issuers
+            # (NVDACL on BCS, GOOGL on BMV). Excluding only the US venue would
+            # put those cross-listings in the Global tab; the issuer's country
+            # is the tab's actual boundary.
             continue
         universe.append(
             {column: candidate.get(column) for column in UNIVERSE_COLUMNS}
