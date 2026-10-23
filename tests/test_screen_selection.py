@@ -4,8 +4,8 @@ Contract (PLAN-finviz-parity.md §6 gate 3, "filter parity: 82/82 keys; filter
 expression deterministik"):
 
 * every one of the 82 Finviz filter keys either resolves to a row column or is
-  **refused by name** — 32 map (7 light columns + 25 parity metrics the bulk
-  scan copies), 50 are refused with the metric they need, and none is silently
+  **refused by name** — 36 map (7 light columns + 29 parity metrics the bulk
+  scan copies), 46 are refused with the metric they need, and none is silently
   ignored, because an ignored filter returns the unfiltered screen as if it
   matched;
 * a selection is one of two modes and never a mixture: ``criteria``
@@ -124,11 +124,11 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 32, (
-        "seven light columns plus the twenty-five parity metrics a bulk scan "
+    assert len(mapped_keys()) == 36, (
+        "seven light columns plus the twenty-nine parity metrics a bulk scan "
         "copies and whose columns are really filled"
     )
-    assert len(unavailable_keys()) == 50
+    assert len(unavailable_keys()) == 46
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -145,7 +145,7 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
         "the seven light keys must keep the columns the browse row has always had"
     )
     parity = {key: field for key, field in ROW_FIELDS.items() if key not in light}
-    assert len(parity) == 25
+    assert len(parity) == 29
     assert set(parity.values()) <= set(PARITY_FIELDS.values()), (
         "every new key must point at a provider column the parity scan copies; "
         f"not carried: {sorted(set(parity.values()) - set(PARITY_FIELDS.values()))}"
@@ -186,11 +186,15 @@ def test_a_key_outside_the_catalogue_is_unknown_and_lists_what_works() -> None:
 
 def test_reasons_name_the_metric_that_is_missing() -> None:
     assert "index membership" in (reason_for("idx") or "")
-    assert "dividend" in (reason_for("fa_div") or "")
+    assert "dividend" in (reason_for("fa_divgrowth") or "")
     assert "ten performance windows" in (reason_for("ta_perf") or "")
     assert "percent distance" in (reason_for("ta_highlow52w") or "")
     assert "1-5 analyst score" in (reason_for("an_recom") or ""), (
         "Recommend.All is a -1..1 score; a Finviz-scale value would match nothing"
+    )
+    assert "3 - 2 * score" in (reason_for("an_recom") or ""), (
+        "the refusal must name the transform a future mapping would need, so it "
+        "reads as a deliberate 'not derived' rather than an oversight"
     )
     assert "answered null for all" in (reason_for("fa_fpe") or ""), (
         "a column that is null for every row cannot filter: refuse it, do not "
@@ -201,7 +205,16 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
         reason = reason_for(key)
         assert reason and reason.strip(), f"{key} needs a reason"
         assert len(reason) > 20, f"{key}'s reason is too short to be useful: {reason!r}"
-    for key in ("fa_pe", "ta_rsi", "ta_beta", "ta_sma200"):
+    for key in (
+        "fa_pe",
+        "ta_rsi",
+        "ta_beta",
+        "ta_sma200",
+        "industry",
+        "fa_div",
+        "ta_gap",
+        "ta_averagetruerange",
+    ):
         assert reason_for(key) is None, f"{key} filters a parity column; it is not refused"
 
 
@@ -451,10 +464,10 @@ def test_an_operator_that_cannot_apply_to_the_kind_is_rejected() -> None:
 
 def test_an_unavailable_key_is_a_422_that_names_it() -> None:
     with pytest.raises(SelectionError) as caught:
-        parse_selection(criteria({"key": "fa_div", "op": "lte", "value": 10}))
+        parse_selection(criteria({"key": "fa_divgrowth", "op": "lte", "value": 10}))
     assert caught.value.code == "unavailable_filter_key"
     message = str(caught.value)
-    assert "fa_div" in message and "Dividend Yield" in message
+    assert "fa_divgrowth" in message and "Dividend Growth" in message
     assert "cannot be applied" in message
 
 
@@ -463,6 +476,26 @@ def test_a_parity_key_now_filters_instead_of_being_refused() -> None:
     assert request.filters[0].field == "pe_ttm"
     assert request.filters[0].key == "fa_pe"
     assert request.filters[0].value == 10.0
+
+
+@pytest.mark.parametrize(
+    ("key", "field", "op", "value"),
+    [
+        ("industry", "industry", "eq", "Semiconductors"),
+        ("fa_div", "dividend_yield", "gte", 2.5),
+        ("ta_gap", "gap_pct", "lte", -0.5),
+        ("ta_averagetruerange", "atr_14", "between", (1.0, 5.0)),
+    ],
+)
+def test_the_four_probed_keys_parse_into_their_row_columns(
+    key: str, field: str, op: str, value: Any
+) -> None:
+    """The request path, not just the catalogue: a key must reach its column."""
+
+    criterion = parse_selection(criteria({"key": key, "op": op, "value": value})).filters[0]
+    assert criterion.field == field
+    assert criterion.key == key
+    assert criterion.op == op
 
 
 def test_a_finviz_option_token_is_not_interpreted_as_a_value() -> None:

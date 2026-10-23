@@ -197,6 +197,11 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "ta_sma50": "sma_50",
         "ta_sma200": "sma_200",
         "ta_beta": "beta_1y",
+        # -- columns a live probe showed filled (P7)
+        "industry": "industry",
+        "fa_div": "dividend_yield",
+        "ta_gap": "gap_pct",
+        "ta_averagetruerange": "atr_14",
     }, (
         "a filter key may only name a column a row really carries (a light column "
         f"or a parity metric); got {mapped}"
@@ -213,7 +218,7 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 50
+    assert len(unsourced) == 82 - len(mapped) == 46
     assert all(not FILTER_CATALOG[key].is_available for key in unsourced), (
         "a key without a metric must report is_available == False"
     )

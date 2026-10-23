@@ -12,28 +12,34 @@ claim that the metric behind every key is already sourced.
 
 **Only a sourced metric gets a field.** ``FilterSpec.field`` names the canonical
 row column a key filters, and it is ``None`` for the keys no row carries.
-**Thirty-two keys map today**: the seven light columns (exchange, sector,
-country, market cap, price, change %, current volume) plus twenty-five parity
+**Thirty-six keys map today**: the seven light columns (exchange, sector,
+country, market cap, price, change %, current volume) plus twenty-nine parity
 metrics that :data:`app.screen.universe.PARITY_FIELDS` copies from the bulk scan
 — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current, quick and
 debt/equity ratios, the three margins, share count and float, average/relative
-volume, target price, the next earnings date, RSI, the three SMAs and beta.
+volume, target price, the next earnings date, industry, dividend yield, RSI, the
+three SMAs, beta, gap and ATR.
 
-The rule for the twenty-five is **one quantity, one column, and the provider's
-window in the name**. ``ta_beta`` therefore resolves to ``beta_1y`` (the
+The rule for the twenty-nine is **one quantity, one column, and the provider's
+window or unit in the name**. ``ta_beta`` therefore resolves to ``beta_1y`` (the
 provider's one-year window; Finviz's beta is five-year monthly) and ``sh_avgvol``
 to ``avg_volume_30d``; a field that claimed ``beta`` or ``avg_volume`` would
-assert a methodology the row does not have. A key is *not* mapped when no column
-measures it, when one key spans several columns (``ta_perf`` covers ten windows,
-``ta_volatility`` two), when the provider's unit differs from Finviz's
-(``ta_highlow52w`` is a percent distance and the row carries absolute
-``high_52w``/``low_52w``; ``Recommend.All`` is a -1..1 score against Finviz's
-1..5), or when the provider's column answers ``null`` for **every** row — the
-live probe returned no values at all for ``price_earnings_forward``,
+assert a methodology the row does not have. ``ta_averagetruerange`` resolves to
+``atr_14`` and ``ta_gap`` to ``gap_pct`` (signed percent: ``-0.57`` is a 0.57%
+gap down), while ``fa_div`` resolves to ``dividend_yield``, which is the
+provider's percent (``0.47`` = 0.47%), not a fraction. A key is *not* mapped
+when no column measures it, when one key spans several columns (``ta_perf``
+covers ten windows, ``ta_volatility`` two), when the provider's unit differs
+from Finviz's in a way a name cannot state (``ta_highlow52w`` is a percent
+distance and the row carries absolute ``high_52w``/``low_52w``; ``Recommend.All``
+is a -1..1 score against Finviz's 1..5, and inverting it would mean inventing a
+derived column), or when the provider's column answers ``null`` for **every**
+row — the live probe returned no values at all for ``price_earnings_forward``,
 ``price_sales_ttm``, ``short_float`` and ``ipo_date``, and a filter on a column
 that is always null could only return an empty screen. Mapping those would let a
-caller read a different question's answer, or an empty one, as parity; the fifty
-refusals in :mod:`app.screen.filter_fields` name the missing metric instead.
+caller read a different question's answer, or an empty one, as parity; the
+forty-six refusals in :mod:`app.screen.filter_fields` name the missing metric
+instead.
 
 **The DSL is field/op/value, and unknown never passes.** ``compile_filter``
 rejects an unknown field, an unknown operator and an operator that cannot work
@@ -83,6 +89,10 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "exchange": "text",
         "country": "text",
         "sector": "text",
+        # The provider's industry string ("Semiconductors"), copied verbatim by
+        # the parity scan. It is the vendor's classification, not Finviz's
+        # option tokens; `contains` is case-insensitive, `eq` is exact.
+        "industry": "text",
         "currency": "text",
         "price": "number",
         "change_pct": "number",
@@ -100,6 +110,8 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "pb": "number",  # price_book_fq
         "pfcf": "number",  # price_free_cash_flow_ttm
         "ev_ebitda": "number",  # enterprise_value_ebitda_ttm
+        # -- dividends (percent, as the provider reports it: 0.47 = 0.47%)
+        "dividend_yield": "number",  # dividends_yield, percent not a fraction
         # -- profitability and leverage
         "roe": "number",  # return_on_equity
         "roa": "number",  # return_on_assets
@@ -136,6 +148,10 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "beta_1y": "number",  # one-year window; Finviz's beta is five-year
         "high_52w": "number",
         "low_52w": "number",
+        # Percent, signed: -0.57 = opened 0.57% below the previous close.
+        "gap_pct": "number",  # gap
+        # Average true range (14 sessions) in price units, not a percent.
+        "atr_14": "number",  # ATR
         "volatility_d": "number",
         "volatility_w": "number",
         "volatility_m": "number",
@@ -560,7 +576,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Industry",
         "descriptive",
         "modalSelect",
-        None,
+        "industry",
         ("", "stocksexshell", "shellcompanies", "advertisingagencies", "aerospacedefense",
          "agriculturalinputs", "airlines", "airportsairservices", "aluminum",
          "apparelmanufacturing", "apparelretail", "assetmanagement",
@@ -645,7 +661,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Dividend Yield",
         "descriptive",
         "floatRangeSelect",
-        None,
+        "dividend_yield",
         ("", "none", "pos", "high", "veryhigh", "o1", "o2", "o3", "o4", "o5", "o6", "o7",
          "o8", "o9", "o10", "frange"),
     ),
@@ -1315,7 +1331,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Gap",
         "technical",
         "floatRangeSelect",
-        None,
+        "gap_pct",
         ("", "u", "u0", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8", "u9", "u10", "u15",
          "u20", "d", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9",
          "d10", "d15", "d20", "frange"),
@@ -1454,7 +1470,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Average True Range",
         "technical",
         "floatRangeSelect",
-        None,
+        "atr_14",
         ("", "o0.25", "o0.5", "o0.75", "o1", "o1.5", "o2", "o2.5", "o3", "o3.5", "o4",
          "o4.5", "o5", "u0.25", "u0.5", "u0.75", "u1", "u1.5", "u2", "u2.5", "u3",
          "u3.5", "u4", "u4.5", "u5", "frange"),

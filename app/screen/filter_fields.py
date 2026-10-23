@@ -13,25 +13,30 @@ stock has a P/E below 10" — a fabricated answer produced by an ignored
 parameter. So the contract is: **a filter key either maps to a row column or the
 request is rejected (422) with the reason**, never applied as a no-op.
 
-Thirty-two keys map and fifty are refused:
+Thirty-six keys map and forty-six are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
-* **twenty-five parity metrics** joined them when the bulk scan started copying
+* **twenty-nine parity metrics** joined them when the bulk scan started copying
   the provider's P/E, beta, RSI, SMA and ratio columns
   (:data:`app.screen.universe.PARITY_FIELDS`). They are real columns on a real
   row: a null cell means the provider did not report that metric for that
-  company, and a filter on it simply does not match (unknown is not zero);
-* **fifty are refused**, each with the metric it needs. Four shapes of refusal:
-  no column measures it (index membership, industry, theme, dividends,
-  insider/institutional ownership, news, ETF holdings, after-hours, patterns);
-  one key spans several columns (``ta_perf`` covers ten performance windows,
-  ``ta_volatility`` two); the provider's unit is not Finviz's (``ta_highlow52w``
-  is a percent distance, the row carries absolute 52-week prices, and
-  ``Recommend.All`` is a -1..1 score against Finviz's 1..5); or the column the
-  provider offers answers **null for every row** (``price_earnings_forward``,
-  ``price_sales_ttm``, ``short_float``, ``ipo_date`` on both the US and the global
-  scan), where a filter could only ever return an empty screen.
+  company, and a filter on it simply does not match (unknown is not zero). The
+  last four were added only after a live probe showed the provider really fills
+  them: ``industry`` (a label such as ``Semiconductors``), ``dividends_yield``
+  (percent: ``0.47`` = 0.47%), ``gap`` (signed percent) and ``ATR`` (price
+  units);
+* **forty-six are refused**, each with the metric it needs. Four shapes of
+  refusal: no column measures it (index membership, theme, dividend growth and
+  payout ratio, insider/institutional ownership, news, ETF holdings,
+  after-hours, patterns); one key spans several columns (``ta_perf`` covers ten
+  performance windows, ``ta_volatility`` two); the provider's unit is not
+  Finviz's (``ta_highlow52w`` is a percent distance, the row carries absolute
+  52-week prices, and ``Recommend.All`` is a -1..1 score against Finviz's 1..5);
+  or the column the provider offers answers **null for every row**
+  (``price_earnings_forward``, ``price_sales_ttm``, ``short_float``,
+  ``ipo_date`` on both the US and the global scan), where a filter could only
+  ever return an empty screen.
 
 Two things this module refuses to invent:
 
@@ -76,23 +81,21 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("idx",),
     ),
     (
-        "needs an industry classification: the row carries `sector` only, and "
-        "the scanner's industry vocabulary has not been probed",
-        ("industry",),
-    ),
-    (
         "needs theme/sub-theme classification: the scan carries no theme column",
         ("theme", "subtheme"),
     ),
     (
-        "needs dividend metrics (yield, growth, payout ratio): the scan carries "
-        "no dividend column",
-        ("fa_div", "fa_divgrowth", "fa_payoutratio"),
+        "needs dividend growth and payout ratio: the scan carries a dividend "
+        "yield only (`dividends_yield`), which is neither a growth rate nor the "
+        "share of earnings paid out",
+        ("fa_divgrowth", "fa_payoutratio"),
     ),
     (
         "needs Finviz's 1-5 analyst score: the scanner's `Recommend.All` is a "
         "-1..+1 mean rating, so a filter written on Finviz's scale (2 = buy) "
-        "matches nothing — the column is carried for display, not for this key",
+        "matches nothing — the column is carried for display, not for this key; "
+        "mapping it would mean inventing a derived field with an explicit "
+        "`3 - 2 * score` transform, which no row carries today",
         ("an_recom",),
     ),
     (
@@ -181,12 +184,9 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("ta_volatility",),
     ),
     (
-        "needs a gap column: the scan carries no open price, so the gap cannot "
-        "be computed",
-        ("ta_gap",),
-    ),
-    (
-        "needs a change-from-open column: the scan carries no open price",
+        "needs a change-from-open column: the scan carries a gap (open against "
+        "the previous close) but no open price, so the change from the open "
+        "cannot be computed",
         ("ta_changeopen",),
     ),
     (
@@ -214,10 +214,6 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "needs candlestick detection: the scan returns no candlestick "
         "classification",
         ("ta_candlestick",),
-    ),
-    (
-        "needs an average-true-range column: the scan carries no ATR",
-        ("ta_averagetruerange",),
     ),
     (
         "needs after-hours prices: the scan covers the regular session only",

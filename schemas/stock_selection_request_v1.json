@@ -191,10 +191,11 @@
    "properties": {
     "key": {
      "type": "string",
-     "description": "One of the 82 Finviz filter keys. The 7 that filter a light row today, and the 75 that are refused with their reason, are listed in x-filter-keys."
+     "description": "One of the 82 Finviz filter keys. The 36 that filter a row column today, and the 46 that are refused with their reason, are listed in x-filter-keys."
     },
     "field": {
      "enum": [
+      "atr_14",
       "aum_usd",
       "avg_volume_10d",
       "avg_volume_30d",
@@ -204,14 +205,17 @@
       "currency",
       "current_ratio",
       "debt_to_equity",
+      "dividend_yield",
       "earnings_date",
       "eps_forecast_next_fq",
       "eps_forecast_next_fy",
       "ev_ebitda",
       "exchange",
       "float_shares",
+      "gap_pct",
       "gross_margin",
       "high_52w",
+      "industry",
       "is_primary",
       "listing_date",
       "low_52w",
@@ -323,8 +327,8 @@
   "industry": {
    "label": "Industry",
    "tab": "descriptive",
-   "field": null,
-   "reason": "needs an industry classification: the row carries `sector` only, and the scanner's industry vocabulary has not been probed"
+   "field": "industry",
+   "kind": "text"
   },
   "geo": {
    "label": "Country",
@@ -341,8 +345,8 @@
   "fa_div": {
    "label": "Dividend Yield",
    "tab": "descriptive",
-   "field": null,
-   "reason": "needs dividend metrics (yield, growth, payout ratio): the scan carries no dividend column"
+   "field": "dividend_yield",
+   "kind": "number"
   },
   "sh_short": {
    "label": "Short Float",
@@ -354,7 +358,7 @@
    "label": "Analyst Recom.",
    "tab": "descriptive",
    "field": null,
-   "reason": "needs Finviz's 1-5 analyst score: the scanner's `Recommend.All` is a -1..+1 mean rating, so a filter written on Finviz's scale (2 = buy) matches nothing — the column is carried for display, not for this key"
+   "reason": "needs Finviz's 1-5 analyst score: the scanner's `Recommend.All` is a -1..+1 mean rating, so a filter written on Finviz's scale (2 = buy) matches nothing — the column is carried for display, not for this key; mapping it would mean inventing a derived field with an explicit `3 - 2 * score` transform, which no row carries today"
   },
   "sh_opt": {
    "label": "Option/Short",
@@ -492,7 +496,7 @@
    "label": "Dividend Growth",
    "tab": "fundamental",
    "field": null,
-   "reason": "needs dividend metrics (yield, growth, payout ratio): the scan carries no dividend column"
+   "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
   },
   "fa_epsyoy": {
    "label": "EPS Growth\nThis Year",
@@ -630,7 +634,7 @@
    "label": "Payout Ratio",
    "tab": "fundamental",
    "field": null,
-   "reason": "needs dividend metrics (yield, growth, payout ratio): the scan carries no dividend column"
+   "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
   },
   "sh_insiderown": {
    "label": "Insider\nOwnership",
@@ -683,8 +687,8 @@
   "ta_gap": {
    "label": "Gap",
    "tab": "technical",
-   "field": null,
-   "reason": "needs a gap column: the scan carries no open price, so the gap cannot be computed"
+   "field": "gap_pct",
+   "kind": "number"
   },
   "ta_sma20": {
    "label": "20-Day Simple Moving Average",
@@ -714,7 +718,7 @@
    "label": "Change from Open",
    "tab": "technical",
    "field": null,
-   "reason": "needs a change-from-open column: the scan carries no open price"
+   "reason": "needs a change-from-open column: the scan carries a gap (open against the previous close) but no open price, so the change from the open cannot be computed"
   },
   "ta_highlow20d": {
    "label": "20-Day High/Low",
@@ -761,8 +765,8 @@
   "ta_averagetruerange": {
    "label": "Average True Range",
    "tab": "technical",
-   "field": null,
-   "reason": "needs an average-true-range column: the scan carries no ATR"
+   "field": "atr_14",
+   "kind": "number"
   },
   "ah_close": {
    "label": "After-Hours Close",

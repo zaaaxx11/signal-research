@@ -319,14 +319,14 @@ async def test_an_unmapped_finviz_key_is_refused_by_name_not_ignored(
 ) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
         response = await harness.client.post(
-            "/screens/select", json=criteria({"key": "fa_div", "op": "lte", "value": 10})
+            "/screens/select", json=criteria({"key": "fa_divgrowth", "op": "lte", "value": 10})
         )
         requests = S.provider_requests(harness.web)
 
     body = assert_envelope(response, status=422)
     assert body["error"] == "unavailable_filter_key"
     message = body["errorMessage"]
-    assert "fa_div" in message and "Dividend Yield" in message
+    assert "fa_divgrowth" in message and "Dividend Growth" in message
     assert "cannot be applied" in message
     assert "refused instead of ignored" in message
     assert requests == 0, "the refusal must not spend a scan on a filter it cannot apply"
@@ -400,7 +400,8 @@ async def test_the_schema_route_serves_the_repo_artifact(
     assert served["x-filter-key-count"] == 82
     assert len(served["x-filter-keys"]) == 82
     mapped = [key for key, entry in served["x-filter-keys"].items() if entry["field"]]
-    assert len(mapped) == 32, (
+    assert len(mapped) == 36, (
         "the published schema must name every key that filters a parity row"
     )
     assert "fa_pe" in mapped and "ta_beta" in mapped and "ta_sma50" in mapped
+    assert "industry" in mapped and "fa_div" in mapped and "ta_gap" in mapped

@@ -2,11 +2,13 @@
 
 Contract (PLAN-finviz-parity.md §6 gate 3, "82/82 keys"):
 
-* **32 of the 82 keys filter a real column** — the seven light ones plus the
-  twenty-five parity metrics a bulk scan copies from TradingView whose columns
-  are really filled — and each of the 32 is proven by running its compiled
-  predicate over a row that carries the field;
-* **the other 50 are refused by name**, with the metric they need, instead of
+* **36 of the 82 keys filter a real column** — the seven light ones plus the
+  twenty-nine parity metrics a bulk scan copies from TradingView whose columns
+  are really filled (the last four added after a live probe answered with
+  values: ``industry``, ``dividends_yield``, ``gap``, ``ATR``) — and each of the
+  36 is proven by running its compiled predicate over a row that carries the
+  field;
+* **the other 46 are refused by name**, with the metric they need, instead of
   being applied as a no-op (an ignored filter returns the unfiltered screen as
   if it matched);
 * a parity cell is copied **verbatim**: a number stays a number, a provider
@@ -46,6 +48,7 @@ from app.screen.universe import (
     PARITY_COLUMNS,
     PARITY_FIELDS,
     PARITY_NULLABLE,
+    PARITY_TEXT_FIELDS,
     UNIVERSE_COLUMNS,
     build_universe,
 )
@@ -122,13 +125,13 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 82 keys: 37 filter a real column, 45 refuse with a reason
+# 82 keys: 36 filter a real column, 46 refuse with a reason
 # ---------------------------------------------------------------------------
 
 
-def test_the_disposition_is_thirty_seven_mapped_and_forty_five_refused() -> None:
-    assert len(mapped_keys()) == 32
-    assert len(unavailable_keys()) == 50
+def test_the_disposition_is_thirty_six_mapped_and_forty_six_refused() -> None:
+    assert len(mapped_keys()) == 36
+    assert len(unavailable_keys()) == 46
     assert set(mapped_keys()) == set(ROW_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
@@ -282,6 +285,141 @@ def test_a_cell_that_is_not_a_finite_number_is_unknown() -> None:
     for symbol in ("NAN", "TEXT", "BOOL"):
         assert universe[symbol]["pe_ttm"] is None, symbol
         assert universe[symbol]["rsi_14"] is None, symbol
+
+
+# ---------------------------------------------------------------------------
+# The four columns a live probe answered with values
+# ---------------------------------------------------------------------------
+
+#: ``(provider column, Finviz key, row field, the value the live probe read)``.
+#: ``0.47`` is 0.47% (not 47%), ``-0.57`` is a 0.57% gap down and ``6.06`` is an
+#: ATR in price units — the units are asserted below, not just the copy.
+PROBED: tuple[tuple[str, str, str, Any], ...] = (
+    ("industry", "industry", "industry", "Semiconductors"),
+    ("dividends_yield", "fa_div", "dividend_yield", 0.47),
+    ("gap", "ta_gap", "gap_pct", -0.57),
+    ("ATR", "ta_averagetruerange", "atr_14", 6.06),
+)
+
+#: How each key is filtered: a value that matches ``SEMI`` only, with ``BANK``
+#: on the other side and a row that reported nothing.
+PROBED_FILTERS: dict[str, tuple[str, Any]] = {
+    "industry": ("eq", "Semiconductors"),
+    "fa_div": ("between", [0.4, 1.0]),
+    "ta_gap": ("lt", 0.0),
+    "ta_averagetruerange": ("gt", 5.0),
+}
+
+
+def probed_rows() -> list[dict[str, Any]]:
+    """Three rows: the probe's own values, a different company, and a null one."""
+
+    return [
+        provider_row(
+            "SEMI",
+            industry="Semiconductors",
+            dividends_yield=0.47,
+            gap=-0.57,
+            ATR=6.06,
+        ),
+        provider_row(
+            "BANK",
+            industry="Banks",
+            dividends_yield=3.1,
+            gap=1.2,
+            ATR=1.4,
+        ),
+        provider_row(
+            "NULL",
+            industry=None,
+            dividends_yield=None,
+            gap=None,
+            ATR=None,
+        ),
+    ]
+
+
+@pytest.mark.parametrize(("column", "key", "field", "value"), PROBED)
+def test_a_probed_column_is_copied_verbatim_into_its_field(
+    column: str, key: str, field: str, value: Any
+) -> None:
+    universe = parity_universe([provider_row("LIVE", **{column: value})])
+
+    assert ROW_FIELDS[key] == field
+    assert len(universe) == 1
+    assert universe[0][field] == value, f"{column} did not reach {field}"
+    assert type(universe[0][field]) is type(value), (
+        "a label stays a label and a number stays a number: the copy is verbatim"
+    )
+
+
+@pytest.mark.parametrize(("column", "key", "field", "value"), PROBED)
+def test_a_probed_key_filters_the_parity_universe(
+    column: str, key: str, field: str, value: Any
+) -> None:
+    """Not just copied — the key's predicate selects over the bulk rows."""
+
+    op, expected = PROBED_FILTERS[key]
+    document = run(criteria({"key": key, "op": op, "value": expected}), parity_universe(probed_rows()))
+
+    assert symbols_of(document) == ["SEMI"], (
+        f"{key} ({field}) did not select the row whose {column} is {value!r}"
+    )
+    assert document["total"] == 1
+    assert document["universe_total"] == 3, "the null row is in the universe, not in the answer"
+    assert document["filters"][0]["field"] == field
+    assert document["filters"][0]["key"] == key
+
+
+def test_dividend_yield_is_a_percent_not_a_fraction() -> None:
+    """``0.47`` is a small yield; reading it as 47% would move the row."""
+
+    rows = [provider_row("SMALL", dividends_yield=0.47), provider_row("BIG", dividends_yield=5.0)]
+    universe = parity_universe(rows)
+
+    assert [row["dividend_yield"] for row in universe] == [0.47, 5.0]
+    low = run(criteria({"key": "fa_div", "op": "between", "value": [0.4, 1.0]}), parity_universe(rows))
+    assert symbols_of(low) == ["SMALL"], (
+        "a 0.47% yield is inside 0.4%..1.0%; a 5% yield is not"
+    )
+
+
+def test_an_industry_label_is_trimmed_and_blank_is_unknown() -> None:
+    rows = [
+        provider_row("PADDED", industry="  Semiconductors  "),
+        provider_row("BLANK", industry="   "),
+        provider_row("MISSING", industry=None),
+        provider_row("BANK", industry="Banks"),
+    ]
+    universe = {row["symbol"]: row for row in parity_universe(rows)}
+
+    assert universe["PADDED"]["industry"] == "Semiconductors"
+    assert universe["BLANK"]["industry"] is None, "a blank label is unknown, not a label"
+    assert universe["MISSING"]["industry"] is None
+
+    document = run(
+        criteria({"key": "industry", "op": "ne", "value": "Banks"}),
+        list(universe.values()),
+    )
+    assert symbols_of(document) == ["PADDED"], (
+        "a row the provider did not classify is unknown, not 'a different industry'"
+    )
+
+
+def test_the_new_fields_are_parity_only_and_the_browse_scan_is_unchanged() -> None:
+    assert len(SCAN_COLUMNS) == 17, "the browse scan keeps its 17 columns"
+    for column, _, field, _ in PROBED:
+        assert column in PARITY_COLUMNS, f"{column} must be requested by the criteria scan"
+        assert column not in SCAN_COLUMNS, (
+            "a new filter metric belongs to the parity block, not to the browse row"
+        )
+        assert field not in PARITY_NULLABLE, (
+            "a probed column is filled; only an always-null column is nullable"
+        )
+    assert PARITY_TEXT_FIELDS == frozenset({"industry"})
+    assert FIELDS["industry"] == "text"
+    for field in ("dividend_yield", "gap_pct", "atr_14"):
+        assert FIELDS[field] == "number"
 
 
 # ---------------------------------------------------------------------------

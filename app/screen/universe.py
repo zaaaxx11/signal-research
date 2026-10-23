@@ -43,17 +43,21 @@ on P/E, beta, RSI, the moving averages and so on. :data:`PARITY_FIELDS` is the
 one table that says which **provider** column becomes which **canonical** row
 field, and :data:`PARITY_COLUMNS` is that table's provider side in the order the
 scan asks for them. ``build_universe(..., columns=PARITY_COLUMNS)`` copies a
-cell **verbatim** into its field: a number stays a number, and a cell the
-provider did not send — or sent as something that is not a finite number — stays
-``None``. It is never coerced to ``0`` (a missing P/E is not a P/E of zero) and
-never derived from another cell (a computed ratio would be a number nobody can
-trace back to the scan).
+cell **verbatim** into its field: a number stays a number, a label stays a
+string (``industry`` is the one text field, :data:`PARITY_TEXT_FIELDS`), and a
+cell the provider did not send — or sent as something that is not a finite
+number — stays ``None``. It is never coerced to ``0`` (a missing P/E is not a
+P/E of zero) and never derived from another cell (a computed ratio would be a
+number nobody can trace back to the scan).
 
 Two of those fields publish a *window* in their name, because the provider's
 lookback is not Finviz's: ``beta_1y`` (Finviz beta is 5-year monthly) and
-``avg_volume_30d`` / ``rel_volume_10d``. Naming them after the provider's window
-is the honest option; calling them ``beta`` or ``avg_volume`` would claim a
-methodology the row does not have. The five light metrics (``close``,
+``avg_volume_30d`` / ``rel_volume_10d``. Three publish their *unit*: ``gap_pct``
+and ``dividend_yield`` are the provider's percent (``-0.57`` is a 0.57% gap
+down, ``0.47`` is a 0.47% yield — not a 47% yield), and ``atr_14`` is a price,
+not a percent. Naming them after the provider's window or unit is the honest
+option; calling them ``beta`` or ``avg_volume`` would claim a methodology the
+row does not have. The five light metrics (``close``,
 ``change``, ``volume``, ``Value.Traded``, ``market_cap_basic``) are *not* in
 :data:`PARITY_FIELDS` — the light path already normalises them, and one owner per
 field beats two.
@@ -130,6 +134,8 @@ def asset_class_for(region: str, asset_class: str | None = None) -> str:
 #: scan always sends (a price multiple can still be null per row, which is what
 #: ``PARITY_NULLABLE`` records).
 PARITY_FIELDS: Mapping[str, str] = {
+    # -- classification (a text label, copied verbatim: "Semiconductors")
+    "industry": "industry",
     # -- fund size (ETFs report AUM, not market cap)
     "aum": "aum_usd",
     # -- valuation multiples
@@ -140,6 +146,8 @@ PARITY_FIELDS: Mapping[str, str] = {
     "price_book_fq": "pb",
     "price_free_cash_flow_ttm": "pfcf",
     "enterprise_value_ebitda_ttm": "ev_ebitda",
+    # -- dividends: the provider's percent, not a fraction (0.47 = 0.47%)
+    "dividends_yield": "dividend_yield",
     # -- profitability and leverage
     "return_on_equity": "roe",
     "return_on_assets": "roa",
@@ -174,6 +182,10 @@ PARITY_FIELDS: Mapping[str, str] = {
     "beta_1_year": "beta_1y",
     "price_52_week_high": "high_52w",
     "price_52_week_low": "low_52w",
+    # The provider's signed percent (-0.57 = a 0.57% gap down) and the 14-session
+    # average true range in price units — not a percent.
+    "gap": "gap_pct",
+    "ATR": "atr_14",
     "Volatility.D": "volatility_d",
     "Volatility.W": "volatility_w",
     "Volatility.M": "volatility_m",
@@ -195,6 +207,13 @@ PARITY_FIELDS: Mapping[str, str] = {
 PARITY_COLUMNS: tuple[str, ...] = tuple(
     dict.fromkeys(tuple(SCAN_COLUMNS) + tuple(PARITY_FIELDS))
 )
+
+#: The parity fields that are **labels**, not numbers. ``industry`` is the
+#: provider's own classification string ("Semiconductors"); every other parity
+#: field is a number, so :func:`_metric` would turn this one into ``None`` for
+#: every row. A text cell is copied verbatim and trimmed, and an empty string is
+#: unknown (``None``) rather than a label a ``eq`` filter could match.
+PARITY_TEXT_FIELDS: frozenset[str] = frozenset({"industry"})
 
 #: Metrics the provider can answer with ``null`` for a given row, and the four it
 #: answered with ``null`` for **every** row when probed live (US: 0 of 5,720;
@@ -289,6 +308,19 @@ def _metric(value: Any) -> float | None:
     return number
 
 
+def _text(value: Any) -> str | None:
+    """A parity *label* cell as a row value: the provider's string, or ``None``.
+
+    Trimmed, because the provider pads some labels; blank is unknown, not a
+    label, so a filter can never match an empty industry by accident.
+    """
+
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
 def parity_pairs(columns: Sequence[str] | None) -> tuple[tuple[str, str], ...]:
     """The ``(provider column, canonical field)`` pairs a scan asked for.
 
@@ -374,8 +406,12 @@ def _normalize(
         "is_primary": True,
     }
     for column, field in metrics:
-        # A verbatim copy: the provider's number, or ``None`` when it sent none.
-        candidate[field] = _metric(row.get(column))
+        # A verbatim copy: the provider's number/label, or ``None`` when it sent
+        # none. ``industry`` is the one label field; everything else is numeric.
+        if field in PARITY_TEXT_FIELDS:
+            candidate[field] = _text(row.get(column))
+        else:
+            candidate[field] = _metric(row.get(column))
     candidate["_issuer"] = issuer_key(row.get("description") or row.get("name"), market_cap)
     candidate["_order"] = 0
     return candidate
@@ -553,6 +589,7 @@ __all__ = [
     "PARITY_COLUMNS",
     "PARITY_FIELDS",
     "PARITY_NULLABLE",
+    "PARITY_TEXT_FIELDS",
     "REGIONS",
     "UNIVERSE_COLUMNS",
     "US_EXCHANGES",
