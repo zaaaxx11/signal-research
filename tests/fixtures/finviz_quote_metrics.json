@@ -1,0 +1,286 @@
+[
+ {
+  "name": "Index",
+  "raw": "DJIA, NDX, S&P 500"
+ },
+ {
+  "name": "Market Cap",
+  "raw": "5075.67B"
+ },
+ {
+  "name": "Enterprise Value",
+  "raw": "5097.62B"
+ },
+ {
+  "name": "Income",
+  "raw": "128.93B"
+ },
+ {
+  "name": "Sales",
+  "raw": "466.82B"
+ },
+ {
+  "name": "Book/sh",
+  "raw": "7.36"
+ },
+ {
+  "name": "Cash/sh",
+  "raw": "4.28"
+ },
+ {
+  "name": "Employees",
+  "raw": "166000"
+ },
+ {
+  "name": "IPO",
+  "raw": "Dec 12, 1980"
+ },
+ {
+  "name": "P/E",
+  "raw": "39.87"
+ },
+ {
+  "name": "Forward P/E",
+  "raw": "36.24"
+ },
+ {
+  "name": "PEG",
+  "raw": "2.88"
+ },
+ {
+  "name": "P/S",
+  "raw": "10.87"
+ },
+ {
+  "name": "P/B",
+  "raw": "47.25"
+ },
+ {
+  "name": "P/C",
+  "raw": "81.34"
+ },
+ {
+  "name": "P/FCF",
+  "raw": "37.13"
+ },
+ {
+  "name": "EV/EBITDA",
+  "raw": "30.35"
+ },
+ {
+  "name": "EV/Sales",
+  "raw": "10.92"
+ },
+ {
+  "name": "Quick Ratio",
+  "raw": "0.93"
+ },
+ {
+  "name": "Current Ratio",
+  "raw": "1.00"
+ },
+ {
+  "name": "Debt/Eq",
+  "raw": "0.78"
+ },
+ {
+  "name": "LT Debt/Eq",
+  "raw": "0.66"
+ },
+ {
+  "name": "Option/Short",
+  "raw": "Yes / Yes"
+ },
+ {
+  "name": "EPS (ttm)",
+  "raw": "8.72"
+ },
+ {
+  "name": "EPS next Y",
+  "raw": "9.60"
+ },
+ {
+  "name": "EPS next Q",
+  "raw": "1.99"
+ },
+ {
+  "name": "EPS this Y",
+  "raw": "18.43%"
+ },
+ {
+  "name": "EPS next Y",
+  "raw": "8.61%"
+ },
+ {
+  "name": "EPS next 5Y",
+  "raw": "12.58%"
+ },
+ {
+  "name": "EPS past 3/5Y",
+  "raw": "6.89% 17.91%"
+ },
+ {
+  "name": "Sales past 3/5Y",
+  "raw": "1.81% 8.71%"
+ },
+ {
+  "name": "EPS Y/Y TTM",
+  "raw": "32.57%"
+ },
+ {
+  "name": "Sales Y/Y TTM",
+  "raw": "14.24%"
+ },
+ {
+  "name": "EPS Q/Q",
+  "raw": "29.13%"
+ },
+ {
+  "name": "Sales Q/Q",
+  "raw": "16.36%"
+ },
+ {
+  "name": "Insider Own",
+  "raw": "0.12%"
+ },
+ {
+  "name": "Insider Trans",
+  "raw": "-3.26%"
+ },
+ {
+  "name": "Inst Own",
+  "raw": "68.94%"
+ },
+ {
+  "name": "Inst Trans",
+  "raw": "0.24%"
+ },
+ {
+  "name": "ROA",
+  "raw": "36.08%"
+ },
+ {
+  "name": "ROE",
+  "raw": "148.75%"
+ },
+ {
+  "name": "ROIC",
+  "raw": "72.08%"
+ },
+ {
+  "name": "Gross Margin",
+  "raw": "48.65%"
+ },
+ {
+  "name": "Oper. Margin",
+  "raw": "33.17%"
+ },
+ {
+  "name": "Profit Margin",
+  "raw": "27.62%"
+ },
+ {
+  "name": "SMA20",
+  "raw": "2.62%"
+ },
+ {
+  "name": "SMA50",
+  "raw": "5.56%"
+ },
+ {
+  "name": "SMA200",
+  "raw": "18.13%"
+ },
+ {
+  "name": "Shs Outstand",
+  "raw": "14.61B"
+ },
+ {
+  "name": "Shs Float",
+  "raw": "14.58B"
+ },
+ {
+  "name": "52W High",
+  "raw": "348.36 -0.16%"
+ },
+ {
+  "name": "52W Low",
+  "raw": "243.42 42.88%"
+ },
+ {
+  "name": "Volatility",
+  "raw": "1.77% 1.80%"
+ },
+ {
+  "name": "ATR (14)",
+  "raw": "6.30"
+ },
+ {
+  "name": "RSI (14)",
+  "raw": "64.02"
+ },
+ {
+  "name": "Beta",
+  "raw": "1.08"
+ },
+ {
+  "name": "Rel Volume",
+  "raw": "1.22"
+ },
+ {
+  "name": "Avg Volume",
+  "raw": "44.06M"
+ },
+ {
+  "name": "Volume",
+  "raw": "8,992,502"
+ },
+ {
+  "name": "Perf Week",
+  "raw": "1.26%"
+ },
+ {
+  "name": "Perf Month",
+  "raw": "3.53%"
+ },
+ {
+  "name": "Perf Quarter",
+  "raw": "3.23%"
+ },
+ {
+  "name": "Perf Half Y",
+  "raw": "28.31%"
+ },
+ {
+  "name": "Perf YTD",
+  "raw": "27.93%"
+ },
+ {
+  "name": "Perf Year",
+  "raw": "33.98%"
+ },
+ {
+  "name": "Perf 3Y",
+  "raw": "101.03%"
+ },
+ {
+  "name": "Perf 5Y",
+  "raw": "133.90%"
+ },
+ {
+  "name": "Perf 10Y",
+  "raw": "1093.10%"
+ },
+ {
+  "name": "Prev Close",
+  "raw": "348.22"
+ },
+ {
+  "name": "Price",
+  "raw": "347.79"
+ },
+ {
+  "name": "Change %",
+  "raw": "-0.12%"
+ }
+]

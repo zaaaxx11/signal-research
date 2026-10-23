@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Nvidia Corp - Google News</title>
+    <link>https://news.google.com/search?q=Nvidia%20Corp&amp;hl=en-US&amp;gl=US&amp;ceid=US:en</link>
+    <description>Google News headlines for Nvidia Corp</description>
+    <language>en-US</language>
+    <lastBuildDate>Fri, 23 Oct 2026 06:00:00 GMT</lastBuildDate>
+
+    <item>
+      <title>Nvidia hits record high on AI demand - Reuters</title>
+      <link>https://news.google.com/rss/articles/CBMiA1RV?oc=5</link>
+      <guid isPermaLink="false">CBMiA1RV</guid>
+      <pubDate>Wed, 21 Oct 2026 14:05:00 GMT</pubDate>
+      <description>&lt;a href="https://news.google.com/rss/articles/CBMiA1RV?oc=5"&gt;Nvidia hits record high on AI demand&lt;/a&gt;&amp;nbsp;&amp;nbsp;Reuters</description>
+      <source url="https://www.reuters.com">Reuters</source>
+    </item>
+
+    <item>
+      <title>Nvidia&amp;#39;s new chip roadmap leaks - The Verge</title>
+      <link>https://news.google.com/rss/articles/CBMiA2RW?oc=5</link>
+      <guid isPermaLink="false">CBMiA2RW</guid>
+      <pubDate>Thu, 22 Oct 2026 08:30:00 GMT</pubDate>
+      <description>&lt;a href="https://news.google.com/rss/articles/CBMiA2RW?oc=5"&gt;Nvidia&amp;#39;s new chip roadmap leaks&lt;/a&gt;&amp;nbsp;&amp;nbsp;The Verge</description>
+      <source url="https://www.theverge.com">The Verge</source>
+    </item>
+
+    <item>
+      <title>Analysts raise Nvidia price targets - Bloomberg</title>
+      <link>https://news.google.com/rss/articles/CBMiA2JB?oc=5</link>
+      <guid isPermaLink="false">CBMiA2JB</guid>
+      <pubDate>Thu, 22 Oct 2026 21:15:00 GMT</pubDate>
+      <description>&lt;ol&gt;&lt;li&gt;&lt;a href="https://www.bloomberg.com/nvidia"&gt;Analysts raise Nvidia price targets&lt;/a&gt;&lt;/li&gt;&lt;/ol&gt;</description>
+      <source url="https://www.bloomberg.com">Bloomberg</source>
+    </item>
+
+    <item>
+      <title>Apple supplier cuts orders as demand cools</title>
+      <link>https://news.google.com/rss/articles/CBMiA0FQ?oc=5</link>
+      <guid isPermaLink="false">CBMiA0FQ</guid>
+      <description>&lt;a href="https://news.google.com/rss/articles/CBMiA0FQ?oc=5"&gt;Apple supplier cuts orders as demand cools&lt;/a&gt;</description>
+    </item>
+
+    <item>
+      <title>Chip stocks slip in early trading - CNBC</title>
+      <link>https://news.google.com/rss/articles/CBMiA0NO?oc=5</link>
+      <guid isPermaLink="false">CBMiA0NO</guid>
+      <pubDate>not a date</pubDate>
+      <description>&lt;a href="https://news.google.com/rss/articles/CBMiA0NO?oc=5"&gt;Chip stocks slip in early trading&lt;/a&gt;&amp;nbsp;&amp;nbsp;CNBC</description>
+      <source url="https://www.cnbc.com">CNBC</source>
+    </item>
+  </channel>
+</rss>

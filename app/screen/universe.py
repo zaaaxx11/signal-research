@@ -6,10 +6,12 @@ The scanner answers with what the venue lists; the universe answers with what a
 1. **Common stock only.** ``type=stock`` and ``subtype=common``; an ETF, a REIT,
    a warrant and a preferred share are different instruments with different
    risk, and a default equity screen that quietly mixes them is not a screen.
-2. **At least USD 100 million of market cap, boundary included.** ``>=``, not
-   ``>``: the contract names a floor, and a company worth exactly the floor is
-   inside it. A row whose cap the provider did not send is dropped — "unknown"
-   is not "large enough".
+2. **At least USD 100 million of market cap by default, boundary included.**
+   ``>=``, not ``>``: the contract names a floor, and a company worth exactly the
+   floor is inside it. A row whose cap the provider did not send is dropped —
+   "unknown" is not "large enough". ``min_market_cap`` lowers the floor for a
+   nano-cap view (``0`` admits every priced common stock); "unknown" still loses
+   even at zero, because a missing cap is not a cap of zero.
 3. **No OTC/pink sheet**, whatever the cap: those listings are out of scope.
 4. **One issuer, one row.** NVDA trades on NASDAQ, SIX, BX, MUN and TRADEGATE;
    a universe that keeps five rows for one company both distorts the ranking and
@@ -123,12 +125,12 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def _normalize(row: Mapping[str, Any]) -> dict[str, Any] | None:
+def _normalize(row: Mapping[str, Any], *, min_market_cap: float) -> dict[str, Any] | None:
     """One provider row → one candidate universe row, or ``None`` when filtered.
 
-    The row keeps both the screen-shaped cells and the three private keys the
-    dedupe needs (``_issuer``, ``_cap`` and ``_order``); :func:`build_universe`
-    strips them before returning.
+    The row keeps both the screen-shaped cells and the two private keys the
+    dedupe needs (``_issuer`` and ``_order``); :func:`build_universe` strips them
+    before returning.
     """
 
     if str(row.get("type") or "").strip().lower() != COMMON_TYPE:
@@ -141,7 +143,7 @@ def _normalize(row: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
 
     market_cap = _number(row.get("market_cap_basic"))
-    if market_cap is None or market_cap < MIN_MARKET_CAP_USD:
+    if market_cap is None or market_cap < min_market_cap:
         return None
 
     symbol = str(row.get("symbol") or "").strip()
@@ -228,19 +230,35 @@ def _preferred(candidate: Mapping[str, Any], current: Mapping[str, Any]) -> bool
     return (_number(candidate.get("turnover")) or 0.0) > (_number(current.get("turnover")) or 0.0)
 
 
-def build_universe(rows: Iterable[Mapping[str, Any]], *, region: str) -> list[dict[str, Any]]:
+def build_universe(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    region: str,
+    min_market_cap: float = MIN_MARKET_CAP_USD,
+) -> list[dict[str, Any]]:
     """Filter ``rows`` into the issuers of ``region`` (``us`` or ``global``).
 
     Dedupe runs **before** the tab split and over the whole input, so an issuer
     with a US listing cannot appear in the Global tab under a foreign venue.
+
+    ``min_market_cap`` is the inclusive USD floor; the default keeps the
+    documented USD 100 million screen. Passing ``0`` is the explicit nano-cap
+    view: every common listing with a reported cap survives, while a row with no
+    cap at all is still dropped (unknown is not zero).
     """
 
     if region not in REGIONS:
         raise ValueError(f"unknown region {region!r}; expected one of {', '.join(REGIONS)}")
 
+    floor = _number(min_market_cap)
+    if floor is None or floor < 0:
+        raise ValueError(
+            f"min_market_cap must be a non-negative number, got {min_market_cap!r}"
+        )
+
     chosen: dict[tuple[str, float], dict[str, Any]] = {}
     for order, row in enumerate(rows):
-        candidate = _normalize(row)
+        candidate = _normalize(row, min_market_cap=floor)
         if candidate is None:
             continue
         candidate["_order"] = order
