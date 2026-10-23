@@ -37,6 +37,30 @@ MEDIA_TYPES: dict[str, str] = {
     "parquet": "application/vnd.apache.parquet",
 }
 
+#: A screen export publishes two tables per format, so its artifacts are keyed by
+#: a composite kind (``all_csv``, ``top20_csv``). The route accepts both shapes
+#: because a download path is a contract: refusing the kinds the export just
+#: registered would publish files nobody can fetch.
+SCOPE_PREFIXES: tuple[str, ...] = ("all", "top20")
+
+
+def split_artifact_kind(kind: str) -> tuple[str | None, str]:
+    """``"all_csv"`` → ``("all", "csv")``; ``"csv"`` → ``(None, "csv")``.
+
+    An unparsable kind comes back with itself as the second element, so the
+    caller's format check still rejects it with the same 422 it always did.
+    """
+
+    if kind in FORMATS:
+        return None, kind
+    for scope in SCOPE_PREFIXES:
+        prefix = f"{scope}_"
+        if kind.startswith(prefix):
+            inner = kind[len(prefix) :]
+            if inner in FORMATS:
+                return scope, inner
+    return None, kind
+
 
 @router.get("/{request_id}")
 async def get_request(request_id: str, request: Request) -> dict[str, Any]:
@@ -50,20 +74,28 @@ async def get_request(request_id: str, request: Request) -> dict[str, Any]:
 
 @router.get("/{request_id}/export/{fmt}")
 async def export_request(request_id: str, fmt: str, request: Request) -> Any:
-    """Serve one export artifact; ``410`` after expiry, ``422``/``501`` for fmt."""
+    """Serve one export artifact; ``410`` after expiry, ``422``/``501`` for fmt.
 
-    if fmt not in FORMATS:
+    ``fmt`` is either a bare format (``csv``, the enrichment export) or a
+    composite kind (``all_csv``/``top20_csv``, the screen bundle); the artifact
+    is looked up by the **kind** so a composite download cannot silently fall
+    back to another table's file.
+    """
+
+    scope, base = split_artifact_kind(fmt)
+    if base not in FORMATS:
         raise ApiError(
             status_code=422,
             error="unknown_format",
             message=f"unknown export format {fmt!r}; expected one of {', '.join(FORMATS)}",
         )
-    if fmt not in IMPLEMENTED_FORMATS:
+    if base not in IMPLEMENTED_FORMATS:
         raise ApiError(
             status_code=501,
             error="format_not_implemented",
-            message=f"export format {fmt!r} is declared but its writer is a later phase",
+            message=f"export format {base!r} is declared but its writer is a later phase",
         )
+    kind = f"{scope}_{base}" if scope else base
 
     runtime = runtime_of(request)
     job = await owned_job(
@@ -82,24 +114,24 @@ async def export_request(request_id: str, fmt: str, request: Request) -> Any:
             message=f"request {request_id} is {job['status']}; no artifact to download",
         )
 
-    artifact = await runtime.repository.artifact(request_id, fmt)
+    artifact = await runtime.repository.artifact(request_id, kind)
     if artifact is None:
         raise ApiError(
             status_code=404,
             error="artifact_not_found",
-            message=f"request {request_id} has no {fmt} artifact",
+            message=f"request {request_id} has no {kind} artifact",
         )
     path = Path(artifact["path"])
     if not path.exists():
         raise ApiError(
             status_code=410,
             error="gone",
-            message=f"the {fmt} artifact of request {request_id} was removed",
+            message=f"the {kind} artifact of request {request_id} was removed",
         )
     return FileResponse(
         path,
-        media_type=MEDIA_TYPES[fmt],
-        filename=f"{request_id}.{fmt}",
+        media_type=MEDIA_TYPES[base],
+        filename=f"{request_id}.{kind if scope else base}",
         headers={"ETag": f'"{artifact["sha256"]}"'} if artifact.get("sha256") else None,
     )
 

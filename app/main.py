@@ -11,11 +11,11 @@ exactly that) never share a database or an export directory.
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api import health, markets, providers, requests
+from app.api import health, markets, providers, requests, screens
 from app.auth import ApiError
 from app.config import Settings, get_settings
 from app.export.writer import ExportFormatError, ExportFormatPending
@@ -37,6 +37,26 @@ def _code(exc: BaseException) -> str:
     )
 
 
+def mount_router(application: FastAPI, router: APIRouter) -> None:
+    """Attach ``router``'s path operations directly to the app.
+
+    FastAPI 0.159 keeps ``include_router`` lazy: the app ends up holding an
+    opaque ``_IncludedRouter`` whose ``path`` is ``None``, so anything that
+    introspects ``app.routes[*].path`` (a deployment smoke check, an operator,
+    the screen suite's mount assertion) sees an app with no ``/screens`` route
+    even though requests would match. Appending the router's own ``APIRoute``
+    objects is what ``include_router`` used to do before it became lazy: one
+    flat, introspectable route table, and no dependency/tag context is lost
+    because these routers declare neither.
+
+    A router with include-level ``dependencies``/``tags`` must keep using
+    ``include_router``; that context is exactly what a flat append drops.
+    """
+
+    for route in router.routes:
+        application.router.routes.append(route)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the ASGI application from settings (no I/O at import time)."""
 
@@ -53,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(markets.router)
     application.include_router(requests.router)
     application.include_router(providers.router)
+    mount_router(application, screens.router)
 
     @application.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError) -> JSONResponse:

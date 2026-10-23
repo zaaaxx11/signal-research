@@ -51,7 +51,16 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Sequence
 
 from tests._phase2 import MockWeb, install_web  # noqa: F401 - re-exported seam
-from tests._support import COLUMNS, wait_for_terminal  # noqa: F401 - re-exported
+from tests._support import COLUMNS as _CLAUSE_COLUMNS
+from tests._support import wait_for_terminal  # noqa: F401 - re-exported
+
+#: ``tests._support.COLUMNS`` is a ``list`` (the spec is loaded from JSON) and
+#: the Phase-5 readers compare ``list(raw) == COLUMNS``, so it must stay one
+#: there. The Screen suite, however, asserts ``tuple(scope.columns) == COLUMNS``
+#: — a tuple never equals a list in Python, so the re-export is the same 92
+#: names **in the same order** as a tuple. Only the container type differs; no
+#: assertion and no spec file was touched.
+COLUMNS: tuple[str, ...] = tuple(_CLAUSE_COLUMNS)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"

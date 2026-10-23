@@ -37,6 +37,8 @@ from app.providers.ladder import Ladder
 from app.providers.registry import REGISTRY, capability_matrix, provider_named
 from app.resolve.reference import Reference
 from app.resolve.seed import seed_reference
+from app.screen.deep import ScreenDeepEngine, build_screen_deep_engine
+from app.screen.repository import SqliteScreenRepository
 from app.worker.runner import process_job
 
 logger = logging.getLogger("mee.runtime")
@@ -57,6 +59,15 @@ class Runtime:
             lease_s=self.settings.job_lease_s,
         )
         self.quotes: QuoteRepository = SqliteQuoteRepository(self.settings.db_path)
+        #: ``screens``/``screen_rows``: the browse display and the export's
+        #: source of truth. One repository, so the API and the bundle can never
+        #: disagree about which snapshot they are serving.
+        self.screen_repository = SqliteScreenRepository(self.settings.db_path)
+        #: The deep half of the screen, injected here (never constructed inside
+        #: a route): the export bundle calls it once with the 20 display symbols.
+        #: Defaults to a quote-rung projection over this runtime's own ladder;
+        #: tests replace it to record exactly what was enriched.
+        self.screen_deep_engine: ScreenDeepEngine = build_screen_deep_engine(self.ladder)
         #: Breaker bookkeeping, shared by every ladder this process builds.
         self.health = ProviderHealthStore(self.settings.db_path)
         #: L0 observation cache: process-lifetime, TTL + session-date keyed.
@@ -202,6 +213,7 @@ class Runtime:
         await self.drain()
         await self.repository.close()
         await self.quotes.close()
+        await self.screen_repository.aclose()
 
 
 def _health_of(name: str, health: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:

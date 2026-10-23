@@ -127,10 +127,41 @@ def write_export(
     xlsx_sheet_rows: int = XLSX_SHEET_ROW_LIMIT,
     metadata: Mapping[str, Any] | None = None,
 ) -> ExportResult:
-    """Write one artifact from a row iterable and return its checksum."""
+    """Write one canonical artifact from a row iterable and return its checksum."""
+
+    _validate(fmt, columns)
+    return write_table(
+        rows,
+        fmt,
+        path,
+        columns=columns,
+        xlsx_sheet_rows=xlsx_sheet_rows,
+        metadata=metadata,
+    )
+
+
+def write_table(
+    rows: Iterable[Mapping[str, Any]],
+    fmt: str,
+    path: str | Path,
+    *,
+    columns: Sequence[str],
+    xlsx_sheet_rows: int = XLSX_SHEET_ROW_LIMIT,
+    metadata: Mapping[str, Any] | None = None,
+) -> ExportResult:
+    """Write one artifact for **any** declared column list.
+
+    ``write_export`` is this function plus the 92-column gate. The gate exists
+    for the enrichment export (a 91-column header is a broken table), but the
+    screen bundle legitimately ships a second, 13-column light table, and the
+    file writer has no business refusing a column list the caller declared.
+    Keeping one implementation means the screen's light table gets the same
+    atomic write, the same cell oracles and the same hashing as the deep one —
+    only the *policy* about which columns are acceptable differs.
+    """
 
     counted = _RowCounter(rows)
-    for _chunk in write_export_iter(
+    for _chunk in write_table_iter(
         counted,
         fmt,
         path,
@@ -159,6 +190,28 @@ def write_export_iter(
     xlsx_sheet_rows: int = XLSX_SHEET_ROW_LIMIT,
     metadata: Mapping[str, Any] | None = None,
 ) -> Iterator[bytes]:
+    """Streaming :func:`write_export`: validated columns, same writer."""
+
+    _validate(fmt, columns)
+    yield from write_table_iter(
+        rows,
+        fmt,
+        path,
+        columns=columns,
+        xlsx_sheet_rows=xlsx_sheet_rows,
+        metadata=metadata,
+    )
+
+
+def write_table_iter(
+    rows: Iterable[Mapping[str, Any]],
+    fmt: str,
+    path: str | Path,
+    *,
+    columns: Sequence[str],
+    xlsx_sheet_rows: int = XLSX_SHEET_ROW_LIMIT,
+    metadata: Mapping[str, Any] | None = None,
+) -> Iterator[bytes]:
     """Streaming variant: yields every chunk it writes, then renames the file.
 
     The artifact exists at ``path`` only when the iterator is exhausted; an
@@ -166,9 +219,12 @@ def write_export_iter(
     plausible-looking partial export behind. The columnar formats build their
     file in one pass and yield no chunk (there is no incremental byte stream to
     hand out), but they obey the same staging-file discipline.
+
+    Only the *format* is validated here; the column list is the caller's
+    declaration (:func:`write_export_iter` is the validated entry point).
     """
 
-    _validate(fmt, columns)
+    _validate_format(fmt)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -341,11 +397,15 @@ def _kind(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _validate(fmt: str, columns: Sequence[str]) -> None:
+def _validate_format(fmt: str) -> None:
     if fmt not in FORMATS:
         raise ExportFormatError(
             f"unknown export format {fmt!r}; expected one of {', '.join(FORMATS)}"
         )
+
+
+def _validate(fmt: str, columns: Sequence[str]) -> None:
+    _validate_format(fmt)
 
     from app.contracts import CANONICAL_COLUMNS_V1
 
@@ -655,5 +715,7 @@ __all__ = [
     "json_cell",
     "write_export",
     "write_export_iter",
+    "write_table",
+    "write_table_iter",
     "xlsx_sheet_names",
 ]
