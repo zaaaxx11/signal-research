@@ -3,10 +3,11 @@
 Contract (PLAN-finviz-parity.md §6 gate 3, "filter parity: 82/82 keys; filter
 expression deterministik"):
 
-* every one of the 82 Finviz filter keys either resolves to a light row column
-  or is **refused by name** — 7 map, 75 are refused with the metric they need,
-  and none is silently ignored, because an ignored filter returns the unfiltered
-  screen as if it matched;
+* every one of the 82 Finviz filter keys either resolves to a row column or is
+  **refused by name** — 32 map (7 light columns + 25 parity metrics the bulk
+  scan copies), 50 are refused with the metric they need, and none is silently
+  ignored, because an ignored filter returns the unfiltered screen as if it
+  matched;
 * a selection is one of two modes and never a mixture: ``criteria``
   (filters + sort + limit over a region) or ``symbols`` (tickers + source +
   snapshot_id);
@@ -55,7 +56,7 @@ from app.screen.selection import (
     select_rows,
 )
 from app.screen.snapshot import DISPLAY_ROWS, display_row
-from app.screen.universe import REGIONS, build_universe
+from app.screen.universe import PARITY_FIELDS, REGIONS, build_universe
 from tests import _screen as S
 
 FIXTURE = S.FIXTURES / "selection_request.json"
@@ -123,12 +124,15 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 7
-    assert len(unavailable_keys()) == 75
+    assert len(mapped_keys()) == 32, (
+        "seven light columns plus the twenty-five parity metrics a bulk scan "
+        "copies and whose columns are really filled"
+    )
+    assert len(unavailable_keys()) == 50
 
 
-def test_the_seven_mapped_keys_are_the_light_row_columns() -> None:
-    assert dict(ROW_FIELDS) == {
+def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
+    light = {
         "exch": "exchange",
         "sec": "sector",
         "geo": "country",
@@ -136,7 +140,16 @@ def test_the_seven_mapped_keys_are_the_light_row_columns() -> None:
         "sh_curvol": "volume",
         "sh_price": "price",
         "ta_change": "change_pct",
-    }, "a key may only point at a column the light universe really carries"
+    }
+    assert {key: ROW_FIELDS[key] for key in light} == light, (
+        "the seven light keys must keep the columns the browse row has always had"
+    )
+    parity = {key: field for key, field in ROW_FIELDS.items() if key not in light}
+    assert len(parity) == 25
+    assert set(parity.values()) <= set(PARITY_FIELDS.values()), (
+        "every new key must point at a provider column the parity scan copies; "
+        f"not carried: {sorted(set(parity.values()) - set(PARITY_FIELDS.values()))}"
+    )
     for key in mapped_keys():
         assert binding(key).field == FILTER_CATALOG[key].field
         assert binding(key).field in FIELDS
@@ -172,13 +185,24 @@ def test_a_key_outside_the_catalogue_is_unknown_and_lists_what_works() -> None:
 
 
 def test_reasons_name_the_metric_that_is_missing() -> None:
-    assert "valuation multiples" in (reason_for("fa_pe") or "")
     assert "index membership" in (reason_for("idx") or "")
+    assert "dividend" in (reason_for("fa_div") or "")
+    assert "ten performance windows" in (reason_for("ta_perf") or "")
+    assert "percent distance" in (reason_for("ta_highlow52w") or "")
+    assert "1-5 analyst score" in (reason_for("an_recom") or ""), (
+        "Recommend.All is a -1..1 score; a Finviz-scale value would match nothing"
+    )
+    assert "answered null for all" in (reason_for("fa_fpe") or ""), (
+        "a column that is null for every row cannot filter: refuse it, do not "
+        "return an empty screen as if nothing matched"
+    )
     assert "ETF holdings" in (reason_for("etf_heldby") or "")
     for key in unavailable_keys():
         reason = reason_for(key)
         assert reason and reason.strip(), f"{key} needs a reason"
         assert len(reason) > 20, f"{key}'s reason is too short to be useful: {reason!r}"
+    for key in ("fa_pe", "ta_rsi", "ta_beta", "ta_sma200"):
+        assert reason_for(key) is None, f"{key} filters a parity column; it is not refused"
 
 
 def test_no_placeholder_field_is_ever_offered() -> None:
@@ -198,10 +222,10 @@ def test_the_boot_gate_refuses_a_key_with_no_disposition(monkeypatch: Any) -> No
     import app.screen.filter_fields as fields
 
     chopped = MappingProxyType(
-        {key: reason for key, reason in fields.UNAVAILABLE.items() if key != "fa_pe"}
+        {key: reason for key, reason in fields.UNAVAILABLE.items() if key != "ta_perf"}
     )
     monkeypatch.setattr(fields, "UNAVAILABLE", chopped)
-    with pytest.raises(RuntimeError, match="fa_pe"):
+    with pytest.raises(RuntimeError, match="ta_perf"):
         fields._validate()
 
 
@@ -427,11 +451,18 @@ def test_an_operator_that_cannot_apply_to_the_kind_is_rejected() -> None:
 
 def test_an_unavailable_key_is_a_422_that_names_it() -> None:
     with pytest.raises(SelectionError) as caught:
-        parse_selection(criteria({"key": "fa_pe", "op": "lte", "value": 10}))
+        parse_selection(criteria({"key": "fa_div", "op": "lte", "value": 10}))
     assert caught.value.code == "unavailable_filter_key"
     message = str(caught.value)
-    assert "fa_pe" in message and "P/E" in message
+    assert "fa_div" in message and "Dividend Yield" in message
     assert "cannot be applied" in message
+
+
+def test_a_parity_key_now_filters_instead_of_being_refused() -> None:
+    request = parse_selection(criteria({"key": "fa_pe", "op": "lte", "value": 10}))
+    assert request.filters[0].field == "pe_ttm"
+    assert request.filters[0].key == "fa_pe"
+    assert request.filters[0].value == 10.0
 
 
 def test_a_finviz_option_token_is_not_interpreted_as_a_value() -> None:
@@ -706,7 +737,9 @@ def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> No
     assert list(extension) == list(FILTER_CATALOG), "panel order, same as the catalogue"
     mapped = {key: entry for key, entry in extension.items() if entry["field"] is not None}
     refused = {key: entry for key, entry in extension.items() if entry["field"] is None}
-    assert set(mapped) == set(mapped_keys()), "the schema must publish exactly the 7 usable keys"
+    assert set(mapped) == set(mapped_keys()), (
+        "the schema must publish exactly the keys that can filter a row today"
+    )
     assert set(refused) == set(unavailable_keys())
     for key, entry in mapped.items():
         assert entry["field"] == FILTER_CATALOG[key].field

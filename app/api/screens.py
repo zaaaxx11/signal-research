@@ -11,7 +11,12 @@ selection (a criteria query or an explicit ticker list) and answers the page
 how a five-row filter gets read as a five-stock market. It runs one bulk scan
 per call for the same reason the export's ``all`` scope does: ``screen_rows``
 holds the 20 displayed rows, and a total computed over those 20 would be a
-number nobody can reproduce. ``GET /screens/select/schema`` serves the request
+number nobody can reproduce. The scan a criteria query runs is the **parity**
+one: it asks for the metric columns the filters address and drops the browse
+floor (``min_market_cap``) and the ``subtype=common`` gate, so "P/E below 10"
+means the whole stock market rather than the 100M+ common shares the display
+happens to show. ``symbols`` mode keeps the light scan — a ticker lookup needs
+no metric. ``GET /screens/select/schema`` serves the request
 schema — the same document that ships at
 ``schemas/stock_selection_request_v1.json``.
 
@@ -59,7 +64,7 @@ from app.screen.selection import (
 )
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
 from app.screen.scanner import FULL_SCAN_ROWS, ScanError, fetch_scan
-from app.screen.universe import build_universe
+from app.screen.universe import PARITY_COLUMNS, build_universe
 
 router = APIRouter(prefix="/screens", tags=["screens"])
 
@@ -190,7 +195,24 @@ async def select(request: Request) -> dict[str, Any]:
         snapshot_id = selection.snapshot_id
 
     try:
-        page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
+        if selection.is_criteria:
+            # A criteria query filters on metrics the light row never carried
+            # (P/E, RSI, beta, the SMAs...), so the scan asks for the parity
+            # columns, and it drops both provider filters that would hide rows:
+            # there is no 100M floor and no `subtype=common` gate, because a
+            # selection answers over the stock market, not over the display's
+            # subset. `type=stock` and the OTC exclusion stay on.
+            page = await fetch_scan(
+                region,
+                limit=FULL_SCAN_ROWS,
+                columns=PARITY_COLUMNS,
+                min_market_cap=None,
+                subtype=None,
+            )
+        else:
+            # A ticker lookup needs no metric: the light row (and the light scan)
+            # is the whole answer, and 60 columns for 20 tickers is waste.
+            page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
     except ScanError as exc:
         raise ApiError(
             status_code=503,
@@ -199,7 +221,16 @@ async def select(request: Request) -> dict[str, Any]:
         ) from exc
 
     # The universe, not the display table: the total must count every match.
-    universe = build_universe(page.rows, region=region)
+    if selection.is_criteria:
+        universe = build_universe(
+            page.rows,
+            region=region,
+            min_market_cap=0,
+            columns=PARITY_COLUMNS,
+            allow_any_subtype=True,
+        )
+    else:
+        universe = build_universe(page.rows, region=region)
     moment = datetime.now(UTC).isoformat(timespec="microseconds")
     answer = select_rows(
         universe,

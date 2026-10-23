@@ -175,18 +175,65 @@
         },
         "field": {
           "enum": [
+            "avg_volume_10d",
+            "avg_volume_30d",
+            "beta_1y",
             "change_pct",
             "country",
             "currency",
+            "current_ratio",
+            "debt_to_equity",
+            "earnings_date",
+            "eps_forecast_next_fq",
+            "eps_forecast_next_fy",
+            "ev_ebitda",
             "exchange",
+            "float_shares",
+            "gross_margin",
+            "high_52w",
             "is_primary",
+            "listing_date",
+            "low_52w",
             "market_cap_usd",
             "name",
+            "oper_margin",
+            "pb",
+            "pe_forward",
+            "pe_ttm",
+            "peg",
+            "pfcf",
             "price",
+            "profit_margin",
+            "ps",
+            "quick_ratio",
+            "recommendation",
+            "rel_volume_10d",
+            "ret_10y",
+            "ret_1m",
+            "ret_1w",
+            "ret_1y",
+            "ret_3m",
+            "ret_5y",
+            "ret_6m",
+            "ret_ytd",
+            "revenue_forecast_next_fy",
+            "roa",
+            "roe",
+            "roic",
+            "rsi_14",
             "sector",
+            "shares_outstanding",
+            "short_float",
+            "sma_20",
+            "sma_200",
+            "sma_50",
             "symbol",
+            "target_price",
             "turnover",
             "turnover_usd",
+            "volatility_d",
+            "volatility_m",
+            "volatility_w",
             "volume"
           ],
           "description": "A canonical screen row column."
@@ -244,7 +291,7 @@
       "label": "Index",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs index membership (S&P 500 / Nasdaq-100 / Dow / Russell) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs index membership (S&P 500, Nasdaq-100, Dow, Russell): the scan has no index-constituent column, and a market-cap threshold is not a membership test"
     },
     "sec": {
       "label": "Sector",
@@ -256,7 +303,7 @@
       "label": "Industry",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs an industry column (the light row carries only 'sector') — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs an industry classification: the row carries `sector` only, and the scanner's industry vocabulary has not been probed"
     },
     "geo": {
       "label": "Country",
@@ -274,43 +321,43 @@
       "label": "Dividend Yield",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs dividend metrics (yield, growth, payout ratio) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs dividend metrics (yield, growth, payout ratio): the scan carries no dividend column"
     },
     "sh_short": {
       "label": "Short Float",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a short-interest column the scanner fills: `short_float` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
     },
     "an_recom": {
       "label": "Analyst Recom.",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs analyst and event data (rating, target price, surprise, earnings date, IPO date) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs Finviz's 1-5 analyst score: the scanner's `Recommend.All` is a -1..+1 mean rating, so a filter written on Finviz's scale (2 = buy) matches nothing — the column is carried for display, not for this key"
     },
     "sh_opt": {
       "label": "Option/Short",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs an optionable/shortable flag: the scan carries no such column"
     },
     "earningsdate": {
       "label": "Earnings Date",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs analyst and event data (rating, target price, surprise, earnings date, IPO date) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "earnings_date",
+      "kind": "number"
     },
     "sh_avgvol": {
       "label": "Average Volume",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "avg_volume_30d",
+      "kind": "number"
     },
     "sh_relvol": {
       "label": "Relative Volume",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "rel_volume_10d",
+      "kind": "number"
     },
     "sh_curvol": {
       "label": "Current Volume",
@@ -322,7 +369,7 @@
       "label": "Trades",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a trade-count column: the scan carries no trades counter"
     },
     "sh_price": {
       "label": "Price $",
@@ -333,308 +380,308 @@
     "targetprice": {
       "label": "Target Price",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs analyst and event data (rating, target price, surprise, earnings date, IPO date) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "target_price",
+      "kind": "number"
     },
     "ipodate": {
       "label": "IPO Date",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs analyst and event data (rating, target price, surprise, earnings date, IPO date) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs an IPO-date column the scanner fills: `ipo_date` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
     },
     "sh_outstanding": {
       "label": "Shares Outstanding",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "shares_outstanding",
+      "kind": "number"
     },
     "sh_float": {
       "label": "Float",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs share structure, short interest and trading depth (float, shares outstanding, short float, option/short flags, average and relative volume, trades) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "float_shares",
+      "kind": "number"
     },
     "theme": {
       "label": "Theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme and sub-theme classification — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs theme/sub-theme classification: the scan carries no theme column"
     },
     "subtheme": {
       "label": "Sub-theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme and sub-theme classification — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs theme/sub-theme classification: the scan carries no theme column"
     },
     "fa_pe": {
       "label": "P/E",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "pe_ttm",
+      "kind": "number"
     },
     "fa_fpe": {
       "label": "Forward P/E",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a forward P/E column the scanner fills: `price_earnings_forward` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
     },
     "fa_peg": {
       "label": "PEG",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "peg",
+      "kind": "number"
     },
     "fa_ps": {
       "label": "P/S",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a P/S column the scanner fills: `price_sales_ttm` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
     },
     "fa_pb": {
       "label": "P/B",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "pb",
+      "kind": "number"
     },
     "fa_pc": {
       "label": "Price/Cash",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs cash per share: the scan carries no cash metric, so Price/Cash cannot be formed without inventing a denominator"
     },
     "fa_pfcf": {
       "label": "Price/Free Cash Flow",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "pfcf",
+      "kind": "number"
     },
     "fa_evebitda": {
       "label": "EV/EBITDA",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "ev_ebitda",
+      "kind": "number"
     },
     "fa_evsales": {
       "label": "EV/Sales",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs valuation multiples (P/E, forward P/E, PEG, P/S, P/B, P/C, P/FCF, EV/EBITDA, EV/Sales) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs enterprise value and sales as separate columns: only EV/EBITDA is copied, so EV/Sales cannot be formed"
     },
     "fa_divgrowth": {
       "label": "Dividend Growth",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs dividend metrics (yield, growth, payout ratio) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs dividend metrics (yield, growth, payout ratio): the scan carries no dividend column"
     },
     "fa_epsyoy": {
       "label": "EPS Growth\nThis Year",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_epsyoy1": {
       "label": "EPS Growth\nNext Year",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_epsqoq": {
       "label": "EPS Growth\nQtr Over Qtr",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_epsyoyttm": {
       "label": "EPS Growth TTM",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_eps3years": {
       "label": "EPS Growth\nPast 3 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_eps5years": {
       "label": "EPS Growth\nPast 5 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_estltgrowth": {
       "label": "EPS Growth\nNext 5 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_salesqoq": {
       "label": "Sales Growth\nQtr Over Qtr",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_salesyoyttm": {
       "label": "Sales Growth TTM",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_sales3years": {
       "label": "Sales Growth\nPast 3 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_sales5years": {
       "label": "Sales Growth\nPast 5 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs growth rates (EPS and sales: this year, next year, quarterly, 3-5 year, TTM) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
     },
     "fa_epsrev": {
       "label": "Earnings & Revenue Surprise",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs analyst and event data (rating, target price, surprise, earnings date, IPO date) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs an earnings-surprise column: the scan carries no surprise history"
     },
     "fa_roa": {
       "label": "Return on Assets",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "roa",
+      "kind": "number"
     },
     "fa_roe": {
       "label": "Return on Equity",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "roe",
+      "kind": "number"
     },
     "fa_roi": {
       "label": "Return on Invested Capital",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "roic",
+      "kind": "number"
     },
     "fa_curratio": {
       "label": "Current Ratio",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "current_ratio",
+      "kind": "number"
     },
     "fa_quickratio": {
       "label": "Quick Ratio",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "quick_ratio",
+      "kind": "number"
     },
     "fa_ltdebteq": {
       "label": "LT Debt/Equity",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs long-term debt separately: the scan carries total debt/equity only"
     },
     "fa_debteq": {
       "label": "Debt/Equity",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "debt_to_equity",
+      "kind": "number"
     },
     "fa_grossmargin": {
       "label": "Gross Margin",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "gross_margin",
+      "kind": "number"
     },
     "fa_opermargin": {
       "label": "Operating Margin",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "oper_margin",
+      "kind": "number"
     },
     "fa_netmargin": {
       "label": "Net Profit Margin",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs profitability and leverage ratios (ROA, ROE, ROIC, current and quick ratio, debt/equity, margins) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "profit_margin",
+      "kind": "number"
     },
     "fa_payoutratio": {
       "label": "Payout Ratio",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs dividend metrics (yield, growth, payout ratio) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs dividend metrics (yield, growth, payout ratio): the scan carries no dividend column"
     },
     "sh_insiderown": {
       "label": "Insider\nOwnership",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs ownership percentages and insider/institutional transaction flows — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
     },
     "sh_insidertrans": {
       "label": "Insider\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs ownership percentages and insider/institutional transaction flows — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
     },
     "sh_instown": {
       "label": "Institutional\nOwnership",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs ownership percentages and insider/institutional transaction flows — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
     },
     "sh_insttrans": {
       "label": "Institutional\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs ownership percentages and insider/institutional transaction flows — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
     },
     "ta_perf": {
       "label": "Performance",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "spans ten performance windows (day, week, month, quarter, half-year, YTD, year, 3Y, 5Y, 10Y), while the row carries one column per window (`ret_1w` … `ret_10y`); a single key is not a single field — send the column instead"
     },
     "ta_perf2": {
       "label": "Performance 2",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "spans ten performance windows (day, week, month, quarter, half-year, YTD, year, 3Y, 5Y, 10Y), while the row carries one column per window (`ret_1w` … `ret_10y`); a single key is not a single field — send the column instead"
     },
     "ta_volatility": {
       "label": "Volatility",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "spans two windows (weekly and monthly), while the row carries `volatility_w` and `volatility_m` separately — send the column instead"
     },
     "ta_rsi": {
       "label": "RSI (14)",
       "tab": "technical",
-      "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "rsi_14",
+      "kind": "number"
     },
     "ta_gap": {
       "label": "Gap",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a gap column: the scan carries no open price, so the gap cannot be computed"
     },
     "ta_sma20": {
       "label": "20-Day Simple Moving Average",
       "tab": "technical",
-      "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "sma_20",
+      "kind": "number"
     },
     "ta_sma50": {
       "label": "50-Day Simple Moving Average",
       "tab": "technical",
-      "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "sma_50",
+      "kind": "number"
     },
     "ta_sma200": {
       "label": "200-Day Simple Moving Average",
       "tab": "technical",
-      "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "sma_200",
+      "kind": "number"
     },
     "ta_change": {
       "label": "Change",
@@ -646,85 +693,85 @@
       "label": "Change from Open",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs a change-from-open column: the scan carries no open price"
     },
     "ta_highlow20d": {
       "label": "20-Day High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
     },
     "ta_highlow50d": {
       "label": "50-Day High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
     },
     "ta_highlow52w": {
       "label": "52-Week High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "is a percent distance from the 52-week high/low, while the row carries the absolute `high_52w`/`low_52w` prices; the two units are not interchangeable — filter `high_52w`/`low_52w` directly"
     },
     "ta_alltime": {
       "label": "All-Time High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs an all-time high/low column: the scan carries the 52-week extremes only"
     },
     "ta_pattern": {
       "label": "Pattern",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs chart-pattern detection: the scan returns no pattern classification"
     },
     "ta_candlestick": {
       "label": "Candlestick",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs candlestick detection: the scan returns no candlestick classification"
     },
     "ta_beta": {
       "label": "Beta",
       "tab": "technical",
-      "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "field": "beta_1y",
+      "kind": "number"
     },
     "ta_averagetruerange": {
       "label": "Average True Range",
       "tab": "technical",
       "field": null,
-      "reason": "needs technical indicators (performance windows, volatility, RSI, gap, moving averages, high/low ranges, patterns, candlesticks, beta, ATR) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs an average-true-range column: the scan carries no ATR"
     },
     "ah_close": {
       "label": "After-Hours Close",
       "tab": "technical",
       "field": null,
-      "reason": "needs after-hours prices (close and change) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs after-hours prices: the scan covers the regular session only"
     },
     "ah_change": {
       "label": "After-Hours Change",
       "tab": "technical",
       "field": null,
-      "reason": "needs after-hours prices (close and change) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs after-hours prices: the scan covers the regular session only"
     },
     "news_date": {
       "label": "Latest News",
       "tab": "news",
       "field": null,
-      "reason": "needs the news store (latest-news window and keyword search) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs the news store: the scan returns no news timestamp or keywords"
     },
     "news_keywords": {
       "label": "News Keywords",
       "tab": "news",
       "field": null,
-      "reason": "needs the news store (latest-news window and keyword search) — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs the news store: the scan returns no news timestamp or keywords"
     },
     "etf_heldby": {
       "label": "Held By",
       "tab": "etf",
       "field": null,
-      "reason": "needs ETF holdings — the light screen row has no such column yet (it arrives with the quote-depth metrics, app/market/fields.py)"
+      "reason": "needs ETF holdings data: the scan does not carry a fund's constituent list"
     }
   }
 }

@@ -11,13 +11,29 @@ question — does Ztockz accept the same filter keys as Finviz — and it does n
 claim that the metric behind every key is already sourced.
 
 **Only a sourced metric gets a field.** ``FilterSpec.field`` names the canonical
-row column a key filters, and it is ``None`` for the keys the light universe does
-not carry yet (P1 ``app/market/fields.py`` adds the other quote metrics). Seven
-keys map today: exchange, sector, country, market cap, price, change % and
-current volume. Mapping the rest to a placeholder would let a caller filter on a
-column that is always null and read the empty result as "no matches", which is a
-fake field by another name; the parity plan forbids that, so a declared key with
-no field is the honest state.
+row column a key filters, and it is ``None`` for the keys no row carries.
+**Thirty-two keys map today**: the seven light columns (exchange, sector,
+country, market cap, price, change %, current volume) plus twenty-five parity
+metrics that :data:`app.screen.universe.PARITY_FIELDS` copies from the bulk scan
+— P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current, quick and
+debt/equity ratios, the three margins, share count and float, average/relative
+volume, target price, the next earnings date, RSI, the three SMAs and beta.
+
+The rule for the twenty-five is **one quantity, one column, and the provider's
+window in the name**. ``ta_beta`` therefore resolves to ``beta_1y`` (the
+provider's one-year window; Finviz's beta is five-year monthly) and ``sh_avgvol``
+to ``avg_volume_30d``; a field that claimed ``beta`` or ``avg_volume`` would
+assert a methodology the row does not have. A key is *not* mapped when no column
+measures it, when one key spans several columns (``ta_perf`` covers ten windows,
+``ta_volatility`` two), when the provider's unit differs from Finviz's
+(``ta_highlow52w`` is a percent distance and the row carries absolute
+``high_52w``/``low_52w``; ``Recommend.All`` is a -1..1 score against Finviz's
+1..5), or when the provider's column answers ``null`` for **every** row — the
+live probe returned no values at all for ``price_earnings_forward``,
+``price_sales_ttm``, ``short_float`` and ``ipo_date``, and a filter on a column
+that is always null could only return an empty screen. Mapping those would let a
+caller read a different question's answer, or an empty one, as parity; the fifty
+refusals in :mod:`app.screen.filter_fields` name the missing metric instead.
 
 **The DSL is field/op/value, and unknown never passes.** ``compile_filter``
 rejects an unknown field, an unknown operator and an operator that cannot work
@@ -54,10 +70,14 @@ UI_TYPES: frozenset[str] = frozenset(
     {"floatRangeSelect", "modalSelect", "select", "tickersInput"}
 )
 
-#: Canonical row field → comparison kind. Only fields the light universe really
-#: carries are listed: a filter may not name a metric that does not exist yet.
+#: Canonical row field → comparison kind. Every field here is carried by a real
+#: row: the thirteen light columns, plus the parity metrics a bulk scan copies
+#: from the provider (:data:`app.screen.universe.PARITY_FIELDS`). A filter may not
+#: name a metric that no row carries — that is what
+#: :mod:`app.screen.filter_fields` refuses instead of ignoring.
 FIELDS: Mapping[str, str] = MappingProxyType(
     {
+        # -- light row
         "symbol": "text",
         "name": "text",
         "exchange": "text",
@@ -71,6 +91,61 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "turnover_usd": "number",
         "market_cap_usd": "number",
         "is_primary": "bool",
+        # -- valuation multiples (provider column in parentheses)
+        "pe_ttm": "number",  # price_earnings_ttm
+        "pe_forward": "number",  # price_earnings_forward: null on every live row
+        "peg": "number",  # price_earnings_growth_ttm
+        "ps": "number",  # price_sales_ttm: null on every live row
+        "pb": "number",  # price_book_fq
+        "pfcf": "number",  # price_free_cash_flow_ttm
+        "ev_ebitda": "number",  # enterprise_value_ebitda_ttm
+        # -- profitability and leverage
+        "roe": "number",  # return_on_equity
+        "roa": "number",  # return_on_assets
+        "roic": "number",  # return_on_invested_capital
+        "current_ratio": "number",
+        "quick_ratio": "number",
+        "debt_to_equity": "number",
+        "gross_margin": "number",
+        "oper_margin": "number",  # operating_margin
+        "profit_margin": "number",  # net_margin
+        # -- forward estimates (levels in currency, not growth rates)
+        "eps_forecast_next_fy": "number",
+        "eps_forecast_next_fq": "number",
+        "revenue_forecast_next_fy": "number",
+        # -- share structure and trading depth
+        "shares_outstanding": "number",
+        "float_shares": "number",
+        "short_float": "number",  # null on every live row
+        "avg_volume_10d": "number",
+        "avg_volume_30d": "number",
+        "rel_volume_10d": "number",
+        # -- analyst and event data
+        # TradingView's own -1..1 mean rating (not Finviz's 1..5 score), so no
+        # Finviz key maps to it: a Finviz-scale value would match nothing.
+        "recommendation": "number",  # Recommend.All, +1 = strong buy, -1 = sell
+        "target_price": "number",
+        "earnings_date": "number",  # provider epoch seconds, often null
+        "listing_date": "number",  # ipo_date, epoch seconds, null on every live row
+        # -- technicals
+        "sma_20": "number",  # the average price itself, not the distance to it
+        "sma_50": "number",
+        "sma_200": "number",
+        "rsi_14": "number",
+        "beta_1y": "number",  # one-year window; Finviz's beta is five-year
+        "high_52w": "number",
+        "low_52w": "number",
+        "volatility_d": "number",
+        "volatility_w": "number",
+        "volatility_m": "number",
+        "ret_1w": "number",
+        "ret_1m": "number",
+        "ret_3m": "number",
+        "ret_6m": "number",
+        "ret_ytd": "number",
+        "ret_1y": "number",
+        "ret_5y": "number",
+        "ret_10y": "number",
     }
 )
 
@@ -605,7 +680,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Earnings Date",
         "descriptive",
         "modalSelect",
-        None,
+        "earnings_date",
         ("", "today", "todaybefore", "todayafter", "tomorrow", "tomorrowbefore",
          "tomorrowafter", "yesterday", "yesterdaybefore", "yesterdayafter",
          "nextdays5", "prevdays5", "thisweek", "nextweek", "prevweek", "thismonth",
@@ -616,7 +691,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Average Volume",
         "descriptive",
         "floatRangeSelect",
-        None,
+        "avg_volume_30d",
         ("", "u50", "u100", "u500", "u750", "u1000", "o50", "o100", "o200", "o300", "o400",
          "o500", "o750", "o1000", "o2000", "100to500", "100to1000", "500to1000",
          "500to10000", "frange"),
@@ -626,7 +701,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Relative Volume",
         "descriptive",
         "floatRangeSelect",
-        None,
+        "rel_volume_10d",
         ("", "o10", "o5", "o3", "o2", "o1.5", "o1", "o0.75", "o0.5", "o0.25", "u2", "u1.5",
          "u1", "u0.75", "u0.5", "u0.25", "u0.1", "frange"),
     ),
@@ -664,7 +739,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Target Price",
         "descriptive",
         "select",
-        None,
+        "target_price",
         ("", "a50", "a40", "a30", "a20", "a10", "a5", "above", "below", "b5", "b10", "b20",
          "b30", "b40", "b50", "modal"),
     ),
@@ -683,7 +758,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Shares Outstanding",
         "descriptive",
         "floatRangeSelect",
-        None,
+        "shares_outstanding",
         ("", "u1", "u5", "u10", "u20", "u50", "u100", "o1", "o2", "o5", "o10", "o20", "o50",
          "o100", "o200", "o500", "o1000", "frange"),
     ),
@@ -692,7 +767,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Float",
         "descriptive",
         "select",
-        None,
+        "float_shares",
         ("", "u1", "u5", "u10", "u20", "u50", "u100", "o1", "o2", "o5", "o10", "o20", "o50",
          "o100", "o200", "o500", "o1000", "u10p", "u20p", "u30p", "u40p", "u50p",
          "u60p", "u70p", "u80p", "u90p", "o10p", "o20p", "o30p", "o40p", "o50p",
@@ -813,7 +888,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "P/E",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "pe_ttm",
         ("", "low", "profitable", "high", "u5", "u10", "u15", "u20", "u25", "u30", "u35",
          "u40", "u45", "u50", "o5", "o10", "o15", "o20", "o25", "o30", "o35", "o40",
          "o45", "o50", "frange"),
@@ -833,7 +908,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "PEG",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "peg",
         ("", "low", "high", "u1", "u2", "u3", "o1", "o2", "o3", "frange"),
     ),
     FilterSpec(
@@ -850,7 +925,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "P/B",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "pb",
         ("", "low", "high", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8", "u9", "u10",
          "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9", "o10", "frange"),
     ),
@@ -869,7 +944,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Price/Free Cash Flow",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "pfcf",
         ("", "low", "high", "u5", "u10", "u15", "u20", "u25", "u30", "u35", "u40", "u45",
          "u50", "u60", "u70", "u80", "u90", "u100", "o5", "o10", "o15", "o20",
          "o25", "o30", "o35", "o40", "o45", "o50", "o60", "o70", "o80", "o90",
@@ -880,7 +955,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "EV/EBITDA",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "ev_ebitda",
         ("", "negative", "low", "profitable", "high", "u5", "u10", "u15", "u20", "u25",
          "u30", "u35", "u40", "u45", "u50", "o5", "o10", "o15", "o20", "o25", "o30",
          "o35", "o40", "o45", "o50", "frange"),
@@ -1018,7 +1093,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Return on Assets",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "roa",
         ("", "pos", "neg", "verypos", "veryneg", "u-50", "u-45", "u-40", "u-35", "u-30",
          "u-25", "u-20", "u-15", "u-10", "u-5", "o5", "o10", "o15", "o20", "o25",
          "o30", "o35", "o40", "o45", "o50", "frange"),
@@ -1028,7 +1103,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Return on Equity",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "roe",
         ("", "pos", "neg", "verypos", "veryneg", "u-50", "u-45", "u-40", "u-35", "u-30",
          "u-25", "u-20", "u-15", "u-10", "u-5", "o5", "o10", "o15", "o20", "o25",
          "o30", "o35", "o40", "o45", "o50", "frange"),
@@ -1038,7 +1113,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Return on Invested Capital",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "roic",
         ("", "pos", "neg", "verypos", "veryneg", "u-50", "u-45", "u-40", "u-35", "u-30",
          "u-25", "u-20", "u-15", "u-10", "u-5", "o5", "o10", "o15", "o20", "o25",
          "o30", "o35", "o40", "o45", "o50", "frange"),
@@ -1048,7 +1123,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Current Ratio",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "current_ratio",
         ("", "high", "low", "u1", "u0.5", "o0.5", "o1", "o1.5", "o2", "o3", "o4", "o5",
          "o10", "frange"),
     ),
@@ -1057,7 +1132,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Quick Ratio",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "quick_ratio",
         ("", "high", "low", "u1", "u0.5", "o0.5", "o1", "o1.5", "o2", "o3", "o4", "o5",
          "o10", "frange"),
     ),
@@ -1076,7 +1151,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Debt/Equity",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "debt_to_equity",
         ("", "high", "low", "u1", "u0.9", "u0.8", "u0.7", "u0.6", "u0.5", "u0.4", "u0.3",
          "u0.2", "u0.1", "o0.1", "o0.2", "o0.3", "o0.4", "o0.5", "o0.6", "o0.7",
          "o0.8", "o0.9", "o1", "frange"),
@@ -1086,7 +1161,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Gross Margin",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "gross_margin",
         ("", "pos", "neg", "high", "u90", "u80", "u70", "u60", "u50", "u45", "u40", "u35",
          "u30", "u25", "u20", "u15", "u10", "u5", "u0", "u-10", "u-20", "u-30",
          "u-50", "u-70", "u-100", "o0", "o5", "o10", "o15", "o20", "o25", "o30",
@@ -1097,7 +1172,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Operating Margin",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "oper_margin",
         ("", "pos", "neg", "veryneg", "high", "u90", "u80", "u70", "u60", "u50", "u45",
          "u40", "u35", "u30", "u25", "u20", "u15", "u10", "u5", "u0", "u-10",
          "u-20", "u-30", "u-50", "u-70", "u-100", "o0", "o5", "o10", "o15", "o20",
@@ -1109,7 +1184,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Net Profit Margin",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "profit_margin",
         ("", "pos", "neg", "veryneg", "high", "u90", "u80", "u70", "u60", "u50", "u45",
          "u40", "u35", "u30", "u25", "u20", "u15", "u10", "u5", "u0", "u-10",
          "u-20", "u-30", "u-50", "u-70", "u-100", "o0", "o5", "o10", "o15", "o20",
@@ -1230,7 +1305,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "RSI (14)",
         "technical",
         "floatRangeSelect",
-        None,
+        "rsi_14",
         ("", "ob90", "ob80", "ob70", "ob60", "os40", "os30", "os20", "os10", "nob60",
          "nob50", "nos50", "nos40", "frange"),
     ),
@@ -1249,7 +1324,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "20-Day Simple Moving Average",
         "technical",
         "select",
-        None,
+        "sma_20",
         ("", "pb", "pb10", "pb20", "pb30", "pb40", "pb50", "pa", "pa10", "pa20", "pa30",
          "pa40", "pa50", "pc", "pca", "pcb", "cross50", "cross50a", "cross50b",
          "cross200", "cross200a", "cross200b", "sa50", "sb50", "sa200", "sb200",
@@ -1260,7 +1335,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "50-Day Simple Moving Average",
         "technical",
         "select",
-        None,
+        "sma_50",
         ("", "pb", "pb10", "pb20", "pb30", "pb40", "pb50", "pa", "pa10", "pa20", "pa30",
          "pa40", "pa50", "pc", "pca", "pcb", "cross20", "cross20a", "cross20b",
          "cross200", "cross200a", "cross200b", "sa20", "sb20", "sa200", "sb200",
@@ -1271,7 +1346,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "200-Day Simple Moving Average",
         "technical",
         "select",
-        None,
+        "sma_200",
         ("", "pb", "pb10", "pb20", "pb30", "pb40", "pb50", "pb60", "pb70", "pb80", "pb90",
          "pa", "pa10", "pa20", "pa30", "pa40", "pa50", "pa60", "pa70", "pa80",
          "pa90", "pa100", "pc", "pca", "pcb", "cross20", "cross20a", "cross20b",
@@ -1368,7 +1443,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Beta",
         "technical",
         "floatRangeSelect",
-        None,
+        "beta_1y",
         ("", "u0", "u0.5", "u1", "u1.5", "u2", "o0", "o0.5", "o1", "o1.5", "o2", "o2.5",
          "o3", "o4", "0to0.5", "0to1", "0.5to1", "0.5to1.5", "1to1.5", "1to2",
          "frange"),

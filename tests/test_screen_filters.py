@@ -37,7 +37,12 @@ from app.screen.filters import (
     compile_filter,
     parse_filters,
 )
-from app.screen.universe import MIN_MARKET_CAP_USD, build_universe
+from app.screen.universe import (
+    MIN_MARKET_CAP_USD,
+    PARITY_FIELDS,
+    UNIVERSE_COLUMNS,
+    build_universe,
+)
 from tests import _screen as S
 
 CATALOG_FIXTURE = S.FIXTURES / "finviz_filters.json"
@@ -158,6 +163,7 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         key: spec.field for key, spec in FILTER_CATALOG.items() if spec.field is not None
     }
     assert mapped == {
+        # -- the seven light columns (P0)
         "exch": "exchange",
         "sec": "sector",
         "geo": "country",
@@ -165,16 +171,49 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "sh_price": "price",
         "ta_change": "change_pct",
         "sh_curvol": "volume",
+        # -- parity metrics copied from the bulk scan (P5)
+        "earningsdate": "earnings_date",
+        "sh_avgvol": "avg_volume_30d",
+        "sh_relvol": "rel_volume_10d",
+        "targetprice": "target_price",
+        "sh_outstanding": "shares_outstanding",
+        "sh_float": "float_shares",
+        "fa_pe": "pe_ttm",
+        "fa_peg": "peg",
+        "fa_pb": "pb",
+        "fa_pfcf": "pfcf",
+        "fa_evebitda": "ev_ebitda",
+        "fa_roa": "roa",
+        "fa_roe": "roe",
+        "fa_roi": "roic",
+        "fa_curratio": "current_ratio",
+        "fa_quickratio": "quick_ratio",
+        "fa_debteq": "debt_to_equity",
+        "fa_grossmargin": "gross_margin",
+        "fa_opermargin": "oper_margin",
+        "fa_netmargin": "profit_margin",
+        "ta_rsi": "rsi_14",
+        "ta_sma20": "sma_20",
+        "ta_sma50": "sma_50",
+        "ta_sma200": "sma_200",
+        "ta_beta": "beta_1y",
     }, (
-        "a filter key may only name a column the light universe really carries; "
-        f"got {mapped}"
+        "a filter key may only name a column a row really carries (a light column "
+        f"or a parity metric); got {mapped}"
     )
     assert set(mapped.values()) <= set(FIELDS), (
         f"catalogue names fields with no comparison kind: {set(mapped.values()) - set(FIELDS)}"
     )
+    # The other half of the claim: a field a key filters must be a field a row
+    # can carry — a light column or a parity metric copied from the scan.
+    carried = set(UNIVERSE_COLUMNS) | set(PARITY_FIELDS.values())
+    assert set(mapped.values()) <= carried, (
+        "filter keys point at fields no row carries: "
+        f"{sorted(set(mapped.values()) - carried)}"
+    )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped)
+    assert len(unsourced) == 82 - len(mapped) == 50
     assert all(not FILTER_CATALOG[key].is_available for key in unsourced), (
         "a key without a metric must report is_available == False"
     )

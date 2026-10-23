@@ -141,6 +141,8 @@ def scan_body(
     columns: Sequence[str] | None = None,
     offset: int = 0,
     limit: int = PAGE_ROWS,
+    min_market_cap: float | None = 100_000_000,
+    subtype: str | None = "common",
 ) -> dict[str, Any]:
     """The POST body for one page of ``region``.
 
@@ -149,18 +151,36 @@ def scan_body(
     local filter stays the authority (a provider that ignores the filter cannot
     widen the universe, because :func:`app.screen.universe.build_universe` runs
     regardless).
+
+    ``min_market_cap`` and ``subtype`` are the two filters a caller may drop, and
+    ``None`` means exactly that — the key is not sent, so the provider does not
+    hide rows the caller wants to see:
+
+    * ``min_market_cap=None`` scans the whole cap range (a selection filtering on
+      P/E must see a USD 30M company too; the default 100M floor is the browse
+      contract, not a property of the market);
+    * ``subtype=None`` scans every subtype of ``type=stock`` (the Finviz panel
+      addresses stocks, not only common shares).
+
+    Neither ``None`` relaxes ``type=stock`` or the OTC exclusion: a fund is not a
+    stock and a pink sheet is out of scope, whatever the caller asks for.
     """
 
     if region not in REGION_PATHS:
         raise ValueError(f"unknown scan region {region!r}; expected one of {', '.join(REGIONS)}")
     requested = tuple(columns or SCAN_COLUMNS)
+    filters: list[dict[str, Any]] = [
+        {"left": "type", "operation": "equal", "right": "stock"},
+    ]
+    if subtype is not None:
+        filters.append({"left": "subtype", "operation": "equal", "right": subtype})
+    if min_market_cap is not None:
+        filters.append(
+            {"left": "market_cap_basic", "operation": "greater", "right": min_market_cap}
+        )
+    filters.append({"left": "exchange", "operation": "not_in_range", "right": ["OTC", "PNK"]})
     body: dict[str, Any] = {
-        "filter": [
-            {"left": "type", "operation": "equal", "right": "stock"},
-            {"left": "subtype", "operation": "equal", "right": "common"},
-            {"left": "market_cap_basic", "operation": "greater", "right": 100_000_000},
-            {"left": "exchange", "operation": "not_in_range", "right": ["OTC", "PNK"]},
-        ],
+        "filter": filters,
         "options": {"lang": "en"},
         "symbols": {"query": {"types": []}, "tickers": []},
         "columns": list(requested),
@@ -235,16 +255,29 @@ async def fetch_scan(
     timeout_s: float = 20.0,
     offset: int = 0,
     limit: int = PAGE_ROWS,
+    min_market_cap: float | None = 100_000_000,
+    subtype: str | None = "common",
 ) -> ScanPage:
     """Fetch one page for ``region`` — exactly one request, no retry.
 
     A retry loop against a bot wall is how a scraper earns a ban, so every
     failure is terminal here: the caller (the snapshot layer) decides whether to
     serve a stale snapshot, and it never re-asks the same request in this call.
+
+    ``min_market_cap``/``subtype`` reach :func:`scan_body` unchanged; ``None``
+    drops that provider filter (see there for why a selection needs the wider
+    page while the browse display does not).
     """
 
     url = scan_url(region)
-    body = scan_body(region, columns=columns, offset=offset, limit=limit)
+    body = scan_body(
+        region,
+        columns=columns,
+        offset=offset,
+        limit=limit,
+        min_market_cap=min_market_cap,
+        subtype=subtype,
+    )
     async with provider_http.build_client(
         timeout_s=timeout_s, headers=dict(REQUEST_HEADERS)
     ) as client:
@@ -288,6 +321,8 @@ async def fetch_all(
     columns: Sequence[str] | None = None,
     timeout_s: float = 20.0,
     max_rows: int | None = None,
+    min_market_cap: float | None = 100_000_000,
+    subtype: str | None = "common",
 ) -> ScanPage:
     """Page through the whole scanner result for an on-demand export.
 
@@ -295,9 +330,19 @@ async def fetch_all(
     full export is the only caller allowed to walk every page. ``totalCount``
     is the provider's promise, so the loop stops when the received rows reach
     it (or when a page stops making progress, which would otherwise spin).
+
+    Every page is requested with the **same** ``min_market_cap``/``subtype`` as
+    the first: a second page that silently re-applied the cap would drop rows
+    the caller asked for and still look complete.
     """
 
-    first = await fetch_scan(region, columns=columns, timeout_s=timeout_s)
+    first = await fetch_scan(
+        region,
+        columns=columns,
+        timeout_s=timeout_s,
+        min_market_cap=min_market_cap,
+        subtype=subtype,
+    )
     rows = list(first.rows)
     total = first.total_count
     if max_rows is not None:
@@ -308,6 +353,8 @@ async def fetch_all(
             columns=columns,
             timeout_s=timeout_s,
             offset=len(rows),
+            min_market_cap=min_market_cap,
+            subtype=subtype,
         )
         if not page.rows:
             break

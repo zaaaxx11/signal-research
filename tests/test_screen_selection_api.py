@@ -46,8 +46,16 @@ ENVELOPE_KEYS = {
     "rows",
 }
 
-#: The US tab after filter+dedupe (hand-counted from the scanner fixture).
+#: The US tab after filter+dedupe for the **browse** contract (100M floor,
+#: ``subtype=common``): hand-counted from the scanner fixture.
 US_UNIVERSE_TOTAL = 23
+
+#: The universe a **criteria** selection runs over: the same scan without the
+#: 100M floor and without the ``subtype=common`` gate, so the sub-floor common
+#: row (TINY), the REIT (O), the preferred (PFD) and the warrant (WAR) are part
+#: of the market the filters address. Funds (SPY, VNQ) and OTC (XYZQ) stay out.
+US_CRITERIA_UNIVERSE = 27
+
 US_TECHNOLOGY = ["AAPL", "NVDA", "MSFT", "ASML", "ORCL", "AMD", "CRM"]
 
 
@@ -107,7 +115,9 @@ async def test_select_answers_the_page_and_the_post_filter_total(
     assert body["snapshot_id"] is None, "a criteria query is not pinned to a stored snapshot"
     assert body["sort"] == "market_cap"
     assert body["limit"] == 20
-    assert body["universe_total"] == US_UNIVERSE_TOTAL
+    assert body["universe_total"] == US_CRITERIA_UNIVERSE, (
+        "a criteria selection answers over the whole market, not the browse subset"
+    )
     assert body["total"] == 7, "total counts every match, not the rows on the page"
     assert body["returned"] == 7
     assert body["missing"] == [] and body["symbols"] == []
@@ -141,7 +151,7 @@ async def test_a_match_outside_the_displayed_twenty_is_found(
         f"(total={body['total']})"
     )
     assert [row["symbol"] for row in body["rows"]] == ["CRM"]
-    assert body["universe_total"] == US_UNIVERSE_TOTAL
+    assert body["universe_total"] == US_CRITERIA_UNIVERSE
 
 
 async def test_a_limit_above_twenty_still_serves_twenty_rows(
@@ -156,8 +166,9 @@ async def test_a_limit_above_twenty_still_serves_twenty_rows(
         f"the display window is 20 rows and the envelope must say so, got {body['limit']}"
     )
     assert body["returned"] == 20 and len(body["rows"]) == 20
-    assert body["total"] == US_UNIVERSE_TOTAL, (
-        "clamping the page must not clamp the total: 23 issuers match an empty filter"
+    assert body["total"] == US_CRITERIA_UNIVERSE, (
+        "clamping the page must not clamp the total: the whole criteria universe "
+        "matches an empty filter"
     )
 
 
@@ -308,14 +319,14 @@ async def test_an_unmapped_finviz_key_is_refused_by_name_not_ignored(
 ) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
         response = await harness.client.post(
-            "/screens/select", json=criteria({"key": "fa_pe", "op": "lte", "value": 10})
+            "/screens/select", json=criteria({"key": "fa_div", "op": "lte", "value": 10})
         )
         requests = S.provider_requests(harness.web)
 
     body = assert_envelope(response, status=422)
     assert body["error"] == "unavailable_filter_key"
     message = body["errorMessage"]
-    assert "fa_pe" in message and "P/E" in message
+    assert "fa_div" in message and "Dividend Yield" in message
     assert "cannot be applied" in message
     assert "refused instead of ignored" in message
     assert requests == 0, "the refusal must not spend a scan on a filter it cannot apply"
@@ -389,4 +400,7 @@ async def test_the_schema_route_serves_the_repo_artifact(
     assert served["x-filter-key-count"] == 82
     assert len(served["x-filter-keys"]) == 82
     mapped = [key for key, entry in served["x-filter-keys"].items() if entry["field"]]
-    assert len(mapped) == 7
+    assert len(mapped) == 32, (
+        "the published schema must name every key that filters a parity row"
+    )
+    assert "fa_pe" in mapped and "ta_beta" in mapped and "ta_sma50" in mapped
