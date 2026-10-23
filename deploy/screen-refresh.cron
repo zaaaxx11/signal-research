@@ -1,0 +1,8 @@
+# Ztockz screen snapshots — every five minutes.
+#
+# Install with:  crontab deploy/screen-refresh.cron
+# (or append the line to the operator's existing crontab).
+#
+# `flock -n` is the overlap guard: a pass that somehow exceeds five minutes is
+# not started a second time. The log lives under out/, which is gitignored.
+*/5 * * * * cd /home/ubuntu/ztockz && flock -n /tmp/ztockz-screen-refresh.lock ./scripts/screen-refresh.sh >> out/screen-refresh.log 2>&1

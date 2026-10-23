@@ -1,0 +1,116 @@
+"""The public JSON Schema for ``GET /screens``.
+
+The response is a display document, not a generic dump: exactly twenty rows,
+each carrying its snapshot timestamp, and a `total` that describes the full
+post-filter/post-dedupe universe. The schema is served at ``/screens/schema``
+and written to ``schemas/screen_response_v1.json`` so a client can validate a
+response without importing Python.
+"""
+
+from __future__ import annotations
+
+SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://ztockz.local/schemas/screen-response-v1.json",
+    "title": "ScreenResponseV1",
+    "description": (
+        "Top 20 of a five-minute screen snapshot. `rows` is always the top 20 "
+        "of the requested region/sort; `total` is the full post-filter/post-dedupe "
+        "universe, which may be larger than 20."
+    ),
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "screen_id",
+        "region",
+        "sort",
+        "source",
+        "as_of",
+        "refreshed_at",
+        "next_refresh_at",
+        "stale",
+        "total",
+        "returned",
+        "rows",
+    ],
+    "properties": {
+        "screen_id": {
+            "type": "string",
+            "description": "Opaque snapshot id; the same value for every read inside the 300 s window.",
+        },
+        "region": {"type": "string", "enum": ["us", "global"]},
+        "sort": {"type": "string", "enum": ["market_cap", "turnover", "gainers"]},
+        "source": {"type": "string", "examples": ["tradingview"]},
+        "as_of": {"type": "string", "format": "date-time"},
+        "refreshed_at": {"type": "string", "format": "date-time"},
+        "next_refresh_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the snapshot becomes refreshable; null only for an incomplete stored row.",
+        },
+        "stale": {
+            "type": "boolean",
+            "description": "True when a refresh was blocked and the previous snapshot is being served honestly.",
+        },
+        "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Full post-filter/post-dedupe universe size, not the page size.",
+        },
+        "returned": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20,
+            "description": "Rows in this response; always 20 unless the universe is smaller.",
+        },
+        "rows": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {"$ref": "#/$defs/row"},
+        },
+    },
+    "$defs": {
+        "nullableNumber": {"type": ["number", "null"]},
+        "row": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "rank",
+                "symbol",
+                "name",
+                "exchange",
+                "country",
+                "sector",
+                "price",
+                "change_pct",
+                "volume",
+                "turnover",
+                "turnover_usd",
+                "market_cap_usd",
+                "is_primary",
+                "as_of",
+            ],
+            "properties": {
+                "rank": {"type": "integer", "minimum": 1, "maximum": 20},
+                "symbol": {"type": "string", "minLength": 1},
+                "name": {"type": ["string", "null"]},
+                "exchange": {"type": ["string", "null"]},
+                "country": {"type": ["string", "null"]},
+                "sector": {"type": ["string", "null"]},
+                "price": {"$ref": "#/$defs/nullableNumber"},
+                "change_pct": {"$ref": "#/$defs/nullableNumber"},
+                "volume": {"$ref": "#/$defs/nullableNumber"},
+                "turnover": {"$ref": "#/$defs/nullableNumber"},
+                "turnover_usd": {
+                    "$ref": "#/$defs/nullableNumber",
+                    "description": "Null for non-USD listings until an FX rate is applied; never invented.",
+                },
+                "market_cap_usd": {"$ref": "#/$defs/nullableNumber"},
+                "is_primary": {"type": "boolean"},
+                "as_of": {"type": "string", "format": "date-time"},
+            },
+        }
+    },
+}
+
+__all__ = ["SCREEN_RESPONSE_SCHEMA"]

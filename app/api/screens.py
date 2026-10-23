@@ -34,6 +34,7 @@ from app.screen.export import (
     UnknownScreenFormat,
     export_bundle,
 )
+from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.snapshot import DISPLAY_ROWS, load_screen
 from app.screen.scanner import ScanError
 
@@ -81,6 +82,13 @@ async def browse(
             error="scanner_unavailable",
             message=f"the scanner could not answer and no snapshot exists yet: {exc}",
         ) from exc
+
+
+@router.get("/schema")
+async def schema() -> dict[str, object]:
+    """The JSON Schema for a browse response, versioned with the route."""
+
+    return SCREEN_RESPONSE_SCHEMA
 
 
 @router.post("/{screen_id}/export", status_code=202)
