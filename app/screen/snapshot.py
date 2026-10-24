@@ -16,6 +16,14 @@ When a refresh is blocked, the previous snapshot is served with ``stale=true``
 and its original ``as_of`` — the plan's rule is "no invented data", and a
 five-minute-old price with an honest timestamp beats a 502. Without a previous
 snapshot there is nothing honest to serve, so the block surfaces as an error.
+
+This module is the **raw** document. Since P10 the product default at
+``GET /screens`` is the verified consensus (``source="multi"``) built on top of
+it by :mod:`app.screen.multi_source`; the functions here still serve
+``?source=tradingview`` and are what that service reads. ``screen_rows`` keeps
+storing the selection source's rows — ``multi`` is a presentation of them, never
+a second stored product — which is what lets a symbols-mode selection resolve
+against the same snapshot id.
 """
 
 from __future__ import annotations

@@ -41,9 +41,29 @@
     },
     "source": {
       "type": "string",
-      "examples": [
+      "enum": [
+        "multi",
         "tradingview"
-      ]
+      ],
+      "description": "`multi` is the verified consensus (P10 default); `tradingview` is the raw snapshot, either requested explicitly or served degraded when no verifier answered."
+    },
+    "selection_source": {
+      "type": "string",
+      "enum": [
+        "tradingview"
+      ],
+      "description": "Present on multi-source documents: the source the twenty candidates were selected from. Always TradingView."
+    },
+    "degraded": {
+      "type": "boolean",
+      "description": "Present on multi-source documents. True means verification failed and the raw snapshot is being served; never true with source=multi."
+    },
+    "verification_error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Present on multi-source documents: why verification fell back to the snapshot. Null on a healthy consensus."
     },
     "as_of": {
       "type": "string",
@@ -90,6 +110,60 @@
         "number",
         "null"
       ]
+    },
+    "sourceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a consensus row was produced (P10). Present only when source=multi; an unverified snapshot row has no summary.",
+      "required": [
+        "method",
+        "source_count",
+        "agreement",
+        "spread_pp",
+        "confidence",
+        "verified_at"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "const": "multi_source_consensus"
+        },
+        "source_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sources that published at least one number for the row."
+        },
+        "agreement": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Share of change observations within the tolerance of the median change; null when no source published a change."
+        },
+        "spread_pp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "max\u2212min change in percentage points; null with fewer than two change observations."
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Agreement discounted by source coverage."
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
     },
     "row": {
       "type": "object",
@@ -169,9 +243,12 @@
         "as_of": {
           "type": "string",
           "format": "date-time"
+        },
+        "source_summary": {
+          "$ref": "#/$defs/sourceSummary",
+          "description": "Present on a multi-source row (source=multi): the medians that built it and how much the sources agreed. Never per-source cells."
         }
       }
     }
   }
 }
-

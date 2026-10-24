@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     quote_batch_size: int = Field(default=20, ge=1, le=20)
     quote_stale_after_s: float = Field(default=5.0, gt=0)
     quote_timeout_s: float = Field(default=10.0, gt=0)
+    #: ``GET /screens`` (P10) is a multi-source consensus by default: the
+    #: TradingView snapshot supplies the twenty candidates and one observation,
+    #: Yahoo/Nasdaq re-verify their cells. ``false`` turns the default display
+    #: back into the raw snapshot, honestly labelled ``source=tradingview`` and
+    #: ``degraded=true`` — it never fabricates a consensus. ``timeout_s`` is the
+    #: per-verifier HTTP read timeout (Yahoo batch, Nasdaq per symbol).
+    screen_multi_source: bool = True
+    screen_verify_timeout_s: float = Field(default=10.0, gt=0)
 
 
 def get_settings() -> Settings:

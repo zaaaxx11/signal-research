@@ -5,6 +5,20 @@ never paginates (no ``cursor`` parameter exists) and it never lets ``limit``
 widen the page — ``limit`` is accepted so a client that already sends it is not
 broken by a 422, and ignored past :data:`~app.screen.snapshot.DISPLAY_ROWS`.
 
+**Two sources, one display.** ``source`` is a closed two-value vocabulary:
+
+* ``multi`` (default) — the twenty candidates of the snapshot, each cell the
+  median of TradingView plus the live verifiers (see
+  :mod:`app.screen.multi_source`). When every verifier fails, the service answers
+  the raw snapshot with ``source="tradingview"`` and ``degraded=true``; it never
+  labels an unverified page ``multi``.
+* ``tradingview`` — the raw snapshot document, byte-for-byte what this route
+  served before P10. It exists so the verified view can be audited against its
+  own selection, and because an operator debugging a verifier needs the input.
+
+An unknown ``source`` is a 422 before any scan: the vocabulary is closed, and a
+silently-ignored value would serve a page the caller did not ask for.
+
 Select is the query half: ``POST /screens/select`` takes the two-mode JSON
 selection (a criteria query or an explicit ticker list) and answers the page
 **plus the post-filter total**, because a display that only says "20 rows" is
@@ -74,6 +88,9 @@ router = APIRouter(prefix="/screens", tags=["screens"])
 Region = Literal["us", "global", "us_etf"]
 #: The three transparent sorts (PLAN §3).
 Sort = Literal["market_cap", "turnover", "gainers"]
+#: How the displayed cells were produced (P10): ``multi`` is the verified
+#: consensus, ``tradingview`` the raw snapshot it verified. Closed on purpose.
+ScreenSource = Literal["multi", "tradingview"]
 
 #: The job service name a client sees in ``GET /requests/{id}``.
 SCREEN_EXPORT_SERVICE = "screen_export"
@@ -92,9 +109,16 @@ async def browse(
     request: Request,
     region: Region = "us",
     sort: Sort = "market_cap",
+    source: ScreenSource = "multi",
     limit: int = DISPLAY_ROWS,
 ) -> dict[str, Any]:
-    """Top 20 of the ``(region, sort)`` snapshot; ``total`` is the universe."""
+    """The top 20 of the ``(region, sort)`` snapshot, verified by default.
+
+    ``source=multi`` is the product default (P10): one row per stock, the median
+    of the selection snapshot and the live verifiers. ``source=tradingview`` is
+    the raw snapshot the consensus was built from — the audit view, and the
+    escape hatch if a deployment turns verification off.
+    """
 
     # ``limit`` is accepted for compatibility and deliberately ignored: the
     # display is the top 20 of a snapshot, and a knob that could widen it to 23
@@ -104,6 +128,8 @@ async def browse(
 
     runtime = runtime_of(request)
     try:
+        if source == "multi":
+            return await runtime.multi_source_screen.load(region, sort)
         return await load_screen(region, sort, repository=runtime.screen_repository)
     except ScanError as exc:
         raise ApiError(

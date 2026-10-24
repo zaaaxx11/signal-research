@@ -38,6 +38,7 @@ from app.providers.registry import REGISTRY, capability_matrix, provider_named
 from app.resolve.reference import Reference
 from app.resolve.seed import seed_reference
 from app.screen.deep import DEFAULT_CAPABILITIES, ScreenDeepEngine, build_screen_deep_engine
+from app.screen.multi_source import MultiSourceScreen, build_multi_source_verifiers
 from app.screen.repository import SqliteScreenRepository
 from app.worker.runner import process_job
 
@@ -63,6 +64,16 @@ class Runtime:
         #: source of truth. One repository, so the API and the bundle can never
         #: disagree about which snapshot they are serving.
         self.screen_repository = SqliteScreenRepository(self.settings.db_path)
+        #: P10: the default ``GET /screens`` document. The service owns its own
+        #: 300 s verification cache (keyed by the snapshot id), so the cache is a
+        #: property of the process rather than of a request — which is what makes
+        #: "second read inside the window = zero verifier calls" true for the API
+        #: and not just for a test. Verifiers are injected here, never built in a
+        #: route, so a deployment can add Finviz/Google without touching the API.
+        self.multi_source_screen = MultiSourceScreen(
+            repository=self.screen_repository,
+            verifiers=build_multi_source_verifiers(self.settings),
+        )
         #: The deep half of the screen, injected here (never constructed inside
         #: a route): the export bundle calls it once with the 20 display symbols.
         #: Defaults to quote + EOD + fundamentals + options over this runtime's
