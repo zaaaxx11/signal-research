@@ -47,12 +47,23 @@ class Settings(BaseSettings):
     quote_timeout_s: float = Field(default=10.0, gt=0)
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the
     #: TradingView snapshot supplies the twenty candidates and one observation,
-    #: Yahoo/Nasdaq re-verify their cells. ``false`` turns the default display
-    #: back into the raw snapshot, honestly labelled ``source=tradingview`` and
-    #: ``degraded=true`` — it never fabricates a consensus. ``timeout_s`` is the
-    #: per-verifier HTTP read timeout (Yahoo batch, Nasdaq per symbol).
+    #: Yahoo/Nasdaq/Finviz/Google re-verify their cells (P10.1 added the last
+    #: two). ``false`` turns the default display back into the raw snapshot,
+    #: honestly labelled ``source=tradingview`` and ``degraded=true`` — it never
+    #: fabricates a consensus. ``timeout_s`` is the per-verifier HTTP read
+    #: timeout (Yahoo batch, Nasdaq per symbol, one page per Finviz/Google
+    #: symbol).
     screen_multi_source: bool = True
     screen_verify_timeout_s: float = Field(default=10.0, gt=0)
+    #: The two page-scraping verifiers (Finviz, Google Finance) run by default.
+    #: ``false`` keeps the JSON pair only, for a deployment that will not depend
+    #: on HTML markup; the consensus is still measured against the same five
+    #: documented sources, so confidence stays honest instead of being
+    #: normalised up. ``concurrency`` is capped at three on purpose: the display
+    #: is twenty symbols and the pages are slow, so a wider fan-out would look
+    #: like a crawl without buying latency the display can use.
+    screen_html_verify: bool = True
+    screen_html_verify_concurrency: int = Field(default=3, ge=1, le=3)
 
 
 def get_settings() -> Settings:

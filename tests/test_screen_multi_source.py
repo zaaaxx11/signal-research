@@ -3,8 +3,9 @@
 Contract (PLAN-screen.md §4 and NEXT-ACTIONS P10):
 
 * ``GET /screens`` is a **service**, not a sample file: the twenty candidates of
-  the five-minute snapshot are re-verified against Yahoo + Nasdaq + TradingView
-  and each cell becomes the **median** of what those sources published.
+  the five-minute snapshot are re-verified against Yahoo + Nasdaq + Finviz +
+  Google on top of TradingView, and each cell becomes the **median** of what
+  those sources published.
 * **One row per stock.** There is no ``sources`` column group, no ``yahoo`` key,
   no ``nasdaq`` key: a client reads ``price`` and ``source_summary``, never one
   cell per provider. A table whose shape depends on which verifier answered is a
@@ -397,7 +398,11 @@ async def test_source_count_and_agreement_reflect_the_sources_that_answered(
     )
     assert summary["agreement"] == pytest.approx(1.0)
     assert summary["spread_pp"] == pytest.approx(0.0)
-    assert summary["confidence"] == pytest.approx(1.0)
+    assert summary["confidence"] == pytest.approx(3 / 5), (
+        "confidence is agreement discounted by coverage of the five documented "
+        "sources (TradingView + four verifiers), so three in perfect agreement "
+        "is 0.6, not 1.0"
+    )
 
 
 async def test_a_dissenting_source_lowers_agreement_and_widens_the_spread(
@@ -424,7 +429,10 @@ async def test_a_dissenting_source_lowers_agreement_and_widens_the_spread(
         "two of three change observations sit on the median; the dissenter is "
         f"outside {AGREEMENT_TOLERANCE_PP} pp"
     )
-    assert summary["confidence"] == pytest.approx(2 / 3, abs=1e-4)
+    assert summary["confidence"] == pytest.approx(2 / 5, abs=1e-4), (
+        "two of three change observations agree, and three of the five "
+        "documented sources answered: 2/3 x 3/5 = 0.4"
+    )
     assert document["rows"][0]["change_pct"] == pytest.approx(1.0), (
         "the consensus change is still the median, not the dissenter"
     )
@@ -693,14 +701,20 @@ def test_consensus_row_is_a_pure_function_of_its_observations() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_default_verifier_set_is_yahoo_then_nasdaq(monkeypatch: Any) -> None:
+def test_the_default_verifier_set_is_the_four_live_sources(monkeypatch: Any) -> None:
     monkeypatch.delenv("MEE_SCREEN_MULTI_SOURCE", raising=False)
 
     verifiers = build_multi_source_verifiers(Settings())
 
-    assert [verifier.name for verifier in verifiers] == ["yahoo", "nasdaq"], (
-        "the default consensus draws on Yahoo (batch) first and Nasdaq (US "
-        f"per-symbol) second, got {[v.name for v in verifiers]}"
+    assert [verifier.name for verifier in verifiers] == [
+        "yahoo",
+        "nasdaq",
+        "finviz",
+        "google",
+    ], (
+        "the default consensus draws on Yahoo (batch), Nasdaq (US per-symbol) "
+        "and the two HTML pages (P10.1), got "
+        f"{[v.name for v in verifiers]}"
     )
 
 

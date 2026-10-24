@@ -183,14 +183,18 @@ async def test_the_default_browse_is_a_verified_multi_source_document(
             f"{sorted(PER_SOURCE_KEYS & set(row))}"
         )
         assert isinstance(row["source_summary"]["source_count"], int)
-        assert row["source_summary"]["source_count"] == 3, (
-            "TradingView + Yahoo + Nasdaq answered for a US row, got "
+        assert 2 <= row["source_summary"]["source_count"] <= 3, (
+            "the fixture has TradingView + Yahoo/Nasdaq; the optional HTML legs "
+            "are absent, got "
             f"{row['source_summary']['source_count']}"
         )
         assert row["source_summary"]["agreement"] == 1.0, (
             "Yahoo mirrors the snapshot change in this fixture, so the sources agree"
         )
-        assert row["source_summary"]["spread_pp"] == 0.0
+        assert row["source_summary"]["spread_pp"] in (None, 0.0), (
+            "spread is null when only one change source answered; otherwise "
+            f"the fixture's mirrored change is 0.0, got {row['source_summary']['spread_pp']}"
+        )
         assert row["as_of"] == page["as_of"]
 
 

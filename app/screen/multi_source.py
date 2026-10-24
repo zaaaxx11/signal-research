@@ -19,6 +19,14 @@ The rules that make a consensus row trustworthy
 * **Median, not mean.** One provider printing a stale or post-market price moves
   a mean; it cannot move a median of three. Ties (even counts) average the two
   middle values, which is the documented ``statistics.median`` behaviour.
+* **Four live verifiers, two of them HTML pages.** Yahoo (one batch request) and
+  Nasdaq (US, per symbol) are JSON; Finviz's quote page and Google Finance are
+  page scrapes added as defaults in P10.1, because four independent prints are
+  what make a median meaningful and a confidence honest. The HTML legs are
+  bounded — at most :data:`MAX_WEB_CONCURRENCY` requests in flight, one timeout
+  per symbol — and they publish only the cells their page really prints: price,
+  change, market cap, plus volume where it is exact. A page that omits a cell
+  leaves it null; nothing is ever filled with a zero.
 * **Missing stays null.** A verifier that publishes no change (Nasdaq's info
   endpoint has no previous close) contributes nothing to the change consensus,
   and a field no source published stays ``None`` — never ``0``. ``source_count``
@@ -65,21 +73,25 @@ import asyncio
 import copy
 import inspect
 import math
+import re
 import statistics
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from html import unescape as _unescape
 from typing import Any, Protocol
 
 from app.config import Settings, get_settings
 from app.market.quote import SourceQuote
 from app.market.sources import (
+    BROWSER_USER_AGENT,
     SYMBOL_RE,
     InvalidSymbol,
     NasdaqQuoteSource,
     QuoteSourceError,
     YahooQuoteSource,
 )
+from app.providers import http as provider_http
 from app.screen.repository import SqliteScreenRepository, iso
 from app.screen.snapshot import load_screen
 from app.screen.universe import US_EXCHANGES
@@ -95,8 +107,17 @@ SELECTION_SOURCE = "tradingview"
 CONSENSUS_METHOD = "multi_source_consensus"
 #: The sources a full consensus can draw on. Coverage is measured against this
 #: tuple, so ``confidence`` cannot be inflated by adding verifiers later without
-#: also widening the documented set.
-VERIFICATION_SOURCES: tuple[str, ...] = ("tradingview", "yahoo", "nasdaq")
+#: also widening the documented set — and it is *not* narrowed when a deployment
+#: turns one leg off, because the denominator is the number of sources the
+#: product claims to consult, not the number that happened to answer. Five since
+#: P10.1: the selection snapshot plus four live verifiers.
+VERIFICATION_SOURCES: tuple[str, ...] = (
+    "tradingview",
+    "yahoo",
+    "nasdaq",
+    "finviz",
+    "google",
+)
 
 #: Same window as the snapshot (PLAN-screen.md §4: 300 s per screen).
 CACHE_TTL_S = 300
@@ -159,6 +180,34 @@ YAHOO_SUFFIX_BY_EXCHANGE: Mapping[str, str] = {
 #: stores on a snapshot row, and the TradingView code the scanner prints. A bare
 #: ticker is correct for either, so accepting both is robustness, not guessing.
 US_VENUES: frozenset[str] = US_EXCHANGES | frozenset({"NASDAQ", "NYSE", "AMEX", "CBOE"})
+
+#: Finviz's quote page. Not ``/quote.ashx``: that legacy path answers ``301`` and
+#: the provider client deliberately does not follow redirects (02 §3.11 SSRF), so
+#: the old URL is a guaranteed failure rather than a shorter one.
+FINVIZ_HOST = "https://finviz.com"
+FINVIZ_QUOTE_PATH = "/stock?t={ticker}"
+
+GOOGLE_HOST = "https://www.google.com"
+GOOGLE_QUOTE_PATH = "/finance/quote/{ticker}"
+
+#: The HTML legs are page scrapes: slower than JSON and bot-walled, so a
+#: twenty-symbol pass runs them at most three requests in flight — enough to fit
+#: the display budget, few enough not to look like a crawler. The cap is part of
+#: the contract, not a default a constructor may raise.
+MAX_WEB_CONCURRENCY = 3
+
+#: Venue → the exchange token Google prints in its quote path (``AAPL:NASDAQ``).
+#: Only the three US venues whose Google spelling is not a guess: a CBOE listing
+#: or a foreign venue is not asked at all rather than asked with an invented
+#: suffix, the same rule as :data:`YAHOO_SUFFIX_BY_EXCHANGE`.
+GOOGLE_EXCHANGE_BY_VENUE: Mapping[str, str] = {
+    "XNAS": "NASDAQ",
+    "NASDAQ": "NASDAQ",
+    "XNYS": "NYSE",
+    "NYSE": "NYSE",
+    "XASE": "AMEX",
+    "AMEX": "AMEX",
+}
 
 #: Numeric cells an observation can carry. Used by ``answered`` and by the
 #: consensus, so a new field cannot be added in one place and forgotten in the
@@ -233,10 +282,11 @@ class Verifier(Protocol):
 class CallableVerifier:
     """Adapt a plain (async) function into a :class:`Verifier`.
 
-    This is the injection point for the optional sources: a Finviz or Google
-    Finance leg is a function the deployment supplies, not a class this module
-    has to know how to scrape. The name is validated like a built-in's, so two
-    verifiers can never share a column of the summary.
+    This is the injection point for a source this module does not ship (a
+    broker's quote feed, a test double): the four defaults — Yahoo, Nasdaq,
+    Finviz and Google — are classes because they own their transport, while any
+    other leg is a function the deployment supplies. The name is validated like
+    a built-in's, so two verifiers can never share a column of the summary.
     """
 
     def __init__(
@@ -301,6 +351,12 @@ def yahoo_symbol(row: Mapping[str, Any]) -> str | None:
         return None
     exchange = str(row.get("exchange") or "").strip().upper()
     if exchange in US_VENUES:
+        # Yahoo spells US class shares with a hyphen (BRK.B -> BRK-B); the
+        # snapshot keeps the screen's dot spelling for the export join.
+        if symbol.count(".") == 1:
+            head, suffix = symbol.split(".", 1)
+            if len(suffix) == 1 and suffix.isalpha():
+                return f"{head}-{suffix}"
         return symbol
     suffix = YAHOO_SUFFIX_BY_EXCHANGE.get(exchange)
     if suffix is None:
@@ -431,27 +487,523 @@ class NasdaqVerifier:
         return {symbol: answers.get(symbol) for symbol in targets}
 
 
-def build_multi_source_verifiers(settings: Settings | None = None) -> tuple[Verifier, ...]:
-    """The default verification set: Yahoo (batch) + Nasdaq (US per-symbol).
+# ---------------------------------------------------------------------------
+# HTML quote pages: Finviz and Google Finance (P10.1)
+# ---------------------------------------------------------------------------
+#
+# Both are server-rendered pages with one number each of price, change and market
+# cap. The helpers below read the *visible* markup only: script/style/noscript
+# blocks and comments are dropped before anything else, both because Google's
+# quote page is 1.4 MB of mostly JavaScript and because a ``<div`` inside a
+# script string would unbalance the nesting scan below.
 
-    Optional legs (Finviz, Google Finance) are *not* wired here: they are slower,
-    bot-walled and carry no extra authority over a price, so a deployment that
-    wants them injects a :class:`CallableVerifier` at the composition root. The
-    knob ``MEE_SCREEN_MULTI_SOURCE=false`` returns no verifier at all, which makes
-    the service answer the honest degraded TradingView document instead of
-    claiming a consensus it never checked.
+_MARKUP_SCRIPTS = re.compile(
+    r"<(script|style|noscript)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+_MARKUP_COMMENTS = re.compile(r"<!--.*?-->", re.DOTALL)
+_DIV_OPEN = re.compile(r"<div\b([^>]*)>", re.IGNORECASE)
+_DIV_TAG = re.compile(r"<(/?)div\b[^>]*>", re.IGNORECASE)
+_CLASS_ATTR = re.compile(r"""\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.IGNORECASE)
+_ANY_TAG = re.compile(r"<[^>]+>")
+_PERCENT = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*%")
+_UNIT_SCALE: Mapping[str, float] = {"": 1.0, "K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
+
+#: The alphabet a Finviz/Google equity ticker is made of. Deliberately narrower
+#: than :data:`~app.market.sources.SYMBOL_RE`: ``^VIX`` and ``EURUSD=X`` are
+#: provider symbols, but they are not equity quote pages, and constraining the
+#: alphabet is what lets the URL be built without a percent-encoder (``urllib``
+#: is a banned legacy transport in this tree, 05 §3.4 rule 3).
+_WEB_SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,15}$")
+
+#: A 200 that is really a bot wall. The page answers 200 and says this instead of
+#: a quote, so a parser that only reads numbers sees "no price" — a per-symbol
+#: guess. The verifier turns the marker into a named failure instead.
+_CHALLENGE_MARKERS: tuple[str, ...] = (
+    "verify you are a human",
+    "are you a robot",
+    "unusual traffic",
+    "captcha",
+)
+
+
+def _visible_markup(body: str) -> str:
+    """Strip what a reader never sees, so the nesting scan cannot be fooled."""
+
+    return _MARKUP_COMMENTS.sub(" ", _MARKUP_SCRIPTS.sub(" ", str(body or "")))
+
+
+def _class_tokens(attributes: str) -> frozenset[str]:
+    """The exact class tokens of one opening tag (never a substring match)."""
+
+    match = _CLASS_ATTR.search(attributes)
+    if match is None:
+        return frozenset()
+    raw = match.group(1) if match.group(1) is not None else match.group(2)
+    return frozenset(token for token in raw.split() if token)
+
+
+def _flat_text(fragment: str) -> str:
+    """One element's text: tags dropped, entities decoded, whitespace collapsed."""
+
+    return " ".join(_unescape(_ANY_TAG.sub(" ", fragment)).split())
+
+
+def _div_block(markup: str, token: str, start: int = 0) -> tuple[str, int, int] | None:
+    """``(inner_html, start, end)`` of the first ``<div>`` carrying ``token``.
+
+    The close is found by counting nested ``<div>`` tags, not by a non-greedy
+    regex: both pages nest divs inside the blocks worth reading (Google wraps the
+    change arrow in one), and ``.*?</div>`` would stop at the inner close and
+    silently truncate the cell.
+    """
+
+    for opening in _DIV_OPEN.finditer(markup, start):
+        if token not in _class_tokens(opening.group(1)):
+            continue
+        depth = 1
+        for tag in _DIV_TAG.finditer(markup, opening.end()):
+            if tag.group(1):
+                depth -= 1
+                if depth == 0:
+                    return (
+                        markup[opening.end() : tag.start()],
+                        opening.start(),
+                        tag.end(),
+                    )
+            else:
+                depth += 1
+        return None
+    return None
+
+
+def _scaled_number(text: str) -> float | None:
+    """``"$1,234.50"``/``"5074.76B"``/``"5.07T"`` → a float; anything else ``None``.
+
+    A provider that prints ``"-"`` or ``"N/A"`` published no number, so the cell
+    stays null: reading a dash as zero is the one thing this module must not do.
+    """
+
+    token = (
+        str(text or "")
+        .strip()
+        .replace("$", "")
+        .replace(",", "")
+        .replace("\u2212", "-")
+    )
+    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s*([KMBT]?)", token, re.IGNORECASE)
+    if match is None:
+        return None
+    number = float(match.group(1)) * _UNIT_SCALE[match.group(2).upper()]
+    return number if math.isfinite(number) else None
+
+
+def _positive_number(text: str) -> float | None:
+    """A price/cap/volume: positive, finite, or ``None``. Zero is never a quote."""
+
+    number = _scaled_number(text)
+    return number if number is not None and number > 0 else None
+
+
+def _printed_percent(text: str) -> float | None:
+    """The first ``x%`` in a cell, sign included (``(-0.14%)`` → ``-0.14``)."""
+
+    match = _PERCENT.search(str(text or ""))
+    return float(match.group(1)) if match is not None else None
+
+
+def _quotes_a_challenge(body: str) -> bool:
+    head = str(body or "")[:4000].lower()
+    return any(marker in head for marker in _CHALLENGE_MARKERS)
+
+
+def _finviz_fields(markup: str) -> dict[str, str]:
+    """The Finviz snapshot table as ``label → value``; the first row wins.
+
+    The table is a sequence of label cells and value cells; pairing them in order
+    is what keeps ``Market Cap`` from absorbing ``Volume``. A label whose value
+    cell starts after the *next* label is a half row, so the walk stops there
+    rather than pairing across metrics.
+    """
+
+    fields: dict[str, str] = {}
+    cursor = 0
+    while True:
+        label = _div_block(markup, "snapshot-td-label", cursor)
+        if label is None:
+            return fields
+        value = _div_block(markup, "snapshot-td-content", label[2])
+        if value is None:
+            return fields
+        following = _div_block(markup, "snapshot-td-label", label[2])
+        if following is not None and following[1] < value[1]:
+            return fields
+        name = _flat_text(label[0]).strip()
+        if name:
+            fields.setdefault(name, _flat_text(value[0]).strip())
+        cursor = value[2]
+
+
+def parse_finviz_quote(body: str) -> Observation | None:
+    """One Finviz quote page → one observation (``None`` without a price).
+
+    The header prints the regular session first and the after-hours block second,
+    in identical markup; the regular one is the price this screen is about, so an
+    ``Aftermarket`` block is skipped rather than read. The snapshot table is the
+    fallback (``Price``/``Change %``/``Prev Close``) and is where the market cap
+    and the exact share volume come from.
+    """
+
+    markup = _visible_markup(body)
+    fields = _finviz_fields(markup)
+
+    price: float | None = None
+    change: float | None = None
+    cursor = 0
+    while True:
+        block = _div_block(markup, "quote-price", cursor)
+        if block is None:
+            break
+        inner = block[0]
+        session = _flat_text(inner).lower()
+        if "aftermarket" in session or "after hours" in session:
+            cursor = block[2]
+            continue
+        quote = re.search(
+            r'<strong[^>]*class="[^"]*quote-price_price[^"]*"[^>]*>(.*?)</strong>',
+            inner,
+            re.IGNORECASE | re.DOTALL,
+        ) or re.search(r"<strong\b[^>]*>(.*?)</strong>", inner, re.IGNORECASE | re.DOTALL)
+        if quote is not None:
+            price = _positive_number(_flat_text(quote.group(1)))
+        change = _printed_percent(_flat_text(inner))
+        break
+
+    if price is None:
+        price = _positive_number(fields.get("Price", ""))
+    if change is None:
+        # The snapshot cell prints "-0.14%"; a bare number is the same cell in
+        # an older layout, so both spellings are read before the prev-close
+        # derivation is used.
+        change = _printed_percent(fields.get("Change %", ""))
+        if change is None:
+            change = _scaled_number(fields.get("Change %", ""))
+        if change is None:
+            previous = _positive_number(fields.get("Prev Close", ""))
+            if price is not None and previous is not None:
+                change = (price / previous - 1.0) * 100.0
+
+    if price is None:
+        return None
+    return Observation(
+        source="finviz",
+        price=price,
+        change_pct=change,
+        volume=_positive_number(fields.get("Volume", "")),
+        market_cap_usd=_positive_number(fields.get("Market Cap", "")),
+    )
+
+
+def _google_stat(markup: str, label: str) -> str:
+    """The value beside one Google key-stat label (``Mkt. cap`` → ``"5.07T"``)."""
+
+    cursor = 0
+    while True:
+        stat = _div_block(markup, "KxsRFb", cursor)
+        if stat is None:
+            return ""
+        name = _div_block(stat[0], "SwQK7")
+        value = _div_block(stat[0], "dO6ijd")
+        if name is not None and value is not None:
+            printed = _flat_text(name[0]).strip().lower().rstrip(".")
+            if printed == label:
+                return _flat_text(value[0]).strip()
+        cursor = stat[2]
+
+
+def parse_google_quote(body: str) -> Observation | None:
+    """One Google Finance quote page → one observation (``None`` without a price).
+
+    Google renders the regular session as ``div.N6SYTe`` (price) followed by
+    ``div.DAicsd`` (change), then an after-hours block that reuses the very same
+    classes. The change is therefore the first percentage inside the first
+    ``DAicsd`` **after** the price — taking the first ``DAicsd`` on the page, or
+    the last, reads the wrong session. Google prints the sign itself; the
+    up/down class (``ougHge``/``ymyBi``) is only consulted when it does not.
+    """
+
+    markup = _visible_markup(body)
+    price_block = _div_block(markup, "N6SYTe")
+    if price_block is None:
+        return None
+    price = _positive_number(_flat_text(price_block[0]))
+    if price is None:
+        return None
+
+    change: float | None = None
+    change_block = _div_block(markup, "DAicsd", price_block[2])
+    if change_block is not None:
+        inner = change_block[0]
+        match = _PERCENT.search(_flat_text(inner))
+        if match is not None:
+            change = float(match.group(1))
+            if not match.group(1).startswith(("-", "+")):
+                if re.search(r'class="[^"]*\bymyBi\b', inner):
+                    change = -abs(change)
+                elif re.search(r'class="[^"]*\bougHge\b', inner):
+                    change = abs(change)
+
+    market_cap = _positive_number(
+        _google_stat(markup, "mkt. cap") or _google_stat(markup, "market cap")
+    )
+    return Observation(
+        source="google",
+        price=price,
+        change_pct=change,
+        market_cap_usd=market_cap,
+    )
+
+
+def _us_symbol(row: Mapping[str, Any]) -> str | None:
+    """The bare ticker of a US listing, or ``None`` when the row is not one.
+
+    Also ``None`` for a symbol outside the equity alphabet (an index, an FX
+    pair): those are provider symbols, not share pages, and the URL is built
+    verbatim from the answer.
+    """
+
+    if str(row.get("exchange") or "").strip().upper() not in US_VENUES:
+        return None
+    symbol = str(row.get("symbol") or "").strip().upper()
+    if not symbol or not _WEB_SYMBOL_RE.match(symbol):
+        return None
+    return symbol
+
+
+def finviz_symbol(row: Mapping[str, Any]) -> str | None:
+    """The ticker Finviz needs: the bare US ticker, class shares hyphenated.
+
+    Finviz prints ``BRK-B`` where TradingView prints ``BRK.B``; that translation
+    is the whole mapping. A foreign venue is not asked at all — one suffix per
+    exchange is a guess this module already refuses for Yahoo.
+    """
+
+    symbol = _us_symbol(row)
+    return None if symbol is None else symbol.replace(".", "-")
+
+
+def google_symbol(row: Mapping[str, Any]) -> str | None:
+    """The ``TICKER:EXCHANGE`` token Google's quote path needs (``BRK.B:NYSE``).
+
+    Class shares keep their dot here, and the venue becomes the suffix. Only the
+    three US venues with a known Google spelling are asked: guessing one would
+    fetch another company's page, not a missing one.
+    """
+
+    symbol = _us_symbol(row)
+    if symbol is None:
+        return None
+    exchange = GOOGLE_EXCHANGE_BY_VENUE.get(
+        str(row.get("exchange") or "").strip().upper()
+    )
+    return None if exchange is None else f"{symbol}:{exchange}"
+
+
+class _PerSymbolQuoteVerifier:
+    """One HTML page per symbol, at most ``concurrency`` requests in flight.
+
+    The two scraping legs differ only in their symbol spelling, URL and parser,
+    so the fan-out, the timeout and the outage rule live here:
+
+    * **Bounded.** :data:`MAX_WEB_CONCURRENCY` pages in flight, and a constructor
+      that asks for more is refused rather than quietly obeyed: twenty symbols
+      are a display, not a crawl.
+    * **Timed out per symbol.** ``wait_for`` around each fetch, so one hanging
+      ticker cannot hold the whole verification past the display budget while
+      the others wait behind it.
+    * **A failure is not an empty answer.** One unknown ticker is ``None`` (not
+      covered); only when *every* symbol failed does :meth:`observe` raise, which
+      is what the service records as an outage instead of a null consensus.
+
+    ``fetcher`` is the injection point: a test (or a deployment with its own
+    transport) can replace the HTTP hop without rebuilding the class.
+    """
+
+    name = ""
+
+    def __init__(
+        self,
+        *,
+        timeout_s: float = 10.0,
+        concurrency: int = MAX_WEB_CONCURRENCY,
+        user_agent: str = BROWSER_USER_AGENT,
+        fetcher: Callable[[str], Awaitable[Observation | None]] | None = None,
+    ) -> None:
+        if isinstance(concurrency, bool) or not isinstance(concurrency, int):
+            raise TypeError(f"concurrency must be an int, got {concurrency!r}")
+        if not 1 <= concurrency <= MAX_WEB_CONCURRENCY:
+            raise ValueError(
+                f"concurrency must be 1..{MAX_WEB_CONCURRENCY}, got {concurrency!r}"
+            )
+        if not timeout_s > 0:
+            raise ValueError(f"timeout_s must be > 0, got {timeout_s!r}")
+        if not user_agent or not str(user_agent).strip():
+            raise ValueError("user_agent must be a non-empty string")
+        if fetcher is not None and not callable(fetcher):
+            raise TypeError("fetcher must be callable")
+        self.timeout_s = float(timeout_s)
+        self.concurrency = int(concurrency)
+        self.user_agent = str(user_agent)
+        self._fetcher = fetcher
+
+    # -- per-provider bits -------------------------------------------------
+
+    def ticker(self, row: Mapping[str, Any]) -> str | None:
+        """The provider's spelling of this row's ticker (``None`` → not asked)."""
+
+        raise NotImplementedError
+
+    def url(self, ticker: str) -> str:
+        raise NotImplementedError
+
+    def parse(self, body: str) -> Observation | None:
+        raise NotImplementedError
+
+    # -- transport ---------------------------------------------------------
+
+    def headers(self) -> dict[str, str]:
+        return {
+            "user-agent": self.user_agent,
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "accept-language": "en-US,en;q=0.9",
+        }
+
+    async def fetch(self, ticker: str) -> Observation | None:
+        """One page → one observation; a non-200 is a failure, not a null quote."""
+
+        if self._fetcher is not None:
+            return await self._fetcher(ticker)
+        async with provider_http.build_client(
+            timeout_s=self.timeout_s, headers=self.headers()
+        ) as client:
+            response = await client.get(self.url(ticker))
+        status = int(getattr(response, "status_code", 0) or 0)
+        if status != 200:
+            raise QuoteSourceError(f"{self.name} answered {status}", status=status)
+        body = str(getattr(response, "text", "") or "")
+        observation = self.parse(body)
+        if observation is None and _quotes_a_challenge(body):
+            raise QuoteSourceError(
+                f"{self.name} answered a bot challenge instead of a quote"
+            )
+        return observation
+
+    # -- fan-out -----------------------------------------------------------
+
+    async def observe(
+        self, rows: Sequence[Mapping[str, Any]]
+    ) -> Mapping[str, Observation | None]:
+        wanted: dict[str, str] = {}
+        for row in rows:
+            ticker = self.ticker(row)
+            symbol = str(row.get("symbol") or "").strip()
+            if ticker and symbol and ticker not in wanted:
+                wanted[ticker] = symbol
+        if not wanted:
+            return {}
+
+        semaphore = asyncio.Semaphore(self.concurrency)
+        answers: dict[str, Observation | None] = {}
+        failures: list[BaseException] = []
+
+        async def one(ticker: str) -> None:
+            async with semaphore:
+                try:
+                    observation = await asyncio.wait_for(
+                        self.fetch(ticker), timeout=self.timeout_s
+                    )
+                except InvalidSymbol:
+                    # Not this provider's ticker: an answer of "not covered".
+                    answers[ticker] = None
+                    return
+                except Exception as exc:  # noqa: BLE001 - per-symbol failover
+                    failures.append(exc)
+                    return
+                if observation is not None:
+                    observation = replace(observation, source=self.name)
+                answers[ticker] = observation
+
+        await asyncio.gather(*(one(ticker) for ticker in wanted))
+        if failures and len(failures) == len(wanted):
+            first = failures[0]
+            raise QuoteSourceError(
+                f"{self.name} failed for {len(wanted)} symbol(s): "
+                f"{type(first).__name__}: {str(first) or 'no detail'}",
+                status=getattr(first, "status", None),
+            ) from first
+        return {symbol: answers.get(ticker) for ticker, symbol in wanted.items()}
+
+
+class FinvizVerifier(_PerSymbolQuoteVerifier):
+    """Finviz's quote page: price, change, volume and market cap for US listings."""
+
+    name = "finviz"
+
+    def ticker(self, row: Mapping[str, Any]) -> str | None:
+        return finviz_symbol(row)
+
+    def url(self, ticker: str) -> str:
+        return f"{FINVIZ_HOST}{FINVIZ_QUOTE_PATH.format(ticker=ticker)}"
+
+    def parse(self, body: str) -> Observation | None:
+        return parse_finviz_quote(body)
+
+
+class GoogleVerifier(_PerSymbolQuoteVerifier):
+    """Google Finance's quote page: price, change and market cap, US listings."""
+
+    name = "google"
+
+    def ticker(self, row: Mapping[str, Any]) -> str | None:
+        return google_symbol(row)
+
+    def url(self, ticker: str) -> str:
+        return f"{GOOGLE_HOST}{GOOGLE_QUOTE_PATH.format(ticker=ticker)}"
+
+    def parse(self, body: str) -> Observation | None:
+        return parse_google_quote(body)
+
+
+def build_multi_source_verifiers(settings: Settings | None = None) -> tuple[Verifier, ...]:
+    """The default verification set: Yahoo, Nasdaq, Finviz and Google.
+
+    Yahoo (one batch request) and Nasdaq (US, per symbol) answer JSON and come
+    first; Finviz and Google are page scrapes and run at
+    :data:`MAX_WEB_CONCURRENCY`. ``MEE_SCREEN_HTML_VERIFY=false`` keeps the cheap
+    pair only — a deployment that does not want to depend on HTML markup can say
+    so without shrinking :data:`VERIFICATION_SOURCES`, so its confidence is still
+    measured against the five documented sources rather than normalised up.
+    ``MEE_SCREEN_MULTI_SOURCE=false`` returns no verifier at all, which makes the
+    service answer the honest degraded TradingView document instead of claiming a
+    consensus it never checked.
     """
 
     settings = settings or get_settings()
     if not settings.screen_multi_source:
         return ()
     timeout_s = settings.screen_verify_timeout_s
-    yahoo = YahooQuoteSource(batch_size=settings.quote_batch_size, timeout_s=timeout_s)
-    nasdaq = NasdaqQuoteSource(timeout_s=timeout_s)
-    return (
-        YahooVerifier(source=yahoo),
-        NasdaqVerifier(source=nasdaq, timeout_s=timeout_s),
-    )
+    verifiers: list[Verifier] = [
+        YahooVerifier(
+            source=YahooQuoteSource(
+                batch_size=settings.quote_batch_size, timeout_s=timeout_s
+            )
+        ),
+        NasdaqVerifier(source=NasdaqQuoteSource(timeout_s=timeout_s), timeout_s=timeout_s),
+    ]
+    if settings.screen_html_verify:
+        concurrency = settings.screen_html_verify_concurrency
+        verifiers.append(FinvizVerifier(timeout_s=timeout_s, concurrency=concurrency))
+        verifiers.append(GoogleVerifier(timeout_s=timeout_s, concurrency=concurrency))
+    return tuple(verifiers)
 
 
 # ---------------------------------------------------------------------------
@@ -504,8 +1056,9 @@ def source_summary(
     sent, so it is excluded from that ratio. ``spread_pp`` is the max−min change
     in percentage points (``None`` with fewer than two change observations — a
     spread of one value is not a measurement). ``confidence`` discounts agreement
-    by coverage (``source_count / len(VERIFICATION_SOURCES)``), so two of three
-    sources in perfect agreement is 0.67, not 1.0.
+    by coverage (``source_count / len(VERIFICATION_SOURCES)``), so three of the
+    five documented sources in perfect agreement is 0.6 and four of five is 0.8 —
+    never 1.0 for a page that five sources could have verified and only three did.
     """
 
     counted = [observation for observation in observations if observation.answered]
@@ -832,6 +1385,10 @@ __all__ = [
     "AGREEMENT_TOLERANCE_PP",
     "CACHE_TTL_S",
     "CONSENSUS_METHOD",
+    "FINVIZ_HOST",
+    "GOOGLE_EXCHANGE_BY_VENUE",
+    "GOOGLE_HOST",
+    "MAX_WEB_CONCURRENCY",
     "MULTI_SOURCE",
     "SELECTION_SOURCE",
     "US_VENUES",
@@ -839,6 +1396,8 @@ __all__ = [
     "YAHOO_SUFFIX_BY_EXCHANGE",
     "CacheKey",
     "CallableVerifier",
+    "FinvizVerifier",
+    "GoogleVerifier",
     "MultiSourceScreen",
     "NasdaqVerifier",
     "Observation",
@@ -846,6 +1405,10 @@ __all__ = [
     "YahooVerifier",
     "build_multi_source_verifiers",
     "consensus_row",
+    "finviz_symbol",
+    "google_symbol",
+    "parse_finviz_quote",
+    "parse_google_quote",
     "selection_observation",
     "source_summary",
     "yahoo_symbol",
