@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build fundamentals snapshots for a symbol list **or** the US universe.
 
-Two modes, one store:
+Three modes, one store:
 
 * **symbols** (P11A, the default) — a configurable list: ``--symbols``,
   ``--symbols-file``, or the twenty US mega caps. A fundamentals snapshot costs
@@ -12,14 +12,25 @@ Two modes, one store:
   each. ``--limit`` (the 100 largest symbols, say) and ``--time-budget`` are how
   a pilot stays a pilot: a full US universe is thousands of Yahoo walks and the
   command refuses to start one without an explicit bound.
+* **universe + ``--source scan``** (P11D) — the bulk *fallback*: the same
+  universe, but the cells come from that one scan instead of a walk per symbol.
+  Live, the Yahoo rung was throttled after 1,266 rows; the scanner answers the
+  whole US market (3,888 issuers) in two requests and fills 16 of the 22 cells
+  (``app.fundamentals.scan`` names the six it cannot). One page is not one walk
+  per symbol, so this mode needs no ``--limit``/``--time-budget``/``--all``
+  bound, but it refuses ``--symbols``: the symbols *are* the scan.
 
 Why per-symbol Yahoo walks instead of the scan's own bulk columns: the parity
 scan carries price multiples and technicals, not the 22-cell
 fundamentals/statements vocabulary, and several bulk cells a screen could use
-were probed null for every row. The scan decides *which* symbols; the Yahoo rung
-is the only source that actually fills the snapshot's cells. The bill for that
-detail is one walk per symbol — hence the plan line, the limit, the budget and
-``skip_fresh`` (a 24 h row answers with zero requests, so a re-run resumes).
+were probed null for every row. A *fundamentals* scan asking for its own columns
+is a different request, and the one P11D makes: sixteen cells are filled for
+most rows, the six the provider never serves stay null. The scan is a fallback,
+never a replacement — a fresh 22-cell Yahoo row is kept, whatever the refresh
+flag says, because one row per symbol means the better row must win. The bill
+for the Yahoo detail is one walk per symbol — hence the plan line, the limit, the
+budget and ``skip_fresh`` (a 24 h row answers with zero requests, so a re-run
+resumes).
 
 What it does, in order:
 
@@ -29,10 +40,14 @@ What it does, in order:
 2. resolves the symbols (scan or list), then builds one snapshot per symbol
    through ``Runtime.ladder()`` (the same ladder the worker uses: ``sec_edgar``
    has no adapter, so ``yahoo`` answers), 24 h TTL, idempotent upsert, nulls for
-   cells the provider does not serve;
+   cells the provider does not serve — or, with ``--source scan``, maps one
+   scanner row per symbol into the same snapshot shape (``source='tradingview'``,
+   16 cells, the rest null);
 3. reports ``requested/built/written/cached/failed/requests``, the elapsed time,
    the ETA for a deferred tail, and the measured field coverage of the rows that
-   are now fresh — the numbers to quote, instead of "22 columns exist".
+   are now fresh — the numbers to quote, instead of "22 columns exist". Scan mode
+   reports per source (written vs kept, and which source kept each symbol), the
+   coverage of the rows it wrote, and the fields the source never serves.
 
 Exit codes: ``0`` every attempted symbol has a snapshot (a deferred tail from a
 time budget is not a failure — the next run resumes it); ``1`` at least one
@@ -47,6 +62,8 @@ Examples
     .venv/bin/python scripts/fundamentals-snapshot.py --report-only
     .venv/bin/python scripts/fundamentals-snapshot.py --universe us --limit 100 --progress-every 10
     .venv/bin/python scripts/fundamentals-snapshot.py --universe us --time-budget 900 --json
+    .venv/bin/python scripts/fundamentals-snapshot.py --universe us --source scan
+    .venv/bin/python scripts/fundamentals-snapshot.py --universe us --source scan --json
 """
 
 from __future__ import annotations
@@ -80,6 +97,13 @@ from app.fundamentals.snapshot import (  # noqa: E402
     canonical_symbol,
     migration_hint,
 )
+from app.fundamentals.scan import (  # noqa: E402
+    EMPTY as SCAN_EMPTY,
+    MISSING as SCAN_MISSING,
+    SCAN_SOURCE,
+    ScanReport,
+    build_scan_snapshots,
+)
 from app.fundamentals.universe import (  # noqa: E402
     UNIVERSE_REGIONS,
     UniverseError,
@@ -87,6 +111,33 @@ from app.fundamentals.universe import (  # noqa: E402
     fetch_us_symbols,
 )
 from app.screen.scanner import ScanError  # noqa: E402
+
+#: The two symbol sources. ``ladder`` (the default) is the per-symbol provider
+#: walk — Yahoo in production, 22 cells, one request per symbol. ``scan`` is
+#: P11D's bulk fallback: one TradingView scan, 16 cells per row, no walk per
+#: symbol. ``yahoo`` is accepted as an explicit spelling of ``ladder``.
+SOURCE_LADDER = "ladder"
+SOURCE_SCAN = "scan"
+SOURCE_ALIASES: dict[str, str] = {
+    "ladder": SOURCE_LADDER,
+    "yahoo": SOURCE_LADDER,
+    "scan": SOURCE_SCAN,
+}
+SOURCE_CHOICES: tuple[str, ...] = ("ladder", "yahoo", "scan")
+DEFAULT_SOURCE = SOURCE_LADDER
+
+
+def normalize_source(value: str | None) -> str:
+    """``--source`` as one of the two real sources (``yahoo`` → ``ladder``)."""
+
+    token = str(value or DEFAULT_SOURCE).strip().lower()
+    try:
+        return SOURCE_ALIASES[token]
+    except KeyError:  # pragma: no cover - argparse restricts the choices
+        raise ValueError(
+            f"unknown source {value!r}; expected one of {', '.join(SOURCE_CHOICES)}"
+        ) from None
+
 
 #: The default list: the twenty US mega caps a display would show. This is a
 #: sample, not a universe — ``--symbols``/``--symbols-file`` replace it whole.
@@ -163,23 +214,37 @@ def load_symbols(args: argparse.Namespace) -> list[str]:
 def universe_guard(args: argparse.Namespace) -> str | None:
     """The bulk mode's bounds, in one place; returns a refusal or ``None``.
 
-    Three rules, each a real accident that would otherwise reach the provider:
+    Four rules, each a real accident that would otherwise reach the provider:
 
+    * ``--source scan`` has no per-symbol mode: its symbols *are* the region
+      scan, so it needs ``--universe`` and cannot take a list;
     * ``--universe`` and ``--symbols`` are two answers to "which symbols"; taking
       both would silently build one and ignore the other;
     * more than eight in-flight walks is not a pilot and is what gets the rung
       throttled;
-    * an unbounded walk is thousands of requests. ``--limit``, ``--time-budget``
-      or an explicit ``--all`` must say the operator meant it.
+    * an unbounded *walk* is thousands of requests. ``--limit``,
+      ``--time-budget`` or an explicit ``--all`` must say the operator meant it.
+      Scan mode is exempt: one scanner page (two for the whole US market) is not
+      one walk per symbol, so there is nothing to bound.
     """
 
-    if not getattr(args, "universe", None) or args.report_only:
+    if args.report_only:
+        return None
+    source = normalize_source(getattr(args, "source", DEFAULT_SOURCE))
+    if source == SOURCE_SCAN and not getattr(args, "universe", None):
+        return (
+            "--source scan builds the universe from the region scan; pass "
+            "--universe us (scan mode has no per-symbol list)"
+        )
+    if not getattr(args, "universe", None):
         return None
     if args.symbols or args.symbols_file:
         return (
             "--universe replaces --symbols/--symbols-file; pass one symbol source, "
             "not two"
         )
+    if source == SOURCE_SCAN:
+        return None
     if args.concurrency < 1 or args.concurrency > MAX_UNIVERSE_CONCURRENCY:
         return (
             f"--concurrency must be between 1 and {MAX_UNIVERSE_CONCURRENCY} for "
@@ -189,7 +254,9 @@ def universe_guard(args: argparse.Namespace) -> str | None:
         return (
             "refusing to walk the whole US universe without a bound: pass --limit N "
             "for a pilot (for example --limit 100), --time-budget SECONDS for a "
-            "bounded batch, or --all to accept one provider walk per symbol"
+            "bounded batch, or --all to accept one provider walk per symbol "
+            "(or --source scan for the bulk fallback: one scanner request, 16 of "
+            "the 22 cells)"
         )
     return None
 
@@ -404,18 +471,120 @@ def render_human(
     return "\n".join(lines)
 
 
+def render_scan_human(
+    *,
+    db_path: Path,
+    revision: str | None,
+    scan: ScanReport,
+    coverage: dict[str, Any],
+    scan_elapsed_s: float | None = None,
+) -> str:
+    """The P11D fallback report: per-source, coverage, and the fields it cannot serve.
+
+    Two coverage blocks, deliberately separate: the scan's own rows (what this
+    source actually filled, 16 cells at best) and the store's whole table (every
+    source, which is what a reader sees afterwards). Adding them together would
+    hide that a 16-cell row and a 22-cell row are different answers.
+    """
+
+    lines: list[str] = []
+    limit = scan.limit if scan.limit is not None else "all"
+    lines.append(
+        f"fundamentals snapshot (P11D scan)  db={db_path}  head={revision or '?'}  "
+        f"ttl={TTL_S}s  source={SCAN_SOURCE}"
+    )
+    lines.append(
+        f"scan: {scan.region} rows={scan.rows} total={scan.total_count} "
+        f"issuers={scan.issuers} duplicates={scan.duplicates} "
+        f"columns={len(scan.columns)} limit={limit}"
+    )
+    if scan.truncated:
+        lines.append(
+            f"  --limit kept the {scan.requested} largest of {scan.issuers} "
+            "symbols (the gate ran before the limit, not after it)"
+        )
+    lines.append("")
+    lines.append(
+        f"build: requested={scan.requested} written={scan.written} "
+        f"kept={scan.kept} empty={scan.empty} missing={scan.missing} "
+        f"elapsed={format_duration(scan.elapsed_s)} "
+        f"scan_elapsed={format_duration(scan_elapsed_s)}"
+    )
+    lines.append(
+        f"per source: written({SCAN_SOURCE})={scan.written} "
+        f"kept={scan.kept_sources}"
+        + (
+            "  (a fresh row is an answer: the scan did not replace it)"
+            if scan.kept
+            else ""
+        )
+    )
+    if scan.empty or scan.missing:
+        for item in scan.results:
+            if item.status in {SCAN_EMPTY, SCAN_MISSING}:
+                lines.append(f"  {item.symbol}: {item.status} — {item.reason or ''}")
+    lines.append("")
+
+    own = scan.coverage()
+    lines.append(
+        f"coverage (rows this scan wrote): rows={own['symbols']} "
+        f"fresh={own['fresh']} complete={own['complete']} partial={own['partial']} "
+        f"filled={own['filled_cells']}/{own['total_cells']} "
+        f"fill_rate={own['fill_rate']:.4f}"
+    )
+    lines.append(
+        f"  not served by {SCAN_SOURCE} ({len(scan.missing_fields)}): "
+        f"{', '.join(scan.missing_fields)}"
+    )
+    lines.append("")
+    lines.append(f"{'field':<22} {'filled':>10}  coverage")
+    for row in own["fields"]:
+        lines.append(
+            f"{row['field']:<22} {row['filled']:>4}/{row['total']:<5}  "
+            f"{_percent(row['filled'], row['total'])}"
+        )
+    lines.append("")
+    lines.append(
+        "coverage (store): "
+        f"rows={coverage['symbols']} fresh={coverage['fresh']} "
+        f"expired={coverage['expired']} complete={coverage['complete']} "
+        f"partial={coverage['partial']} "
+        f"filled={coverage['filled_cells']}/{coverage['total_cells']} "
+        f"fill_rate={coverage['fill_rate']:.4f}"
+    )
+    lines.append(f"sources: {coverage['sources']}")
+    if coverage["oldest_as_of"]:
+        lines.append(
+            f"as_of: {coverage['oldest_as_of']} .. {coverage['newest_as_of']} "
+            "(data clock, not the fetch clock)"
+        )
+    lines.append("")
+    lines.append(
+        f"note: 16 of the 22 canonical cells come from one scanner request per page "
+        f"({len(scan.columns)} columns); the six listed above are never served by "
+        f"{SCAN_SOURCE} and stay null."
+    )
+    lines.append(
+        "note: a fresh row whose source is protected (yahoo, 22 cells) is kept even "
+        "with --refresh; the scan only fills symbols with no fresh answer."
+    )
+    return "\n".join(lines)
+
+
 async def run(
     args: argparse.Namespace,
     *,
     ladder: Any | None = None,
     universe_fetch: Any | None = None,
+    scan_fetch: Any | None = None,
 ) -> int:
-    """Execute one invocation; ``ladder``/``universe_fetch`` are the test seams."""
+    """Execute one invocation; the three keyword seams are the test doubles."""
 
     from app.config import Settings
 
     settings = Settings(db_path=Path(args.db)) if args.db else Settings()
     db_path = Path(settings.db_path).resolve()
+    source = normalize_source(getattr(args, "source", DEFAULT_SOURCE))
 
     before = current_revision(db_path)
     revision = before
@@ -426,9 +595,10 @@ async def run(
         return 2
 
     plan: UniversePlan | None = None
+    scan_report: ScanReport | None = None
     scan_elapsed: float | None = None
     symbols: list[str] = []
-    if not args.report_only:
+    if not args.report_only and source != SOURCE_SCAN:
         if args.universe:
             scan_started = time.monotonic()
             try:
@@ -454,27 +624,53 @@ async def run(
     report: BuildReport | None = None
     try:
         if not args.report_only:
-            if ladder is None:
-                from app.runtime import Runtime
-
-                provider: Any = Runtime(settings).ladder()
+            if source == SOURCE_SCAN:
+                scan_started = time.monotonic()
+                try:
+                    scan_report = await build_scan_snapshots(
+                        store,
+                        region=args.universe,
+                        fetch=scan_fetch,
+                        limit=args.limit or None,
+                        skip_fresh=not args.refresh,
+                    )
+                except (UniverseError, ScanError) as exc:
+                    print(
+                        f"the {args.universe} universe could not be read: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+                scan_elapsed = time.monotonic() - scan_started
+                if not scan_report.requested:
+                    print(
+                        f"the {scan_report.region} universe answered no symbols "
+                        f"(rows={scan_report.rows}, issuers={scan_report.issuers}); "
+                        "nothing to build",
+                        file=sys.stderr,
+                    )
+                    return 2
             else:
-                provider = ladder
-            builder = FundamentalsSnapshotBuilder(
-                ladder=provider, store=store, ttl_s=TTL_S
-            )
-            reporter = (
-                progress_reporter(every=args.progress_every, started=time.monotonic())
-                if args.progress_every
-                else None
-            )
-            report = await builder.build_many(
-                symbols,
-                concurrency=args.concurrency,
-                skip_fresh=not args.refresh,
-                time_budget_s=args.time_budget or None,
-                on_result=reporter,
-            )
+                if ladder is None:
+                    from app.runtime import Runtime
+
+                    provider: Any = Runtime(settings).ladder()
+                else:
+                    provider = ladder
+                builder = FundamentalsSnapshotBuilder(
+                    ladder=provider, store=store, ttl_s=TTL_S
+                )
+                reporter = (
+                    progress_reporter(every=args.progress_every, started=time.monotonic())
+                    if args.progress_every
+                    else None
+                )
+                report = await builder.build_many(
+                    symbols,
+                    concurrency=args.concurrency,
+                    skip_fresh=not args.refresh,
+                    time_budget_s=args.time_budget or None,
+                    on_result=reporter,
+                )
         coverage = await store.coverage()
     except FundamentalsSchemaError as exc:
         print(f"{exc}\nhint: {migration_hint(db_path)}", file=sys.stderr)
@@ -491,10 +687,12 @@ async def run(
             "revision": {"before": before, "after": revision},
             "ttl_s": TTL_S,
             "mode": "universe" if args.universe else "symbols",
+            "source": source,
             # A summary, not 3,000 symbols: the plan names the sample and the
             # count; the store is what holds the rest.
-            "symbols": None if plan is not None else (symbols or None),
+            "symbols": None if plan is not None or scan_report is not None else (symbols or None),
             "universe": None,
+            "scan": None,
             "coverage": coverage,
         }
         if plan is not None:
@@ -502,11 +700,27 @@ async def run(
             if scan_elapsed is not None:
                 universe_document["scan_elapsed_s"] = scan_elapsed
             document["universe"] = universe_document
+        if scan_report is not None:
+            scan_document = scan_report.as_dict()
+            if scan_elapsed is not None:
+                scan_document["scan_elapsed_s"] = scan_elapsed
+            document["scan"] = scan_document
+            document["elapsed_s"] = scan_report.elapsed_s
         if report is not None:
             document["build"] = report.as_dict()
             document["elapsed_s"] = elapsed_s
             document["eta_s"] = eta_s
         print(json.dumps(document, indent=2, sort_keys=True, allow_nan=False))
+    elif scan_report is not None:
+        print(
+            render_scan_human(
+                db_path=db_path,
+                revision=revision,
+                scan=scan_report,
+                coverage=coverage,
+                scan_elapsed_s=scan_elapsed,
+            )
+        )
     else:
         print(
             render_human(
@@ -521,6 +735,12 @@ async def run(
             )
         )
 
+    if scan_report is not None:
+        # Every symbol either has a row (written or kept) or is a hole: the
+        # holes decide the exit code, exactly like the ladder path.
+        if scan_report.empty or scan_report.missing:
+            return 1 if (scan_report.written or scan_report.kept) else 2
+        return 0 if scan_report.requested else 2
     if report is None:
         return 0 if coverage["fresh"] else 2
     if report.failed or report.empty:
@@ -534,7 +754,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description=(
             "Build 24 h fundamentals snapshots (22 canonical cells) for a "
             "configurable symbol list, or for the US universe via --universe us, "
-            "through the runtime provider ladder."
+            "through the runtime provider ladder (--source ladder, one walk per "
+            "symbol) or from one TradingView scan (--source scan, 16 cells)."
         ),
     )
     parser.add_argument(
@@ -551,6 +772,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "bulk mode: take the symbol list from the TradingView region scan "
             "(P11C; 'us' is the stock universe)"
+        ),
+    )
+    parser.add_argument(
+        "--source",
+        choices=SOURCE_CHOICES,
+        default=DEFAULT_SOURCE,
+        help=(
+            "where the 22 cells come from: 'ladder'/'yahoo' walks the provider "
+            "once per symbol (22 cells, rate-limited); 'scan' reads one "
+            "TradingView scan for the whole universe (P11D fallback: 16 cells, "
+            "no per-symbol walk; requires --universe)"
         ),
     )
     parser.add_argument(
