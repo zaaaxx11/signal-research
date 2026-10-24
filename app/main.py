@@ -15,11 +15,12 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api import health, market, markets, providers, requests, screens
+from app.api import health, market, markets, news, providers, requests, screens
 from app.auth import ApiError
 from app.config import Settings, get_settings
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
+from app.news.service import build_news_service
 from app.runtime import Runtime
 from app.sources.api import router as sources_router
 
@@ -72,6 +73,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: ``GET /market/quote`` builds its engine on first use (settings are the
     #: only input); tests and operators may replace it without a code path.
     application.state.quote_engine = None
+    #: ``GET /news/{symbol}`` (P12): one service per application, so its
+    #: fifteen-minute cache is a property of the process and not of a request.
+    #: Built here rather than in the route for the same reason the verifiers are
+    #: built in the runtime: a deployment's provider set comes from settings, and
+    #: a test replaces the object on ``app.state`` instead of patching a global.
+    application.state.news = build_news_service(runtime.settings)
 
     application.include_router(health.router)
     mount_router(application, market.router)
@@ -79,6 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(requests.router)
     application.include_router(providers.router)
     mount_router(application, screens.router)
+    mount_router(application, news.router)
     mount_router(application, sources_router)
 
     @application.exception_handler(ApiError)

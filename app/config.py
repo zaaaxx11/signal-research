@@ -64,6 +64,18 @@ class Settings(BaseSettings):
     #: like a crawl without buying latency the display can use.
     screen_html_verify: bool = True
     screen_html_verify_concurrency: int = Field(default=3, ge=1, le=3)
+    #: ``GET /news/{symbol}`` (P12) consults Google News RSS and GDELT. A
+    #: headline set is a slow picture, so the document — not the request — is
+    #: cached for fifteen minutes: two reads inside the window send zero
+    #: requests, which is also what keeps the fleet inside GDELT's documented
+    #: one-request-per-five-seconds budget. ``limit`` is the default panel size
+    #: (Finviz parity: eight per ticker) and ``timeout_s`` the per-provider HTTP
+    #: read timeout. ``gdelt_enabled=false`` keeps the RSS leg only; the
+    #: consolidated document never grows a per-source column either way.
+    news_cache_ttl_s: int = Field(default=900, gt=0)
+    news_limit: int = Field(default=8, ge=1, le=50)
+    news_timeout_s: float = Field(default=10.0, gt=0)
+    news_gdelt_enabled: bool = True
 
 
 def get_settings() -> Settings:

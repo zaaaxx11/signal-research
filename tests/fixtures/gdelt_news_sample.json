@@ -1,0 +1,70 @@
+{
+  "query": "\"RHI stock\"",
+  "mode": "artlist",
+  "format": "json",
+  "maxrecords": 25,
+  "timespan": "7d",
+  "count": 6,
+  "articles": [
+    {
+      "url": "https://www.reuters.com/markets/rhi-quarterly-results-beat",
+      "url_mobile": "",
+      "title": "Robert Half beats quarterly estimates as hiring stabilises",
+      "seendate": "20261023T141500Z",
+      "socialimage": "https://assets.reuters.com/rhi.jpg",
+      "domain": "reuters.com",
+      "language": "English",
+      "sourcecountry": "United States"
+    },
+    {
+      "url": "https://news.google.com/rss/articles/CBMiA1JV?oc=5",
+      "url_mobile": "",
+      "title": "Robert Half raises full-year outlook",
+      "seendate": "20261023T120000Z",
+      "socialimage": "",
+      "domain": "reuters.com",
+      "language": "English",
+      "sourcecountry": "United States"
+    },
+    {
+      "url": "https://www.bloomberg.com/news/rhi-staffing-demand",
+      "url_mobile": "https://www.bloomberg.com/amp/rhi-staffing-demand",
+      "title": "Staffing demand cools for Robert Half - Bloomberg",
+      "seendate": "20261022T090000Z",
+      "socialimage": "",
+      "domain": "bloomberg.com",
+      "language": "English",
+      "sourcecountry": "United States"
+    },
+    {
+      "url": "",
+      "url_mobile": "",
+      "title": "An article the wire never linked, so it cannot be read",
+      "seendate": "20261022T080000Z",
+      "socialimage": "",
+      "domain": "example.com",
+      "language": "English",
+      "sourcecountry": "United States"
+    },
+    {
+      "url": "https://www.cnbc.com/2026/10/21/rhi-analyst-day.html",
+      "url_mobile": "",
+      "title": "Analysts turn cautious on staffing stocks after analyst day",
+      "seendate": "",
+      "socialimage": "",
+      "domain": "cnbc.com",
+      "language": "English",
+      "sourcecountry": "United States"
+    },
+    {
+      "url": "https://www.reuters.com/markets/rhi-quarterly-results-beat",
+      "url_mobile": "",
+      "title": "Robert Half beats quarterly estimates as hiring stabilises",
+      "seendate": "20261023T141500Z",
+      "socialimage": "",
+      "domain": "reuters.com",
+      "language": "English",
+      "sourcecountry": "United States"
+    }
+  ]
+}
