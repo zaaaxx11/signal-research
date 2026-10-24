@@ -272,7 +272,7 @@ def issuer_key(description: Any, market_cap: float | None) -> tuple[str, int]:
     import re
 
     suffix = re.compile(
-        r"\s+(?:class\s+[a-z]|temp|temporary|reg|registered|adr|gdr|"
+        r"\s+(?:class\s+[a-z]|new|temp|temporary|reg|registered|adr|gdr|"
         r"spon\s+adr|sponsored\s+adr)\b\.?$"
     )
     while True:

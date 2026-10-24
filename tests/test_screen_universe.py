@@ -133,6 +133,16 @@ def test_us_tab_contains_us_listings_only() -> None:
     )
 
 
+def test_share_class_name_suffixes_collapse_to_one_issuer() -> None:
+    """BRK.A and BRK.B are one issuer; the ``New`` class label is not a company."""
+
+    from app.screen.universe import issuer_key
+
+    assert issuer_key("Berkshire Hathaway Inc. New", 1_160_000_000_000) == issuer_key(
+        "Berkshire Hathaway Inc.", 1_160_000_000_000
+    ), "a 'New' share-class label must not create a second Berkshire issuer"
+
+
 def test_global_tab_is_ex_us_and_drops_issuers_the_us_tab_owns() -> None:
     rows = _universe("global")
     symbols = {row["symbol"] for row in rows}
