@@ -505,3 +505,39 @@ async def test_live_fetch_accepts_four_capabilities_and_fills_their_cells() -> N
     assert {"last_price", "quote_as_of"} <= fields, (
         f"P1 needs the quote observations, got {sorted(fields)}"
     )
+
+
+def test_fundamentals_fetch_retries_one_authwall(monkeypatch: Any) -> None:
+    """A stale crumb is retried once; a second 401 remains the answer."""
+
+    import asyncio
+
+    import httpx2
+
+    from tests._phase2 import MockWeb, install_web
+
+    web = MockWeb()
+    calls: list[str] = []
+
+    def responder(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path
+        if "quoteSummary" in path:
+            calls.append(str(request.url))
+            if len(calls) == 1:
+                return httpx2.Response(401, json={"error": "Invalid Crumb"})
+            return httpx2.Response(200, json=W.quote_summary())
+        if path.endswith("/v1/test/getcrumb"):
+            return httpx2.Response(200, text="crumb-token")
+        return httpx2.Response(200, text="")
+
+    web.route("yahoo", responder)
+    install_web(monkeypatch, web)
+
+    instance = adapter()
+    raw = asyncio.run(
+        instance.fetch(Capability.FUNDAMENTALS, INSTRUMENT, set(CANONICAL_COLUMNS_V1))
+    )
+
+    assert int(raw.get("status") or 0) == 200
+    assert len(calls) == 2, f"expected one retry after the 401, got {len(calls)} quoteSummary calls"
+    assert "/quoteSummary/AAPL" in calls[-1]

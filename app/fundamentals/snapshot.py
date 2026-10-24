@@ -32,6 +32,13 @@ answers it with a fixed vocabulary:
   filled cells of the rows that are still fresh, per field, and reports the
   source histogram and the fresh/expired split. A schema with 22 keys is not a
   coverage claim; this function is what can be quoted.
+* **A batch can be bounded by time.** ``build_many(..., time_budget_s=...)``
+  stops *starting* walks when the budget expires; the untouched tail is
+  ``deferred`` — not failed, not written — and ``skip_fresh`` resumes it on the
+  next run. Walks already in flight are drained, so ``requests`` counts what the
+  provider was really asked for. This is the P11C bulk mode's stop line; the
+  symbols themselves come from :mod:`app.fundamentals.universe`, which scans the
+  screen engine's own US universe instead of keeping a second list.
 
 The ladder is injected (a :class:`FundamentalsLadder`, i.e. anything with
 ``async fetch(capability, instrument, fields)``). The builder never constructs a
@@ -46,10 +53,11 @@ import asyncio
 import json
 import logging
 import math
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -417,11 +425,21 @@ class BuildResult:
 
 @dataclass(frozen=True, slots=True)
 class BuildReport:
-    """One batch build: every result plus the counters that make it auditable."""
+    """One batch build: every result plus the counters that make it auditable.
+
+    ``deferred`` is the tail a time budget did not start: those symbols have no
+    result, were not written, and are exactly what the next run picks up. The
+    arithmetic is closed by construction — ``requested == attempted +
+    len(deferred)`` — so a bulk run can say "1,200 of 4,000 built, 2,800
+    deferred" without pretending the untouched tail failed or succeeded.
+    """
 
     results: tuple[BuildResult, ...]
     ttl_s: int
     dropped: tuple[str, ...] = ()
+    #: Symbols the batch never started (time budget exhausted). No row was
+    #: written for them, and no provider request was spent on them.
+    deferred: tuple[str, ...] = ()
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -430,6 +448,14 @@ class BuildReport:
 
     @property
     def requested(self) -> int:
+        """Everything the batch was asked to build: attempts plus the deferred tail."""
+
+        return len(self.results) + len(self.deferred)
+
+    @property
+    def attempted(self) -> int:
+        """Symbols a walk was actually started for."""
+
         return len(self.results)
 
     @property
@@ -472,9 +498,35 @@ class BuildReport:
 
         return sum(item.requests for item in self.results)
 
+    @property
+    def elapsed_s(self) -> float | None:
+        """Wall seconds the batch took, when both clocks were recorded."""
+
+        if self.started_at is None or self.finished_at is None:
+            return None
+        return max(0.0, (self.finished_at - self.started_at).total_seconds())
+
+    @property
+    def eta_s(self) -> float | None:
+        """Seconds the deferred tail would still need at this batch's own rate.
+
+        A projection, not a promise: it divides the elapsed time by the symbols
+        that were attempted and multiplies by the ones that were not. ``0`` when
+        nothing was deferred, ``None`` when there is no rate to project from
+        (nothing attempted, or no clocks).
+        """
+
+        if not self.deferred:
+            return 0.0 if self.finished_at is not None else None
+        elapsed = self.elapsed_s
+        if elapsed is None or self.attempted <= 0:
+            return None
+        return (elapsed / self.attempted) * len(self.deferred)
+
     def as_dict(self) -> dict[str, Any]:
         document: dict[str, Any] = {
             "requested": self.requested,
+            "attempted": self.attempted,
             "built": self.built,
             "written": self.written,
             "complete": self.complete,
@@ -486,12 +538,16 @@ class BuildReport:
             "requests": self.requests,
             "ttl_s": self.ttl_s,
             "dropped": list(self.dropped),
+            "deferred": list(self.deferred),
             "results": [item.as_dict() for item in self.results],
         }
         if self.started_at is not None:
             document["started_at"] = iso(self.started_at)
         if self.finished_at is not None:
             document["finished_at"] = iso(self.finished_at)
+        if self.elapsed_s is not None:
+            document["elapsed_s"] = self.elapsed_s
+            document["eta_s"] = self.eta_s
         return document
 
 
@@ -812,6 +868,7 @@ class FundamentalsSnapshotBuilder:
         store: SqliteFundamentalsStore | None = None,
         ttl_s: int = TTL_S,
         clock: Any | None = None,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         if ttl_s <= 0:
             raise ValueError("ttl_s must be positive")
@@ -819,6 +876,10 @@ class FundamentalsSnapshotBuilder:
         self.store = store
         self.ttl_s = int(ttl_s)
         self._clock = clock or utc_now
+        #: The budget's clock. Wall clocks are for stamps; a *time budget* is
+        #: elapsed real time, so the batch measures it on a monotonic clock.
+        #: Tests inject one so a budget assertion is arithmetic, not a sleep.
+        self._monotonic = monotonic or time.monotonic
 
     async def build(self, symbol: str, *, skip_fresh: bool = False) -> BuildResult:
         """Build (and store) one symbol; a provider failure is a status, not a raise.
@@ -935,6 +996,8 @@ class FundamentalsSnapshotBuilder:
         *,
         concurrency: int = 4,
         skip_fresh: bool = True,
+        time_budget_s: float | None = None,
+        on_result: Callable[[BuildResult, int, int], None] | None = None,
     ) -> BuildReport:
         """Build a bounded batch, one row per distinct symbol, input order kept.
 
@@ -942,10 +1005,27 @@ class FundamentalsSnapshotBuilder:
         universe): ``concurrency`` caps the in-flight walks because each walk is
         one provider request and the display only needs twenty rows. Blank tokens
         are reported in ``dropped`` instead of being looked up as ``""``.
+
+        ``time_budget_s`` is the bulk mode's stop line, measured on the monotonic
+        clock rather than the store's injected clock (a budget is real time). It
+        stops **starting** walks: the queued symbols are cancelled (they never
+        sent a request), reported in :attr:`BuildReport.deferred`, and never
+        written, so the next run resumes them through ``skip_fresh``. Walks
+        already in flight are drained rather than cancelled — their request was
+        spent, so their result is kept and counted, which costs at most one walk
+        per concurrency slot past the budget. ``0``/``None`` is no budget.
+
+        ``on_result`` is called once per completed symbol with
+        ``(result, completed, total)``, where ``total`` is the batch size; it is
+        the progress seam and must not raise (the CLI's printer never does).
         """
 
         if concurrency < 1:
             raise ValueError("concurrency must be at least 1")
+        if time_budget_s is not None and float(time_budget_s) < 0:
+            raise ValueError(
+                f"time_budget_s must be non-negative, got {time_budget_s!r}"
+            )
         wanted: list[str] = []
         seen: set[str] = set()
         dropped: list[str] = []
@@ -962,16 +1042,90 @@ class FundamentalsSnapshotBuilder:
 
         started = self._clock()
         limiter = asyncio.Semaphore(concurrency)
+        deadline = (
+            self._monotonic() + float(time_budget_s) if time_budget_s else None
+        )
+
+        started_symbols: set[str] = set()
 
         async def one(symbol: str) -> BuildResult:
             async with limiter:
+                started_symbols.add(symbol)
                 return await self.build(symbol, skip_fresh=skip_fresh)
 
-        results = await asyncio.gather(*(one(symbol) for symbol in wanted))
+        tasks: dict[asyncio.Task[BuildResult], str] = {
+            asyncio.create_task(one(symbol)): symbol for symbol in wanted
+        }
+        completed: dict[str, BuildResult] = {}
+        pending: set[asyncio.Task[BuildResult]] = set(tasks)
+        stopped = False
+
+        def record(result: BuildResult) -> None:
+            completed[result.symbol] = result
+            if on_result is not None:
+                on_result(result, len(completed), len(wanted))
+
+        async def drain(*, keep_started: bool) -> None:
+            """Unblock the batch: cancel the queued walks, keep the in-flight ones.
+
+            A walk that already started has spent its request; cancelling it
+            throws away a result the batch paid for. Draining it instead keeps
+            the counters honest (``requests`` is what the provider was actually
+            asked for) and costs at most one walk per concurrency slot past the
+            budget. A queued walk never started, so cancelling it is free.
+            """
+
+            queued = [
+                task for task in pending
+                if not (keep_started and tasks[task] in started_symbols)
+            ]
+            held = [task for task in pending if task not in queued]
+            for task in queued:
+                task.cancel()
+            if queued:
+                await asyncio.gather(*queued, return_exceptions=True)
+            if held:
+                outcomes = await asyncio.gather(*held, return_exceptions=True)
+                for task, outcome in zip(held, outcomes):
+                    if isinstance(outcome, BuildResult):
+                        record(outcome)
+                    elif not isinstance(outcome, asyncio.CancelledError):
+                        logger.warning(
+                            "a drained fundamentals walk failed for %s: %r",
+                            tasks[task],
+                            outcome,
+                        )
+
+        try:
+            while pending:
+                timeout: float | None = None
+                if deadline is not None:
+                    timeout = deadline - self._monotonic()
+                    if timeout <= 0:
+                        # The budget expired with walks still queued.
+                        stopped = True
+                        break
+                finished, pending = await asyncio.wait(
+                    pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+                )
+                if not finished:
+                    stopped = True
+                    break
+                for task in finished:
+                    record(task.result())
+        finally:
+            if pending:
+                await drain(keep_started=stopped)
+
+        results = tuple(
+            completed[symbol] for symbol in wanted if symbol in completed
+        )
+        deferred = tuple(symbol for symbol in wanted if symbol not in completed)
         return BuildReport(
-            results=tuple(results),
+            results=results,
             ttl_s=self.ttl_s,
             dropped=tuple(dropped),
+            deferred=deferred,
             started_at=started,
             finished_at=self._clock(),
         )
