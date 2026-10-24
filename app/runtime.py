@@ -37,7 +37,7 @@ from app.providers.ladder import Ladder
 from app.providers.registry import REGISTRY, capability_matrix, provider_named
 from app.resolve.reference import Reference
 from app.resolve.seed import seed_reference
-from app.screen.deep import ScreenDeepEngine, build_screen_deep_engine
+from app.screen.deep import DEFAULT_CAPABILITIES, ScreenDeepEngine, build_screen_deep_engine
 from app.screen.repository import SqliteScreenRepository
 from app.worker.runner import process_job
 
@@ -65,9 +65,14 @@ class Runtime:
         self.screen_repository = SqliteScreenRepository(self.settings.db_path)
         #: The deep half of the screen, injected here (never constructed inside
         #: a route): the export bundle calls it once with the 20 display symbols.
-        #: Defaults to a quote-rung projection over this runtime's own ladder;
-        #: tests replace it to record exactly what was enriched.
-        self.screen_deep_engine: ScreenDeepEngine = build_screen_deep_engine(self.ladder)
+        #: Defaults to quote + EOD + fundamentals + options over this runtime's
+        #: own ladder — the four capabilities PLAN-screen.md §6 budgets as
+        #: "20 symbols × 4 capability ≈ 80 requests". The quote is the row's
+        #: existence; the other three fill cells and fail in isolation.
+        #: Tests replace it to record exactly what was enriched.
+        self.screen_deep_engine: ScreenDeepEngine = build_screen_deep_engine(
+            self.ladder, capabilities=DEFAULT_CAPABILITIES
+        )
         #: Breaker bookkeeping, shared by every ladder this process builds.
         self.health = ProviderHealthStore(self.settings.db_path)
         #: L0 observation cache: process-lifetime, TTL + session-date keyed.

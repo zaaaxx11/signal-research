@@ -10,7 +10,9 @@ asymmetric (PLAN-screen.md §4, §8 #5-#6):
 * **``top20``** is the 92 canonical columns for the 20 displayed rows only. The
   deep engine is called **once**, with the display symbols in rank order — the
   contract that keeps a full-universe deep export (81k × 4 provider calls)
-  impossible to request by accident.
+  impossible to request by accident. Its manifest's ``deep_rows`` is that batch
+  size (20), so a symbol the engine could not enrich shows up as
+  ``row_count < deep_rows`` instead of a quietly shorter promise.
 
 Each scope writes every requested format plus one manifest that hashes the real
 bytes on disk (``files[*].sha256``) and declares ``coverage.ratio == 1.0`` only
@@ -480,7 +482,12 @@ async def export_bundle(
         formats=requested,
         directory=root,
         prefix=prefix,
-        deep_rows=len(deep),
+        # The size of the batch the deep pass was *asked* to cover, not the
+        # number of rows that came back: a symbol the engine could not enrich
+        # then shows up as ``row_count < deep_rows`` instead of disappearing
+        # from the manifest. For a full display this is DEEP_ROWS == 20, the
+        # number PLAN-screen.md §4 promises.
+        deep_rows=len(symbols),
         screen=screen,
         audit=audit,
         audit_provenance=audit_provenance,
