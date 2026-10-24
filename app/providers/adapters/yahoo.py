@@ -549,9 +549,21 @@ class YahooAdapter(HttpAdapter):
             f"?modules={','.join(QUOTE_SUMMARY_MODULES)}"
             "&corsDomain=finance.yahoo.com&formatted=false"
         )
-        return await self._get(
+        first = await self._get(
             client, self._with_crumb(url, crumb), Capability.FUNDAMENTALS
         )
+        if int(first.get("status") or 0) in (401, 403):
+            # Yahoo occasionally drops the cookie/crumb pair between the warm-up
+            # and the data request (observed as a per-symbol authwall even at
+            # concurrency 1). A stale crumb is auth plumbing, not a verdict about
+            # the symbol: one fresh handshake is worth the retry. The bulk
+            # snapshot treats a second 401 as a failed build, never as zero cells.
+            crumb = await self._crumb(client)
+            if crumb:
+                first = await self._get(
+                    client, self._with_crumb(url, crumb), Capability.FUNDAMENTALS
+                )
+        return first
 
     async def _fetch_options(self, client: Any, instrument: InstrumentRef) -> dict[str, Any]:
         """Expiry list first, then the dated chain (the only way to reach ~30 DTE)."""
