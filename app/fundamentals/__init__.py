@@ -1,7 +1,7 @@
 """Fundamentals: one 24-hour snapshot per symbol, fed by the provider ladder.
 
 The package is deliberately small. P11A ships the *foundation* the fundamentals
-filters will read, not the forty-six-filter catalogue:
+filters will read, not the forty-three-filter catalogue:
 
 ``snapshot``
     22 canonical cells per symbol (``app.contracts``' ``Fundamentals`` +

@@ -10,36 +10,45 @@ hand-written list of filters that "look about right". The catalogue answers one
 question — does Ztockz accept the same filter keys as Finviz — and it does not
 claim that the metric behind every key is already sourced.
 
-**Only a sourced metric gets a field.** ``FilterSpec.field`` names the canonical
-row column a key filters, and it is ``None`` for the keys no row carries.
-**Thirty-six keys map today**: the seven light columns (exchange, sector,
-country, market cap, price, change %, current volume) plus twenty-nine parity
+**Only a metric the product can answer gets a field.** ``FilterSpec.field`` names
+the canonical row column a key filters, and it is ``None`` for the keys no row
+carries. **Thirty-nine keys map today**: the seven light columns (exchange,
+sector, country, market cap, price, change %, current volume), twenty-nine parity
 metrics that :data:`app.screen.universe.PARITY_FIELDS` copies from the bulk scan
 — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current, quick and
 debt/equity ratios, the three margins, share count and float, average/relative
 volume, target price, the next earnings date, industry, dividend yield, RSI, the
-three SMAs, beta, gap and ATR.
+three SMAs, beta, gap and ATR — and three **derived** columns
+(:data:`app.screen.universe.DERIVED_FIELDS`): Finviz's 1..5 analyst score
+(``3 - 2 * recommendation``), the change from the session open
+(``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``) and the percent
+distance from the 52-week high (``(price / high_52w - 1) * 100``).
 
-The rule for the twenty-nine is **one quantity, one column, and the provider's
-window or unit in the name**. ``ta_beta`` therefore resolves to ``beta_1y`` (the
-provider's one-year window; Finviz's beta is five-year monthly) and ``sh_avgvol``
-to ``avg_volume_30d``; a field that claimed ``beta`` or ``avg_volume`` would
-assert a methodology the row does not have. ``ta_averagetruerange`` resolves to
-``atr_14`` and ``ta_gap`` to ``gap_pct`` (signed percent: ``-0.57`` is a 0.57%
-gap down), while ``fa_div`` resolves to ``dividend_yield``, which is the
-provider's percent (``0.47`` = 0.47%), not a fraction. A key is *not* mapped
-when no column measures it, when one key spans several columns (``ta_perf``
-covers ten windows, ``ta_volatility`` two), when the provider's unit differs
-from Finviz's in a way a name cannot state (``ta_highlow52w`` is a percent
-distance and the row carries absolute ``high_52w``/``low_52w``; ``Recommend.All``
-is a -1..1 score against Finviz's 1..5, and inverting it would mean inventing a
-derived column), or when the provider's column answers ``null`` for **every**
-row — the live probe returned no values at all for ``price_earnings_forward``,
-``price_sales_ttm``, ``short_float`` and ``ipo_date``, and a filter on a column
-that is always null could only return an empty screen. Mapping those would let a
-caller read a different question's answer, or an empty one, as parity; the
-forty-six refusals in :mod:`app.screen.filter_fields` name the missing metric
-instead.
+The rule for the twenty-nine copies is **one quantity, one column, and the
+provider's window or unit in the name**. ``ta_beta`` therefore resolves to
+``beta_1y`` (the provider's one-year window; Finviz's beta is five-year monthly)
+and ``sh_avgvol`` to ``avg_volume_30d``; a field that claimed ``beta`` or
+``avg_volume`` would assert a methodology the row does not have.
+``ta_averagetruerange`` resolves to ``atr_14`` and ``ta_gap`` to ``gap_pct``
+(signed percent: ``-0.57`` is a 0.57% gap down), while ``fa_div`` resolves to
+``dividend_yield``, which is the provider's percent (``0.47`` = 0.47%), not a
+fraction.
+
+The three derived columns are the *documented exception* to "copy, never
+compute", and they are allowed only because each is an identity over cells the
+row already has (no estimate, no invented denominator), requests no new provider
+column, and carries its scale or direction in the name: ``recom_finviz`` is
+Finviz's scale, not the provider's -1..+1 ``recommendation``;
+``change_from_open`` names its base; ``pct_from_52w_high`` names its one
+direction — the low side stays the absolute ``low_52w``, and no low-side distance
+is invented. A key is *not* mapped when nothing measures it, when one key spans
+several columns (``ta_perf`` covers ten windows, ``ta_volatility`` two), or when
+the provider's column answers ``null`` for **every** row — the live probe
+returned no values at all for ``price_earnings_forward``, ``price_sales_ttm``,
+``short_float`` and ``ipo_date``, and a filter on a column that is always null
+could only return an empty screen. Mapping those would let a caller read a
+different question's answer, or an empty one, as parity; the forty-three
+refusals in :mod:`app.screen.filter_fields` name the missing metric instead.
 
 **The DSL is field/op/value, and unknown never passes.** ``compile_filter``
 rejects an unknown field, an unknown operator and an operator that cannot work
@@ -77,9 +86,10 @@ UI_TYPES: frozenset[str] = frozenset(
 )
 
 #: Canonical row field → comparison kind. Every field here is carried by a real
-#: row: the thirteen light columns, plus the parity metrics a bulk scan copies
-#: from the provider (:data:`app.screen.universe.PARITY_FIELDS`). A filter may not
-#: name a metric that no row carries — that is what
+#: row: the thirteen light columns, the parity metrics a bulk scan copies from the
+#: provider (:data:`app.screen.universe.PARITY_FIELDS`), and the three derived
+#: columns computed from those cells (:data:`app.screen.universe.DERIVED_FIELDS`).
+#: A filter may not name a metric that no row carries — that is what
 #: :mod:`app.screen.filter_fields` refuses instead of ignoring.
 FIELDS: Mapping[str, str] = MappingProxyType(
     {
@@ -134,9 +144,13 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "avg_volume_30d": "number",
         "rel_volume_10d": "number",
         # -- analyst and event data
-        # TradingView's own -1..1 mean rating (not Finviz's 1..5 score), so no
-        # Finviz key maps to it: a Finviz-scale value would match nothing.
+        # TradingView's own -1..1 mean rating (not Finviz's 1..5 score); the
+        # Finviz-scale column is `recom_finviz` below.
         "recommendation": "number",  # Recommend.All, +1 = strong buy, -1 = sell
+        # Finviz's 1..5 score, derived: 3 - 2 * recommendation (+1 -> 1, 0 -> 3,
+        # -1 -> 5), no rounding. The scale is in the name because a second
+        # recommendation column on another scale would otherwise be unreadable.
+        "recom_finviz": "number",  # derived from Recommend.All
         "target_price": "number",
         "earnings_date": "number",  # provider epoch seconds, often null
         "listing_date": "number",  # ipo_date, epoch seconds, null on every live row
@@ -148,8 +162,16 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "beta_1y": "number",  # one-year window; Finviz's beta is five-year
         "high_52w": "number",
         "low_52w": "number",
+        # Percent distance from the 52-week high: 0 at the high, negative below
+        # it. Derived — and one direction only; the low side stays the absolute
+        # low_52w above (see app.screen.derived).
+        "pct_from_52w_high": "number",
         # Percent, signed: -0.57 = opened 0.57% below the previous close.
         "gap_pct": "number",  # gap
+        # Percent from the session open to the close, derived from
+        # price/change_pct/gap_pct; the previous close cancels, so no open
+        # column is needed or requested.
+        "change_from_open": "number",
         # Average true range (14 sessions) in price units, not a percent.
         "atr_14": "number",  # ATR
         "volatility_d": "number",
@@ -679,7 +701,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Analyst Recom.",
         "descriptive",
         "modalSelect",
-        None,
+        "recom_finviz",
         ("", "strongbuy", "buybetter", "buy", "holdbetter", "hold", "holdworse", "sell",
          "sellworse", "strongsell", "modal"),
     ),
@@ -1384,7 +1406,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Change from Open",
         "technical",
         "floatRangeSelect",
-        None,
+        "change_from_open",
         ("", "u", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8", "u9", "u10", "u15", "u20",
          "d", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "d15",
          "d20", "frange"),
@@ -1414,7 +1436,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "52-Week High/Low",
         "technical",
         "select",
-        None,
+        "pct_from_52w_high",
         ("", "nh", "nl", "b5h", "b10h", "b15h", "b20h", "b30h", "b40h", "b50h", "b60h",
          "b70h", "b80h", "b90h", "b0to3h", "b0to5h", "b0to10h", "a5h", "a10h",
          "a15h", "a20h", "a30h", "a40h", "a50h", "a60h", "a70h", "a80h", "a90h",

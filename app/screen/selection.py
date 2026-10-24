@@ -898,8 +898,8 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "key": {
                     "type": "string",
                     "description": (
-                        "One of the 82 Finviz filter keys. The 36 that filter a "
-                        "row column today, and the 46 that are refused with their "
+                        "One of the 82 Finviz filter keys. The 39 that filter a "
+                        "row column today, and the 43 that are refused with their "
                         "reason, are listed in x-filter-keys."
                     ),
                 },

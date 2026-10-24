@@ -38,6 +38,7 @@ from app.screen.filters import (
     parse_filters,
 )
 from app.screen.universe import (
+    DERIVED_FIELDS,
     MIN_MARKET_CAP_USD,
     PARITY_FIELDS,
     UNIVERSE_COLUMNS,
@@ -202,6 +203,10 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "fa_div": "dividend_yield",
         "ta_gap": "gap_pct",
         "ta_averagetruerange": "atr_14",
+        # -- derived from the parity cells above, no new scan column (P11B)
+        "an_recom": "recom_finviz",
+        "ta_changeopen": "change_from_open",
+        "ta_highlow52w": "pct_from_52w_high",
     }, (
         "a filter key may only name a column a row really carries (a light column "
         f"or a parity metric); got {mapped}"
@@ -210,15 +215,16 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         f"catalogue names fields with no comparison kind: {set(mapped.values()) - set(FIELDS)}"
     )
     # The other half of the claim: a field a key filters must be a field a row
-    # can carry — a light column or a parity metric copied from the scan.
-    carried = set(UNIVERSE_COLUMNS) | set(PARITY_FIELDS.values())
+    # can carry — a light column, a parity metric copied from the scan, or a
+    # derived column computed from those cells.
+    carried = set(UNIVERSE_COLUMNS) | set(PARITY_FIELDS.values()) | set(DERIVED_FIELDS)
     assert set(mapped.values()) <= carried, (
         "filter keys point at fields no row carries: "
         f"{sorted(set(mapped.values()) - carried)}"
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 46
+    assert len(unsourced) == 82 - len(mapped) == 43
     assert all(not FILTER_CATALOG[key].is_available for key in unsourced), (
         "a key without a metric must report is_available == False"
     )

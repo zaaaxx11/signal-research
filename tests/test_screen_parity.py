@@ -2,13 +2,14 @@
 
 Contract (PLAN-finviz-parity.md §6 gate 3, "82/82 keys"):
 
-* **36 of the 82 keys filter a real column** — the seven light ones plus the
+* **39 of the 82 keys filter a real column** — the seven light ones, the
   twenty-nine parity metrics a bulk scan copies from TradingView whose columns
   are really filled (the last four added after a live probe answered with
-  values: ``industry``, ``dividends_yield``, ``gap``, ``ATR``) — and each of the
-  36 is proven by running its compiled predicate over a row that carries the
-  field;
-* **the other 46 are refused by name**, with the metric they need, instead of
+  values: ``industry``, ``dividends_yield``, ``gap``, ``ATR``), and the three
+  derived columns computed from those cells (``recom_finviz``,
+  ``change_from_open``, ``pct_from_52w_high``) — and each of the 39 is proven by
+  running its compiled predicate over a row that carries the field;
+* **the other 43 are refused by name**, with the metric they need, instead of
   being applied as a no-op (an ignored filter returns the unfiltered screen as
   if it matched);
 * a parity cell is copied **verbatim**: a number stays a number, a provider
@@ -44,6 +45,7 @@ from app.screen.filters import FIELDS, apply_filters, compile_filter
 from app.screen.scanner import SCAN_COLUMNS, scan_body
 from app.screen.selection import SelectionError, parse_selection, select_rows
 from app.screen.universe import (
+    DERIVED_FIELDS,
     MIN_MARKET_CAP_USD,
     PARITY_COLUMNS,
     PARITY_FIELDS,
@@ -125,20 +127,20 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 82 keys: 36 filter a real column, 46 refuse with a reason
+# 82 keys: 39 filter a real column, 43 refuse with a reason
 # ---------------------------------------------------------------------------
 
 
-def test_the_disposition_is_thirty_six_mapped_and_forty_six_refused() -> None:
-    assert len(mapped_keys()) == 36
-    assert len(unavailable_keys()) == 46
+def test_the_disposition_is_thirty_nine_mapped_and_forty_three_refused() -> None:
+    assert len(mapped_keys()) == 39
+    assert len(unavailable_keys()) == 43
     assert set(mapped_keys()) == set(ROW_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(ROW_FIELDS.values()) <= set(FIELDS)
-    assert set(ROW_FIELDS.values()) <= set(PARITY_FIELDS.values()) | set(UNIVERSE_COLUMNS), (
-        "a key must point at a column a parity row can carry"
-    )
+    assert set(ROW_FIELDS.values()) <= (
+        set(PARITY_FIELDS.values()) | set(UNIVERSE_COLUMNS) | set(DERIVED_FIELDS)
+    ), "a key must point at a column a parity row can carry"
 
 
 @pytest.mark.parametrize("key", list(mapped_keys()))

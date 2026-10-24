@@ -4,10 +4,10 @@ Contract (PLAN-finviz-parity.md §6 gate 3, "filter parity: 82/82 keys; filter
 expression deterministik"):
 
 * every one of the 82 Finviz filter keys either resolves to a row column or is
-  **refused by name** — 36 map (7 light columns + 29 parity metrics the bulk
-  scan copies), 46 are refused with the metric they need, and none is silently
-  ignored, because an ignored filter returns the unfiltered screen as if it
-  matched;
+  **refused by name** — 39 map (7 light columns + 29 parity metrics the bulk scan
+  copies + 3 derived columns computed from them), 43 are refused with the metric
+  they need, and none is silently ignored, because an ignored filter returns the
+  unfiltered screen as if it matched;
 * a selection is one of two modes and never a mixture: ``criteria``
   (filters + sort + limit over a region) or ``symbols`` (tickers + source +
   snapshot_id);
@@ -56,7 +56,7 @@ from app.screen.selection import (
     select_rows,
 )
 from app.screen.snapshot import DISPLAY_ROWS, display_row
-from app.screen.universe import PARITY_FIELDS, REGIONS, build_universe
+from app.screen.universe import DERIVED_FIELDS, PARITY_FIELDS, REGIONS, build_universe
 from tests import _screen as S
 
 FIXTURE = S.FIXTURES / "selection_request.json"
@@ -124,11 +124,12 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 36, (
-        "seven light columns plus the twenty-nine parity metrics a bulk scan "
-        "copies and whose columns are really filled"
+    assert len(mapped_keys()) == 39, (
+        "seven light columns, the twenty-nine parity metrics a bulk scan copies "
+        "and whose columns are really filled, and the three derived columns "
+        "computed from those cells"
     )
-    assert len(unavailable_keys()) == 46
+    assert len(unavailable_keys()) == 43
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -144,11 +145,21 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
     assert {key: ROW_FIELDS[key] for key in light} == light, (
         "the seven light keys must keep the columns the browse row has always had"
     )
-    parity = {key: field for key, field in ROW_FIELDS.items() if key not in light}
+    beyond_light = {key: field for key, field in ROW_FIELDS.items() if key not in light}
+    derived = {key: field for key, field in beyond_light.items() if field in DERIVED_FIELDS}
+    parity = {key: field for key, field in beyond_light.items() if key not in derived}
     assert len(parity) == 29
     assert set(parity.values()) <= set(PARITY_FIELDS.values()), (
-        "every new key must point at a provider column the parity scan copies; "
+        "every copied key must point at a provider column the parity scan requests; "
         f"not carried: {sorted(set(parity.values()) - set(PARITY_FIELDS.values()))}"
+    )
+    assert derived == {
+        "an_recom": "recom_finviz",
+        "ta_changeopen": "change_from_open",
+        "ta_highlow52w": "pct_from_52w_high",
+    }, (
+        "the three derived keys are the documented exception (app.screen.derived): "
+        "an identity over cells the row already carries, not a provider copy"
     )
     for key in mapped_keys():
         assert binding(key).field == FILTER_CATALOG[key].field
@@ -188,14 +199,11 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
     assert "index membership" in (reason_for("idx") or "")
     assert "dividend" in (reason_for("fa_divgrowth") or "")
     assert "ten performance windows" in (reason_for("ta_perf") or "")
-    assert "percent distance" in (reason_for("ta_highlow52w") or "")
-    assert "1-5 analyst score" in (reason_for("an_recom") or ""), (
-        "Recommend.All is a -1..1 score; a Finviz-scale value would match nothing"
-    )
-    assert "3 - 2 * score" in (reason_for("an_recom") or ""), (
-        "the refusal must name the transform a future mapping would need, so it "
-        "reads as a deliberate 'not derived' rather than an oversight"
-    )
+    for key in ("an_recom", "ta_changeopen", "ta_highlow52w"):
+        assert reason_for(key) is None, (
+            f"{key} filters a derived column now (app.screen.derived); a refusal "
+            "here would be a stale disposition"
+        )
     assert "answered null for all" in (reason_for("fa_fpe") or ""), (
         "a column that is null for every row cannot filter: refuse it, do not "
         "return an empty screen as if nothing matched"
@@ -214,8 +222,11 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
         "fa_div",
         "ta_gap",
         "ta_averagetruerange",
+        "an_recom",
+        "ta_changeopen",
+        "ta_highlow52w",
     ):
-        assert reason_for(key) is None, f"{key} filters a parity column; it is not refused"
+        assert reason_for(key) is None, f"{key} filters a row column; it is not refused"
 
 
 def test_no_placeholder_field_is_ever_offered() -> None:

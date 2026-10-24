@@ -1,7 +1,7 @@
 """Fundamentals snapshots — one row per symbol, 24 hours, nulls stay null.
 
 This is the *foundation* the fundamentals filters will read (P11A), not the
-forty-six-filter catalogue. A snapshot answers exactly one question — "what do
+forty-three-filter catalogue. A snapshot answers exactly one question — "what do
 the fundamentals of this symbol look like as of now, and who said so" — and it
 answers it with a fixed vocabulary:
 

@@ -1,802 +1,805 @@
 {
- "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://ztockz.local/schemas/stock-selection-request-v1.json",
- "title": "StockSelectionRequestV1",
- "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 20 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 20-row display never claims to be a 20-stock market.",
- "type": "object",
- "additionalProperties": false,
- "required": [
-  "mode"
- ],
- "properties": {
-  "mode": {
-   "enum": [
-    "criteria",
-    "symbols"
-   ],
-   "description": "Which question is being asked; the two modes share no knobs."
-  },
-  "region": {
-   "enum": [
-    "us",
-    "global",
-    "us_etf"
-   ],
-   "description": "Criteria only: the universe tab to query."
-  },
-  "asset_class": {
-   "enum": [
-    "stock",
-    "etf"
-   ],
-   "default": "stock",
-   "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes — `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
-  },
-  "view": {
-   "enum": [
-    "overview",
-    "valuation",
-    "ownership",
-    "performance",
-    "financial",
-    "technical"
-   ],
-   "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
-  },
-  "criteria": {
-   "type": "object",
-   "additionalProperties": false,
-   "description": "Criteria only: the query itself.",
-   "properties": {
-    "filters": {
-     "type": "array",
-     "items": {
-      "$ref": "#/$defs/filter"
-     },
-     "default": [],
-     "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric — never ignored, because an ignored filter returns the unfiltered screen."
-    },
-    "sort": {
-     "enum": [
-      "market_cap",
-      "turnover",
-      "gainers"
-     ],
-     "default": "market_cap",
-     "description": "The one visible metric the page is ordered by."
-    },
-    "limit": {
-     "type": "integer",
-     "minimum": 1,
-     "default": 20,
-     "description": "Page size. Clamped to 20: a larger value is not an error, it simply cannot widen the display, and the response reports the limit that was applied."
-    }
-   }
-  },
-  "symbols": {
-   "type": "array",
-   "minItems": 1,
-   "uniqueItems": true,
-   "items": {
-    "type": "string",
-    "minLength": 1
-   },
-   "description": "Symbols only: tickers in the order the response should list them. A ticker the universe does not carry is reported in `missing`."
-  },
-  "source": {
-   "enum": [
-    "tradingview"
-   ],
-   "description": "Symbols only: the provenance the snapshot must declare. A source the snapshot was not built from is refused, never relabelled."
-  },
-  "snapshot_id": {
-   "type": "string",
-   "minLength": 1,
-   "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices — the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
-  }
- },
- "allOf": [
-  {
-   "if": {
-    "required": [
-     "mode"
-    ],
-    "properties": {
-     "mode": {
-      "const": "criteria"
-     }
-    }
-   },
-   "then": {
-    "required": [
-     "region",
-     "criteria"
-    ],
-    "not": {
-     "anyOf": [
-      {
-       "required": [
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ztockz.local/schemas/stock-selection-request-v1.json",
+  "title": "StockSelectionRequestV1",
+  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 20 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 20-row display never claims to be a 20-stock market.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "criteria",
         "symbols"
-       ]
-      },
-      {
-       "required": [
-        "source"
-       ]
-      },
-      {
-       "required": [
-        "snapshot_id"
-       ]
+      ],
+      "description": "Which question is being asked; the two modes share no knobs."
+    },
+    "region": {
+      "enum": [
+        "us",
+        "global",
+        "us_etf"
+      ],
+      "description": "Criteria only: the universe tab to query."
+    },
+    "asset_class": {
+      "enum": [
+        "stock",
+        "etf"
+      ],
+      "default": "stock",
+      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes — `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
+    },
+    "view": {
+      "enum": [
+        "overview",
+        "valuation",
+        "ownership",
+        "performance",
+        "financial",
+        "technical"
+      ],
+      "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
+    },
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Criteria only: the query itself.",
+      "properties": {
+        "filters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/filter"
+          },
+          "default": [],
+          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric — never ignored, because an ignored filter returns the unfiltered screen."
+        },
+        "sort": {
+          "enum": [
+            "market_cap",
+            "turnover",
+            "gainers"
+          ],
+          "default": "market_cap",
+          "description": "The one visible metric the page is ordered by."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "Page size. Clamped to 20: a larger value is not an error, it simply cannot widen the display, and the response reports the limit that was applied."
+        }
       }
-     ]
+    },
+    "symbols": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Symbols only: tickers in the order the response should list them. A ticker the universe does not carry is reported in `missing`."
+    },
+    "source": {
+      "enum": [
+        "tradingview"
+      ],
+      "description": "Symbols only: the provenance the snapshot must declare. A source the snapshot was not built from is refused, never relabelled."
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices — the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
     }
-   }
   },
-  {
-   "if": {
-    "required": [
-     "mode"
-    ],
-    "properties": {
-     "mode": {
-      "const": "symbols"
-     }
-    }
-   },
-   "then": {
-    "required": [
-     "symbols",
-     "source",
-     "snapshot_id"
-    ],
-    "not": {
-     "anyOf": [
-      {
-       "required": [
-        "region"
-       ]
-      },
-      {
-       "required": [
-        "criteria"
-       ]
-      }
-     ]
-    }
-   }
-  }
- ],
- "$defs": {
-  "filter": {
-   "type": "object",
-   "additionalProperties": false,
-   "required": [
-    "op",
-    "value"
-   ],
-   "oneOf": [
+  "allOf": [
     {
-     "required": [
-      "key"
-     ]
+      "if": {
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "criteria"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "region",
+          "criteria"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "symbols"
+              ]
+            },
+            {
+              "required": [
+                "source"
+              ]
+            },
+            {
+              "required": [
+                "snapshot_id"
+              ]
+            }
+          ]
+        }
+      }
     },
     {
-     "required": [
-      "field"
-     ]
-    }
-   ],
-   "description": "One predicate: exactly one of `key` (a Finviz filter key, resolved to its row column) or `field` (the column itself), plus an operator and a value.",
-   "properties": {
-    "key": {
-     "type": "string",
-     "description": "One of the 82 Finviz filter keys. The 36 that filter a row column today, and the 46 that are refused with their reason, are listed in x-filter-keys."
-    },
-    "field": {
-     "enum": [
-      "atr_14",
-      "aum_usd",
-      "avg_volume_10d",
-      "avg_volume_30d",
-      "beta_1y",
-      "change_pct",
-      "country",
-      "currency",
-      "current_ratio",
-      "debt_to_equity",
-      "dividend_yield",
-      "earnings_date",
-      "eps_forecast_next_fq",
-      "eps_forecast_next_fy",
-      "ev_ebitda",
-      "exchange",
-      "float_shares",
-      "gap_pct",
-      "gross_margin",
-      "high_52w",
-      "industry",
-      "is_primary",
-      "listing_date",
-      "low_52w",
-      "market_cap_usd",
-      "name",
-      "oper_margin",
-      "pb",
-      "pe_forward",
-      "pe_ttm",
-      "peg",
-      "pfcf",
-      "price",
-      "profit_margin",
-      "ps",
-      "quick_ratio",
-      "recommendation",
-      "rel_volume_10d",
-      "ret_10y",
-      "ret_1m",
-      "ret_1w",
-      "ret_1y",
-      "ret_3m",
-      "ret_5y",
-      "ret_6m",
-      "ret_ytd",
-      "revenue_forecast_next_fy",
-      "roa",
-      "roe",
-      "roic",
-      "rsi_14",
-      "sector",
-      "shares_outstanding",
-      "short_float",
-      "sma_20",
-      "sma_200",
-      "sma_50",
-      "symbol",
-      "target_price",
-      "turnover",
-      "turnover_usd",
-      "volatility_d",
-      "volatility_m",
-      "volatility_w",
-      "volume"
-     ],
-     "description": "A canonical screen row column."
-    },
-    "op": {
-     "enum": [
-      "between",
-      "contains",
-      "eq",
-      "gt",
-      "gte",
-      "in",
-      "lt",
-      "lte",
-      "ne"
-     ]
-    },
-    "value": {
-     "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. Finviz option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
-     "oneOf": [
-      {
-       "type": "number"
+      "if": {
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "symbols"
+          }
+        }
       },
-      {
-       "type": "string"
-      },
-      {
-       "type": "boolean"
-      },
-      {
-       "type": "array",
-       "minItems": 1,
-       "items": {
-        "type": [
-         "number",
-         "string",
-         "boolean"
-        ]
-       }
+      "then": {
+        "required": [
+          "symbols",
+          "source",
+          "snapshot_id"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "region"
+              ]
+            },
+            {
+              "required": [
+                "criteria"
+              ]
+            }
+          ]
+        }
       }
-     ]
     }
-   }
+  ],
+  "$defs": {
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "value"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "key"
+          ]
+        },
+        {
+          "required": [
+            "field"
+          ]
+        }
+      ],
+      "description": "One predicate: exactly one of `key` (a Finviz filter key, resolved to its row column) or `field` (the column itself), plus an operator and a value.",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "One of the 82 Finviz filter keys. The 39 that filter a row column today, and the 43 that are refused with their reason, are listed in x-filter-keys."
+        },
+        "field": {
+          "enum": [
+            "atr_14",
+            "aum_usd",
+            "avg_volume_10d",
+            "avg_volume_30d",
+            "beta_1y",
+            "change_from_open",
+            "change_pct",
+            "country",
+            "currency",
+            "current_ratio",
+            "debt_to_equity",
+            "dividend_yield",
+            "earnings_date",
+            "eps_forecast_next_fq",
+            "eps_forecast_next_fy",
+            "ev_ebitda",
+            "exchange",
+            "float_shares",
+            "gap_pct",
+            "gross_margin",
+            "high_52w",
+            "industry",
+            "is_primary",
+            "listing_date",
+            "low_52w",
+            "market_cap_usd",
+            "name",
+            "oper_margin",
+            "pb",
+            "pct_from_52w_high",
+            "pe_forward",
+            "pe_ttm",
+            "peg",
+            "pfcf",
+            "price",
+            "profit_margin",
+            "ps",
+            "quick_ratio",
+            "recom_finviz",
+            "recommendation",
+            "rel_volume_10d",
+            "ret_10y",
+            "ret_1m",
+            "ret_1w",
+            "ret_1y",
+            "ret_3m",
+            "ret_5y",
+            "ret_6m",
+            "ret_ytd",
+            "revenue_forecast_next_fy",
+            "roa",
+            "roe",
+            "roic",
+            "rsi_14",
+            "sector",
+            "shares_outstanding",
+            "short_float",
+            "sma_20",
+            "sma_200",
+            "sma_50",
+            "symbol",
+            "target_price",
+            "turnover",
+            "turnover_usd",
+            "volatility_d",
+            "volatility_m",
+            "volatility_w",
+            "volume"
+          ],
+          "description": "A canonical screen row column."
+        },
+        "op": {
+          "enum": [
+            "between",
+            "contains",
+            "eq",
+            "gt",
+            "gte",
+            "in",
+            "lt",
+            "lte",
+            "ne"
+          ]
+        },
+        "value": {
+          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. Finviz option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": [
+                  "number",
+                  "string",
+                  "boolean"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "x-filter-key-count": 82,
+  "x-filter-keys": {
+    "exch": {
+      "label": "Exchange",
+      "tab": "descriptive",
+      "field": "exchange",
+      "kind": "text"
+    },
+    "idx": {
+      "label": "Index",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs index membership (S&P 500, Nasdaq-100, Dow, Russell): the scan has no index-constituent column, and a market-cap threshold is not a membership test"
+    },
+    "sec": {
+      "label": "Sector",
+      "tab": "descriptive",
+      "field": "sector",
+      "kind": "text"
+    },
+    "industry": {
+      "label": "Industry",
+      "tab": "descriptive",
+      "field": "industry",
+      "kind": "text"
+    },
+    "geo": {
+      "label": "Country",
+      "tab": "descriptive",
+      "field": "country",
+      "kind": "text"
+    },
+    "cap": {
+      "label": "Market Cap.",
+      "tab": "descriptive",
+      "field": "market_cap_usd",
+      "kind": "number"
+    },
+    "fa_div": {
+      "label": "Dividend Yield",
+      "tab": "descriptive",
+      "field": "dividend_yield",
+      "kind": "number"
+    },
+    "sh_short": {
+      "label": "Short Float",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs a short-interest column the scanner fills: `short_float` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+    },
+    "an_recom": {
+      "label": "Analyst Recom.",
+      "tab": "descriptive",
+      "field": "recom_finviz",
+      "kind": "number"
+    },
+    "sh_opt": {
+      "label": "Option/Short",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs an optionable/shortable flag: the scan carries no such column"
+    },
+    "earningsdate": {
+      "label": "Earnings Date",
+      "tab": "descriptive",
+      "field": "earnings_date",
+      "kind": "number"
+    },
+    "sh_avgvol": {
+      "label": "Average Volume",
+      "tab": "descriptive",
+      "field": "avg_volume_30d",
+      "kind": "number"
+    },
+    "sh_relvol": {
+      "label": "Relative Volume",
+      "tab": "descriptive",
+      "field": "rel_volume_10d",
+      "kind": "number"
+    },
+    "sh_curvol": {
+      "label": "Current Volume",
+      "tab": "descriptive",
+      "field": "volume",
+      "kind": "number"
+    },
+    "sh_trades": {
+      "label": "Trades",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs a trade-count column: the scan carries no trades counter"
+    },
+    "sh_price": {
+      "label": "Price $",
+      "tab": "descriptive",
+      "field": "price",
+      "kind": "number"
+    },
+    "targetprice": {
+      "label": "Target Price",
+      "tab": "descriptive",
+      "field": "target_price",
+      "kind": "number"
+    },
+    "ipodate": {
+      "label": "IPO Date",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs an IPO-date column the scanner fills: `ipo_date` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+    },
+    "sh_outstanding": {
+      "label": "Shares Outstanding",
+      "tab": "descriptive",
+      "field": "shares_outstanding",
+      "kind": "number"
+    },
+    "sh_float": {
+      "label": "Float",
+      "tab": "descriptive",
+      "field": "float_shares",
+      "kind": "number"
+    },
+    "theme": {
+      "label": "Theme",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs theme/sub-theme classification: the scan carries no theme column"
+    },
+    "subtheme": {
+      "label": "Sub-theme",
+      "tab": "descriptive",
+      "field": null,
+      "reason": "needs theme/sub-theme classification: the scan carries no theme column"
+    },
+    "fa_pe": {
+      "label": "P/E",
+      "tab": "fundamental",
+      "field": "pe_ttm",
+      "kind": "number"
+    },
+    "fa_fpe": {
+      "label": "Forward P/E",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a forward P/E column the scanner fills: `price_earnings_forward` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+    },
+    "fa_peg": {
+      "label": "PEG",
+      "tab": "fundamental",
+      "field": "peg",
+      "kind": "number"
+    },
+    "fa_ps": {
+      "label": "P/S",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a P/S column the scanner fills: `price_sales_ttm` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+    },
+    "fa_pb": {
+      "label": "P/B",
+      "tab": "fundamental",
+      "field": "pb",
+      "kind": "number"
+    },
+    "fa_pc": {
+      "label": "Price/Cash",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs cash per share: the scan carries no cash metric, so Price/Cash cannot be formed without inventing a denominator"
+    },
+    "fa_pfcf": {
+      "label": "Price/Free Cash Flow",
+      "tab": "fundamental",
+      "field": "pfcf",
+      "kind": "number"
+    },
+    "fa_evebitda": {
+      "label": "EV/EBITDA",
+      "tab": "fundamental",
+      "field": "ev_ebitda",
+      "kind": "number"
+    },
+    "fa_evsales": {
+      "label": "EV/Sales",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs enterprise value and sales as separate columns: only EV/EBITDA is copied, so EV/Sales cannot be formed"
+    },
+    "fa_divgrowth": {
+      "label": "Dividend Growth",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
+    },
+    "fa_epsyoy": {
+      "label": "EPS Growth\nThis Year",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_epsyoy1": {
+      "label": "EPS Growth\nNext Year",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_epsqoq": {
+      "label": "EPS Growth\nQtr Over Qtr",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_epsyoyttm": {
+      "label": "EPS Growth TTM",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_eps3years": {
+      "label": "EPS Growth\nPast 3 Years",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_eps5years": {
+      "label": "EPS Growth\nPast 5 Years",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_estltgrowth": {
+      "label": "EPS Growth\nNext 5 Years",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_salesqoq": {
+      "label": "Sales Growth\nQtr Over Qtr",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_salesyoyttm": {
+      "label": "Sales Growth TTM",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_sales3years": {
+      "label": "Sales Growth\nPast 3 Years",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_sales5years": {
+      "label": "Sales Growth\nPast 5 Years",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+    },
+    "fa_epsrev": {
+      "label": "Earnings & Revenue Surprise",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs an earnings-surprise column: the scan carries no surprise history"
+    },
+    "fa_roa": {
+      "label": "Return on Assets",
+      "tab": "fundamental",
+      "field": "roa",
+      "kind": "number"
+    },
+    "fa_roe": {
+      "label": "Return on Equity",
+      "tab": "fundamental",
+      "field": "roe",
+      "kind": "number"
+    },
+    "fa_roi": {
+      "label": "Return on Invested Capital",
+      "tab": "fundamental",
+      "field": "roic",
+      "kind": "number"
+    },
+    "fa_curratio": {
+      "label": "Current Ratio",
+      "tab": "fundamental",
+      "field": "current_ratio",
+      "kind": "number"
+    },
+    "fa_quickratio": {
+      "label": "Quick Ratio",
+      "tab": "fundamental",
+      "field": "quick_ratio",
+      "kind": "number"
+    },
+    "fa_ltdebteq": {
+      "label": "LT Debt/Equity",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs long-term debt separately: the scan carries total debt/equity only"
+    },
+    "fa_debteq": {
+      "label": "Debt/Equity",
+      "tab": "fundamental",
+      "field": "debt_to_equity",
+      "kind": "number"
+    },
+    "fa_grossmargin": {
+      "label": "Gross Margin",
+      "tab": "fundamental",
+      "field": "gross_margin",
+      "kind": "number"
+    },
+    "fa_opermargin": {
+      "label": "Operating Margin",
+      "tab": "fundamental",
+      "field": "oper_margin",
+      "kind": "number"
+    },
+    "fa_netmargin": {
+      "label": "Net Profit Margin",
+      "tab": "fundamental",
+      "field": "profit_margin",
+      "kind": "number"
+    },
+    "fa_payoutratio": {
+      "label": "Payout Ratio",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
+    },
+    "sh_insiderown": {
+      "label": "Insider\nOwnership",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+    },
+    "sh_insidertrans": {
+      "label": "Insider\nTransactions",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+    },
+    "sh_instown": {
+      "label": "Institutional\nOwnership",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+    },
+    "sh_insttrans": {
+      "label": "Institutional\nTransactions",
+      "tab": "fundamental",
+      "field": null,
+      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+    },
+    "ta_perf": {
+      "label": "Performance",
+      "tab": "technical",
+      "field": null,
+      "reason": "spans ten performance windows (day, week, month, quarter, half-year, YTD, year, 3Y, 5Y, 10Y), while the row carries one column per window (`ret_1w` … `ret_10y`); a single key is not a single field — send the column instead"
+    },
+    "ta_perf2": {
+      "label": "Performance 2",
+      "tab": "technical",
+      "field": null,
+      "reason": "spans ten performance windows (day, week, month, quarter, half-year, YTD, year, 3Y, 5Y, 10Y), while the row carries one column per window (`ret_1w` … `ret_10y`); a single key is not a single field — send the column instead"
+    },
+    "ta_volatility": {
+      "label": "Volatility",
+      "tab": "technical",
+      "field": null,
+      "reason": "spans two windows (weekly and monthly), while the row carries `volatility_w` and `volatility_m` separately — send the column instead"
+    },
+    "ta_rsi": {
+      "label": "RSI (14)",
+      "tab": "technical",
+      "field": "rsi_14",
+      "kind": "number"
+    },
+    "ta_gap": {
+      "label": "Gap",
+      "tab": "technical",
+      "field": "gap_pct",
+      "kind": "number"
+    },
+    "ta_sma20": {
+      "label": "20-Day Simple Moving Average",
+      "tab": "technical",
+      "field": "sma_20",
+      "kind": "number"
+    },
+    "ta_sma50": {
+      "label": "50-Day Simple Moving Average",
+      "tab": "technical",
+      "field": "sma_50",
+      "kind": "number"
+    },
+    "ta_sma200": {
+      "label": "200-Day Simple Moving Average",
+      "tab": "technical",
+      "field": "sma_200",
+      "kind": "number"
+    },
+    "ta_change": {
+      "label": "Change",
+      "tab": "technical",
+      "field": "change_pct",
+      "kind": "number"
+    },
+    "ta_changeopen": {
+      "label": "Change from Open",
+      "tab": "technical",
+      "field": "change_from_open",
+      "kind": "number"
+    },
+    "ta_highlow20d": {
+      "label": "20-Day High/Low",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
+    },
+    "ta_highlow50d": {
+      "label": "50-Day High/Low",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
+    },
+    "ta_highlow52w": {
+      "label": "52-Week High/Low",
+      "tab": "technical",
+      "field": "pct_from_52w_high",
+      "kind": "number"
+    },
+    "ta_alltime": {
+      "label": "All-Time High/Low",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs an all-time high/low column: the scan carries the 52-week extremes only"
+    },
+    "ta_pattern": {
+      "label": "Pattern",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs chart-pattern detection: the scan returns no pattern classification"
+    },
+    "ta_candlestick": {
+      "label": "Candlestick",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs candlestick detection: the scan returns no candlestick classification"
+    },
+    "ta_beta": {
+      "label": "Beta",
+      "tab": "technical",
+      "field": "beta_1y",
+      "kind": "number"
+    },
+    "ta_averagetruerange": {
+      "label": "Average True Range",
+      "tab": "technical",
+      "field": "atr_14",
+      "kind": "number"
+    },
+    "ah_close": {
+      "label": "After-Hours Close",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs after-hours prices: the scan covers the regular session only"
+    },
+    "ah_change": {
+      "label": "After-Hours Change",
+      "tab": "technical",
+      "field": null,
+      "reason": "needs after-hours prices: the scan covers the regular session only"
+    },
+    "news_date": {
+      "label": "Latest News",
+      "tab": "news",
+      "field": null,
+      "reason": "needs the news store: the scan returns no news timestamp or keywords"
+    },
+    "news_keywords": {
+      "label": "News Keywords",
+      "tab": "news",
+      "field": null,
+      "reason": "needs the news store: the scan returns no news timestamp or keywords"
+    },
+    "etf_heldby": {
+      "label": "Held By",
+      "tab": "etf",
+      "field": null,
+      "reason": "needs ETF holdings data: the scan does not carry a fund's constituent list"
+    }
   }
- },
- "x-filter-key-count": 82,
- "x-filter-keys": {
-  "exch": {
-   "label": "Exchange",
-   "tab": "descriptive",
-   "field": "exchange",
-   "kind": "text"
-  },
-  "idx": {
-   "label": "Index",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs index membership (S&P 500, Nasdaq-100, Dow, Russell): the scan has no index-constituent column, and a market-cap threshold is not a membership test"
-  },
-  "sec": {
-   "label": "Sector",
-   "tab": "descriptive",
-   "field": "sector",
-   "kind": "text"
-  },
-  "industry": {
-   "label": "Industry",
-   "tab": "descriptive",
-   "field": "industry",
-   "kind": "text"
-  },
-  "geo": {
-   "label": "Country",
-   "tab": "descriptive",
-   "field": "country",
-   "kind": "text"
-  },
-  "cap": {
-   "label": "Market Cap.",
-   "tab": "descriptive",
-   "field": "market_cap_usd",
-   "kind": "number"
-  },
-  "fa_div": {
-   "label": "Dividend Yield",
-   "tab": "descriptive",
-   "field": "dividend_yield",
-   "kind": "number"
-  },
-  "sh_short": {
-   "label": "Short Float",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs a short-interest column the scanner fills: `short_float` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
-  },
-  "an_recom": {
-   "label": "Analyst Recom.",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs Finviz's 1-5 analyst score: the scanner's `Recommend.All` is a -1..+1 mean rating, so a filter written on Finviz's scale (2 = buy) matches nothing — the column is carried for display, not for this key; mapping it would mean inventing a derived field with an explicit `3 - 2 * score` transform, which no row carries today"
-  },
-  "sh_opt": {
-   "label": "Option/Short",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs an optionable/shortable flag: the scan carries no such column"
-  },
-  "earningsdate": {
-   "label": "Earnings Date",
-   "tab": "descriptive",
-   "field": "earnings_date",
-   "kind": "number"
-  },
-  "sh_avgvol": {
-   "label": "Average Volume",
-   "tab": "descriptive",
-   "field": "avg_volume_30d",
-   "kind": "number"
-  },
-  "sh_relvol": {
-   "label": "Relative Volume",
-   "tab": "descriptive",
-   "field": "rel_volume_10d",
-   "kind": "number"
-  },
-  "sh_curvol": {
-   "label": "Current Volume",
-   "tab": "descriptive",
-   "field": "volume",
-   "kind": "number"
-  },
-  "sh_trades": {
-   "label": "Trades",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs a trade-count column: the scan carries no trades counter"
-  },
-  "sh_price": {
-   "label": "Price $",
-   "tab": "descriptive",
-   "field": "price",
-   "kind": "number"
-  },
-  "targetprice": {
-   "label": "Target Price",
-   "tab": "descriptive",
-   "field": "target_price",
-   "kind": "number"
-  },
-  "ipodate": {
-   "label": "IPO Date",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs an IPO-date column the scanner fills: `ipo_date` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
-  },
-  "sh_outstanding": {
-   "label": "Shares Outstanding",
-   "tab": "descriptive",
-   "field": "shares_outstanding",
-   "kind": "number"
-  },
-  "sh_float": {
-   "label": "Float",
-   "tab": "descriptive",
-   "field": "float_shares",
-   "kind": "number"
-  },
-  "theme": {
-   "label": "Theme",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs theme/sub-theme classification: the scan carries no theme column"
-  },
-  "subtheme": {
-   "label": "Sub-theme",
-   "tab": "descriptive",
-   "field": null,
-   "reason": "needs theme/sub-theme classification: the scan carries no theme column"
-  },
-  "fa_pe": {
-   "label": "P/E",
-   "tab": "fundamental",
-   "field": "pe_ttm",
-   "kind": "number"
-  },
-  "fa_fpe": {
-   "label": "Forward P/E",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a forward P/E column the scanner fills: `price_earnings_forward` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
-  },
-  "fa_peg": {
-   "label": "PEG",
-   "tab": "fundamental",
-   "field": "peg",
-   "kind": "number"
-  },
-  "fa_ps": {
-   "label": "P/S",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a P/S column the scanner fills: `price_sales_ttm` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
-  },
-  "fa_pb": {
-   "label": "P/B",
-   "tab": "fundamental",
-   "field": "pb",
-   "kind": "number"
-  },
-  "fa_pc": {
-   "label": "Price/Cash",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs cash per share: the scan carries no cash metric, so Price/Cash cannot be formed without inventing a denominator"
-  },
-  "fa_pfcf": {
-   "label": "Price/Free Cash Flow",
-   "tab": "fundamental",
-   "field": "pfcf",
-   "kind": "number"
-  },
-  "fa_evebitda": {
-   "label": "EV/EBITDA",
-   "tab": "fundamental",
-   "field": "ev_ebitda",
-   "kind": "number"
-  },
-  "fa_evsales": {
-   "label": "EV/Sales",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs enterprise value and sales as separate columns: only EV/EBITDA is copied, so EV/Sales cannot be formed"
-  },
-  "fa_divgrowth": {
-   "label": "Dividend Growth",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
-  },
-  "fa_epsyoy": {
-   "label": "EPS Growth\nThis Year",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_epsyoy1": {
-   "label": "EPS Growth\nNext Year",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_epsqoq": {
-   "label": "EPS Growth\nQtr Over Qtr",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_epsyoyttm": {
-   "label": "EPS Growth TTM",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_eps3years": {
-   "label": "EPS Growth\nPast 3 Years",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_eps5years": {
-   "label": "EPS Growth\nPast 5 Years",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_estltgrowth": {
-   "label": "EPS Growth\nNext 5 Years",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_salesqoq": {
-   "label": "Sales Growth\nQtr Over Qtr",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_salesyoyttm": {
-   "label": "Sales Growth TTM",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_sales3years": {
-   "label": "Sales Growth\nPast 3 Years",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_sales5years": {
-   "label": "Sales Growth\nPast 5 Years",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
-  },
-  "fa_epsrev": {
-   "label": "Earnings & Revenue Surprise",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs an earnings-surprise column: the scan carries no surprise history"
-  },
-  "fa_roa": {
-   "label": "Return on Assets",
-   "tab": "fundamental",
-   "field": "roa",
-   "kind": "number"
-  },
-  "fa_roe": {
-   "label": "Return on Equity",
-   "tab": "fundamental",
-   "field": "roe",
-   "kind": "number"
-  },
-  "fa_roi": {
-   "label": "Return on Invested Capital",
-   "tab": "fundamental",
-   "field": "roic",
-   "kind": "number"
-  },
-  "fa_curratio": {
-   "label": "Current Ratio",
-   "tab": "fundamental",
-   "field": "current_ratio",
-   "kind": "number"
-  },
-  "fa_quickratio": {
-   "label": "Quick Ratio",
-   "tab": "fundamental",
-   "field": "quick_ratio",
-   "kind": "number"
-  },
-  "fa_ltdebteq": {
-   "label": "LT Debt/Equity",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs long-term debt separately: the scan carries total debt/equity only"
-  },
-  "fa_debteq": {
-   "label": "Debt/Equity",
-   "tab": "fundamental",
-   "field": "debt_to_equity",
-   "kind": "number"
-  },
-  "fa_grossmargin": {
-   "label": "Gross Margin",
-   "tab": "fundamental",
-   "field": "gross_margin",
-   "kind": "number"
-  },
-  "fa_opermargin": {
-   "label": "Operating Margin",
-   "tab": "fundamental",
-   "field": "oper_margin",
-   "kind": "number"
-  },
-  "fa_netmargin": {
-   "label": "Net Profit Margin",
-   "tab": "fundamental",
-   "field": "profit_margin",
-   "kind": "number"
-  },
-  "fa_payoutratio": {
-   "label": "Payout Ratio",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
-  },
-  "sh_insiderown": {
-   "label": "Insider\nOwnership",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
-  },
-  "sh_insidertrans": {
-   "label": "Insider\nTransactions",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
-  },
-  "sh_instown": {
-   "label": "Institutional\nOwnership",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
-  },
-  "sh_insttrans": {
-   "label": "Institutional\nTransactions",
-   "tab": "fundamental",
-   "field": null,
-   "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
-  },
-  "ta_perf": {
-   "label": "Performance",
-   "tab": "technical",
-   "field": null,
-   "reason": "spans ten performance windows (day, week, month, quarter, half-year, YTD, year, 3Y, 5Y, 10Y), while the row carries one column per window (`ret_1w` … `ret_10y`); a single key is not a single field — send the column instead"
-  },
-  "ta_perf2": {
-   "label": "Performance 2",
-   "tab": "technical",
-   "field": null,
-   "reason": "spans ten performance windows (day, week, month, quarter, half-year, YTD, year, 3Y, 5Y, 10Y), while the row carries one column per window (`ret_1w` … `ret_10y`); a single key is not a single field — send the column instead"
-  },
-  "ta_volatility": {
-   "label": "Volatility",
-   "tab": "technical",
-   "field": null,
-   "reason": "spans two windows (weekly and monthly), while the row carries `volatility_w` and `volatility_m` separately — send the column instead"
-  },
-  "ta_rsi": {
-   "label": "RSI (14)",
-   "tab": "technical",
-   "field": "rsi_14",
-   "kind": "number"
-  },
-  "ta_gap": {
-   "label": "Gap",
-   "tab": "technical",
-   "field": "gap_pct",
-   "kind": "number"
-  },
-  "ta_sma20": {
-   "label": "20-Day Simple Moving Average",
-   "tab": "technical",
-   "field": "sma_20",
-   "kind": "number"
-  },
-  "ta_sma50": {
-   "label": "50-Day Simple Moving Average",
-   "tab": "technical",
-   "field": "sma_50",
-   "kind": "number"
-  },
-  "ta_sma200": {
-   "label": "200-Day Simple Moving Average",
-   "tab": "technical",
-   "field": "sma_200",
-   "kind": "number"
-  },
-  "ta_change": {
-   "label": "Change",
-   "tab": "technical",
-   "field": "change_pct",
-   "kind": "number"
-  },
-  "ta_changeopen": {
-   "label": "Change from Open",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs a change-from-open column: the scan carries a gap (open against the previous close) but no open price, so the change from the open cannot be computed"
-  },
-  "ta_highlow20d": {
-   "label": "20-Day High/Low",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
-  },
-  "ta_highlow50d": {
-   "label": "50-Day High/Low",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
-  },
-  "ta_highlow52w": {
-   "label": "52-Week High/Low",
-   "tab": "technical",
-   "field": null,
-   "reason": "is a percent distance from the 52-week high/low, while the row carries the absolute `high_52w`/`low_52w` prices; the two units are not interchangeable — filter `high_52w`/`low_52w` directly"
-  },
-  "ta_alltime": {
-   "label": "All-Time High/Low",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs an all-time high/low column: the scan carries the 52-week extremes only"
-  },
-  "ta_pattern": {
-   "label": "Pattern",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs chart-pattern detection: the scan returns no pattern classification"
-  },
-  "ta_candlestick": {
-   "label": "Candlestick",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs candlestick detection: the scan returns no candlestick classification"
-  },
-  "ta_beta": {
-   "label": "Beta",
-   "tab": "technical",
-   "field": "beta_1y",
-   "kind": "number"
-  },
-  "ta_averagetruerange": {
-   "label": "Average True Range",
-   "tab": "technical",
-   "field": "atr_14",
-   "kind": "number"
-  },
-  "ah_close": {
-   "label": "After-Hours Close",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs after-hours prices: the scan covers the regular session only"
-  },
-  "ah_change": {
-   "label": "After-Hours Change",
-   "tab": "technical",
-   "field": null,
-   "reason": "needs after-hours prices: the scan covers the regular session only"
-  },
-  "news_date": {
-   "label": "Latest News",
-   "tab": "news",
-   "field": null,
-   "reason": "needs the news store: the scan returns no news timestamp or keywords"
-  },
-  "news_keywords": {
-   "label": "News Keywords",
-   "tab": "news",
-   "field": null,
-   "reason": "needs the news store: the scan returns no news timestamp or keywords"
-  },
-  "etf_heldby": {
-   "label": "Held By",
-   "tab": "etf",
-   "field": null,
-   "reason": "needs ETF holdings data: the scan does not carry a fund's constituent list"
-  }
- }
 }

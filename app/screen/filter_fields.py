@@ -13,7 +13,7 @@ stock has a P/E below 10" — a fabricated answer produced by an ignored
 parameter. So the contract is: **a filter key either maps to a row column or the
 request is rejected (422) with the reason**, never applied as a no-op.
 
-Thirty-six keys map and forty-six are refused:
+Thirty-nine keys map and forty-three are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -26,29 +26,43 @@ Thirty-six keys map and forty-six are refused:
   them: ``industry`` (a label such as ``Semiconductors``), ``dividends_yield``
   (percent: ``0.47`` = 0.47%), ``gap`` (signed percent) and ``ATR`` (price
   units);
-* **forty-six are refused**, each with the metric it needs. Four shapes of
+* **three derived columns** answer the keys whose provider cell is on another
+  scale or in another shape (:data:`app.screen.universe.DERIVED_FIELDS`, owned by
+  :mod:`app.screen.derived`): ``an_recom`` → ``recom_finviz`` (Finviz's 1..5
+  score, ``3 - 2 * recommendation``), ``ta_changeopen`` → ``change_from_open``
+  (percent from the session open, derived from close/change/gap) and
+  ``ta_highlow52w`` → ``pct_from_52w_high`` (percent below the 52-week high, one
+  direction only). Each is an identity over cells the row already carries, so it
+  is a column like any other: a row whose inputs the provider did not send holds
+  ``None`` and does not match, exactly like a null P/E;
+* **forty-three are refused**, each with the metric it needs. Three shapes of
   refusal: no column measures it (index membership, theme, dividend growth and
   payout ratio, insider/institutional ownership, news, ETF holdings,
-  after-hours, patterns); one key spans several columns (``ta_perf`` covers ten
-  performance windows, ``ta_volatility`` two); the provider's unit is not
-  Finviz's (``ta_highlow52w`` is a percent distance, the row carries absolute
-  52-week prices, and ``Recommend.All`` is a -1..1 score against Finviz's 1..5);
+  after-hours, patterns, 20/50-day and all-time extremes); one key spans several
+  columns (``ta_perf`` covers ten performance windows, ``ta_volatility`` two);
   or the column the provider offers answers **null for every row**
   (``price_earnings_forward``, ``price_sales_ttm``, ``short_float``,
   ``ipo_date`` on both the US and the global scan), where a filter could only
   ever return an empty screen.
 
-Two things this module refuses to invent:
+Three things this module refuses to invent:
 
 * **No placeholder field.** A key without a column has no entry in
   :data:`ROW_FIELDS`; :func:`binding` raises instead of answering with a column
   that is always null.
+* **No arithmetic here.** A derived column is named by
+  :data:`app.screen.universe.DERIVED_FIELDS` and computed by
+  :mod:`app.screen.derived`; this module resolves a key to a column and never
+  grows a formula of its own, so "which column" and "what number" stay one
+  decision each.
 * **No option-vocabulary translation.** Finviz's ``mega``, ``u5`` and ``ob70``
   are *display* tokens for range buckets. Turning ``cap: mega`` into
   ``market_cap_usd >= 200e9`` is a metric decision that belongs with the metric,
   not with a key table, so a caller sends an explicit operator and a number
   (``{"key": "cap", "op": "gte", "value": 200000000000}``) and this module only
-  resolves the key to its column.
+  resolves the key to its column. The same holds for ``an_recom``: its probe
+  vocabulary is ``strongbuy``/``hold``/…, and the column takes Finviz's 1..5
+  number (``{"key": "an_recom", "op": "lt", "value": 2}``).
 
 The mapping is not a second source of truth: :data:`ROW_FIELDS` is *derived* from
 ``FILTER_CATALOG[*].field``, and :func:`_validate` fails the process if the two
@@ -89,14 +103,6 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "yield only (`dividends_yield`), which is neither a growth rate nor the "
         "share of earnings paid out",
         ("fa_divgrowth", "fa_payoutratio"),
-    ),
-    (
-        "needs Finviz's 1-5 analyst score: the scanner's `Recommend.All` is a "
-        "-1..+1 mean rating, so a filter written on Finviz's scale (2 = buy) "
-        "matches nothing — the column is carried for display, not for this key; "
-        "mapping it would mean inventing a derived field with an explicit "
-        "`3 - 2 * score` transform, which no row carries today",
-        ("an_recom",),
     ),
     (
         "needs a forward P/E column the scanner fills: `price_earnings_forward` "
@@ -184,21 +190,9 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("ta_volatility",),
     ),
     (
-        "needs a change-from-open column: the scan carries a gap (open against "
-        "the previous close) but no open price, so the change from the open "
-        "cannot be computed",
-        ("ta_changeopen",),
-    ),
-    (
         "needs 20-day and 50-day high/low columns: the scan carries the "
         "52-week extremes only",
         ("ta_highlow20d", "ta_highlow50d"),
-    ),
-    (
-        "is a percent distance from the 52-week high/low, while the row carries "
-        "the absolute `high_52w`/`low_52w` prices; the two units are not "
-        "interchangeable — filter `high_52w`/`low_52w` directly",
-        ("ta_highlow52w",),
     ),
     (
         "needs an all-time high/low column: the scan carries the 52-week "
@@ -359,17 +353,15 @@ def _validate() -> None:
             raise RuntimeError(f"filter key {key!r} has an empty unavailability reason")
 
     # The parity table is the other half of the same claim: a field a key filters
-    # must be a field a row can carry, and every parity metric must be readable.
+    # must be a field a row can carry — a light column, a parity metric or a
+    # derived column. ``CARRIED_FIELDS`` is that union, owned by the row layer.
     from app.screen import universe as parity
 
-    unreadable = sorted(
-        field for field in mapped.values() if field not in set(parity.PARITY_FIELDS.values())
-        and field not in parity.UNIVERSE_COLUMNS
-    )
+    unreadable = sorted(field for field in mapped.values() if field not in parity.CARRIED_FIELDS)
     if unreadable:
         raise RuntimeError(
-            "filter keys point at fields no row carries (neither a light column "
-            f"nor a parity metric): {unreadable}"
+            "filter keys point at fields no row carries (neither a light column, "
+            f"a parity metric nor a derived column): {unreadable}"
         )
 
 

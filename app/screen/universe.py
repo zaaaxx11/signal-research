@@ -47,8 +47,10 @@ cell **verbatim** into its field: a number stays a number, a label stays a
 string (``industry`` is the one text field, :data:`PARITY_TEXT_FIELDS`), and a
 cell the provider did not send — or sent as something that is not a finite
 number — stays ``None``. It is never coerced to ``0`` (a missing P/E is not a
-P/E of zero) and never derived from another cell (a computed ratio would be a
-number nobody can trace back to the scan).
+P/E of zero) and never replaced by a value derived from another cell: a computed
+ratio nobody can trace back to the scan is not a copy. The three columns in
+:data:`DERIVED_FIELDS` (below) are the one deliberate exception, and each of them
+names the row cells it reads.
 
 Two of those fields publish a *window* in their name, because the provider's
 lookback is not Finviz's: ``beta_1y`` (Finviz beta is 5-year monthly) and
@@ -61,6 +63,31 @@ row does not have. The five light metrics (``close``,
 ``change``, ``volume``, ``Value.Traded``, ``market_cap_basic``) are *not* in
 :data:`PARITY_FIELDS` — the light path already normalises them, and one owner per
 field beats two.
+
+Derived metrics
+---------------
+
+Three Finviz filter keys ask a question the provider answers with a different
+scale or shape, and each of them is answerable by *algebra* over cells the row
+already carries. :data:`DERIVED_FIELDS` (from :mod:`app.screen.derived`) is the
+one place allowed to compute instead of copy, and it is deliberately small:
+
+* ``recom_finviz`` = ``3 - 2 * recommendation`` — the published map from the
+  provider's -1..+1 mean rating to Finviz's 1..5 analyst score;
+* ``change_from_open`` = ``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``
+  — the previous close cancels between the two percentages, so the change from
+  the session open needs no open column;
+* ``pct_from_52w_high`` = ``(price / high_52w - 1) * 100`` — **one direction**;
+  the low side stays the absolute ``low_52w``, because a derived low distance
+  would be a second invented metric, not a copy.
+
+A derivation is allowed here only because it is an identity (no estimate, no
+invented denominator), it requests no extra provider column, and its name states
+the scale or the direction. A missing input still yields ``None``: a derived
+column never manufactures a number, and never falls back to ``0``. Derived
+columns are carried on the **parity** row only — ``columns=None`` (the browse
+and export path) is byte-identical to what it was before they existed. The
+union a filter key may point at is :data:`CARRIED_FIELDS`.
 """
 
 from __future__ import annotations
@@ -68,6 +95,12 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.screen.derived import (
+    DERIVED_COLUMNS,
+    DERIVED_FIELDS,
+    DERIVED_INPUTS,
+    derive_row,
+)
 from app.screen.scanner import (
     ASSET_CLASSES,
     DEFAULT_FLOOR,
@@ -133,6 +166,13 @@ def asset_class_for(region: str, asset_class: str | None = None) -> str:
 #: on. Every entry is copied cell-for-cell, so a ``None`` here is a metric the
 #: scan always sends (a price multiple can still be null per row, which is what
 #: ``PARITY_NULLABLE`` records).
+#:
+#: The three derived columns (``recom_finviz``, ``change_from_open``,
+#: ``pct_from_52w_high``) are deliberately absent: this mapping's keys are sent to
+#: the provider as column names, so a computed field would ask the scan for a
+#: column that does not exist. They live in
+#: :data:`app.screen.derived.DERIVED_FIELDS` and are computed from these copies,
+#: on a parity row only.
 PARITY_FIELDS: Mapping[str, str] = {
     # -- classification (a text label, copied verbatim: "Semiconductors")
     "industry": "industry",
@@ -241,6 +281,14 @@ UNIVERSE_COLUMNS: tuple[str, ...] = (
     "market_cap_usd",
     "currency",
     "is_primary",
+)
+
+#: Every column a row can carry: the light block, the parity copies and the three
+#: derived columns. This is the union :mod:`app.screen.filter_fields` validates a
+#: filter key against — a key may point at a light column, a provider metric or a
+#: derived metric, and at nothing else.
+CARRIED_FIELDS: frozenset[str] = (
+    frozenset(UNIVERSE_COLUMNS) | frozenset(PARITY_FIELDS.values()) | frozenset(DERIVED_FIELDS)
 )
 
 
@@ -412,6 +460,11 @@ def _normalize(
             candidate[field] = _text(row.get(column))
         else:
             candidate[field] = _metric(row.get(column))
+    if metrics:
+        # The three derived columns (app.screen.derived) exist only where their
+        # inputs do: a parity scan. The light row must not grow a computed
+        # metric, so ``columns=None`` skips this entirely and stays byte-identical.
+        candidate.update(derive_row(candidate))
     candidate["_issuer"] = issuer_key(row.get("description") or row.get("name"), market_cap)
     candidate["_order"] = 0
     return candidate
@@ -503,8 +556,10 @@ def build_universe(
 
     ``columns`` names the provider columns the scan asked for. When it includes
     parity metrics (:data:`PARITY_COLUMNS`), each row also carries their
-    canonical fields, copied cell-for-cell by :func:`parity_pairs`. ``None`` is
-    the light row, unchanged.
+    canonical fields, copied cell-for-cell by :func:`parity_pairs`, plus the
+    three derived columns of :data:`DERIVED_FIELDS` computed from those cells
+    (``None`` wherever an input is missing). ``None`` is the light row,
+    unchanged: no parity metric and no derived column is added.
 
     ``allow_any_subtype`` relaxes the ``subtype=common`` gate, which is what a
     selection over the *whole* stock universe needs: the Finviz filter panel
@@ -572,14 +627,48 @@ def build_universe(
         projected = {column: candidate.get(column) for column in UNIVERSE_COLUMNS}
         for _, field in metrics:
             projected[field] = candidate.get(field)
+        if metrics:
+            # Derived columns ride along with the parity row only, so a light
+            # browse/export row keeps exactly ``UNIVERSE_COLUMNS``.
+            for field in DERIVED_COLUMNS:
+                projected[field] = candidate.get(field)
         universe.append(projected)
     return universe
 
 
+def _validate_derived() -> None:
+    """Fail at import if a derived column and the row disagree.
+
+    A derived formula reads row columns, so an input that no row carries would
+    silently compute ``None`` for every symbol — a filter that always returns an
+    empty screen. A derived name that shadows a light column or a parity field
+    would overwrite a provider cell. Both are boot errors, not runtime surprises.
+    """
+
+    known = CARRIED_FIELDS
+    for field, inputs in DERIVED_INPUTS.items():
+        unknown = [name for name in inputs if name not in known]
+        if unknown:
+            raise RuntimeError(
+                f"derived field {field!r} reads columns no row carries: {unknown}"
+            )
+    provider_side = frozenset(UNIVERSE_COLUMNS) | frozenset(PARITY_FIELDS.values())
+    shadowed = sorted(set(DERIVED_COLUMNS) & provider_side)
+    if shadowed:
+        raise RuntimeError(f"derived fields overwrite a copied cell: {shadowed}")
+
+
+_validate_derived()
+
+
 __all__ = [
     "ASSET_CLASSES",
+    "CARRIED_FIELDS",
     "COMMON_SUBTYPE",
     "COMMON_TYPE",
+    "DERIVED_COLUMNS",
+    "DERIVED_FIELDS",
+    "DERIVED_INPUTS",
     "ETF_REGION",
     "ETF_SUBTYPE",
     "ETF_TYPE",
@@ -595,6 +684,7 @@ __all__ = [
     "US_EXCHANGES",
     "asset_class_for",
     "build_universe",
+    "derive_row",
     "issuer_key",
     "mic_for",
     "parity_pairs",
