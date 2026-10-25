@@ -29,6 +29,7 @@ from app.jobs.ports import QuoteRepository
 from app.jobs.quotes import SqliteQuoteRepository
 from app.jobs.repository import SqliteJobRepository
 from app.providers.adapters import ADAPTER_NAMES, build_adapters
+from app.providers.proxy_pool import ProxyPool
 from app.providers.base import ProviderSpec
 from app.providers.budget import Budget
 from app.providers.cache import ObservationCache
@@ -47,6 +48,19 @@ logger = logging.getLogger("mee.runtime")
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def load_proxy_pool(settings: Any) -> ProxyPool | None:
+    """Load the optional zcrapers-shaped proxy pool from ``MEE_PROXY_POOL``."""
+
+    path = getattr(settings, "proxy_pool", None)
+    if not path:
+        return None
+    return ProxyPool.from_file(
+        path,
+        cooldown_s=float(getattr(settings, "proxy_direct_cooldown_s", 600.0)),
+        free_attempts=int(getattr(settings, "proxy_attempts", 3)),
+    )
 
 
 class Runtime:
@@ -105,7 +119,11 @@ class Runtime:
         """Adapter instances, built once per process (stateless, no key read)."""
 
         if self._adapters is None:
-            self._adapters = build_adapters()
+            self._adapters = build_adapters(
+                proxy_pool=load_proxy_pool(self.settings),
+                proxy_attempts=self.settings.proxy_attempts,
+                direct_cooldown_s=self.settings.proxy_direct_cooldown_s,
+            )
         return self._adapters
 
     def ladder(

@@ -21,6 +21,7 @@ from app.providers.adapters.nasdaq import NasdaqAdapter
 from app.providers.adapters.polygon import PolygonAdapter
 from app.providers.adapters.stooq import StooqAdapter
 from app.providers.adapters.yahoo import YahooAdapter
+from app.providers.proxy_pool import ProxyPool
 
 #: Adapters implemented in this phase, keyed by the registry name they serve.
 ADAPTER_CLASSES: tuple[type[HttpAdapter], ...] = (
@@ -35,10 +36,33 @@ ADAPTER_CLASSES: tuple[type[HttpAdapter], ...] = (
 ADAPTER_NAMES: frozenset[str] = frozenset(cls.name for cls in ADAPTER_CLASSES)
 
 
-def build_adapters(*, timeout_s: float = 20.0) -> dict[str, HttpAdapter]:
-    """One instance per implemented provider (fresh, stateless, no key read)."""
+def build_adapters(
+    *,
+    timeout_s: float = 20.0,
+    proxy_pool: ProxyPool | None = None,
+    proxy_attempts: int = 3,
+    direct_cooldown_s: float = 600.0,
+) -> dict[str, HttpAdapter]:
+    """One instance per implemented provider (fresh, stateless, no key read).
 
-    return {cls.name: cls(timeout_s=timeout_s) for cls in ADAPTER_CLASSES}
+    Only Yahoo takes the egress ladder today: its ``quoteSummary`` endpoint is
+    the one whose IP limit made a bulk walk fail. Other adapters keep their
+    existing constructor contract; the ladder is transport policy, not a
+    provider-wide retry.
+    """
+
+    adapters: dict[str, HttpAdapter] = {}
+    for cls in ADAPTER_CLASSES:
+        if cls is YahooAdapter:
+            adapters[cls.name] = cls(
+                timeout_s=timeout_s,
+                proxy_pool=proxy_pool,
+                proxy_attempts=proxy_attempts,
+                direct_cooldown_s=direct_cooldown_s,
+            )
+        else:
+            adapters[cls.name] = cls(timeout_s=timeout_s)
+    return adapters
 
 
 def serve(adapters: Mapping[str, HttpAdapter], capability: str) -> dict[str, HttpAdapter]:

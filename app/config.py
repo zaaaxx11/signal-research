@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     news_limit: int = Field(default=8, ge=1, le=50)
     news_timeout_s: float = Field(default=10.0, gt=0)
     news_gdelt_enabled: bool = True
+    #: Egress ladder for Yahoo fundamentals (P11E). A path to zcrapers'
+    #: ``pool_ranked.json`` (or a plain text proxy list); empty = direct only.
+    #: ``proxy_attempts`` is the free-rung fan-out per symbol, not a retry count
+    #: for a healthy request; a refused direct wire cools for the whole bulk run.
+    proxy_pool: Path | None = None
+    proxy_attempts: int = Field(default=3, ge=1, le=10)
+    proxy_direct_cooldown_s: float = Field(default=600.0, ge=0.0)
 
 
 def get_settings() -> Settings:

@@ -36,6 +36,7 @@ publish them) with the V8 signs of a long call.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Mapping, Sequence
@@ -52,6 +53,7 @@ from app.providers.adapters._support import (
     price_unit,
 )
 from app.providers.base import InstrumentRef, ProviderError, Verdict
+from app.providers.proxy_pool import FREE, PAID, ProxyPool
 
 HOST = "https://query1.finance.yahoo.com"
 CHART_PATH = "/v8/finance/chart/{symbol}"
@@ -443,6 +445,23 @@ class YahooAdapter(HttpAdapter):
     )
     accept = "application/json,text/plain,*/*"
 
+    def __init__(
+        self,
+        *,
+        timeout_s: float = 20.0,
+        proxy_pool: ProxyPool | None = None,
+        proxy_attempts: int = 3,
+        direct_cooldown_s: float = 600.0,
+    ) -> None:
+        super().__init__(timeout_s=timeout_s)
+        self.proxy_pool = proxy_pool
+        self.proxy_attempts = max(1, int(proxy_attempts))
+        self.direct_cooldown_s = max(0.0, float(direct_cooldown_s))
+        #: A direct 401/429 is a property of this egress, not this symbol. Once
+        #: Yahoo refuses the direct wire, every later bulk symbol should start
+        #: on the proxy rung instead of spending one blocked request each.
+        self._direct_blocked_until = 0.0
+
     # -- requests ----------------------------------------------------------
 
     @staticmethod
@@ -481,15 +500,92 @@ class YahooAdapter(HttpAdapter):
                 )
             )
         headers = self.request_headers(instrument)
+        if capability is Capability.FUNDAMENTALS:
+            return await self._fetch_fundamentals_with_egress(instrument, headers)
         async with provider_http.build_client(
             timeout_s=self.timeout_s, headers=headers
         ) as client:
             if capability is Capability.OPTIONS:
                 return await self._fetch_options(client, instrument)
-            if capability is Capability.FUNDAMENTALS:
-                return await self._fetch_fundamentals(client, instrument)
             url = self._url(capability, instrument)
             return await self._get(client, url, capability)
+
+    def _egress_candidates(self) -> list[str | None]:
+        """Direct (unless cooling), free attempts, then paid — zcrapers order."""
+
+        candidates: list[str | None] = []
+        if time.monotonic() >= self._direct_blocked_until:
+            candidates.append(None)
+        pool = self.proxy_pool
+        if pool is not None:
+            seen: set[str] = set()
+            for _ in range(self.proxy_attempts):
+                proxy = pool.acquire(FREE)
+                if proxy and proxy not in seen:
+                    seen.add(proxy)
+                    candidates.append(proxy)
+            if pool.available(PAID):
+                proxy = pool.acquire(PAID)
+                if proxy and proxy not in seen:
+                    candidates.append(proxy)
+        if not candidates:
+            # No proxy configured and direct is cooling: still return the real
+            # direct refusal instead of inventing an empty body.
+            candidates.append(None)
+        return candidates
+
+    async def _fetch_fundamentals_with_egress(
+        self, instrument: InstrumentRef, headers: dict[str, str]
+    ) -> dict[str, Any]:
+        """Try the egress ladder; the last refusal is the answer if all fail.
+
+        The provider ladder above this sees one raw response, so a free-proxy
+        success and a direct success are both ``yahoo`` observations. The proxy
+        is transport, not a second source.
+        """
+
+        last: dict[str, Any] | None = None
+        for proxy in self._egress_candidates():
+            try:
+                async with provider_http.build_client(
+                    timeout_s=self.timeout_s,
+                    headers=headers,
+                    proxy=proxy,
+                ) as client:
+                    candidate = await self._fetch_fundamentals(client, instrument)
+            except Exception as exc:  # noqa: BLE001 - one bad proxy must not stop the walk
+                if self.proxy_pool is not None and proxy is not None:
+                    self.proxy_pool.report_failure(proxy, FREE)
+                last = {
+                    "status": -1,
+                    "headers": {},
+                    "body": f"{type(exc).__name__}: {exc}".encode("utf-8"),
+                    "url": f"{HOST}{QUOTE_SUMMARY_PATH.format(symbol=self._symbol(instrument))}",
+                    "capability": Capability.FUNDAMENTALS.value,
+                }
+                continue
+
+            status = int(candidate.get("status") or 0)
+            if status == 200:
+                if self.proxy_pool is not None and proxy is not None:
+                    self.proxy_pool.report_success(proxy, FREE)
+                return candidate
+
+            last = candidate
+            if proxy is None:
+                if status in (401, 403, 429, 451):
+                    self._direct_blocked_until = time.monotonic() + self.direct_cooldown_s
+                continue
+            if self.proxy_pool is not None:
+                self.proxy_pool.report_failure(proxy, FREE)
+
+        return last or {
+            "status": -1,
+            "headers": {},
+            "body": b"no egress candidate",
+            "url": f"{HOST}{QUOTE_SUMMARY_PATH.format(symbol=self._symbol(instrument))}",
+            "capability": Capability.FUNDAMENTALS.value,
+        }
 
     async def _get(self, client: Any, url: str, capability: Capability) -> dict[str, Any]:
         response = await client.get(url)

@@ -32,6 +32,7 @@ def build_client(
     max_connections: int = DEFAULT_MAX_CONNECTIONS,
     http2: bool = True,
     headers: dict[str, str] | None = None,
+    proxy: str | None = None,
 ) -> httpx2.AsyncClient:
     """Build a provider-scoped AsyncClient (timeouts, limits, no redirects).
 
@@ -50,6 +51,7 @@ def build_client(
         ),
         http2=http2,
         headers=headers or {},
+        proxy=proxy,
         trust_env=False,
     )
 

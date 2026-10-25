@@ -582,7 +582,12 @@ async def run(
 
     from app.config import Settings
 
-    settings = Settings(db_path=Path(args.db)) if args.db else Settings()
+    overrides: dict[str, Any] = {}
+    if args.db:
+        overrides["db_path"] = Path(args.db)
+    if args.proxy_pool:
+        overrides["proxy_pool"] = Path(args.proxy_pool)
+    settings = Settings(**overrides) if overrides else Settings()
     db_path = Path(settings.db_path).resolve()
     source = normalize_source(getattr(args, "source", DEFAULT_SOURCE))
 
@@ -843,6 +848,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--report-only",
         action="store_true",
         help="no provider request: print the stored coverage only",
+    )
+    parser.add_argument(
+        "--proxy-pool",
+        help="zcrapers-shaped pool_ranked.json (or text proxy list) for the Yahoo egress ladder",
     )
     parser.add_argument("--json", action="store_true", help="print one JSON document")
     return parser.parse_args(argv)
