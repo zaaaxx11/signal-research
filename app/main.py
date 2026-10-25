@@ -11,8 +11,11 @@ exactly that) never share a database or an export directory.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import health, market, markets, news, providers, requests, screens
@@ -88,6 +91,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     mount_router(application, screens.router)
     mount_router(application, news.router)
     mount_router(application, sources_router)
+
+    ui_dir = Path(__file__).resolve().parent.parent / "ui"
+    if ui_dir.is_dir():
+        application.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
+
+        @application.get("/", include_in_schema=False)
+        async def _ui_root() -> RedirectResponse:
+            return RedirectResponse(url="/ui/")
 
     @application.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError) -> JSONResponse:

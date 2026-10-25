@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -370,7 +370,7 @@ async def test_a_fresh_yahoo_row_is_kept_not_replaced(tmp_path: Path) -> None:
 
 async def test_refresh_still_keeps_a_fresh_yahoo_row(tmp_path: Path) -> None:
     store = await store_for(tmp_path)
-    await store.upsert(yahoo_snapshot("AAPL"))
+    await store.upsert(yahoo_snapshot("AAPL", fetched_at=datetime.now(UTC).replace(microsecond=0)))
     scan = FakeScan([scan_row("AAPL")])
     clock = Clock()
 
@@ -496,7 +496,7 @@ async def test_the_report_is_per_source_and_names_the_missing_fields(
     tmp_path: Path,
 ) -> None:
     store = await store_for(tmp_path)
-    await store.upsert(yahoo_snapshot("AAPL"))
+    await store.upsert(yahoo_snapshot("AAPL", fetched_at=datetime.now(UTC).replace(microsecond=0)))
     scan = FakeScan([scan_row("AAPL"), scan_row("MSFT"), scan_row("NVDA")])
 
     report = await build_scan_snapshots(store, fetch=scan, clock=Clock())
@@ -600,7 +600,7 @@ async def test_cli_scan_mode_keeps_a_fresh_yahoo_row_end_to_end(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     store = SqliteFundamentalsStore(tmp_path / "cli.db")
-    await store.upsert(yahoo_snapshot("AAPL"))
+    await store.upsert(yahoo_snapshot("AAPL", fetched_at=datetime.now(UTC).replace(microsecond=0)))
     await store.aclose()
 
     scan = FakeScan([scan_row("AAPL", total_revenue=1.0), scan_row("MSFT")])

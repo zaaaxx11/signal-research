@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b070d" />
+    <title>Ztockz - Market cockpit</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-a"></div>
+    <div class="ambient ambient-b"></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#top" aria-label="Ztockz home">
+          <span class="brand-mark">Z</span>
+          <span class="brand-copy">
+            <strong>Ztockz</strong>
+            <small>Market cockpit</small>
+          </span>
+        </a>
+
+        <nav class="side-nav">
+          <button class="nav-item is-active" data-view="discover">
+            <span class="nav-glyph">◈</span>
+            <span>Discover</span>
+          </button>
+          <button class="nav-item" data-view="watchlist">
+            <span class="nav-glyph">◇</span>
+            <span>Watchlist</span>
+            <span class="nav-count" id="navWatchCount">0</span>
+          </button>
+          <button class="nav-item" data-view="signals">
+            <span class="nav-glyph">⌁</span>
+            <span>Signals</span>
+          </button>
+        </nav>
+
+        <div class="side-label">Universe</div>
+        <div class="side-list">
+          <button class="side-row is-active" data-region="us"><span>US equities</span><b id="sideUsCount">5,579</b></button>
+          <button class="side-row" data-region="global"><span>Global</span><b>40,950</b></button>
+          <button class="side-row" data-region="us_etf"><span>US ETFs</span><b>5,779</b></button>
+        </div>
+
+        <div class="side-foot">
+          <div class="status-line"><span class="status-dot"></span><span id="sideStatus">Scan connected</span></div>
+          <div class="status-meta">Source-backed. No filler.</div>
+        </div>
+      </aside>
+
+      <main class="main" id="top">
+        <header class="topbar">
+          <div class="crumb">
+            <span class="crumb-muted">Workspace</span>
+            <span class="crumb-slash">/</span>
+            <strong id="crumbCurrent">Discover</strong>
+          </div>
+          <div class="top-actions">
+            <button class="search-trigger" id="searchTrigger" aria-label="Search symbols">
+              <span class="search-icon">⌕</span>
+              <span>Search symbols, filters</span>
+              <kbd>⌘ K</kbd>
+            </button>
+            <button class="icon-button" id="refreshButton" title="Refresh data" aria-label="Refresh data">↻</button>
+            <button class="avatar-button" title="Ztockz operator" aria-label="Operator profile">Z</button>
+          </div>
+        </header>
+
+        <section class="hero" aria-labelledby="heroTitle">
+          <div class="hero-copy">
+            <div class="kicker"><span class="kicker-mark"></span> MARKET INTELLIGENCE <span id="heroClock">--:-- UTC</span></div>
+            <h1 id="heroTitle">Signal over <em>noise.</em></h1>
+            <p class="hero-sub">One clean surface for the market you actually want to see. Scan, compare, and open the evidence behind every number.</p>
+            <div class="hero-actions">
+              <button class="primary-button" id="exploreButton">Explore market <span class="button-arrow">↗</span></button>
+              <button class="ghost-button" id="paletteButton"><kbd>⌘</kbd><kbd>K</kbd> Command palette</button>
+            </div>
+          </div>
+          <div class="hero-stats" id="heroStats">
+            <div class="stat-card stat-main">
+              <span class="stat-label">Universe</span>
+              <strong id="statUniverse">--</strong>
+              <span class="stat-note">US issuers in scan</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Advancing</span>
+              <strong id="statAdvancing">--</strong>
+              <span class="stat-note" id="statAdvancingNote">of current page</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Median P/E</span>
+              <strong id="statMedianPe">--</strong>
+              <span class="stat-note">reported rows only</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="toolbar" aria-label="Screener controls">
+          <div class="filter-row" id="filterChips">
+            <button class="chip is-active" data-filter="all">All names</button>
+            <button class="chip" data-filter="momentum">Momentum</button>
+            <button class="chip" data-filter="value">Value</button>
+            <button class="chip" data-filter="quality">Quality</button>
+            <button class="chip" data-filter="watchlist">Watchlist <span id="watchChipCount">0</span></button>
+          </div>
+          <div class="tool-row">
+            <div class="inline-search">
+              <span>⌕</span>
+              <input id="searchInput" type="search" placeholder="Filter by ticker or name" autocomplete="off" spellcheck="false" />
+              <kbd>/</kbd>
+            </div>
+            <div class="tool-actions">
+              <button class="soft-button" id="sortButton">Market cap <span>⌄</span></button>
+              <button class="soft-button" id="compactButton">Compact</button>
+              <button class="soft-button" id="columnsButton">Columns <span>⌄</span></button>
+            </div>
+          </div>
+        </section>
+
+        <div class="notice hidden" id="notice" role="status"></div>
+
+        <section class="workspace" aria-label="Market workspace">
+          <div class="table-panel">
+            <div class="panel-head">
+              <div>
+                <span class="panel-kicker">Live screen</span>
+                <h2>Market leaders</h2>
+              </div>
+              <div class="panel-meta">
+                <span class="live-pill"><span class="status-dot"></span><span id="rowCount">--</span> rows</span>
+                <span class="muted" id="selectionMeta">Loading</span>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="market-table" id="marketTable">
+                <thead>
+                  <tr>
+                    <th class="col-rank">#</th>
+                    <th class="col-name">Company</th>
+                    <th class="col-num sortable" data-sort="price">Price</th>
+                    <th class="col-num sortable" data-sort="change_pct">1D</th>
+                    <th class="col-num sortable" data-sort="market_cap">Mkt cap</th>
+                    <th class="col-num sortable" data-sort="pe">P/E</th>
+                    <th class="col-num col-fpe sortable" data-sort="forward_pe">Fwd P/E</th>
+                    <th class="col-num col-rsi sortable" data-sort="rsi_14">RSI</th>
+                    <th class="col-num col-ytd sortable" data-sort="perf_ytd">YTD</th>
+                    <th class="col-star">Watch</th>
+                  </tr>
+                </thead>
+                <tbody id="tableBody">
+                  <tr class="skeleton-row"><td colspan="10"><div class="skeleton wide"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="10"><div class="skeleton wide"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="10"><div class="skeleton wide"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="10"><div class="skeleton wide"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="10"><div class="skeleton wide"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="empty-state hidden" id="emptyState">
+              <div class="empty-mark">∅</div>
+              <h3>No names match this cut.</h3>
+              <p>Clear a filter or search for another ticker.</p>
+              <button class="ghost-button" id="clearFilters">Clear filters</button>
+            </div>
+            <div class="panel-foot">
+              <span id="tableFootNote">One scan, 20 names. Every cell keeps its source.</span>
+              <span class="pager"><button id="prevPage" aria-label="Previous page">←</button><b id="pageLabel">1 / 1</b><button id="nextPage" aria-label="Next page">→</button></span>
+            </div>
+          </div>
+
+          <aside class="insight-rail" aria-label="Market insight">
+            <section class="detail-card" id="detailCard">
+              <div class="detail-head">
+                <div>
+                  <span class="panel-kicker">Selected name</span>
+                  <h2 id="detailSymbol">--</h2>
+                </div>
+                <button class="icon-button small" id="detailStar" title="Add to watchlist" aria-label="Add to watchlist">☆</button>
+              </div>
+              <div class="detail-empty" id="detailEmpty">Select a row to open its evidence.</div>
+              <div class="detail-body hidden" id="detailBody">
+                <div class="detail-price-row">
+                  <strong id="detailPrice">--</strong>
+                  <span class="change-pill" id="detailChange">--</span>
+                </div>
+                <div class="detail-name" id="detailName">--</div>
+                <div class="metric-grid">
+                  <div><span>Market cap</span><b id="detailCap">--</b></div>
+                  <div><span>P/E</span><b id="detailPe">--</b></div>
+                  <div><span>Fwd P/E</span><b id="detailFpe">--</b></div>
+                  <div><span>RSI</span><b id="detailRsi">--</b></div>
+                  <div><span>YTD</span><b id="detailYtd">--</b></div>
+                  <div><span>Beta</span><b id="detailBeta">--</b></div>
+                </div>
+                <div class="range-block">
+                  <div class="range-label"><span>52-week range</span><span id="detailRangeLabel">--</span></div>
+                  <div class="range-track"><span class="range-fill" id="detailRangeFill"></span><span class="range-dot" id="detailRangeDot"></span></div>
+                  <div class="range-ends"><span id="detailLow">--</span><span id="detailHigh">--</span></div>
+                </div>
+                <div class="evidence-row"><span>Source</span><b id="detailSource">TradingView scan</b></div>
+                <div class="detail-actions">
+                  <button class="primary-button compact" id="compareButton">Add to compare <span class="button-arrow">+</span></button>
+                  <button class="ghost-button compact" id="newsButton">Open news</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="signal-card">
+              <div class="rail-head"><span class="panel-kicker">Signal radar</span><span class="tiny-live"><span class="status-dot"></span>live</span></div>
+              <div class="signal-list" id="signalList">
+                <div class="signal-skeleton"></div><div class="signal-skeleton"></div><div class="signal-skeleton"></div>
+              </div>
+            </section>
+
+            <section class="integrity-card">
+              <div class="rail-head"><span class="panel-kicker">Data integrity</span><span class="integrity-mark">✓</span></div>
+              <p class="integrity-copy">Every cell is traceable to its source. Missing values stay missing.</p>
+              <div class="integrity-list">
+                <div><span>Scan</span><b>TradingView</b></div>
+                <div><span>Fundamentals</span><b>3,902 rows</b></div>
+                <div><span>Ownership facts</span><b>3,831 rows</b></div>
+              </div>
+            </section>
+          </aside>
+        </section>
+
+        <footer class="footer">
+          <span>Ztockz / market cockpit</span>
+          <span>Source backed. <button class="text-button" id="footerPalette">Open command palette</button></span>
+        </footer>
+      </main>
+    </div>
+
+    <div class="compare-tray hidden" id="compareTray">
+      <div class="compare-label"><span class="panel-kicker">Compare</span><b id="compareCount">0 / 3</b></div>
+      <div class="compare-items" id="compareItems"></div>
+      <div class="compare-actions"><button class="ghost-button compact" id="clearCompare">Clear</button><button class="primary-button compact" id="openCompare">Compare <span class="button-arrow">↗</span></button></div>
+    </div>
+
+    <div class="palette hidden" id="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="palette-panel">
+        <div class="palette-input-wrap"><span>⌕</span><input id="paletteInput" placeholder="Type a command or ticker" autocomplete="off" /><kbd>ESC</kbd></div>
+        <div class="palette-list" id="paletteList"></div>
+        <div class="palette-foot"><span>↑↓ navigate</span><span>↵ select</span><span>esc close</span></div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="compareModal" role="dialog" aria-modal="true" aria-label="Compare names">
+      <div class="modal-panel">
+        <div class="modal-head"><div><span class="panel-kicker">Side by side</span><h2>Compare names</h2></div><button class="icon-button" id="closeCompare" aria-label="Close compare">×</button></div>
+        <div class="compare-grid" id="compareGrid"></div>
+      </div>
+    </div>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
