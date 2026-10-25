@@ -154,6 +154,63 @@ async def test_a_match_outside_the_displayed_twenty_is_found(
     assert body["universe_total"] == US_CRITERIA_UNIVERSE
 
 
+async def test_fill_wide_is_opt_in_and_does_not_change_the_selection(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A wide page may add display cells, but never rows or their order."""
+
+    module = S.screens_api()
+    calls: list[list[dict[str, Any]]] = []
+
+    class FakeFiller:
+        def __init__(self, adapter: Any = None) -> None:
+            self.adapter = adapter
+
+        async def fill(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            calls.append(rows)
+            return [{**row, "employees": 42} for row in rows]
+
+    monkeypatch.setattr(module, "WideFiller", FakeFiller)
+    body = criteria(
+        {"key": "sec", "op": "eq", "value": "Technology"}, limit=5
+    )
+    body["fill_wide"] = True
+    body["view"] = "all"
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post("/screens/select", json=body)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == 7, "enrichment must not change the match count"
+    assert [row["symbol"] for row in payload["rows"]] == US_TECHNOLOGY[:5]
+    assert all(row["employees"] == 42 for row in payload["rows"])
+    assert len(calls) == 1 and len(calls[0]) == 5
+
+
+async def test_without_fill_wide_no_stock_page_is_requested(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    module = S.screens_api()
+    calls: list[Any] = []
+
+    class FakeFiller:
+        def __init__(self, adapter: Any = None) -> None:
+            self.adapter = adapter
+
+        async def fill(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            calls.append(rows)
+            return rows
+
+    monkeypatch.setattr(module, "WideFiller", FakeFiller)
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post("/screens/select", json=criteria(limit=5))
+
+    assert response.status_code == 200, response.text
+    assert calls == [], "the default selection must not spend a page request"
+
+
 async def test_a_limit_above_twenty_still_serves_twenty_rows(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
