@@ -26,7 +26,12 @@ Three rules the code has to earn:
    :func:`app.screen.filters.compile_filter`, so an unknown field, an unknown
    operator or a value of the wrong type is a 422 before a row is read. A key
    without a light column is refused by name through
-   :mod:`app.screen.filter_fields` — never applied as a no-op.
+   :mod:`app.screen.filter_fields` — never applied as a no-op. The three keys
+   that span several columns (``ta_perf``, ``ta_perf2``, ``ta_volatility``) take
+   their option token as the value — ``{"key": "ta_perf", "op": "eq",
+   "value": "1w10u"}`` — and :mod:`app.screen.choice_filters` compiles it into
+   the same ``field op number`` predicate a ``field`` criterion would have
+   produced.
 2. **The display is capped at 20 rows.** ``limit`` cannot widen the page: a
    larger value is clamped (not an error, because the caller asked for a page
    that does not exist) and the envelope reports the applied ``limit``, so a
@@ -66,13 +71,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from app.screen import choice_filters
 from app.screen import rank as ranking
 from app.screen import views as screen_views
 from app.screen.filter_fields import (
     CATALOGUE,
+    CHOICE_FIELDS,
+    ROW_FIELDS,
     FilterKeyError,
     binding,
-    mapped_keys,
     unavailable_keys,
 )
 from app.screen.filters import FIELDS, OPERATORS, apply_filters, compile_filter
@@ -228,7 +235,11 @@ class Criterion:
 
     ``key`` is ``None`` when the caller used the canonical ``field`` form, so the
     envelope can echo *how* the criterion was written and a client can round-trip
-    a request from a response.
+    a request from a response. For an option-driven key (``ta_perf``,
+    ``ta_perf2``, ``ta_volatility``) ``key`` names the Finviz filter while
+    ``field``/``op``/``value`` are the predicate its option token compiled to:
+    both ends of the translation are visible, so a reader can check that
+    ``1w10u`` really meant ``ret_1w <= -10`` without trusting the request.
     """
 
     field: str
@@ -339,6 +350,34 @@ def _view_name(raw: Any) -> str | None:
     return raw
 
 
+def _choice_criterion(
+    key: str, item: Mapping[str, Any], where: str
+) -> Criterion:
+    """One option-driven key: ``op eq`` plus a Finviz option token, or a 422."""
+
+    op = item["op"]
+    token = op.strip().casefold() if isinstance(op, str) else None
+    example = choice_filters.CHOICES[key].tokens[0]
+    if token not in {"eq", "==", "="}:
+        raise SelectionError(
+            f"{where} (key {key!r}) takes op 'eq' and one of its Finviz option "
+            f"tokens as the value (e.g. {{'key': {key!r}, 'op': 'eq', 'value': "
+            f"{example!r}}}), got op {op!r}: the token already names the window "
+            "and the direction, so a second comparison has nothing left to say",
+            code="invalid_filter",
+        )
+    try:
+        compiled = choice_filters.compile_option(key, item["value"])
+    except choice_filters.ChoiceOptionError as exc:
+        raise SelectionError(f"{where} (key {key!r}): {exc}", code=exc.code) from exc
+    return Criterion(
+        field=compiled.field,
+        op=compiled.op,
+        value=compiled.value,
+        key=key,
+    )
+
+
 def _criterion(item: Any, index: int) -> Criterion:
     """One filter object → one compiled :class:`Criterion`, or a 422."""
 
@@ -363,6 +402,8 @@ def _criterion(item: Any, index: int) -> Criterion:
             resolved = binding(key)
         except FilterKeyError as exc:
             raise SelectionError(str(exc), code=exc.code) from exc
+        if resolved.choice:
+            return _choice_criterion(str(key), item, where)
         column = resolved.field
         assert column is not None  # binding() refuses the unavailable keys
         prefix = f"{where} (key {key!r})"
@@ -745,9 +786,13 @@ def _filter_value_schema() -> dict[str, object]:
     return {
         "description": (
             "The comparison value. `in` and `between` take an array (`between` "
-            "exactly two numbers); every other operator takes one scalar. Finviz "
-            "option tokens (`mega`, `u5`, `ob70`) are display buckets, not "
-            "values: send the number the bucket means."
+            "exactly two numbers); every other operator takes one scalar. For an "
+            f"option-driven key ({', '.join(CHOICE_FIELDS)}) the value is the "
+            "Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate "
+            "each token compiles to is published under "
+            "`x-filter-keys.<key>.choice.options`. Everywhere else Finviz's option "
+            "tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send "
+            "the number the bucket means."
         ),
         "oneOf": [
             {"type": "number"},
@@ -894,16 +939,18 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
             "description": (
                 "One predicate: exactly one of `key` (a Finviz filter key, "
                 "resolved to its row column) or `field` (the column itself), plus "
-                "an operator and a value."
+                "an operator and a value. A key whose entry in `x-filter-keys` "
+                "carries `choice` takes `op: eq` and an option token as `value`."
             ),
             "properties": {
                 "key": {
                     "type": "string",
                     "description": (
-                        f"One of the 82 Finviz filter keys. The {len(mapped_keys())} "
-                        "that filter a row column today, and the "
-                        f"{len(unavailable_keys())} that are refused with their "
-                        "reason, are listed in x-filter-keys."
+                        f"One of the 82 Finviz filter keys. The {len(ROW_FIELDS)} "
+                        "that resolve to one row column, the "
+                        f"{len(CHOICE_FIELDS)} that filter through their option "
+                        f"vocabulary, and the {len(unavailable_keys())} that are "
+                        "refused with their reason, are listed in x-filter-keys."
                     ),
                 },
                 "field": {

@@ -231,8 +231,16 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
     assert len(unsourced) == 82 - len(mapped) == 40
-    assert all(not FILTER_CATALOG[key].is_available for key in unsourced), (
+    # The three option-driven keys also have no single column — that is why they
+    # are not in `mapped` — but they are not refused: one option token names one
+    # window and compiles to one column predicate (app.screen.choice_filters).
+    choice = {key for key, spec in FILTER_CATALOG.items() if spec.choice}
+    assert choice <= set(unsourced), "a choice key must not claim a single column"
+    assert all(not FILTER_CATALOG[key].is_available for key in set(unsourced) - choice), (
         "a key without a metric must report is_available == False"
+    )
+    assert all(FILTER_CATALOG[key].is_available for key in choice), (
+        "an option-driven key filters a row today; it is not a refusal"
     )
 
 

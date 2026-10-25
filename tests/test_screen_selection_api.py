@@ -404,6 +404,12 @@ async def test_the_schema_route_serves_the_repo_artifact(
         "the published schema must name every key that filters a parity row, the "
         "three derived columns and the three joined fundamentals included"
     )
+    chosen = [
+        key for key, entry in served["x-filter-keys"].items() if "choice" in entry
+    ]
+    assert chosen == ["ta_perf", "ta_perf2", "ta_volatility"], (
+        "the three option-driven keys publish their vocabulary, not one column"
+    )
     assert "fa_pe" in mapped and "ta_beta" in mapped and "ta_sma50" in mapped
     assert "industry" in mapped and "fa_div" in mapped and "ta_gap" in mapped
     assert "an_recom" in mapped and "ta_changeopen" in mapped and "ta_highlow52w" in mapped

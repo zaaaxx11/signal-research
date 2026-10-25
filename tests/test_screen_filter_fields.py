@@ -1,22 +1,25 @@
-"""The 82-key disposition after P11B and P11G: six keys stop being refusals.
+"""The 82-key disposition after P11B, P11G and P11H: nine keys stop being refusals.
 
 This module owns the *expectations* that changed when the derived columns landed
-(:mod:`app.screen.derived`) and when the fundamentals join landed
-(:mod:`app.screen.fundamentals`); the resolver mechanics themselves are pinned by
-``tests/test_screen_selection.py`` and the row contract by
+(:mod:`app.screen.derived`), when the fundamentals join landed
+(:mod:`app.screen.fundamentals`) and when the three option-driven keys got their
+compiler (:mod:`app.screen.choice_filters`); the resolver mechanics themselves
+are pinned by ``tests/test_screen_selection.py`` and the row contract by
 ``tests/test_screen_parity.py``.
 
 The claim is three-fold:
 
 * the catalogue is still the probe's **82 keys**, and every one of them has
-  exactly one disposition — a row column or a named refusal;
-* the split moved from 36/46 to **42 mapped / 40 refused**, and the only keys
+  exactly one disposition — a row column, an option vocabulary, or a named
+  refusal;
+* the split moved from 36/46 to **45 available / 37 refused**, and the only keys
   that moved are ``an_recom``, ``ta_changeopen``, ``ta_highlow52w`` (P11B, derived
-  columns) and ``fa_fpe``, ``fa_ps``, ``fa_payoutratio`` (P11G, joined from the
-  fundamentals snapshot store);
-* each newly mapped key points at a column a real ``build_universe`` row carries
-  (or one the join copies onto it), so "mapped" is a statement about the row,
-  not about a table.
+  columns), ``fa_fpe``, ``fa_ps``, ``fa_payoutratio`` (P11G, joined from the
+  fundamentals snapshot store) and ``ta_perf``, ``ta_perf2``, ``ta_volatility``
+  (P11H, one predicate per Finviz option token);
+* each newly available key points at a column a real ``build_universe`` row
+  carries (or one the join copies onto it), so "available" is a statement about
+  the row, not about a table.
 """
 
 from __future__ import annotations
@@ -25,11 +28,14 @@ from typing import Any
 
 import pytest
 
+from app.screen import choice_filters
 from app.screen.filter_fields import (
     CATALOGUE,
+    CHOICE_FIELDS,
     ROW_FIELDS,
     UNAVAILABLE,
     binding,
+    choice_keys,
     mapped_keys,
     reason_for,
     unavailable_keys,
@@ -51,6 +57,34 @@ P11G: dict[str, str] = {
     "fa_fpe": "pe_forward",
     "fa_ps": "ps",
     "fa_payoutratio": "payout_ratio",
+}
+
+#: The three keys P11H made available through their option vocabulary, and the
+#: columns each one reads. They have no single column by design.
+P11H: dict[str, tuple[str, ...]] = {
+    "ta_perf": (
+        "change_pct",
+        "ret_1w",
+        "ret_1m",
+        "ret_3m",
+        "ret_6m",
+        "ret_ytd",
+        "ret_1y",
+        "ret_5y",
+        "ret_10y",
+    ),
+    "ta_perf2": (
+        "change_pct",
+        "ret_1w",
+        "ret_1m",
+        "ret_3m",
+        "ret_6m",
+        "ret_ytd",
+        "ret_1y",
+        "ret_5y",
+        "ret_10y",
+    ),
+    "ta_volatility": ("volatility_w", "volatility_m"),
 }
 
 
@@ -81,13 +115,14 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_forty_two_mapped_and_forty_refused() -> None:
-    assert len(mapped_keys()) == 42
-    assert len(unavailable_keys()) == 40
+def test_the_disposition_is_forty_five_available_and_thirty_seven_refused() -> None:
+    assert len(mapped_keys()) == 45
+    assert len(unavailable_keys()) == 37
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
-    assert set(mapped_keys()) == set(ROW_FIELDS)
+    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert not set(mapped_keys()) & set(unavailable_keys()), "one disposition per key"
+    assert choice_keys() == tuple(P11H), "panel order, three option-driven keys"
 
 
 @pytest.mark.parametrize(("key", "field"), sorted(P11B.items()))
@@ -105,20 +140,73 @@ def test_a_derived_key_is_mapped_not_refused(key: str, field: str) -> None:
 def test_only_the_declared_keys_left_the_refusal_list() -> None:
     """No other key became available by accident."""
 
-    moved = set(P11B) | set(P11G)
-    mapped = set(mapped_keys()) - moved
-    assert len(mapped) == 36, "the P7 disposition of 36 keys stands"
+    moved = set(P11B) | set(P11G) | set(P11H)
+    mapped = set(mapped_keys()) - set(P11H) - set(P11B) - set(P11G)
+    assert len(mapped) == 36, "the P7 disposition of 36 single-column keys stands"
     refused = set(unavailable_keys())
     assert moved.isdisjoint(refused)
-    assert len(refused) == 46 - len(moved)
+    assert len(refused) == 46 - len(moved) == 37
 
 
-def test_every_mapped_key_points_at_a_column_a_row_can_carry() -> None:
+def test_every_available_key_points_at_a_column_a_row_can_carry() -> None:
     carried = set(CARRIED_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS)
     assert set(ROW_FIELDS.values()) <= carried, (
         f"keys point at columns no row carries: {sorted(set(ROW_FIELDS.values()) - carried)}"
     )
+    columns = {column for columns in CHOICE_FIELDS.values() for column in columns}
+    assert columns <= carried, (
+        f"option-driven keys read columns no row carries: {sorted(columns - carried)}"
+    )
     assert set(DERIVED_FIELDS) <= CARRIED_FIELDS
+
+
+@pytest.mark.parametrize("key", sorted(P11H))
+def test_an_option_driven_key_is_available_without_a_single_column(key: str) -> None:
+    """A choice key filters — it just answers per option token, not per column."""
+
+    assert FILTER_CATALOG[key].choice is True
+    assert FILTER_CATALOG[key].field is None, "ten windows cannot be one column"
+    assert ROW_FIELDS.get(key) is None
+    assert CHOICE_FIELDS[key] == P11H[key]
+    assert key not in UNAVAILABLE
+    assert reason_for(key) is None
+    assert binding(key).is_available is True
+    assert binding(key).choice is True
+    assert binding(key).field is None
+    assert choice_filters.fields_for(key) == P11H[key]
+    for column in P11H[key]:
+        assert column in FIELDS and FIELDS[column] == "number"
+        assert column in CARRIED_FIELDS, f"{key} reads {column}, which a parity row lacks"
+
+
+@pytest.mark.parametrize("key", sorted(P11H))
+def test_a_real_row_carries_every_choice_column(key: str) -> None:
+    """Available is a claim about a row: build one and read each column off it."""
+
+    cells: dict[str, Any] = {
+        "Perf.W": 1.0,
+        "Perf.1M": 2.0,
+        "Perf.3M": 3.0,
+        "Perf.6M": 4.0,
+        "Perf.YTD": 5.0,
+        "Perf.Y": 6.0,
+        "Perf.5Y": 7.0,
+        "Perf.10Y": 8.0,
+        "Volatility.W": 2.5,
+        "Volatility.M": 9.5,
+    }
+    universe = build_universe(
+        [provider_row("LIVE", **cells)],
+        region="us",
+        min_market_cap=0,
+        columns=PARITY_COLUMNS,
+        allow_any_subtype=True,
+    )
+
+    assert len(universe) == 1
+    for column in P11H[key]:
+        assert column in universe[0], f"{key} reads {column}, absent from a parity row"
+        assert universe[0][column] is not None
 
 
 @pytest.mark.parametrize(("key", "field"), sorted(P11G.items()))
@@ -158,10 +246,11 @@ def test_a_real_row_carries_the_new_column(key: str) -> None:
     assert isinstance(universe[0][field], float)
 
 
-def test_the_published_schema_reports_the_three_keys_as_mapped() -> None:
+def test_the_published_schema_reports_the_three_keys_as_available() -> None:
     """The schema a client validates against is the same disposition, not a copy."""
 
-    published = SELECTION_REQUEST_SCHEMA["x-filter-keys"]
+    extension = SELECTION_REQUEST_SCHEMA["x-filter-keys"]
+    published: dict[str, Any] = dict(extension)  # type: ignore[arg-type]
     assert SELECTION_REQUEST_SCHEMA["x-filter-key-count"] == 82
 
     for key, field in P11B.items():
@@ -172,19 +261,67 @@ def test_the_published_schema_reports_the_three_keys_as_mapped() -> None:
         assert entry["tab"] == FILTER_CATALOG[key].tab
 
     mapped = {key for key, entry in published.items() if entry["field"] is not None}
-    refused = {key for key, entry in published.items() if entry["field"] is None}
-    assert mapped == set(mapped_keys())
+    chosen = {key for key, entry in published.items() if "choice" in entry}
+    refused = {
+        key
+        for key, entry in published.items()
+        if entry["field"] is None and "choice" not in entry
+    }
+    assert mapped == set(ROW_FIELDS)
+    assert chosen == set(P11H)
+    assert mapped | chosen == set(mapped_keys())
     assert refused == set(unavailable_keys())
+
+    for key, columns in P11H.items():
+        entry = published[key]
+        assert entry["field"] is None, "no single column could name the key"
+        assert "kind" not in entry, "the value is an option token, not a number"
+        assert "reason" not in entry, f"{key} is available, so it is not refused"
+        assert entry["tab"] == FILTER_CATALOG[key].tab
+        choice = entry["choice"]
+        assert choice["fields"] == list(columns)
+        assert set(choice["windows"].values()) - {None} == set(columns)
+        assert choice["options"], f"{key} publishes no compiled option"
+
+
+def test_the_published_choice_options_are_the_compiled_predicates() -> None:
+    """Every published option string is the predicate the request would run."""
+
+    extension = SELECTION_REQUEST_SCHEMA["x-filter-keys"]
+    published: dict[str, Any] = dict(extension)  # type: ignore[arg-type]
+    for key in P11H:
+        options: dict[str, str] = published[key]["choice"]["options"]
+        assert set(options) == set(choice_filters.choices_for(key))
+        for token, expression in options.items():
+            compiled = choice_filters.compile_option(key, token)
+            assert expression == f"{compiled.field} {compiled.op} {compiled.value}"
+
+    assert published["ta_perf"]["choice"]["options"]["1w10u"] == "ret_1w lte -10.0"
+    assert published["ta_perf2"]["choice"]["options"]["dup"] == "change_pct gt 0.0"
+    assert published["ta_volatility"]["choice"]["options"]["mo15"] == (
+        "volatility_m gte 15.0"
+    )
+    unsupported = published["ta_perf"]["choice"]["unsupported"]
+    assert set(unsupported) == {"3y"}, "the one window no row carries"
+    assert "ret_3y" in unsupported["3y"]
 
 
 def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> None:
-    """The three shapes of refusal that survive: no column, many columns, always null."""
+    """The two shapes of refusal that survive: no column, or a column always null."""
 
     for key in ("idx", "theme", "sh_insiderown", "ah_close", "ta_pattern", "etf_heldby"):
         assert reason_for(key), f"{key} has no metric; it must stay refused"
-    assert "ten performance windows" in (reason_for("ta_perf") or "")
-    assert "two windows" in (reason_for("ta_volatility") or "")
     assert "answered null for all" in (reason_for("sh_short") or "")
+    for key in ("ta_perf", "ta_perf2", "ta_volatility"):
+        assert reason_for(key) is None, (
+            f"{key} filters through its option tokens now (app.screen.choice_filters); "
+            "a refusal here would be a stale disposition"
+        )
+    # The one window the row cannot answer is refused per token, by name.
+    unsupported: dict[str, str] = choice_filters.describe("ta_perf")["unsupported"]  # type: ignore[assignment]
+    assert "ret_3y" in unsupported["3y"]
+    with pytest.raises(choice_filters.UnsupportedChoiceOption):
+        choice_filters.compile_option("ta_perf", "3y10u")
     for key, reason in UNAVAILABLE.items():
         assert reason.strip(), f"{key} needs a non-empty reason"
         assert len(reason) > 20, f"{key}'s reason is too short to be useful: {reason!r}"

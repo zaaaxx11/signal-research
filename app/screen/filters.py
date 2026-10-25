@@ -12,20 +12,24 @@ claim that the metric behind every key is already sourced.
 
 **Only a metric the product can answer gets a field.** ``FilterSpec.field`` names
 the canonical row column a key filters, and it is ``None`` for the keys no row
-carries. **Forty-two keys map today**: the seven light columns (exchange,
-sector, country, market cap, price, change %, current volume), twenty-nine parity
-metrics that :data:`app.screen.universe.PARITY_FIELDS` copies from the bulk scan
-— P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current, quick and
-debt/equity ratios, the three margins, share count and float, average/relative
-volume, target price, the next earnings date, industry, dividend yield, RSI, the
-three SMAs, beta, gap and ATR — three **derived** columns
+carries. **Forty-two keys map to one column today**: the seven light columns
+(exchange, sector, country, market cap, price, change %, current volume),
+twenty-nine parity metrics that :data:`app.screen.universe.PARITY_FIELDS` copies
+from the bulk scan — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current,
+quick and debt/equity ratios, the three margins, share count and float,
+average/relative volume, target price, the next earnings date, industry,
+dividend yield, RSI, the three SMAs, beta, gap and ATR — three **derived** columns
 (:data:`app.screen.universe.DERIVED_FIELDS`): Finviz's 1..5 analyst score
 (``3 - 2 * recommendation``), the change from the session open
 (``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``) and the percent
 distance from the 52-week high (``(price / high_52w - 1) * 100``), plus three
 **joined** columns (:mod:`app.screen.fundamentals`): forward P/E, P/S and payout
 ratio, read from the fundamentals snapshot store because the scan answers those
-three with ``null`` for every row.
+three with ``null`` for every row. Three more keys — ``ta_perf``,
+``ta_perf2`` and ``ta_volatility`` — are **choice** keys: they filter through
+Finviz's option vocabulary instead of one column, and
+:mod:`app.screen.choice_filters` is their compiler, so **forty-five keys can
+filter a row today** and thirty-seven are refused.
 
 The rule for the twenty-nine copies is **one quantity, one column, and the
 provider's window or unit in the name**. ``ta_beta`` therefore resolves to
@@ -44,18 +48,31 @@ column, and carries its scale or direction in the name: ``recom_finviz`` is
 Finviz's scale, not the provider's -1..+1 ``recommendation``;
 ``change_from_open`` names its base; ``pct_from_52w_high`` names its one
 direction — the low side stays the absolute ``low_52w``, and no low-side distance
-is invented. A key is *not* mapped when nothing measures it, when one key spans
-several columns (``ta_perf`` covers ten windows, ``ta_volatility`` two), or when
-the provider's column answers ``null`` for **every** row — the live probe
-returned no values at all for ``price_earnings_forward``, ``price_sales_ttm``,
+is invented. A key is *not* mapped when nothing measures it, or when the
+provider's column answers ``null`` for **every** row — the live probe returned
+no values at all for ``price_earnings_forward``, ``price_sales_ttm``,
 ``short_float`` and ``ipo_date``, and a filter on a column that is always null
 could only return an empty screen. Two of those four now have a real source
 outside the scan: ``price_earnings_forward``/``price_sales_ttm`` are answered by
 the fundamentals snapshot store, so ``fa_fpe`` and ``fa_ps`` map to the **joined**
 columns of :mod:`app.screen.fundamentals` (with ``fa_payoutratio``, whose
 ``payout_ratio`` cell the store also fills). ``short_float`` and ``ipo_date``
-stay refused, and the forty refusals in :mod:`app.screen.filter_fields` name the
-missing metric instead.
+stay refused, and the thirty-seven refusals in :mod:`app.screen.filter_fields`
+name the missing metric instead.
+
+**A key that spans several columns is a choice, not a refusal.** ``ta_perf`` and
+``ta_perf2`` offer ten performance windows and ``ta_volatility`` two, so no
+single column could name them; ``FilterSpec.choice`` marks them and their
+``field`` stays ``None``. The request shape does not change — a criterion is
+still ``{"key": "ta_perf", "op": "eq", "value": "1w10u"}`` — and
+:mod:`app.screen.choice_filters` compiles that token into one predicate over the
+column the token's window owns (``1w10u`` → ``ret_1w <= -10``). The vocabulary is
+still the probe's: a token outside ``FilterSpec.options`` is a 422, never a
+guess, and the one window the row cannot answer (the three-year return) is
+refused by name instead of being approximated from the one- and five-year
+columns. ``eq`` on a choice key therefore compares a *bucket*, not a cell: the
+compiled :class:`Filter` is the ordinary ``field op number`` predicate, so a null
+cell still matches nothing.
 
 **The DSL is field/op/value, and unknown never passes.** ``compile_filter``
 rejects an unknown field, an unknown operator and an operator that cannot work
@@ -229,9 +246,14 @@ class FilterSpec:
     """One Finviz filter key, exactly as the probe found it.
 
     ``field`` is the canonical row column the key filters, or ``None`` when the
-    light universe does not carry that metric yet. ``options`` keeps Finviz's
-    vocabulary verbatim (``u5``, ``largeover``, ...): turning ``u5`` into ``< 5``
-    is a metric decision that belongs with the metric, not with the catalogue.
+    light universe does not carry that metric yet — or when the key filters
+    through its whole option vocabulary instead (``choice``). ``options`` keeps
+    Finviz's vocabulary verbatim (``u5``, ``largeover``, ...): turning ``u5``
+    into ``< 5`` is a metric decision that belongs with the metric, not with the
+    catalogue. ``choice`` marks the three keys where that decision *is* the
+    filter: one token names a window and a direction, so
+    :mod:`app.screen.choice_filters` owns the translation and this catalogue
+    keeps the token verbatim like every other option.
     """
 
     key: str
@@ -240,11 +262,13 @@ class FilterSpec:
     ui_type: str
     field: str | None
     options: tuple[str, ...] = ()
+    choice: bool = False
 
     @property
     def is_available(self) -> bool:
         """Can a filter on this key be compiled today?"""
-        return self.field is not None
+
+        return self.field is not None or self.choice
 
 
 @dataclass(frozen=True, slots=True)
@@ -1315,6 +1339,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
          "5y1000o", "10y90u", "10y75u", "10y50u", "10y30u", "10y20u", "10y10u",
          "10ydown", "10yup", "10y10o", "10y20o", "10y30o", "10y50o", "10y100o",
          "10y200o", "10y300o", "10y500o", "10y1000o", "modal"),
+        choice=True,
     ),
     FilterSpec(
         "ta_perf2",
@@ -1340,6 +1365,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
          "5y1000o", "10y90u", "10y75u", "10y50u", "10y30u", "10y20u", "10y10u",
          "10ydown", "10yup", "10y10o", "10y20o", "10y30o", "10y50o", "10y100o",
          "10y200o", "10y300o", "10y500o", "10y1000o", "modal"),
+        choice=True,
     ),
     FilterSpec(
         "ta_volatility",
@@ -1350,6 +1376,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         ("", "wo2", "wo3", "wo4", "wo5", "wo6", "wo7", "wo8", "wo9", "wo10", "wo12", "wo15",
          "mo2", "mo3", "mo4", "mo5", "mo6", "mo7", "mo8", "mo9", "mo10", "mo12",
          "mo15", "modal"),
+        choice=True,
     ),
     FilterSpec(
         "ta_rsi",

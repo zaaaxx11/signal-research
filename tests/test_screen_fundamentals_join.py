@@ -37,6 +37,7 @@ from app.fundamentals.snapshot import (
 )
 from app.screen import fundamentals as joined
 from app.screen.filter_fields import (
+    CHOICE_FIELDS,
     ROW_FIELDS,
     UNAVAILABLE,
     binding,
@@ -254,15 +255,15 @@ async def test_the_finviz_keys_resolve_to_the_joined_columns() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Disposition: 42 mapped / 40 refused
+# Disposition: 42 single-column keys + 3 option-driven, 37 refused
 # ---------------------------------------------------------------------------
 
 
-def test_the_catalogue_moved_to_forty_two_mapped_and_forty_refused() -> None:
-    assert len(mapped_keys()) == 42
-    assert len(unavailable_keys()) == 40
+def test_the_catalogue_moved_to_forty_five_available_and_thirty_seven_refused() -> None:
+    assert len(mapped_keys()) == 45
+    assert len(unavailable_keys()) == 37
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
-    assert set(mapped_keys()) == set(ROW_FIELDS)
+    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     assert not set(mapped_keys()) & set(unavailable_keys())
 
 
@@ -335,16 +336,21 @@ async def test_an_empty_universe_costs_no_read() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_artifact_is_the_served_document_and_counts_forty_two() -> None:
+def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys() -> None:
     artifact = ROOT / "schemas" / "stock_selection_request_v1.json"
     assert json.loads(artifact.read_text(encoding="utf-8")) == SELECTION_REQUEST_SCHEMA
 
     extension = SELECTION_REQUEST_SCHEMA["x-filter-keys"]
     published: dict[str, Any] = dict(extension)  # type: ignore[arg-type]
     mapped = {key: entry for key, entry in published.items() if entry["field"] is not None}
-    refused = {key: entry for key, entry in published.items() if entry["field"] is None}
-    assert len(mapped) == 42 and len(refused) == 40
-    assert set(mapped) == set(mapped_keys())
+    chosen = {key: entry for key, entry in published.items() if "choice" in entry}
+    refused = {
+        key: entry
+        for key, entry in published.items()
+        if entry["field"] is None and "choice" not in entry
+    }
+    assert len(mapped) == 42 and len(chosen) == 3 and len(refused) == 37
+    assert set(mapped) | set(chosen) == set(mapped_keys())
     assert set(refused) == set(unavailable_keys())
     for key, field in P11G.items():
         assert mapped[key]["field"] == field
@@ -352,8 +358,9 @@ def test_the_schema_artifact_is_the_served_document_and_counts_forty_two() -> No
         assert "reason" not in mapped[key]
     predicate = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]  # type: ignore[index]
     description = predicate["key"]["description"]
-    assert "The 42 that filter a row column today" in description
-    assert "the 40 that are refused" in description
+    assert "The 42 that resolve to one row column" in description
+    assert "the 3 that filter through their option vocabulary" in description
+    assert "the 37 that are refused" in description
 
 
 # ---------------------------------------------------------------------------

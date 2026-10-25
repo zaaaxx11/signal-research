@@ -34,6 +34,7 @@ from typing import Any, Callable
 import pytest
 
 from app.screen.filter_fields import (
+    CHOICE_FIELDS,
     ROW_FIELDS,
     UNAVAILABLE,
     UnavailableFilterKey,
@@ -132,10 +133,10 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_disposition_is_forty_two_mapped_and_forty_refused() -> None:
-    assert len(mapped_keys()) == 42
-    assert len(unavailable_keys()) == 40
-    assert set(mapped_keys()) == set(ROW_FIELDS)
+def test_the_disposition_is_forty_five_available_and_thirty_seven_refused() -> None:
+    assert len(mapped_keys()) == 45
+    assert len(unavailable_keys()) == 37
+    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(ROW_FIELDS.values()) <= set(FIELDS)
@@ -145,9 +146,14 @@ def test_the_disposition_is_forty_two_mapped_and_forty_refused() -> None:
         | set(DERIVED_FIELDS)
         | set(FUNDAMENTALS_ROW_FIELDS)
     ), "a key must point at a column a parity row can carry"
+    for columns in CHOICE_FIELDS.values():
+        assert set(columns) <= set(FIELDS)
+        assert set(columns) <= (
+            set(PARITY_FIELDS.values()) | set(UNIVERSE_COLUMNS) | set(DERIVED_FIELDS)
+        ), "an option-driven key must read columns a parity row can carry"
 
 
-@pytest.mark.parametrize("key", list(mapped_keys()))
+@pytest.mark.parametrize("key", list(ROW_FIELDS))
 def test_a_mapped_key_really_filters_a_row(key: str) -> None:
     """Not "resolves to a column" — the compiled predicate actually selects."""
 

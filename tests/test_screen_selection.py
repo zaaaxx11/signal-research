@@ -3,9 +3,11 @@
 Contract (PLAN-finviz-parity.md §6 gate 3, "filter parity: 82/82 keys; filter
 expression deterministik"):
 
-* every one of the 82 Finviz filter keys either resolves to a row column or is
-  **refused by name** — 39 map (7 light columns + 29 parity metrics the bulk scan
-  copies + 3 derived columns computed from them), 43 are refused with the metric
+* every one of the 82 Finviz filter keys either resolves to a row column, filters
+  through its option vocabulary, or is **refused by name** — 42 map to one column
+  (7 light columns + 29 parity metrics the bulk scan copies + 3 derived columns
+  computed from them + 3 joined from the fundamentals store), 3 are option-driven
+  (``ta_perf``/``ta_perf2``/``ta_volatility``) and 37 are refused with the metric
   they need, and none is silently ignored, because an ignored filter returns the
   unfiltered screen as if it matched;
 * a selection is one of two modes and never a mixture: ``criteria``
@@ -13,7 +15,9 @@ expression deterministik"):
   snapshot_id);
 * an unknown field, an unknown operator and an unavailable key are all 422s with
   a sentence that names the offender; a *known* key with a Finviz option token
-  (``mega``, ``u5``) is refused too — the option vocabulary is not interpreted;
+  (``mega``, ``u5``) is refused too — the option vocabulary is not interpreted,
+  except on the three option-driven keys, where the token *is* the request and
+  :mod:`app.screen.choice_filters` compiles it;
 * ``limit`` cannot widen the page: it is clamped to 20, and ``total`` counts every
   post-filter match rather than the rows that fit;
 * same rows + same request = same document, twice, without touching the input;
@@ -33,11 +37,13 @@ import pytest
 from app.screen import selection as selection_module
 from app.screen.filter_fields import (
     CATALOGUE,
+    CHOICE_FIELDS,
     ROW_FIELDS,
     UNAVAILABLE,
     UnavailableFilterKey,
     UnknownFilterKey,
     binding,
+    choice_keys,
     field_for,
     is_available,
     mapped_keys,
@@ -125,12 +131,13 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 42, (
+    assert len(mapped_keys()) == 45, (
         "seven light columns, the twenty-nine parity metrics a bulk scan copies "
         "and whose columns are really filled, the three derived columns computed "
-        "from those cells, and the three fundamentals joined from the snapshot store"
+        "from those cells, the three fundamentals joined from the snapshot store, "
+        "and the three option-driven keys"
     )
-    assert len(unavailable_keys()) == 40
+    assert len(unavailable_keys()) == 37
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -171,11 +178,17 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
         "the three derived keys are the documented exception (app.screen.derived): "
         "an identity over cells the row already carries, not a provider copy"
     )
-    for key in mapped_keys():
+    for key in ROW_FIELDS:
         assert binding(key).field == FILTER_CATALOG[key].field
         assert binding(key).field in FIELDS
         assert is_available(key) is True
         assert reason_for(key) is None
+    for key in choice_keys():
+        assert binding(key).field is None, "ten windows cannot be one column"
+        assert binding(key).choice is True
+        assert is_available(key) is True
+        assert reason_for(key) is None
+        assert set(CHOICE_FIELDS[key]) <= set(FIELDS)
 
 
 @pytest.mark.parametrize("key", list(unavailable_keys()))
@@ -208,7 +221,11 @@ def test_a_key_outside_the_catalogue_is_unknown_and_lists_what_works() -> None:
 def test_reasons_name_the_metric_that_is_missing() -> None:
     assert "index membership" in (reason_for("idx") or "")
     assert "dividend" in (reason_for("fa_divgrowth") or "")
-    assert "ten performance windows" in (reason_for("ta_perf") or "")
+    for key in ("ta_perf", "ta_perf2", "ta_volatility"):
+        assert reason_for(key) is None, (
+            f"{key} filters through its option tokens now (app.screen.choice_filters); "
+            "a refusal here would be a stale disposition"
+        )
     for key in ("an_recom", "ta_changeopen", "ta_highlow52w"):
         assert reason_for(key) is None, (
             f"{key} filters a derived column now (app.screen.derived); a refusal "
@@ -247,10 +264,14 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
 def test_no_placeholder_field_is_ever_offered() -> None:
     for key, spec in FILTER_CATALOG.items():
         entry = binding(key) if is_available(key) else None
-        if spec.field is None:
-            assert entry is None, f"{key} has no column but resolved to one"
-        else:
+        if spec.field is not None:
             assert entry is not None and entry.field == spec.field
+        elif spec.choice:
+            assert entry is not None and entry.field is None, (
+                f"{key} filters through its options: available, but with no column"
+            )
+        else:
+            assert entry is None, f"{key} has no column but resolved to one"
 
 
 def test_the_boot_gate_refuses_a_key_with_no_disposition(monkeypatch: Any) -> None:
@@ -261,10 +282,10 @@ def test_the_boot_gate_refuses_a_key_with_no_disposition(monkeypatch: Any) -> No
     import app.screen.filter_fields as fields
 
     chopped = MappingProxyType(
-        {key: reason for key, reason in fields.UNAVAILABLE.items() if key != "ta_perf"}
+        {key: reason for key, reason in fields.UNAVAILABLE.items() if key != "ta_pattern"}
     )
     monkeypatch.setattr(fields, "UNAVAILABLE", chopped)
-    with pytest.raises(RuntimeError, match="ta_perf"):
+    with pytest.raises(RuntimeError, match="ta_pattern"):
         fields._validate()
 
 
@@ -795,10 +816,19 @@ def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> No
     assert SELECTION_REQUEST_SCHEMA["x-filter-key-count"] == 82
     assert list(extension) == list(FILTER_CATALOG), "panel order, same as the catalogue"
     mapped = {key: entry for key, entry in extension.items() if entry["field"] is not None}
-    refused = {key: entry for key, entry in extension.items() if entry["field"] is None}
-    assert set(mapped) == set(mapped_keys()), (
-        "the schema must publish exactly the keys that can filter a row today"
+    chosen = {key: entry for key, entry in extension.items() if "choice" in entry}
+    refused = {
+        key: entry
+        for key, entry in extension.items()
+        if entry["field"] is None and "choice" not in entry
+    }
+    assert set(mapped) == set(ROW_FIELDS), (
+        "the schema must publish every key that filters one row column today"
     )
+    assert set(chosen) == set(choice_keys()), (
+        "the three option-driven keys publish their vocabulary, not a column"
+    )
+    assert set(mapped) | set(chosen) == set(mapped_keys())
     assert set(refused) == set(unavailable_keys())
     for key, entry in mapped.items():
         assert entry["field"] == FILTER_CATALOG[key].field
@@ -807,6 +837,13 @@ def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> No
         assert column is not None
         assert entry["kind"] == FIELDS[column]
         assert "reason" not in entry
+    for key, entry in chosen.items():
+        assert entry["field"] is None, "no single column could name the key"
+        assert entry["tab"] == FILTER_CATALOG[key].tab
+        assert "kind" not in entry, "the request value is an option token"
+        assert "reason" not in entry
+        assert entry["choice"]["options"], f"{key} publishes no option"
+        assert set(entry["choice"]["options"]) <= set(FILTER_CATALOG[key].options)
     for key, entry in refused.items():
         assert entry["reason"] == UNAVAILABLE[key]
         assert entry["tab"] == FILTER_CATALOG[key].tab
