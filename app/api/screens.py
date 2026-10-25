@@ -345,7 +345,17 @@ async def select(request: Request) -> dict[str, Any]:
         # rows matched; cells it cannot read stay null.
         filler = getattr(request.app.state, "wide_filler", None)
         if filler is None:
-            filler = WideFiller()
+            # Reuse the process's registered Finviz adapter so the optional
+            # page fetches inherit the same egress ladder, cooldown and proxy
+            # pool as the fundamentals path. A runtime without adapters (a
+            # fake composition root) still gets a plain adapter.
+            adapters = getattr(runtime, "adapters", None)
+            adapter = None
+            if callable(adapters):
+                built: Any = adapters()
+                if hasattr(built, "get"):
+                    adapter = built.get("finviz")
+            filler = WideFiller(adapter=adapter)
             request.app.state.wide_filler = filler
         document["rows"] = await filler.fill(document.get("rows", []))
     return _with_logos(document)
