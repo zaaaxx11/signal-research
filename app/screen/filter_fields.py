@@ -14,7 +14,7 @@ parameter. So the contract is: **a filter key either filters a row — directly,
 or through one of its option tokens — or the request is rejected (422) with the
 reason**, never applied as a no-op.
 
-Forty-five keys can filter a row today and thirty-seven are refused:
+Forty-seven keys can filter a row today and thirty-five are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -36,13 +36,18 @@ Forty-five keys can filter a row today and thirty-seven are refused:
   direction only). Each is an identity over cells the row already carries, so it
   is a column like any other: a row whose inputs the provider did not send holds
   ``None`` and does not match, exactly like a null P/E;
-* **three joined columns** answer the keys the scan answers ``null`` for on every
-  row but the fundamentals snapshot store fills (:mod:`app.screen.fundamentals`):
-  ``fa_fpe`` → ``pe_forward``, ``fa_ps`` → ``ps`` and ``fa_payoutratio`` →
-  ``payout_ratio``. The values are copied from ``fundamentals_snapshots`` by
-  symbol, only while the row is fresh; a symbol the store does not hold keeps
+* **five fundamentals columns** answer the keys the scan answers ``null`` for on
+  every row (:mod:`app.screen.fundamentals`). Three are copied from
+  ``fundamentals_snapshots`` by symbol — ``fa_fpe`` → ``pe_forward``, ``fa_ps``
+  → ``ps`` and ``fa_payoutratio`` → ``payout_ratio`` — and only while the row is
+  fresh; two are computed from the same snapshot cells, because the store keeps
+  the inputs of a ratio rather than the ratio: ``fa_pc`` → ``price_to_cash``
+  (``market_cap / cash_and_equivalents``) and ``fa_evsales`` → ``ev_to_sales``
+  (``(market_cap + total_debt - cash_and_equivalents) / revenue_ttm``). A symbol
+  the store does not hold, or whose inputs the snapshot did not fill, keeps
   ``None`` and does not match. That is a real observation from the table that
-  owns the metric, not a computed placeholder;
+  owns the metric, or an identity over four of its cells — never a computed
+  placeholder;
 * **three choice keys** — ``ta_perf``, ``ta_perf2`` and ``ta_volatility`` —
   filter through Finviz's option vocabulary instead of one column. The request
   is still ``{key, op: "eq", value: <option>}``, and
@@ -51,7 +56,7 @@ Forty-five keys can filter a row today and thirty-seven are refused:
   single column could name ten performance windows, so ``Binding.field`` stays
   ``None`` and ``Binding.choice`` is ``True``: the key is available, it just
   answers per token;
-* **thirty-seven are refused**, each with the metric it needs: no column
+* **thirty-five are refused**, each with the metric it needs: no column
   measures it (index membership, theme, dividend growth and
   insider/institutional ownership, news, ETF holdings, after-hours, patterns,
   20/50-day and all-time extremes), or the column the provider offers answers
@@ -65,9 +70,11 @@ Three things this module refuses to invent:
   that is always null.
 * **No arithmetic here.** A derived column is named by
   :data:`app.screen.universe.DERIVED_FIELDS` and computed by
-  :mod:`app.screen.derived`; this module resolves a key to a column and never
-  grows a formula of its own, so "which column" and "what number" stay one
-  decision each.
+  :mod:`app.screen.derived`; the two fundamentals ratios
+  (``price_to_cash``/``ev_to_sales``) are computed by
+  :mod:`app.screen.fundamentals` from the snapshot's own cells. This module
+  resolves a key to a column and never grows a formula of its own, so "which
+  column" and "what number" stay one decision each.
 * **No option-vocabulary translation outside the choice keys.** Finviz's
   ``mega``, ``u5`` and ``ob70`` are *display* tokens for range buckets. Turning
   ``cap: mega`` into ``market_cap_usd >= 200e9`` is a metric decision that
@@ -155,16 +162,6 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "needs a trade-count column: the scan carries no trades counter",
         ("sh_trades",),
-    ),
-    (
-        "needs cash per share: the scan carries no cash metric, so Price/Cash "
-        "cannot be formed without inventing a denominator",
-        ("fa_pc",),
-    ),
-    (
-        "needs enterprise value and sales as separate columns: only "
-        "EV/EBITDA is copied, so EV/Sales cannot be formed",
-        ("fa_evsales",),
     ),
     (
         "needs a growth-rate column (EPS and sales growth this year, next year, "

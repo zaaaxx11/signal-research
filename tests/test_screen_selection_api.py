@@ -400,9 +400,10 @@ async def test_the_schema_route_serves_the_repo_artifact(
     assert served["x-filter-key-count"] == 82
     assert len(served["x-filter-keys"]) == 82
     mapped = [key for key, entry in served["x-filter-keys"].items() if entry["field"]]
-    assert len(mapped) == 42, (
+    assert len(mapped) == 44, (
         "the published schema must name every key that filters a parity row, the "
-        "three derived columns and the three joined fundamentals included"
+        "three derived columns, the five fundamentals columns (three joined, two "
+        "computed) included"
     )
     chosen = [
         key for key, entry in served["x-filter-keys"].items() if "choice" in entry
@@ -414,3 +415,6 @@ async def test_the_schema_route_serves_the_repo_artifact(
     assert "industry" in mapped and "fa_div" in mapped and "ta_gap" in mapped
     assert "an_recom" in mapped and "ta_changeopen" in mapped and "ta_highlow52w" in mapped
     assert "fa_fpe" in mapped and "fa_ps" in mapped and "fa_payoutratio" in mapped
+    assert "fa_pc" in mapped and "fa_evsales" in mapped, (
+        "the two ratios computed from the fundamentals snapshot are published too"
+    )

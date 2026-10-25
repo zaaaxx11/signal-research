@@ -191,7 +191,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 42 that resolve to one row column, the 3 that filter through their option vocabulary, and the 37 that are refused with their reason, are listed in x-filter-keys."
+          "description": "One of the 82 Finviz filter keys. The 44 that resolve to one row column, the 3 that filter through their option vocabulary, and the 35 that are refused with their reason, are listed in x-filter-keys."
         },
         "field": {
           "enum": [
@@ -211,6 +211,7 @@
             "eps_forecast_next_fq",
             "eps_forecast_next_fy",
             "ev_ebitda",
+            "ev_to_sales",
             "exchange",
             "float_shares",
             "gap_pct",
@@ -231,6 +232,7 @@
             "peg",
             "pfcf",
             "price",
+            "price_to_cash",
             "profit_margin",
             "ps",
             "quick_ratio",
@@ -475,8 +477,8 @@
     "fa_pc": {
       "label": "Price/Cash",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs cash per share: the scan carries no cash metric, so Price/Cash cannot be formed without inventing a denominator"
+      "field": "price_to_cash",
+      "kind": "number"
     },
     "fa_pfcf": {
       "label": "Price/Free Cash Flow",
@@ -493,8 +495,8 @@
     "fa_evsales": {
       "label": "EV/Sales",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs enterprise value and sales as separate columns: only EV/EBITDA is copied, so EV/Sales cannot be formed"
+      "field": "ev_to_sales",
+      "kind": "number"
     },
     "fa_divgrowth": {
       "label": "Dividend Growth",

@@ -1,4 +1,4 @@
-"""The fundamentals join: three filter columns read from the snapshot store.
+"""The fundamentals join: five filter columns read from the snapshot store.
 
 Three Finviz keys the bulk scan cannot answer — ``fa_fpe`` (forward P/E),
 ``fa_ps`` (P/S) and ``fa_payoutratio`` (payout ratio) — have a real observation
@@ -7,8 +7,10 @@ P11A/P11C) holds 22 canonical fundamentals cells per symbol, refreshed on a 24-h
 window; the TradingView scan that builds a selection universe answers
 ``price_earnings_forward``, ``price_sales_ttm`` and ``payout_ratio`` with ``null``
 for every row (live probe: 0 of 5,720 US rows, 0 of 96,278 global rows). This
-module is the seam: it reads the store **once** per selection and copies the three
-cells onto the universe rows by symbol.
+module is the seam: it reads the store **once** per selection, copies the three
+cells onto the universe rows by symbol, and — from the same snapshot — computes
+the two ratios no stored cell holds: ``price_to_cash`` (``fa_pc``) and
+``ev_to_sales`` (``fa_evsales``).
 
 Why a join and not a new scan column
 ------------------------------------
@@ -16,7 +18,33 @@ A multiplier cannot be copied from a column that is always empty. The choice is
 between refusing the keys forever and reading the one table that really answers
 them; the scan stays the owner of prices, technicals and the metrics it does
 fill, and the snapshot store is the owner of ``pe_forward``/``ps``/``payout_ratio``.
-No value is derived here and none is averaged: one cell, one source, copied.
+No copied value is derived here and none is averaged: one cell, one source,
+copied.
+
+Two cells are arithmetic, and only two
+--------------------------------------
+``price_to_cash = market_cap / cash_and_equivalents`` and
+``ev_to_sales = (market_cap + total_debt - cash_and_equivalents) / revenue_ttm``
+are identities over four snapshot cells — ``market_cap``,
+``cash_and_equivalents``, ``total_debt``, ``revenue_ttm``. They are computed
+here, not copied, because the store keeps the *inputs* of a ratio and not the
+ratio itself: price-to-cash needs a cash-per-share denominator the scan has no
+column for, and EV/sales needs enterprise value, which is the sum above rather
+than a stored cell. Two formulas, each stated once in :data:`DERIVED_FORMULAS`,
+and each computed only when every input is present:
+
+* a cell that is missing, a string, a bool, ``NaN`` or ``inf`` is **unknown**,
+  so the ratio is ``None`` — never ``0.0``, never ``inf``;
+* a denominator at or below zero is not a ratio. ``cash_and_equivalents <= 0``
+  and ``revenue_ttm <= 0`` both mean "no denominator", so the answer is unknown;
+* the numerator must be complete. A symbol with a market cap and no
+  ``total_debt`` has no enterprise value, so it has no EV/sales — treating
+  absent debt as zero would be an assumption about the balance sheet, not a
+  measurement of it;
+* ``ev_to_sales`` **may be negative**, and that is an answer, not a bug: a
+  company whose net cash exceeds its market cap has a negative enterprise value,
+  and the Finviz key's own vocabulary carries a ``negative`` bucket
+  (``app.screen.filters``).
 
 Four rules the code has to earn
 -------------------------------
@@ -28,13 +56,15 @@ Four rules the code has to earn
   the universe, so a 96k-row global universe costs the same query.
 * **Fresh only.** A row past ``expires_at`` is not evidence of anything this
   second; a stale snapshot is skipped exactly like a missing one. The response
-  therefore never quotes yesterday's forward P/E as today's.
+  therefore never quotes yesterday's forward P/E as today's, and never computes
+  a ratio from a balance sheet that has expired.
 * **Null stays null, and a null never erases a value.** A cell the snapshot did
   not fill (a bank with no EBITDA, an ETF with no payout ratio) leaves ``None``
   on the row, and ``None`` matches no filter — unknown is not zero. When the scan
   *did* carry a number for the same column, the store's null does not overwrite
   it; when the store has a number, it wins, because it is the owner of these
-  three columns.
+  three columns. The two computed columns have exactly one source (the snapshot),
+  so they are ``None`` whenever it cannot supply every input.
 * **No mutation.** Each row is copied once, so the caller's universe (and the
   cached scan page behind it) keeps exactly the cells it arrived with. That is
   what lets two selections share one page without one seeing the other's joins.
@@ -42,7 +72,7 @@ Four rules the code has to earn
 A store that cannot answer — not configured, or a database that has not run the
 ``0003_fundamentals`` migration — is **not** a failed selection: the join logs
 the reason and returns the rows unenriched, so the endpoint keeps its 200 and the
-three cells stay ``None`` (and their filters match nothing, which is the same
+five cells stay ``None`` (and their filters match nothing, which is the same
 answer an all-null column gives). Failing the whole query because an optional
 enrichment table is absent would take the selection down with it.
 """
@@ -50,6 +80,7 @@ enrichment table is absent would take the selection down with it.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Protocol, Sequence
@@ -65,16 +96,69 @@ from app.fundamentals.snapshot import (
 
 logger = logging.getLogger("mee.screen.fundamentals")
 
-#: The canonical row columns this join owns, in Finviz panel order. Each is a
-#: cell of the snapshot vocabulary (``FUNDAMENTAL_FIELDS``), stored full width —
-#: ``None`` means "the provider has no value", not "not a fundamental column".
-FUNDAMENTALS_ROW_FIELDS: tuple[str, ...] = ("pe_forward", "ps", "payout_ratio")
+#: The snapshot cells this join **copies** verbatim onto the row, in Finviz
+#: panel order. Each is a cell of the snapshot vocabulary (``FUNDAMENTAL_FIELDS``),
+#: stored full width — ``None`` means "the provider has no value", not "not a
+#: fundamental column".
+JOINED_ROW_FIELDS: tuple[str, ...] = ("pe_forward", "ps", "payout_ratio")
+
+#: The row columns this join **computes** from snapshot cells, in Finviz panel
+#: order. A ratio the store does not hold is arithmetic over the cells it does
+#: hold — and nothing else: no estimate, no lookback, no second table.
+DERIVED_ROW_FIELDS: tuple[str, ...] = ("price_to_cash", "ev_to_sales")
+
+#: Every row column this module owns: the three copies followed by the two
+#: computed ratios. This is the union :mod:`app.screen.filter_fields` checks a
+#: filter key against, so a key can never point at a column no row carries.
+FUNDAMENTALS_ROW_FIELDS: tuple[str, ...] = JOINED_ROW_FIELDS + DERIVED_ROW_FIELDS
 
 #: Finviz key → the row column this join fills. Published for the disposition
 #: tests; :mod:`app.screen.filters` remains the one place a key gets its field
 #: (``FILTER_CATALOG``), so this table can never become a second source of truth.
 FUNDAMENTALS_FILTER_KEYS: Mapping[str, str] = MappingProxyType(
-    {"fa_fpe": "pe_forward", "fa_ps": "ps", "fa_payoutratio": "payout_ratio"}
+    {
+        "fa_fpe": "pe_forward",
+        "fa_ps": "ps",
+        "fa_pc": "price_to_cash",
+        "fa_evsales": "ev_to_sales",
+        "fa_payoutratio": "payout_ratio",
+    }
+)
+
+#: Computed column → its formula, written the way this module's docstring states
+#: it. This is the table a reader (and the exact-formula test) checks the
+#: implementation against, and the reason a computed cell can never be mistaken
+#: for a provider copy.
+DERIVED_FORMULAS: Mapping[str, str] = MappingProxyType(
+    {
+        "price_to_cash": "market_cap / cash_and_equivalents",
+        "ev_to_sales": "(market_cap + total_debt - cash_and_equivalents) / revenue_ttm",
+    }
+)
+
+#: Computed column → the **snapshot cells** it reads, in evaluation order. Every
+#: one must be a finite number for the ratio to exist (the numerator has to be
+#: complete), which is what keeps a missing ``total_debt`` from silently becoming
+#: a debt-free company.
+DERIVED_INPUTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "price_to_cash": ("market_cap", "cash_and_equivalents"),
+        "ev_to_sales": (
+            "market_cap",
+            "total_debt",
+            "cash_and_equivalents",
+            "revenue_ttm",
+        ),
+    }
+)
+
+#: Computed column → the cells that divide it. Each must be strictly positive:
+#: a ratio over zero cash or zero revenue is not a measurement.
+DERIVED_DENOMINATORS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "price_to_cash": ("cash_and_equivalents",),
+        "ev_to_sales": ("revenue_ttm",),
+    }
 )
 
 
@@ -95,6 +179,56 @@ def _row_key(row: Mapping[str, Any]) -> str | None:
         return canonical_symbol(symbol)
     except ValueError:
         return None
+
+
+def _cell(value: Any) -> float | None:
+    """One snapshot cell: a finite float, or ``None``.
+
+    The store normalises its cells when it writes them, so a string, a bool,
+    ``NaN`` or ``inf`` reaching this point was never a measurement — and it stays
+    unknown instead of being coerced into one.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def derive_cells(snapshot: FundamentalsSnapshot) -> dict[str, float | None]:
+    """The two computed columns for one stored snapshot; ``None`` where unknown.
+
+    ``price_to_cash`` needs a positive cash balance and a market cap;
+    ``ev_to_sales`` needs a complete enterprise value (market cap, total debt and
+    cash — all three) over a positive revenue. A non-positive denominator is not
+    a ratio, and a missing input is not a zero, so both cases answer ``None``.
+    The enterprise value itself may be negative (net cash above the market cap)
+    and that is reported as a negative multiple, exactly as the Finviz key's
+    ``negative`` option describes it.
+    """
+
+    cells = snapshot.fields
+    market_cap = _cell(cells.get("market_cap"))
+    cash = _cell(cells.get("cash_and_equivalents"))
+    debt = _cell(cells.get("total_debt"))
+    revenue = _cell(cells.get("revenue_ttm"))
+
+    price_to_cash = (
+        market_cap / cash
+        if market_cap is not None and cash is not None and cash > 0
+        else None
+    )
+    enterprise_value = (
+        market_cap + debt - cash
+        if market_cap is not None and debt is not None and cash is not None
+        else None
+    )
+    ev_to_sales = (
+        enterprise_value / revenue
+        if enterprise_value is not None and revenue is not None and revenue > 0
+        else None
+    )
+    return {"price_to_cash": price_to_cash, "ev_to_sales": ev_to_sales}
 
 
 def fresh_snapshots(
@@ -157,13 +291,15 @@ async def load_snapshots(
 def apply_fundamentals(
     rows: Sequence[Mapping[str, Any]], snapshots: Mapping[str, FundamentalsSnapshot]
 ) -> list[dict[str, Any]]:
-    """Copy the three cells onto **copies** of ``rows``; missing stays missing.
+    """Join the three copies and the two computed ratios onto **copies** of ``rows``.
 
     A row whose symbol the store does not carry keeps its own cells (``None`` on
-    a parity row, because the scan answered null) and gains no value. The three
+    a parity row, because the scan answered null) and gains no value. The five
     columns are always present in the result, so a consumer can tell "the
     snapshot has no payout ratio for this symbol" from "this row predates the
-    join" — the second is a bug, the first is an answer.
+    join" — the second is a bug, the first is an answer. The computed columns are
+    written from the snapshot only: a copy whose inputs are missing stays
+    ``None``, and no row and no snapshot is ever modified.
     """
 
     enriched: list[dict[str, Any]] = []
@@ -171,10 +307,13 @@ def apply_fundamentals(
         joined = dict(row)
         key = _row_key(row)
         snapshot = snapshots.get(key) if key is not None else None
-        for name in FUNDAMENTALS_ROW_FIELDS:
+        for name in JOINED_ROW_FIELDS:
             current = joined.get(name)
             value = snapshot.fields.get(name) if snapshot is not None else None
             joined[name] = current if value is None else value
+        computed = derive_cells(snapshot) if snapshot is not None else {}
+        for name in DERIVED_ROW_FIELDS:
+            joined[name] = computed.get(name)
         enriched.append(joined)
     return enriched
 
@@ -188,8 +327,9 @@ async def enrich_rows(
     """Join the fundamentals snapshot store onto a selection universe.
 
     This is the whole public path the API calls: one batch read, then a pure
-    copy. ``store`` is the runtime's store (``Runtime.fundamentals_store``); a
-    test injects a double with the same one-method surface.
+    copy plus two identities. ``store`` is the runtime's store
+    (``Runtime.fundamentals_store``); a test injects a double with the same
+    one-method surface.
     """
 
     if not rows:
@@ -199,10 +339,16 @@ async def enrich_rows(
 
 
 __all__ = [
+    "DERIVED_DENOMINATORS",
+    "DERIVED_FORMULAS",
+    "DERIVED_INPUTS",
+    "DERIVED_ROW_FIELDS",
     "FUNDAMENTALS_FILTER_KEYS",
     "FUNDAMENTALS_ROW_FIELDS",
+    "JOINED_ROW_FIELDS",
     "SnapshotReader",
     "apply_fundamentals",
+    "derive_cells",
     "enrich_rows",
     "fresh_snapshots",
     "load_snapshots",

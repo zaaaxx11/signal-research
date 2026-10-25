@@ -213,6 +213,10 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "fa_fpe": "pe_forward",
         "fa_ps": "ps",
         "fa_payoutratio": "payout_ratio",
+        # -- computed by the same join from the snapshot's own cells (P11I):
+        # the store keeps the inputs of these two ratios, not the ratios
+        "fa_pc": "price_to_cash",
+        "fa_evsales": "ev_to_sales",
     }, (
         "a filter key may only name a column a row really carries (a light column "
         f"or a parity metric); got {mapped}"
@@ -230,7 +234,7 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 40
+    assert len(unsourced) == 82 - len(mapped) == 38
     # The three option-driven keys also have no single column — that is why they
     # are not in `mapped` — but they are not refused: one option token names one
     # window and compiles to one column predicate (app.screen.choice_filters).

@@ -12,7 +12,7 @@ claim that the metric behind every key is already sourced.
 
 **Only a metric the product can answer gets a field.** ``FilterSpec.field`` names
 the canonical row column a key filters, and it is ``None`` for the keys no row
-carries. **Forty-two keys map to one column today**: the seven light columns
+carries. **Forty-four keys map to one column today**: the seven light columns
 (exchange, sector, country, market cap, price, change %, current volume),
 twenty-nine parity metrics that :data:`app.screen.universe.PARITY_FIELDS` copies
 from the bulk scan — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current,
@@ -22,14 +22,17 @@ dividend yield, RSI, the three SMAs, beta, gap and ATR — three **derived** col
 (:data:`app.screen.universe.DERIVED_FIELDS`): Finviz's 1..5 analyst score
 (``3 - 2 * recommendation``), the change from the session open
 (``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``) and the percent
-distance from the 52-week high (``(price / high_52w - 1) * 100``), plus three
+distance from the 52-week high (``(price / high_52w - 1) * 100``), plus five
 **joined** columns (:mod:`app.screen.fundamentals`): forward P/E, P/S and payout
 ratio, read from the fundamentals snapshot store because the scan answers those
-three with ``null`` for every row. Three more keys — ``ta_perf``,
-``ta_perf2`` and ``ta_volatility`` — are **choice** keys: they filter through
-Finviz's option vocabulary instead of one column, and
-:mod:`app.screen.choice_filters` is their compiler, so **forty-five keys can
-filter a row today** and thirty-seven are refused.
+three with ``null`` for every row, and two ratios computed from the same
+snapshot cells — ``price_to_cash`` (``market_cap / cash_and_equivalents``) and
+``ev_to_sales``
+(``(market_cap + total_debt - cash_and_equivalents) / revenue_ttm``). Three more
+keys — ``ta_perf``, ``ta_perf2`` and ``ta_volatility`` — are **choice** keys: they
+filter through Finviz's option vocabulary instead of one column, and
+:mod:`app.screen.choice_filters` is their compiler, so **forty-seven keys can
+filter a row today** and thirty-five are refused.
 
 The rule for the twenty-nine copies is **one quantity, one column, and the
 provider's window or unit in the name**. ``ta_beta`` therefore resolves to
@@ -41,9 +44,9 @@ and ``sh_avgvol`` to ``avg_volume_30d``; a field that claimed ``beta`` or
 ``dividend_yield``, which is the provider's percent (``0.47`` = 0.47%), not a
 fraction.
 
-The three derived columns are the *documented exception* to "copy, never
-compute", and they are allowed only because each is an identity over cells the
-row already has (no estimate, no invented denominator), requests no new provider
+The three derived columns are the *documented exception* to "copy, never compute",
+and they are allowed only because each is an identity over cells the row already
+has (no estimate, no invented denominator), requests no new provider
 column, and carries its scale or direction in the name: ``recom_finviz`` is
 Finviz's scale, not the provider's -1..+1 ``recommendation``;
 ``change_from_open`` names its base; ``pct_from_52w_high`` names its one
@@ -56,9 +59,12 @@ could only return an empty screen. Two of those four now have a real source
 outside the scan: ``price_earnings_forward``/``price_sales_ttm`` are answered by
 the fundamentals snapshot store, so ``fa_fpe`` and ``fa_ps`` map to the **joined**
 columns of :mod:`app.screen.fundamentals` (with ``fa_payoutratio``, whose
-``payout_ratio`` cell the store also fills). ``short_float`` and ``ipo_date``
-stay refused, and the thirty-seven refusals in :mod:`app.screen.filter_fields`
-name the missing metric instead.
+``payout_ratio`` cell the store also fills). The same module owns the second
+documented exception — ``price_to_cash`` and ``ev_to_sales`` are two identities
+over the snapshot's own balance-sheet cells, so ``fa_pc`` and ``fa_evsales`` map
+there rather than to a column the scan does not have. ``short_float`` and
+``ipo_date`` stay refused, and the thirty-five refusals in
+:mod:`app.screen.filter_fields` name the missing metric instead.
 
 **A key that spans several columns is a choice, not a refusal.** ``ta_perf`` and
 ``ta_perf2`` offer ten performance windows and ``ta_volatility`` two, so no
@@ -111,8 +117,10 @@ UI_TYPES: frozenset[str] = frozenset(
 
 #: Canonical row field → comparison kind. Every field here is carried by a real
 #: row: the thirteen light columns, the parity metrics a bulk scan copies from the
-#: provider (:data:`app.screen.universe.PARITY_FIELDS`), and the three derived
-#: columns computed from those cells (:data:`app.screen.universe.DERIVED_FIELDS`).
+#: provider (:data:`app.screen.universe.PARITY_FIELDS`), the three derived
+#: columns computed from those cells (:data:`app.screen.universe.DERIVED_FIELDS`),
+#: and the five cells :mod:`app.screen.fundamentals` reads — three joined from the
+#: fundamentals snapshot store and two computed from the same snapshot.
 #: A filter may not name a metric that no row carries — that is what
 #: :mod:`app.screen.filter_fields` refuses instead of ignoring.
 FIELDS: Mapping[str, str] = MappingProxyType(
@@ -146,6 +154,16 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "pb": "number",  # price_book_fq
         "pfcf": "number",  # price_free_cash_flow_ttm
         "ev_ebitda": "number",  # enterprise_value_ebitda_ttm
+        # Price / cash per share: `market_cap / cash_and_equivalents`, computed by
+        # the fundamentals join from the snapshot's own cells
+        # (app.screen.fundamentals). The scan carries no cash metric, which is
+        # exactly why this is a computed cell and not a copied one.
+        "price_to_cash": "number",
+        # EV / sales: `(market_cap + total_debt - cash_and_equivalents) /
+        # revenue_ttm`, computed in the same join. Negative is a real answer —
+        # net cash above the market cap — and Finviz's own vocabulary has a
+        # `negative` bucket for it.
+        "ev_to_sales": "number",
         # -- dividends (percent, as the provider reports it: 0.47 = 0.47%)
         "dividend_yield": "number",  # dividends_yield, percent not a fraction
         # Percent of earnings paid out (12.04 = 12.04%), joined from the
@@ -1009,7 +1027,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Price/Cash",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "price_to_cash",
         ("", "low", "high", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8", "u9", "u10",
          "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9", "o10", "o20", "o30",
          "o40", "o50", "frange"),
@@ -1040,7 +1058,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "EV/Sales",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "ev_to_sales",
         ("", "negative", "low", "positive", "high", "u1", "u2", "u3", "u4", "u5", "u6",
          "u7", "u8", "u9", "u10", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8",
          "o9", "o10", "frange"),

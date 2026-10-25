@@ -1,22 +1,24 @@
-"""The 82-key disposition after P11B, P11G and P11H: nine keys stop being refusals.
+"""The 82-key disposition after P11B, P11G, P11H and P11I: eleven keys stop being refusals.
 
 This module owns the *expectations* that changed when the derived columns landed
 (:mod:`app.screen.derived`), when the fundamentals join landed
-(:mod:`app.screen.fundamentals`) and when the three option-driven keys got their
-compiler (:mod:`app.screen.choice_filters`); the resolver mechanics themselves
-are pinned by ``tests/test_screen_selection.py`` and the row contract by
-``tests/test_screen_parity.py``.
+(:mod:`app.screen.fundamentals`), when the three option-driven keys got their
+compiler (:mod:`app.screen.choice_filters`) and when the join learned the two
+ratios the snapshot stores only the inputs of (price/cash and EV/sales); the
+resolver mechanics themselves are pinned by ``tests/test_screen_selection.py``
+and the row contract by ``tests/test_screen_parity.py``.
 
 The claim is three-fold:
 
 * the catalogue is still the probe's **82 keys**, and every one of them has
   exactly one disposition — a row column, an option vocabulary, or a named
   refusal;
-* the split moved from 36/46 to **45 available / 37 refused**, and the only keys
+* the split moved from 36/46 to **47 available / 35 refused**, and the only keys
   that moved are ``an_recom``, ``ta_changeopen``, ``ta_highlow52w`` (P11B, derived
   columns), ``fa_fpe``, ``fa_ps``, ``fa_payoutratio`` (P11G, joined from the
-  fundamentals snapshot store) and ``ta_perf``, ``ta_perf2``, ``ta_volatility``
-  (P11H, one predicate per Finviz option token);
+  fundamentals snapshot store), ``ta_perf``, ``ta_perf2``, ``ta_volatility``
+  (P11H, one predicate per Finviz option token) and ``fa_pc``, ``fa_evsales``
+  (P11I, computed by the same join from the snapshot's balance-sheet cells);
 * each newly available key points at a column a real ``build_universe`` row
   carries (or one the join copies onto it), so "available" is a statement about
   the row, not about a table.
@@ -57,6 +59,12 @@ P11G: dict[str, str] = {
     "fa_fpe": "pe_forward",
     "fa_ps": "ps",
     "fa_payoutratio": "payout_ratio",
+}
+
+#: The two keys P11I moved: computed by the same join from snapshot cells.
+P11I: dict[str, str] = {
+    "fa_pc": "price_to_cash",
+    "fa_evsales": "ev_to_sales",
 }
 
 #: The three keys P11H made available through their option vocabulary, and the
@@ -115,9 +123,9 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_forty_five_available_and_thirty_seven_refused() -> None:
-    assert len(mapped_keys()) == 45
-    assert len(unavailable_keys()) == 37
+def test_the_disposition_is_forty_seven_available_and_thirty_five_refused() -> None:
+    assert len(mapped_keys()) == 47
+    assert len(unavailable_keys()) == 35
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
@@ -140,12 +148,12 @@ def test_a_derived_key_is_mapped_not_refused(key: str, field: str) -> None:
 def test_only_the_declared_keys_left_the_refusal_list() -> None:
     """No other key became available by accident."""
 
-    moved = set(P11B) | set(P11G) | set(P11H)
-    mapped = set(mapped_keys()) - set(P11H) - set(P11B) - set(P11G)
+    moved = set(P11B) | set(P11G) | set(P11H) | set(P11I)
+    mapped = set(mapped_keys()) - set(P11H) - set(P11B) - set(P11G) - set(P11I)
     assert len(mapped) == 36, "the P7 disposition of 36 single-column keys stands"
     refused = set(unavailable_keys())
     assert moved.isdisjoint(refused)
-    assert len(refused) == 46 - len(moved) == 37
+    assert len(refused) == 46 - len(moved) == 35
 
 
 def test_every_available_key_points_at_a_column_a_row_can_carry() -> None:
@@ -209,8 +217,8 @@ def test_a_real_row_carries_every_choice_column(key: str) -> None:
         assert universe[0][column] is not None
 
 
-@pytest.mark.parametrize(("key", "field"), sorted(P11G.items()))
-def test_a_joined_key_is_mapped_to_a_fundamentals_cell(key: str, field: str) -> None:
+@pytest.mark.parametrize(("key", "field"), sorted({**P11G, **P11I}.items()))
+def test_a_fundamentals_key_is_mapped_to_a_cell_the_join_writes(key: str, field: str) -> None:
     assert FILTER_CATALOG[key].field == field
     assert ROW_FIELDS[key] == field
     assert key not in UNAVAILABLE

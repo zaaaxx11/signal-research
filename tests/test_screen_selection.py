@@ -4,10 +4,11 @@ Contract (PLAN-finviz-parity.md §6 gate 3, "filter parity: 82/82 keys; filter
 expression deterministik"):
 
 * every one of the 82 Finviz filter keys either resolves to a row column, filters
-  through its option vocabulary, or is **refused by name** — 42 map to one column
+  through its option vocabulary, or is **refused by name** — 44 map to one column
   (7 light columns + 29 parity metrics the bulk scan copies + 3 derived columns
-  computed from them + 3 joined from the fundamentals store), 3 are option-driven
-  (``ta_perf``/``ta_perf2``/``ta_volatility``) and 37 are refused with the metric
+  computed from them + 3 joined from the fundamentals store + 2 computed from the
+  same fundamentals snapshot), 3 are option-driven
+  (``ta_perf``/``ta_perf2``/``ta_volatility``) and 35 are refused with the metric
   they need, and none is silently ignored, because an ignored filter returns the
   unfiltered screen as if it matched;
 * a selection is one of two modes and never a mixture: ``criteria``
@@ -131,13 +132,13 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 45, (
+    assert len(mapped_keys()) == 47, (
         "seven light columns, the twenty-nine parity metrics a bulk scan copies "
         "and whose columns are really filled, the three derived columns computed "
         "from those cells, the three fundamentals joined from the snapshot store, "
-        "and the three option-driven keys"
+        "the two ratios computed from that snapshot, and the three option-driven keys"
     )
-    assert len(unavailable_keys()) == 37
+    assert len(unavailable_keys()) == 35
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:

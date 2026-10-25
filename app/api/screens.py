@@ -30,8 +30,9 @@ one: it asks for the metric columns the filters address and drops the browse
 floor (``min_market_cap``) and the ``subtype=common`` gate, so "P/E below 10"
 means the whole stock market rather than the 100M+ common shares the display
 happens to show. ``symbols`` mode keeps the light scan — a ticker lookup needs
-no metric. Every selection then joins the three fundamentals cells the scan
-cannot answer (``pe_forward``, ``ps``, ``payout_ratio``) from the runtime's
+no metric. Every selection then joins the fundamentals cells the scan cannot answer
+(``pe_forward``, ``ps``, ``payout_ratio``) and derives the two ratios over them
+(``price_to_cash``, ``ev_to_sales``) from the runtime's
 fundamentals snapshot store, once per call and by symbol — see
 :mod:`app.screen.fundamentals`. ``GET /screens/select/schema`` serves the request
 schema — the same document that ships at
@@ -286,8 +287,9 @@ async def select(request: Request) -> dict[str, Any]:
             asset_class=family,
         )
 
-    # P11G: three columns the scan answers null for — forward P/E, P/S and payout
-    # ratio — are owned by the fundamentals snapshot store. The join reads that
+    # P11G/P11I: the scan answers null for forward P/E, P/S and payout ratio;
+    # those three cells, plus the ratios derived from the snapshot inputs, are
+    # owned by the fundamentals snapshot store. The join reads that
     # table **once** for the whole universe (no per-symbol query), copies only
     # fresh rows, and never invents a value: a symbol the store does not hold
     # keeps ``None``, which matches no filter. A selection must not become a 500
