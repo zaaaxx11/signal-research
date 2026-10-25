@@ -109,7 +109,7 @@ const state = {
   serverSort: "market_cap",
   watch: new Set(readJSON(WATCH_KEY, [])),
   compare: [],
-  hiddenColumns: new Set(readJSON(COLS_KEY, [])),
+  hiddenColumns: new Set(),
   source: "",
   universe: 0,
   asOf: null,
@@ -361,6 +361,7 @@ async function loadData() {
 }
 
 function renderAll() {
+  syncLayout();
   renderNotice();
   renderStats();
   renderTable();
@@ -368,7 +369,10 @@ function renderAll() {
   renderSignals();
   renderCompare();
   renderWatchCounts();
-  renderColumnState();
+}
+
+function syncLayout() {
+  document.body.classList.toggle("is-all-view", state.screenView === "all");
 }
 
 function renderLoading() {
@@ -446,8 +450,7 @@ function renderTable() {
     <th class="col-name">Company</th>
     ${columns.map((key) => {
       const [label] = COLUMN_META[key] || [key, "ratio"];
-      const hidden = state.hiddenColumns.has(columnShort(key)) ? " col-hidden" : "";
-      return `<th class="col-num sortable${hidden}" data-sort="${esc(key)}">${esc(label)}</th>`;
+      return `<th class="col-num sortable" data-sort="${esc(key)}">${esc(label)}</th>`;
     }).join("")}
     <th class="col-star">Watch</th>`;
 
@@ -480,8 +483,7 @@ function renderTable() {
           </div>
         </td>
         ${columns.map((key) => {
-          const hidden = state.hiddenColumns.has(columnShort(key)) ? " col-hidden" : "";
-          return `<td class="col-num${hidden}">${renderCell(row, key)}</td>`;
+          return `<td class="col-num">${renderCell(row, key)}</td>`;
         }).join("")}
         <td class="col-star"><button class="star${state.watch.has(row.symbol) ? " is-on" : ""}" data-star="${esc(row.symbol)}" aria-label="${state.watch.has(row.symbol) ? "Remove" : "Add"} ${esc(row.symbol)} from watchlist">${state.watch.has(row.symbol) ? "★" : "☆"}</button></td>
       </tr>`;
@@ -641,6 +643,7 @@ function setScreenView(name) {
   state.screenView = name;
   state.page = 1;
   $$(".view-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.screenView === name));
+  syncLayout();
   loadData();
 }
 
@@ -927,16 +930,6 @@ function toggleCompact() {
 }
 
 const columnLabels = { fpe: "Fwd P/E", rsi: "RSI", ytd: "YTD" };
-function renderColumnState() {
-  for (const [column, hidden] of Object.entries({
-    fpe: state.hiddenColumns.has("fpe"),
-    rsi: state.hiddenColumns.has("rsi"),
-    ytd: state.hiddenColumns.has("ytd"),
-  })) {
-    $$(`.col-${column}`).forEach((cell) => cell.classList.toggle("col-hidden", hidden));
-  }
-}
-
 function openColumnsMenu() {
   const existing = $("#columnMenu");
   if (existing) {
@@ -957,8 +950,7 @@ function openColumnsMenu() {
       if (input.checked) state.hiddenColumns.delete(input.dataset.column);
       else state.hiddenColumns.add(input.dataset.column);
       persist();
-      renderColumnState();
-    });
+        });
   });
   setTimeout(() => {
     const close = (event) => {
@@ -1016,7 +1008,6 @@ function wire() {
     setSort(keys[(current + 1) % keys.length]);
   });
   $("#compactButton").addEventListener("click", toggleCompact);
-  $("#columnsButton").addEventListener("click", openColumnsMenu);
   $("#exportButton").addEventListener("click", exportCsv);
   $("#exportJsonButton").addEventListener("click", exportJson);
   $("#filterButton").addEventListener("click", openFilters);

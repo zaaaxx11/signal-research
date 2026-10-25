@@ -619,3 +619,20 @@ body.is-compact .company { font-size: 9px; }
 .table-wrap .market-table tbody tr.data-row:hover td.col-name { background: #1b101d; }
 .table-wrap .market-table tbody tr.data-row.is-selected td.col-name { background: #21101e; }
 .table-wrap .market-table th.col-name { z-index: 6; }
+
+/* All columns is a data table first: full-width, horizontally scrollable. */
+body.is-all-view .workspace { grid-template-columns: minmax(0, 1fr); }
+body.is-all-view .table-panel { width: 100%; }
+body.is-all-view .insight-rail {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+body.is-all-view .detail-card { grid-row: auto; }
+body.is-all-view .table-wrap { max-height: min(620px, calc(100dvh - 220px)); }
+body.is-all-view .market-table { min-width: 2200px; }
+@media (max-width: 940px) {
+  body.is-all-view .insight-rail { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  body.is-all-view .insight-rail { grid-template-columns: 1fr; }
+}
