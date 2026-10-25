@@ -325,6 +325,119 @@ def parse_metrics(body: str) -> dict[str, float]:
     return out
 
 
+#: Labels for the wide-table cells the bulk scan does not carry. Values are
+#: either numeric (percent points or counts), text labels, or deliberately
+#: absent: a metric with two windows (``6.89% 17.91%``) is not silently reduced
+#: to one number. ``parse_wide_metrics`` is display-only; it does not widen the
+#: 22-cell fundamentals contract or any filter key.
+WIDE_FIELD_LABELS: dict[str, tuple[str, ...]] = {
+    "market_cap": ("Market Cap",),
+    "enterprise_value": ("Enterprise Value",),
+    "income": ("Income",),
+    "sales": ("Sales",),
+    "book_per_share": ("Book/sh",),
+    "cash_per_share": ("Cash/sh",),
+    "employees": ("Employees",),
+    "ipo": ("IPO",),
+    "index": ("Index",),
+    "pe": ("P/E",),
+    "forward_pe": ("Forward P/E",),
+    "peg": ("PEG",),
+    "ps": ("P/S",),
+    "pb": ("P/B",),
+    "pc": ("P/C",),
+    "pfcf": ("P/FCF",),
+    "ev_ebitda": ("EV/EBITDA",),
+    "ev_sales": ("EV/Sales",),
+    "quick_ratio": ("Quick Ratio",),
+    "current_ratio": ("Current Ratio",),
+    "debt_to_equity": ("Debt/Eq",),
+    "lt_debt_to_equity": ("LT Debt/Eq",),
+    "option_short": ("Option/Short",),
+    "eps_ttm": ("EPS (ttm)",),
+    "eps_next_y": ("EPS next Y",),
+    "eps_next_q": ("EPS next Q",),
+    "eps_this_y": ("EPS this Y",),
+    "eps_next_5y": ("EPS next 5Y",),
+    "eps_past_3_5y": ("EPS past 3/5Y",),
+    "sales_past_3_5y": ("Sales past 3/5Y",),
+    "eps_yoy_ttm": ("EPS Y/Y TTM",),
+    "sales_yoy_ttm": ("Sales Y/Y TTM",),
+    "eps_qoq": ("EPS Q/Q",),
+    "sales_qoq": ("Sales Q/Q",),
+    "insider_trans": ("Insider Trans",),
+    "inst_trans": ("Inst Trans",),
+    "insider_own": ("Insider Own",),
+    "inst_own": ("Inst Own",),
+    "roa": ("ROA",),
+    "roe": ("ROE",),
+    "roic": ("ROIC",),
+    "gross_margin": ("Gross Margin",),
+    "oper_margin": ("Oper. Margin",),
+    "profit_margin": ("Profit Margin",),
+    "sma20": ("SMA20",),
+    "sma50": ("SMA50",),
+    "sma200": ("SMA200",),
+    "shares_outstanding": ("Shs Outstand",),
+    "shares_float": ("Shs Float", "Float"),
+    "week52_high": ("52W High",),
+    "week52_low": ("52W Low",),
+    "volatility": ("Volatility",),
+    "atr_14": ("ATR (14)",),
+    "rsi_14": ("RSI (14)",),
+    "beta": ("Beta",),
+    "rel_volume": ("Rel Volume",),
+    "avg_volume": ("Avg Volume",),
+    "volume": ("Volume",),
+    "perf_week": ("Perf Week",),
+    "perf_month": ("Perf Month",),
+    "perf_quarter": ("Perf Quarter",),
+    "perf_half_y": ("Perf Half Y",),
+    "perf_ytd": ("Perf YTD",),
+    "perf_year": ("Perf Year",),
+    "perf_3y": ("Perf 3Y",),
+    "perf_5y": ("Perf 5Y",),
+    "perf_10y": ("Perf 10Y",),
+    "prev_close": ("Prev Close",),
+    "price": ("Price",),
+    "change_pct": ("Change %",),
+}
+
+
+def parse_wide_metrics(body: str) -> dict[str, float | str]:
+    """Read the display-only cells from a stock page's snapshot table.
+
+    The page is a human table, so two labels can be present twice (``EPS next
+    Y`` appears in both the estimate and revision blocks). The first readable
+    value wins, exactly like :func:`parse_metrics`; only the cells that are
+    genuinely textual (``IPO``, ``Index``, ``Option/Short`` and the two
+    ``3/5Y`` cells that print two windows) keep their text. Nothing is guessed,
+    and a cell that is missing or malformed is absent from the result.
+    """
+
+    rows = snapshot_rows(body)
+    out: dict[str, float | str] = {}
+    text_fields = frozenset(
+        {"ipo", "index", "option_short", "eps_past_3_5y", "sales_past_3_5y"}
+    )
+    for field_name, labels in WIDE_FIELD_LABELS.items():
+        text = _first(rows, labels)
+        if text is None:
+            continue
+        if field_name in text_fields:
+            if text and text != "-":
+                out[field_name] = text
+            continue
+        # 52W High ``348.36 -0.16%`` and Volatility ``1.77% 1.80%`` are
+        # one cell with two facts. The displayed column is the first fact
+        # (price / first window); never concatenate them into a fake number.
+        first = re.match(r"^([+-]?\d[\d,]*(?:\.\d+)?(?:\s*[KMBT])?%?)", text or "")
+        value = _number(first.group(1)) if first else _number(text)
+        if value is not None:
+            out[field_name] = value
+    return out
+
+
 def parse_facts(body: str) -> dict[str, float]:
     """The short/ownership cells of the page, keyed by canonical name.
 

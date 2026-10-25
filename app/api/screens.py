@@ -89,6 +89,7 @@ from app.screen.selection import (
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
 from app.screen.scanner import FULL_SCAN_ROWS, ScanError, fetch_scan
 from app.screen.universe import PARITY_COLUMNS, asset_class_for, build_universe
+from app.screen.wide_fill import WideFiller
 
 router = APIRouter(prefix="/screens", tags=["screens"])
 
@@ -337,7 +338,17 @@ async def select(request: Request) -> dict[str, Any]:
         source=source,
         snapshot_id=snapshot_id,
     )
-    return _with_logos(answer.as_document())
+    document = answer.as_document()
+    if selection.fill_wide:
+        # Display-only enrichment. It runs after the selection has been
+        # answered, so a slow or blocked stock page can never change which
+        # rows matched; cells it cannot read stay null.
+        filler = getattr(request.app.state, "wide_filler", None)
+        if filler is None:
+            filler = WideFiller()
+            request.app.state.wide_filler = filler
+        document["rows"] = await filler.fill(document.get("rows", []))
+    return _with_logos(document)
 
 
 @router.post("/{screen_id}/export", status_code=202)

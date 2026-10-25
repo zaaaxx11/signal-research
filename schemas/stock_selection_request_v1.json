@@ -44,6 +44,11 @@
       ],
       "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
     },
+    "fill_wide": {
+      "type": "boolean",
+      "default": false,
+      "description": "Both modes: opt-in display enrichment for the wide table. Reads page-only cells such as employees, IPO and insider transactions from the stock page after the selection has been answered. A missing cell stays null; this never changes which rows match."
+    },
     "criteria": {
       "type": "object",
       "additionalProperties": false,

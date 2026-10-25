@@ -112,6 +112,7 @@ SELECTION_KEYS: frozenset[str] = frozenset(
         "symbols",
         "source",
         "snapshot_id",
+        "fill_wide",
     }
 )
 CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset", "common_only"})
@@ -295,6 +296,7 @@ class SelectionRequest:
     view: str | None = None
     offset: int = 0
     common_only: bool = False
+    fill_wide: bool = False
 
     @property
     def is_criteria(self) -> bool:
@@ -367,6 +369,16 @@ def _common_only(raw: Any) -> bool:
         raise SelectionError(
             f"'criteria.common_only' must be a boolean, got {raw!r}"
         )
+    return raw
+
+
+def _fill_wide(raw: Any) -> bool:
+    """Opt-in display enrichment; never part of the selection contract."""
+
+    if raw is None:
+        return False
+    if not isinstance(raw, bool):
+        raise SelectionError(f"'fill_wide' must be a boolean, got {raw!r}")
     return raw
 
 
@@ -529,6 +541,7 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         snapshot_id=None,
         asset_class=family,
         view=_view_name(payload.get("view")),
+        fill_wide=_fill_wide(payload.get("fill_wide")),
     )
 
 
@@ -593,6 +606,7 @@ def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
         view=_view_name(payload.get("view")),
         offset=0,
         common_only=False,
+        fill_wide=_fill_wide(payload.get("fill_wide")),
     )
 
 
@@ -898,6 +912,17 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "cell per declared view column, filled from the parity metrics "
                 "the bulk scan carries (missing columns stay null, never 0); "
                 "without `view` the row is the light screen row."
+            ),
+        },
+        "fill_wide": {
+            "type": "boolean",
+            "default": False,
+            "description": (
+                "Both modes: opt-in display enrichment for the wide table. "
+                "Reads page-only cells such as employees, IPO and insider "
+                "transactions from the stock page after the selection has been "
+                "answered. A missing cell stays null; this never changes which "
+                "rows match."
             ),
         },
         "criteria": {
