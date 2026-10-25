@@ -113,7 +113,7 @@ SELECTION_KEYS: frozenset[str] = frozenset(
         "snapshot_id",
     }
 )
-CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit"})
+CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset"})
 FILTER_KEYS: frozenset[str] = frozenset({"key", "field", "op", "value"})
 
 #: View column (a Finviz quote metric key) → the canonical parity row field that
@@ -277,6 +277,7 @@ class SelectionRequest:
     snapshot_id: str | None
     asset_class: str | None = None
     view: str | None = None
+    offset: int = 0
 
     @property
     def is_criteria(self) -> bool:
@@ -338,6 +339,18 @@ def _asset_class(raw: Any) -> str | None:
             f"unknown asset_class {raw!r}; expected one of {', '.join(ASSET_CLASSES)}"
         )
     return str(raw)
+
+
+def _offset(raw: Any) -> int:
+    """The page offset; zero when absent, never a negative window."""
+
+    if raw is None:
+        return 0
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        raise SelectionError(
+            f"'criteria.offset' must be an integer >= 0, got {raw!r}"
+        )
+    return raw
 
 
 def _view_name(raw: Any) -> str | None:
@@ -480,6 +493,7 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         filters=_filters(block.get("filters")),
         sort=_sort(block.get("sort")),
         limit=_limit(block.get("limit")),
+        offset=_offset(block.get("offset")),
         symbols=(),
         source=None,
         snapshot_id=None,
@@ -547,6 +561,7 @@ def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
         snapshot_id=snapshot_id,
         asset_class=_asset_class(payload.get("asset_class")),
         view=_view_name(payload.get("view")),
+        offset=0,
     )
 
 
@@ -605,6 +620,7 @@ class Selection:
     missing: tuple[str, ...]
     rows: tuple[dict[str, Any], ...]
     snapshot_id: str | None = None
+    offset: int = 0
 
     @property
     def returned(self) -> int:
@@ -654,7 +670,8 @@ def _selected(
 
     matched = apply_filters(rows, _predicates(request))
     ranked = ranking.rank_rows(matched, request.sort or DEFAULT_SORT)
-    return ranking.top_rows(ranked, request.limit), len(matched)
+    page = ranked[request.offset :]
+    return ranking.top_rows(page, request.limit), len(matched)
 
 
 def _resolved(
@@ -771,6 +788,7 @@ def select_rows(
         missing=missing,
         rows=page,
         snapshot_id=echoed_snapshot,
+        offset=request.offset,
     )
 
 
@@ -842,7 +860,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
             ),
         },
         "view": {
-            "enum": list(screen_views.VIEW_NAMES),
+            "enum": list(screen_views.SCREEN_VIEW_NAMES),
             "description": (
                 "Both modes: shape every response row as one of the six Finviz "
                 "views. A viewed row carries `rank`/`symbol`/`as_of` plus one "
@@ -880,6 +898,16 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                         "Page size. Clamped to 20: a larger value is not an error, "
                         "it simply cannot widen the display, and the response "
                         "reports the limit that was applied."
+                    ),
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": (
+                        "Zero-based row offset after filtering and sorting. The "
+                        "response still reports the full post-filter total, so "
+                        "20-row pages can walk the whole universe."
                     ),
                 },
             },

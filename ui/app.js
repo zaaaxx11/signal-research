@@ -101,6 +101,8 @@ const state = {
   sort: { key: "market_cap", dir: "desc" },
   page: 1,
   perPage: 20,
+  offset: 0,
+  total: 0,
   region: "us",
   view: "discover",
   screenView: "all",
@@ -285,7 +287,7 @@ async function loadData() {
   const selectBody = {
     mode: "criteria",
     region,
-    criteria: { filters: state.serverFilters, sort: state.serverSort, limit: 24 },
+    criteria: { filters: state.serverFilters, sort: state.serverSort, limit: state.perPage, offset: state.offset },
     view: requestedView,
   };
   const snapshotUrl = `/screens?source=tradingview${region === "us" ? "" : `&region=${region}`}`;
@@ -308,10 +310,10 @@ async function loadData() {
     for (const row of snapshotRows) {
       if (row.symbol && row.name) state.names[row.symbol] = row.name;
     }
-    const seenAliases = new Set(["GOOGN", "GOOGM", "JPM/PD", "JPM/PC", "JPM/PL", "JPM/PK"]);
-    const richBySymbol = new Map(rows.filter((row) => !seenAliases.has(row.symbol) && !String(row.symbol).includes("/")).map((row) => [row.symbol, row]));
+    const seenAliases = new Set(["GOOGN", "GOOGM"]);
+    const richBySymbol = new Map(rows.filter((row) => !seenAliases.has(row.symbol)).map((row) => [row.symbol, row]));
     const merged = [];
-    const hasServerFilters = state.serverFilters.length > 0;
+    const hasServerFilters = state.serverFilters.length > 0 || state.offset > 0;
     for (const light of snapshotRows) {
       if (hasServerFilters && !richBySymbol.has(light.symbol)) continue;
       const rich = richBySymbol.get(light.symbol) || {};
@@ -334,7 +336,7 @@ async function loadData() {
     }
     state.rows = merged.map((row, index) => ({
       ...row,
-      rank: index + 1,
+      rank: state.offset + index + 1,
       name: row.name || state.names[row.symbol] || "",
       sector: row.sector || "",
     }));
@@ -343,6 +345,7 @@ async function loadData() {
     }
     state.source = selection.source || selection.fallback?.source || "tradingview";
     state.universe = num(selection.universe_total) ?? num(selection.total) ?? rows.length;
+    state.total = num(selection.total) ?? state.universe ?? rows.length;
     state.asOf = selection.as_of || selection.fallback?.as_of || null;
     state.loading = false;
     if (selection.selectError) {
@@ -438,10 +441,10 @@ function renderTable() {
   if (state.loading) return;
   const rows = filteredRows();
   const columns = currentColumns();
-  const totalPages = Math.max(1, Math.ceil(rows.length / state.perPage));
-  state.page = Math.min(state.page, totalPages);
-  const start = (state.page - 1) * state.perPage;
-  const pageRows = rows.slice(start, start + state.perPage);
+  const total = Math.max(state.total, rows.length);
+  const totalPages = Math.max(1, Math.ceil(total / state.perPage));
+  const pageRows = rows;
+  const start = state.offset;
   const body = $("#tableBody");
   const head = $("#tableHead");
 
@@ -456,14 +459,14 @@ function renderTable() {
 
   $("#emptyState").classList.toggle("hidden", pageRows.length > 0);
   $("#marketTable").classList.toggle("is-empty", pageRows.length === 0);
-  $("#pageLabel").textContent = `${state.page} / ${totalPages}`;
-  $("#prevPage").disabled = state.page <= 1;
-  $("#nextPage").disabled = state.page >= totalPages;
+  $("#pageLabel").textContent = `${Math.min(totalPages, Math.floor(state.offset / state.perPage) + 1)} / ${totalPages}`;
+  $("#prevPage").disabled = state.offset <= 0;
+  $("#nextPage").disabled = state.offset + state.perPage >= total;
   $("#tableFootNote").textContent = state.query
     ? `${rows.length} matches for "${state.query}" in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}`
     : state.screenView === "all"
-      ? `${rows.length} names · ${columns.length} columns · scroll horizontally`
-      : `${rows.length} names in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}. Missing values stay missing.`;
+      ? `${start + 1}-${start + pageRows.length} of ${fmtInt(total)} names · ${columns.length} columns · scroll horizontally`
+      : `${start + 1}-${start + pageRows.length} of ${fmtInt(total)} names in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}. Missing values stay missing.`;
 
   if (!pageRows.length) {
     body.innerHTML = "";
@@ -623,7 +626,7 @@ function toggleWatch(symbol) {
 
 function setFilter(filter) {
   state.filter = filter;
-  state.page = 1;
+  state.offset = 0;
   $$(".chip").forEach((chip) => chip.classList.toggle("is-active", chip.dataset.filter === filter));
   renderTable();
 }
@@ -641,7 +644,7 @@ function setView(view) {
 function setScreenView(name) {
   if (!SCREEN_VIEWS[name] || state.screenView === name) return;
   state.screenView = name;
-  state.page = 1;
+  state.offset = 0;
   $$(".view-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.screenView === name));
   syncLayout();
   loadData();
@@ -699,7 +702,7 @@ function setSort(key) {
   } else {
     state.sort = { key, dir: "desc" };
   }
-  state.page = 1;
+  state.offset = 0;
   renderTable();
 }
 
@@ -901,7 +904,7 @@ function applyFilters() {
   state.serverFilters = filters;
   state.serverSort = $("#filterSort").value;
   state.sort = { key: null, dir: "desc" };
-  state.page = 1;
+  state.offset = 0;
   updateFilterCount();
   closeFilters();
   loadData();
@@ -912,7 +915,7 @@ function clearFilters() {
   const hadServerFilters = state.serverFilters.length > 0;
   state.filter = "all";
   state.query = "";
-  state.page = 1;
+  state.offset = 0;
   state.serverFilters = [];
   state.serverSort = "market_cap";
   state.sort = { key: "market_cap", dir: "desc" };
@@ -987,7 +990,7 @@ function wire() {
   });
   $("#searchInput").addEventListener("input", (event) => {
     state.query = event.target.value;
-    state.page = 1;
+    state.offset = 0;
     renderTable();
   });
   $("#filterChips").addEventListener("click", (event) => {
@@ -997,6 +1000,7 @@ function wire() {
   $$(".nav-item").forEach((item) => item.addEventListener("click", () => setView(item.dataset.view)));
   $$(".side-row").forEach((item) => item.addEventListener("click", () => {
     state.region = item.dataset.region;
+    state.offset = 0;
     state.overviewBySymbol = new Map();
     $$(".side-row").forEach((row) => row.classList.toggle("is-active", row === item));
     loadData();
@@ -1022,11 +1026,15 @@ function wire() {
     if (event.target === $("#filterModal")) closeFilters();
   });
   $("#clearFilters").addEventListener("click", clearFilters);
-  $("#prevPage").addEventListener("click", () => { state.page = Math.max(1, state.page - 1); renderTable(); });
+  $("#prevPage").addEventListener("click", () => {
+    if (state.offset <= 0) return;
+    state.offset = Math.max(0, state.offset - state.perPage);
+    loadData();
+  });
   $("#nextPage").addEventListener("click", () => {
-    const total = Math.max(1, Math.ceil(filteredRows().length / state.perPage));
-    state.page = Math.min(total, state.page + 1);
-    renderTable();
+    if (state.offset + state.perPage >= state.total) return;
+    state.offset += state.perPage;
+    loadData();
   });
   $("#detailStar").addEventListener("click", () => toggleWatch(state.selected));
   $("#compareButton").addEventListener("click", () => addCompare(state.selected));

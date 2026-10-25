@@ -63,11 +63,11 @@ def payload() -> dict[str, Any]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
-def criteria(*filters: dict[str, Any], sort: str = "market_cap", limit: int = 20) -> dict[str, Any]:
+def criteria(*filters: dict[str, Any], sort: str = "market_cap", limit: int = 20, offset: int = 0) -> dict[str, Any]:
     return {
         "mode": "criteria",
         "region": "us",
-        "criteria": {"filters": list(filters), "sort": sort, "limit": limit},
+        "criteria": {"filters": list(filters), "sort": sort, "limit": limit, "offset": offset},
     }
 
 
@@ -343,6 +343,34 @@ async def test_a_payload_mixing_the_two_modes_is_a_422(
     error = assert_envelope(response, status=422)
     assert error["error"] == "invalid_selection"
     assert "mode 'criteria'" in error["errorMessage"]
+
+
+async def test_offset_walks_the_same_universe_without_changing_total(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        first = await harness.client.post(
+            "/screens/select", json=criteria(limit=5, offset=0)
+        )
+        second = await harness.client.post(
+            "/screens/select", json=criteria(limit=5, offset=5)
+        )
+
+    left, right = first.json(), second.json()
+    assert first.status_code == second.status_code == 200
+    assert left["total"] == right["total"]
+    assert left["returned"] == right["returned"] == 5
+    assert not set(row["symbol"] for row in left["rows"]) & set(
+        row["symbol"] for row in right["rows"]
+    ), "a page offset must advance, not repeat the first page"
+
+
+async def test_a_negative_offset_is_a_422(tmp_path: Path, monkeypatch: Any) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post("/screens/select", json=criteria(offset=-1))
+
+    error = assert_envelope(response, status=422)
+    assert "offset" in error["errorMessage"]
 
 
 async def test_a_limit_of_zero_is_a_422(tmp_path: Path, monkeypatch: Any) -> None:

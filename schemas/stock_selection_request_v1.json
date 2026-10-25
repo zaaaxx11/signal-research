@@ -30,7 +30,7 @@
         "etf"
       ],
       "default": "stock",
-      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes — `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
+      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes \u2014 `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
     },
     "view": {
       "enum": [
@@ -39,7 +39,8 @@
         "ownership",
         "performance",
         "financial",
-        "technical"
+        "technical",
+        "all"
       ],
       "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
     },
@@ -54,7 +55,7 @@
             "$ref": "#/$defs/filter"
           },
           "default": [],
-          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric — never ignored, because an ignored filter returns the unfiltered screen."
+          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric \u2014 never ignored, because an ignored filter returns the unfiltered screen."
         },
         "sort": {
           "enum": [
@@ -70,6 +71,12 @@
           "minimum": 1,
           "default": 20,
           "description": "Page size. Clamped to 20: a larger value is not an error, it simply cannot widen the display, and the response reports the limit that was applied."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Zero-based row offset after filtering and sorting. The response still reports the full post-filter total, so 20-row pages can walk the whole universe."
         }
       }
     },
@@ -92,7 +99,7 @@
     "snapshot_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices — the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
+      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices \u2014 the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
     }
   },
   "allOf": [
@@ -811,7 +818,7 @@
           "10y1000o": "ret_10y gte 1000.0"
         },
         "unsupported": {
-          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists only on the deep/quote path"
+          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` \u2026 `ret_10y`), and `ret_3y` exists only on the deep/quote path"
         }
       }
     },
@@ -958,7 +965,7 @@
           "10y1000o": "ret_10y gte 1000.0"
         },
         "unsupported": {
-          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists only on the deep/quote path"
+          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` \u2026 `ret_10y`), and `ret_3y` exists only on the deep/quote path"
         }
       }
     },
