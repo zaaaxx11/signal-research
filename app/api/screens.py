@@ -30,7 +30,10 @@ one: it asks for the metric columns the filters address and drops the browse
 floor (``min_market_cap``) and the ``subtype=common`` gate, so "P/E below 10"
 means the whole stock market rather than the 100M+ common shares the display
 happens to show. ``symbols`` mode keeps the light scan — a ticker lookup needs
-no metric. ``GET /screens/select/schema`` serves the request
+no metric. Every selection then joins the three fundamentals cells the scan
+cannot answer (``pe_forward``, ``ps``, ``payout_ratio``) from the runtime's
+fundamentals snapshot store, once per call and by symbol — see
+:mod:`app.screen.fundamentals`. ``GET /screens/select/schema`` serves the request
 schema — the same document that ships at
 ``schemas/stock_selection_request_v1.json``.
 
@@ -69,6 +72,7 @@ from app.screen.export import (
     UnknownScreenFormat,
     export_bundle,
 )
+from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.selection import (
     SELECTION_REQUEST_SCHEMA,
@@ -281,6 +285,17 @@ async def select(request: Request) -> dict[str, Any]:
             columns=PARITY_COLUMNS if selection.view else None,
             asset_class=family,
         )
+
+    # P11G: three columns the scan answers null for — forward P/E, P/S and payout
+    # ratio — are owned by the fundamentals snapshot store. The join reads that
+    # table **once** for the whole universe (no per-symbol query), copies only
+    # fresh rows, and never invents a value: a symbol the store does not hold
+    # keeps ``None``, which matches no filter. A selection must not become a 500
+    # because the optional table was never migrated, so the join degrades to "no
+    # enrichment" and logs why; ``getattr`` is that same bargain for a runtime
+    # built by an older composition root.
+    universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
+
     moment = datetime.now(UTC).isoformat(timespec="microseconds")
     answer = select_rows(
         universe,

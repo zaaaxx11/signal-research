@@ -13,7 +13,7 @@ stock has a P/E below 10" — a fabricated answer produced by an ignored
 parameter. So the contract is: **a filter key either maps to a row column or the
 request is rejected (422) with the reason**, never applied as a no-op.
 
-Thirty-nine keys map and forty-three are refused:
+Forty-two keys map and forty are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -35,13 +35,19 @@ Thirty-nine keys map and forty-three are refused:
   direction only). Each is an identity over cells the row already carries, so it
   is a column like any other: a row whose inputs the provider did not send holds
   ``None`` and does not match, exactly like a null P/E;
-* **forty-three are refused**, each with the metric it needs. Three shapes of
+* **three joined columns** answer the keys the scan answers ``null`` for on every
+  row but the fundamentals snapshot store fills (:mod:`app.screen.fundamentals`):
+  ``fa_fpe`` → ``pe_forward``, ``fa_ps`` → ``ps`` and ``fa_payoutratio`` →
+  ``payout_ratio``. The values are copied from ``fundamentals_snapshots`` by
+  symbol, only while the row is fresh; a symbol the store does not hold keeps
+  ``None`` and does not match. That is a real observation from the table that
+  owns the metric, not a computed placeholder;
+* **forty are refused**, each with the metric it needs. Three shapes of
   refusal: no column measures it (index membership, theme, dividend growth and
-  payout ratio, insider/institutional ownership, news, ETF holdings,
-  after-hours, patterns, 20/50-day and all-time extremes); one key spans several
-  columns (``ta_perf`` covers ten performance windows, ``ta_volatility`` two);
-  or the column the provider offers answers **null for every row**
-  (``price_earnings_forward``, ``price_sales_ttm``, ``short_float``,
+  insider/institutional ownership, news, ETF holdings, after-hours, patterns,
+  20/50-day and all-time extremes); one key spans several columns
+  (``ta_perf`` covers ten performance windows, ``ta_volatility`` two); or the
+  column the provider offers answers **null for every row** (``short_float``,
   ``ipo_date`` on both the US and the global scan), where a filter could only
   ever return an empty screen.
 
@@ -99,22 +105,9 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("theme", "subtheme"),
     ),
     (
-        "needs dividend growth and payout ratio: the scan carries a dividend "
-        "yield only (`dividends_yield`), which is neither a growth rate nor the "
-        "share of earnings paid out",
-        ("fa_divgrowth", "fa_payoutratio"),
-    ),
-    (
-        "needs a forward P/E column the scanner fills: `price_earnings_forward` "
-        "answered null for all 5,720 US rows (and 96,278 global rows) when probed "
-        "live, so a filter on it can only return an empty screen",
-        ("fa_fpe",),
-    ),
-    (
-        "needs a P/S column the scanner fills: `price_sales_ttm` answered null for "
-        "all 5,720 US rows (and 96,278 global rows) when probed live, so a filter "
-        "on it can only return an empty screen",
-        ("fa_ps",),
+        "needs a dividend growth rate: the scan carries a dividend yield only "
+        "(`dividends_yield`), which is not a growth rate",
+        ("fa_divgrowth",),
     ),
     (
         "needs a short-interest column the scanner fills: `short_float` answered "
@@ -353,15 +346,20 @@ def _validate() -> None:
             raise RuntimeError(f"filter key {key!r} has an empty unavailability reason")
 
     # The parity table is the other half of the same claim: a field a key filters
-    # must be a field a row can carry — a light column, a parity metric or a
-    # derived column. ``CARRIED_FIELDS`` is that union, owned by the row layer.
+    # must be a field a row can carry — a light column, a parity metric, a
+    # derived column, or one of the three cells the fundamentals join copies onto
+    # the row (``app.screen.fundamentals``). ``CARRIED_FIELDS`` is the union the
+    # row layer owns; the join's own table is the one addition, because those
+    # cells come from a second store rather than from the scan.
+    from app.screen import fundamentals as joined
     from app.screen import universe as parity
 
-    unreadable = sorted(field for field in mapped.values() if field not in parity.CARRIED_FIELDS)
+    readable = parity.CARRIED_FIELDS | frozenset(joined.FUNDAMENTALS_ROW_FIELDS)
+    unreadable = sorted(field for field in mapped.values() if field not in readable)
     if unreadable:
         raise RuntimeError(
             "filter keys point at fields no row carries (neither a light column, "
-            f"a parity metric nor a derived column): {unreadable}"
+            f"a parity metric, a derived column nor a joined fundamental): {unreadable}"
         )
 
 

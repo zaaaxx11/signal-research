@@ -12,17 +12,20 @@ claim that the metric behind every key is already sourced.
 
 **Only a metric the product can answer gets a field.** ``FilterSpec.field`` names
 the canonical row column a key filters, and it is ``None`` for the keys no row
-carries. **Thirty-nine keys map today**: the seven light columns (exchange,
+carries. **Forty-two keys map today**: the seven light columns (exchange,
 sector, country, market cap, price, change %, current volume), twenty-nine parity
 metrics that :data:`app.screen.universe.PARITY_FIELDS` copies from the bulk scan
 — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current, quick and
 debt/equity ratios, the three margins, share count and float, average/relative
 volume, target price, the next earnings date, industry, dividend yield, RSI, the
-three SMAs, beta, gap and ATR — and three **derived** columns
+three SMAs, beta, gap and ATR — three **derived** columns
 (:data:`app.screen.universe.DERIVED_FIELDS`): Finviz's 1..5 analyst score
 (``3 - 2 * recommendation``), the change from the session open
 (``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``) and the percent
-distance from the 52-week high (``(price / high_52w - 1) * 100``).
+distance from the 52-week high (``(price / high_52w - 1) * 100``), plus three
+**joined** columns (:mod:`app.screen.fundamentals`): forward P/E, P/S and payout
+ratio, read from the fundamentals snapshot store because the scan answers those
+three with ``null`` for every row.
 
 The rule for the twenty-nine copies is **one quantity, one column, and the
 provider's window or unit in the name**. ``ta_beta`` therefore resolves to
@@ -46,9 +49,13 @@ several columns (``ta_perf`` covers ten windows, ``ta_volatility`` two), or when
 the provider's column answers ``null`` for **every** row — the live probe
 returned no values at all for ``price_earnings_forward``, ``price_sales_ttm``,
 ``short_float`` and ``ipo_date``, and a filter on a column that is always null
-could only return an empty screen. Mapping those would let a caller read a
-different question's answer, or an empty one, as parity; the forty-three
-refusals in :mod:`app.screen.filter_fields` name the missing metric instead.
+could only return an empty screen. Two of those four now have a real source
+outside the scan: ``price_earnings_forward``/``price_sales_ttm`` are answered by
+the fundamentals snapshot store, so ``fa_fpe`` and ``fa_ps`` map to the **joined**
+columns of :mod:`app.screen.fundamentals` (with ``fa_payoutratio``, whose
+``payout_ratio`` cell the store also fills). ``short_float`` and ``ipo_date``
+stay refused, and the forty refusals in :mod:`app.screen.filter_fields` name the
+missing metric instead.
 
 **The DSL is field/op/value, and unknown never passes.** ``compile_filter``
 rejects an unknown field, an unknown operator and an operator that cannot work
@@ -114,14 +121,19 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "is_primary": "bool",
         # -- valuation multiples (provider column in parentheses)
         "pe_ttm": "number",  # price_earnings_ttm
-        "pe_forward": "number",  # price_earnings_forward: null on every live row
+        # price_earnings_forward is null on every scan row: the fundamentals
+        # snapshot store answers it (app.screen.fundamentals).
+        "pe_forward": "number",
         "peg": "number",  # price_earnings_growth_ttm
-        "ps": "number",  # price_sales_ttm: null on every live row
+        "ps": "number",  # price_sales_ttm: scan null, fundamentals store answers
         "pb": "number",  # price_book_fq
         "pfcf": "number",  # price_free_cash_flow_ttm
         "ev_ebitda": "number",  # enterprise_value_ebitda_ttm
         # -- dividends (percent, as the provider reports it: 0.47 = 0.47%)
         "dividend_yield": "number",  # dividends_yield, percent not a fraction
+        # Percent of earnings paid out (12.04 = 12.04%), joined from the
+        # fundamentals snapshot store; the scan has no payout column at all.
+        "payout_ratio": "number",
         # -- profitability and leverage
         "roe": "number",  # return_on_equity
         "roa": "number",  # return_on_assets
@@ -937,7 +949,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Forward P/E",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "pe_forward",
         ("", "low", "profitable", "high", "u5", "u10", "u15", "u20", "u25", "u30", "u35",
          "u40", "u45", "u50", "o5", "o10", "o15", "o20", "o25", "o30", "o35", "o40",
          "o45", "o50", "frange"),
@@ -955,7 +967,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "P/S",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "ps",
         ("", "low", "high", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8", "u9", "u10",
          "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9", "o10", "frange"),
     ),
@@ -1235,7 +1247,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Payout Ratio",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "payout_ratio",
         ("", "none", "pos", "low", "high", "o0", "o10", "o20", "o30", "o40", "o50", "o60",
          "o70", "o80", "o90", "o100", "u10", "u20", "u30", "u40", "u50", "u60",
          "u70", "u80", "u90", "u100", "frange"),

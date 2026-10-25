@@ -1,7 +1,8 @@
-"""The 82-key disposition after P11B: three derived keys stop being refusals.
+"""The 82-key disposition after P11B and P11G: six keys stop being refusals.
 
 This module owns the *expectations* that changed when the derived columns landed
-(:mod:`app.screen.derived`); the resolver mechanics themselves are pinned by
+(:mod:`app.screen.derived`) and when the fundamentals join landed
+(:mod:`app.screen.fundamentals`); the resolver mechanics themselves are pinned by
 ``tests/test_screen_selection.py`` and the row contract by
 ``tests/test_screen_parity.py``.
 
@@ -9,10 +10,13 @@ The claim is three-fold:
 
 * the catalogue is still the probe's **82 keys**, and every one of them has
   exactly one disposition — a row column or a named refusal;
-* the split moved from 36/46 to **39 mapped / 43 refused**, and the only keys
-  that moved are ``an_recom``, ``ta_changeopen`` and ``ta_highlow52w``;
-* each newly mapped key points at a column a real ``build_universe`` row
-  carries, so "mapped" is a statement about the row, not about a table.
+* the split moved from 36/46 to **42 mapped / 40 refused**, and the only keys
+  that moved are ``an_recom``, ``ta_changeopen``, ``ta_highlow52w`` (P11B, derived
+  columns) and ``fa_fpe``, ``fa_ps``, ``fa_payoutratio`` (P11G, joined from the
+  fundamentals snapshot store);
+* each newly mapped key points at a column a real ``build_universe`` row carries
+  (or one the join copies onto it), so "mapped" is a statement about the row,
+  not about a table.
 """
 
 from __future__ import annotations
@@ -31,14 +35,22 @@ from app.screen.filter_fields import (
     unavailable_keys,
 )
 from app.screen.filters import FIELDS, FILTER_CATALOG, FILTER_KEYS
+from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.selection import SELECTION_REQUEST_SCHEMA
 from app.screen.universe import CARRIED_FIELDS, DERIVED_FIELDS, PARITY_COLUMNS, build_universe
 
-#: The three keys this pass moved from "refused" to "mapped", and their columns.
+#: The three keys P11B moved from "refused" to "mapped", and their columns.
 P11B: dict[str, str] = {
     "an_recom": "recom_finviz",
     "ta_changeopen": "change_from_open",
     "ta_highlow52w": "pct_from_52w_high",
+}
+
+#: The three keys P11G moved, joined from the fundamentals snapshot store.
+P11G: dict[str, str] = {
+    "fa_fpe": "pe_forward",
+    "fa_ps": "ps",
+    "fa_payoutratio": "payout_ratio",
 }
 
 
@@ -69,9 +81,9 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_thirty_nine_mapped_and_forty_three_refused() -> None:
-    assert len(mapped_keys()) == 39
-    assert len(unavailable_keys()) == 43
+def test_the_disposition_is_forty_two_mapped_and_forty_refused() -> None:
+    assert len(mapped_keys()) == 42
+    assert len(unavailable_keys()) == 40
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
@@ -90,21 +102,35 @@ def test_a_derived_key_is_mapped_not_refused(key: str, field: str) -> None:
     assert FIELDS[field] == "number"
 
 
-def test_only_those_three_keys_left_the_refusal_list() -> None:
+def test_only_the_declared_keys_left_the_refusal_list() -> None:
     """No other key became available by accident."""
 
-    mapped = set(mapped_keys()) - set(P11B)
+    moved = set(P11B) | set(P11G)
+    mapped = set(mapped_keys()) - moved
     assert len(mapped) == 36, "the P7 disposition of 36 keys stands"
     refused = set(unavailable_keys())
-    assert set(P11B).isdisjoint(refused)
-    assert len(refused) == 46 - len(P11B)
+    assert moved.isdisjoint(refused)
+    assert len(refused) == 46 - len(moved)
 
 
 def test_every_mapped_key_points_at_a_column_a_row_can_carry() -> None:
-    assert set(ROW_FIELDS.values()) <= CARRIED_FIELDS, (
-        f"keys point at columns no row carries: {sorted(set(ROW_FIELDS.values()) - CARRIED_FIELDS)}"
+    carried = set(CARRIED_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS)
+    assert set(ROW_FIELDS.values()) <= carried, (
+        f"keys point at columns no row carries: {sorted(set(ROW_FIELDS.values()) - carried)}"
     )
     assert set(DERIVED_FIELDS) <= CARRIED_FIELDS
+
+
+@pytest.mark.parametrize(("key", "field"), sorted(P11G.items()))
+def test_a_joined_key_is_mapped_to_a_fundamentals_cell(key: str, field: str) -> None:
+    assert FILTER_CATALOG[key].field == field
+    assert ROW_FIELDS[key] == field
+    assert key not in UNAVAILABLE
+    assert reason_for(key) is None
+    assert binding(key).is_available is True
+    assert binding(key).field == field
+    assert field in FUNDAMENTALS_ROW_FIELDS
+    assert FIELDS[field] == "number"
 
 
 @pytest.mark.parametrize("key", sorted(P11B))
@@ -158,7 +184,7 @@ def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> Non
         assert reason_for(key), f"{key} has no metric; it must stay refused"
     assert "ten performance windows" in (reason_for("ta_perf") or "")
     assert "two windows" in (reason_for("ta_volatility") or "")
-    assert "answered null for all" in (reason_for("fa_fpe") or "")
+    assert "answered null for all" in (reason_for("sh_short") or "")
     for key, reason in UNAVAILABLE.items():
         assert reason.strip(), f"{key} needs a non-empty reason"
         assert len(reason) > 20, f"{key}'s reason is too short to be useful: {reason!r}"

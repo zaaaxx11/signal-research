@@ -42,6 +42,7 @@ from app.screen.filter_fields import (
     unavailable_keys,
 )
 from app.screen.filters import FIELDS, apply_filters, compile_filter
+from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.scanner import SCAN_COLUMNS, scan_body
 from app.screen.selection import SelectionError, parse_selection, select_rows
 from app.screen.universe import (
@@ -127,19 +128,22 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 82 keys: 39 filter a real column, 43 refuse with a reason
+# 82 keys: 42 filter a real column, 40 refuse with a reason
 # ---------------------------------------------------------------------------
 
 
-def test_the_disposition_is_thirty_nine_mapped_and_forty_three_refused() -> None:
-    assert len(mapped_keys()) == 39
-    assert len(unavailable_keys()) == 43
+def test_the_disposition_is_forty_two_mapped_and_forty_refused() -> None:
+    assert len(mapped_keys()) == 42
+    assert len(unavailable_keys()) == 40
     assert set(mapped_keys()) == set(ROW_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(ROW_FIELDS.values()) <= set(FIELDS)
     assert set(ROW_FIELDS.values()) <= (
-        set(PARITY_FIELDS.values()) | set(UNIVERSE_COLUMNS) | set(DERIVED_FIELDS)
+        set(PARITY_FIELDS.values())
+        | set(UNIVERSE_COLUMNS)
+        | set(DERIVED_FIELDS)
+        | set(FUNDAMENTALS_ROW_FIELDS)
     ), "a key must point at a column a parity row can carry"
 
 

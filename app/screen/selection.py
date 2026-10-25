@@ -72,6 +72,8 @@ from app.screen.filter_fields import (
     CATALOGUE,
     FilterKeyError,
     binding,
+    mapped_keys,
+    unavailable_keys,
 )
 from app.screen.filters import FIELDS, OPERATORS, apply_filters, compile_filter
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, display_row
@@ -898,8 +900,9 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "key": {
                     "type": "string",
                     "description": (
-                        "One of the 82 Finviz filter keys. The 39 that filter a "
-                        "row column today, and the 43 that are refused with their "
+                        f"One of the 82 Finviz filter keys. The {len(mapped_keys())} "
+                        "that filter a row column today, and the "
+                        f"{len(unavailable_keys())} that are refused with their "
                         "reason, are listed in x-filter-keys."
                     ),
                 },

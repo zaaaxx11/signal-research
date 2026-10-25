@@ -37,6 +37,7 @@ from app.screen.filters import (
     compile_filter,
     parse_filters,
 )
+from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.universe import (
     DERIVED_FIELDS,
     MIN_MARKET_CAP_USD,
@@ -207,6 +208,11 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "an_recom": "recom_finviz",
         "ta_changeopen": "change_from_open",
         "ta_highlow52w": "pct_from_52w_high",
+        # -- joined from the fundamentals snapshot store (P11G): the scan answers
+        # these three columns null for every row
+        "fa_fpe": "pe_forward",
+        "fa_ps": "ps",
+        "fa_payoutratio": "payout_ratio",
     }, (
         "a filter key may only name a column a row really carries (a light column "
         f"or a parity metric); got {mapped}"
@@ -218,13 +224,13 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
     # can carry — a light column, a parity metric copied from the scan, or a
     # derived column computed from those cells.
     carried = set(UNIVERSE_COLUMNS) | set(PARITY_FIELDS.values()) | set(DERIVED_FIELDS)
-    assert set(mapped.values()) <= carried, (
+    assert set(mapped.values()) <= carried | set(FUNDAMENTALS_ROW_FIELDS), (
         "filter keys point at fields no row carries: "
-        f"{sorted(set(mapped.values()) - carried)}"
+        f"{sorted(set(mapped.values()) - carried - set(FUNDAMENTALS_ROW_FIELDS))}"
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 43
+    assert len(unsourced) == 82 - len(mapped) == 40
     assert all(not FILTER_CATALOG[key].is_available for key in unsourced), (
         "a key without a metric must report is_available == False"
     )

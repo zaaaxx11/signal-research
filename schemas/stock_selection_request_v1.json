@@ -191,7 +191,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 39 that filter a row column today, and the 43 that are refused with their reason, are listed in x-filter-keys."
+          "description": "One of the 82 Finviz filter keys. The 42 that filter a row column today, and the 40 that are refused with their reason, are listed in x-filter-keys."
         },
         "field": {
           "enum": [
@@ -223,6 +223,7 @@
             "market_cap_usd",
             "name",
             "oper_margin",
+            "payout_ratio",
             "pb",
             "pct_from_52w_high",
             "pe_forward",
@@ -450,8 +451,8 @@
     "fa_fpe": {
       "label": "Forward P/E",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs a forward P/E column the scanner fills: `price_earnings_forward` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+      "field": "pe_forward",
+      "kind": "number"
     },
     "fa_peg": {
       "label": "PEG",
@@ -462,8 +463,8 @@
     "fa_ps": {
       "label": "P/S",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs a P/S column the scanner fills: `price_sales_ttm` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+      "field": "ps",
+      "kind": "number"
     },
     "fa_pb": {
       "label": "P/B",
@@ -499,7 +500,7 @@
       "label": "Dividend Growth",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
+      "reason": "needs a dividend growth rate: the scan carries a dividend yield only (`dividends_yield`), which is not a growth rate"
     },
     "fa_epsyoy": {
       "label": "EPS Growth\nThis Year",
@@ -636,8 +637,8 @@
     "fa_payoutratio": {
       "label": "Payout Ratio",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs dividend growth and payout ratio: the scan carries a dividend yield only (`dividends_yield`), which is neither a growth rate nor the share of earnings paid out"
+      "field": "payout_ratio",
+      "kind": "number"
     },
     "sh_insiderown": {
       "label": "Insider\nOwnership",

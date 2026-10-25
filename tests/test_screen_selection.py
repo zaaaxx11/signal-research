@@ -45,6 +45,7 @@ from app.screen.filter_fields import (
     unavailable_keys,
 )
 from app.screen.filters import FIELDS, FILTER_CATALOG, OPERATORS
+from app.screen.fundamentals import FUNDAMENTALS_FILTER_KEYS
 from app.screen.rank import SORTS
 from app.screen.selection import (
     DISPLAY_LIMIT,
@@ -124,12 +125,12 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 39, (
+    assert len(mapped_keys()) == 42, (
         "seven light columns, the twenty-nine parity metrics a bulk scan copies "
-        "and whose columns are really filled, and the three derived columns "
-        "computed from those cells"
+        "and whose columns are really filled, the three derived columns computed "
+        "from those cells, and the three fundamentals joined from the snapshot store"
     )
-    assert len(unavailable_keys()) == 43
+    assert len(unavailable_keys()) == 40
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -146,12 +147,21 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
         "the seven light keys must keep the columns the browse row has always had"
     )
     beyond_light = {key: field for key, field in ROW_FIELDS.items() if key not in light}
+    joined = {key: field for key, field in beyond_light.items() if key in FUNDAMENTALS_FILTER_KEYS}
     derived = {key: field for key, field in beyond_light.items() if field in DERIVED_FIELDS}
-    parity = {key: field for key, field in beyond_light.items() if key not in derived}
+    parity = {
+        key: field
+        for key, field in beyond_light.items()
+        if key not in derived and key not in joined
+    }
     assert len(parity) == 29
     assert set(parity.values()) <= set(PARITY_FIELDS.values()), (
         "every copied key must point at a provider column the parity scan requests; "
         f"not carried: {sorted(set(parity.values()) - set(PARITY_FIELDS.values()))}"
+    )
+    assert joined == dict(FUNDAMENTALS_FILTER_KEYS), (
+        "the three fundamentals keys are joined from fundamentals_snapshots "
+        "(app.screen.fundamentals), not copied from the scan"
     )
     assert derived == {
         "an_recom": "recom_finviz",
@@ -204,10 +214,15 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
             f"{key} filters a derived column now (app.screen.derived); a refusal "
             "here would be a stale disposition"
         )
-    assert "answered null for all" in (reason_for("fa_fpe") or ""), (
+    assert "answered null for all" in (reason_for("sh_short") or ""), (
         "a column that is null for every row cannot filter: refuse it, do not "
         "return an empty screen as if nothing matched"
     )
+    for key in ("fa_fpe", "fa_ps", "fa_payoutratio"):
+        assert reason_for(key) is None, (
+            f"{key} filters a column joined from fundamentals_snapshots "
+            "(app.screen.fundamentals); a refusal here would be a stale disposition"
+        )
     assert "ETF holdings" in (reason_for("etf_heldby") or "")
     for key in unavailable_keys():
         reason = reason_for(key)

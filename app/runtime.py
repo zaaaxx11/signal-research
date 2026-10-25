@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings, get_settings
+from app.fundamentals.snapshot import SqliteFundamentalsStore
 from app.jobs.ports import QuoteRepository
 from app.jobs.quotes import SqliteQuoteRepository
 from app.jobs.repository import SqliteJobRepository
@@ -78,6 +79,15 @@ class Runtime:
         #: source of truth. One repository, so the API and the bundle can never
         #: disagree about which snapshot they are serving.
         self.screen_repository = SqliteScreenRepository(self.settings.db_path)
+        #: P11G: the fundamentals snapshot store, one row per symbol on the same
+        #: SQLite file (``0003_fundamentals``). ``POST /screens/select`` reads it
+        #: **once** per selection to join ``pe_forward``, ``ps`` and
+        #: ``payout_ratio`` onto the universe rows — those three columns are
+        #: ``null`` on every scan row, so the store is their real owner. A store
+        #: whose table is missing degrades to no enrichment instead of failing
+        #: the selection (see ``app.screen.fundamentals``), which is why the
+        #: runtime never proves the migration here.
+        self.fundamentals_store = SqliteFundamentalsStore(self.settings.db_path)
         #: P10: the default ``GET /screens`` document. The service owns its own
         #: 300 s verification cache (keyed by the snapshot id), so the cache is a
         #: property of the process rather than of a request — which is what makes
@@ -248,6 +258,7 @@ class Runtime:
         await self.repository.close()
         await self.quotes.close()
         await self.screen_repository.aclose()
+        await self.fundamentals_store.aclose()
 
 
 def _health_of(name: str, health: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:
