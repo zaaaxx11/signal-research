@@ -400,10 +400,10 @@ async def test_the_schema_route_serves_the_repo_artifact(
     assert served["x-filter-key-count"] == 82
     assert len(served["x-filter-keys"]) == 82
     mapped = [key for key, entry in served["x-filter-keys"].items() if entry["field"]]
-    assert len(mapped) == 44, (
+    assert len(mapped) == 47, (
         "the published schema must name every key that filters a parity row, the "
         "three derived columns, the five fundamentals columns (three joined, two "
-        "computed) included"
+        "computed) and the three facts columns included"
     )
     chosen = [
         key for key, entry in served["x-filter-keys"].items() if "choice" in entry

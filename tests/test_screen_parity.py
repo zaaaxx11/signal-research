@@ -2,16 +2,18 @@
 
 Contract (PLAN-finviz-parity.md §6 gate 3, "82/82 keys"):
 
-* **44 of the 82 keys filter a real column** — the seven light ones, the
+* **47 of the 82 keys filter a real column** — the seven light ones, the
   twenty-nine parity metrics a bulk scan copies from TradingView whose columns
   are really filled (the last four added after a live probe answered with
   values: ``industry``, ``dividends_yield``, ``gap``, ``ATR``), the three
   derived columns computed from those cells (``recom_finviz``,
-  ``change_from_open``, ``pct_from_52w_high``) and the five fundamentals columns
+  ``change_from_open``, ``pct_from_52w_high``), the five fundamentals columns
   the snapshot join contributes (``pe_forward``, ``ps``, ``payout_ratio`` joined;
-  ``price_to_cash``, ``ev_to_sales`` computed) — and each mapped key is proven by
-  running its compiled predicate over a row that carries the field;
-* **3 more filter through their option vocabulary** and **the other 35 are
+  ``price_to_cash``, ``ev_to_sales`` computed) and the three facts columns
+  (``short_float``, ``insider_own``, ``inst_own`` joined from ``screen_facts``) —
+  and each mapped key is proven by running its compiled predicate over a row
+  that carries the field;
+* **3 more filter through their option vocabulary** and **the other 32 are
   refused by name**, with the metric they need, instead of
   being applied as a no-op (an ignored filter returns the unfiltered screen as
   if it matched);
@@ -45,6 +47,7 @@ from app.screen.filter_fields import (
     mapped_keys,
     unavailable_keys,
 )
+from app.screen.facts import FACTS_ROW_FIELDS
 from app.screen.filters import FIELDS, apply_filters, compile_filter
 from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.scanner import SCAN_COLUMNS, scan_body
@@ -132,13 +135,13 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 82 keys: 44 filter a real column, 3 answer per option token, 35 refuse
+# 82 keys: 47 filter a real column, 3 answer per option token, 32 refuse
 # ---------------------------------------------------------------------------
 
 
-def test_the_disposition_is_forty_seven_available_and_thirty_five_refused() -> None:
-    assert len(mapped_keys()) == 47
-    assert len(unavailable_keys()) == 35
+def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
+    assert len(mapped_keys()) == 50
+    assert len(unavailable_keys()) == 32
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
@@ -148,6 +151,7 @@ def test_the_disposition_is_forty_seven_available_and_thirty_five_refused() -> N
         | set(UNIVERSE_COLUMNS)
         | set(DERIVED_FIELDS)
         | set(FUNDAMENTALS_ROW_FIELDS)
+        | set(FACTS_ROW_FIELDS)
     ), "a key must point at a column a parity row can carry"
     for columns in CHOICE_FIELDS.values():
         assert set(columns) <= set(FIELDS)

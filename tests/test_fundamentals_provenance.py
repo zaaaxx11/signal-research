@@ -711,7 +711,7 @@ async def test_0004_adds_the_column_without_rewriting_a_legacy_row(tmp_path: Pat
     before = await store.get("AAPL", now=NOW)
     assert before is not None and before.field_sources["market_cap"] == "yahoo"
 
-    assert apply_migrations(db) == "0004"
+    assert apply_migrations(db) == "0005"
 
     with closing(sqlite3.connect(db)) as connection:
         columns = {

@@ -260,11 +260,12 @@ PARITY_TEXT_FIELDS: frozenset[str] = frozenset({"industry"})
 #: global: 0 of 96,278). They stay in the table so a later provider fix fills them
 #: without a rename. **No filter key may treat these cells as evidence**: a filter
 #: on an always-null column could only ever return an empty screen, which reads as
-#: "no matches". ``pe_forward``/``ps`` are the exception that proves the rule —
-#: their keys (``fa_fpe``/``fa_ps``) filter the cells that
-#: :mod:`app.screen.fundamentals` joins from the fundamentals snapshot store, which
-#: is a real observation from another table, not a rescued null. ``short_float``
-#: and ``listing_date`` have no such source and stay refused.
+#: "no matches". ``pe_forward``/``ps`` and ``short_float`` are the exceptions that
+#: prove the rule — their keys filter a real observation from another table:
+#: :mod:`app.screen.fundamentals` joins forward P/E, P/S and payout ratio from the
+#: fundamentals snapshot store, and :mod:`app.screen.facts` joins the float and
+#: ownership percentages from the Finviz stock page. ``listing_date`` has no such
+#: source and stays refused.
 PARITY_NULLABLE: frozenset[str] = frozenset(
     {"pe_forward", "ps", "short_float", "listing_date"}
 )

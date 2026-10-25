@@ -22,8 +22,9 @@ Every test below pins a way a computed ratio can lie:
 * a row or a snapshot mutated by the join, or snapshot inputs leaking onto the
   selection row;
 * a key that resolves to a column the row never carries, or a disposition that
-  drifted (45/37 was P11G; this pass is 44 single-column + 3 choice / 35
-  refused, and the published schema has to say the same thing).
+  drifted (45/37 was P11G; 44 single-column + 3 choice / 35 refused was P11I;
+  this pass is 47 single-column + 3 choice / 32 refused after the facts join,
+  and the published schema has to say the same thing).
 
 The live checks at the end run the real filter DSL and the real ASGI route over
 the joined rows, because "the column exists" is not the claim — "a filter on it
@@ -381,9 +382,9 @@ def test_the_two_keys_resolve_to_the_computed_columns(key: str, field: str) -> N
     assert FIELDS[field] == "number"
 
 
-def test_the_disposition_is_forty_seven_available_and_thirty_five_refused() -> None:
-    assert len(mapped_keys()) == 47
-    assert len(unavailable_keys()) == 35
+def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
+    assert len(mapped_keys()) == 50
+    assert len(unavailable_keys()) == 32
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     for key in P11I:
@@ -402,7 +403,7 @@ def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry
     }
-    assert len(mapped) == 44 and len(chosen) == 3 and len(refused) == 35
+    assert len(mapped) == 47 and len(chosen) == 3 and len(refused) == 32
     assert set(mapped) | set(chosen) == set(mapped_keys())
     assert set(refused) == set(unavailable_keys())
 
@@ -412,8 +413,8 @@ def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
         assert "reason" not in mapped[key], f"{key} is mapped, so it carries no refusal"
 
     description = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]["key"]["description"]  # type: ignore[index]
-    assert "The 44 that resolve to one row column" in description
-    assert "the 35 that are refused" in description
+    assert "The 47 that resolve to one row column" in description
+    assert "the 32 that are refused" in description
 
 
 # ---------------------------------------------------------------------------

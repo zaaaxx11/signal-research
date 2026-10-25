@@ -255,13 +255,13 @@ async def test_the_finviz_keys_resolve_to_the_joined_columns() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Disposition: 44 single-column keys + 3 option-driven, 35 refused
+# Disposition: 47 single-column keys + 3 option-driven, 32 refused
 # ---------------------------------------------------------------------------
 
 
-def test_the_catalogue_moved_to_forty_seven_available_and_thirty_five_refused() -> None:
-    assert len(mapped_keys()) == 47
-    assert len(unavailable_keys()) == 35
+def test_the_catalogue_moved_to_fifty_available_and_thirty_two_refused() -> None:
+    assert len(mapped_keys()) == 50
+    assert len(unavailable_keys()) == 32
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
     assert not set(mapped_keys()) & set(unavailable_keys())
@@ -278,8 +278,8 @@ def test_the_three_keys_name_a_column_and_their_refusals_are_gone() -> None:
 
 
 def test_the_refusals_that_remain_still_name_a_missing_metric() -> None:
-    assert "answered null for all" in (reason_for("sh_short") or "")
     assert "answered null for all" in (reason_for("ipodate") or "")
+    assert "transaction" in (reason_for("sh_insidertrans") or "")
     assert reason_for("fa_divgrowth"), "dividend growth is still not a payout ratio"
     for key, reason in UNAVAILABLE.items():
         assert reason.strip() and len(reason) > 20, f"{key}: {reason!r}"
@@ -349,7 +349,7 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry
     }
-    assert len(mapped) == 44 and len(chosen) == 3 and len(refused) == 35
+    assert len(mapped) == 47 and len(chosen) == 3 and len(refused) == 32
     assert set(mapped) | set(chosen) == set(mapped_keys())
     assert set(refused) == set(unavailable_keys())
     for key, field in P11G.items():
@@ -358,9 +358,9 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
         assert "reason" not in mapped[key]
     predicate = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]  # type: ignore[index]
     description = predicate["key"]["description"]
-    assert "The 44 that resolve to one row column" in description
+    assert "The 47 that resolve to one row column" in description
     assert "the 3 that filter through their option vocabulary" in description
-    assert "the 35 that are refused" in description
+    assert "the 32 that are refused" in description
 
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,7 @@ from app.providers.registry import REGISTRY, capability_matrix, provider_named
 from app.resolve.reference import Reference
 from app.resolve.seed import seed_reference
 from app.screen.deep import DEFAULT_CAPABILITIES, ScreenDeepEngine, build_screen_deep_engine
+from app.screen.facts import SqliteFactsStore
 from app.screen.multi_source import MultiSourceScreen, build_multi_source_verifiers
 from app.screen.repository import SqliteScreenRepository
 from app.worker.runner import process_job
@@ -88,6 +89,14 @@ class Runtime:
         #: the selection (see ``app.screen.fundamentals``), which is why the
         #: runtime never proves the migration here.
         self.fundamentals_store = SqliteFundamentalsStore(self.settings.db_path)
+        #: P11J: the screen facts store (``screen_facts``, ``0005_screen_facts``).
+        #: It owns the three Finviz percentage cells the bulk scan has no metric
+        #: for — ``short_float``, ``insider_own`` and ``inst_own`` — and
+        #: ``POST /screens/select`` reads it **once** per selection to copy them
+        #: onto the universe rows (``app.screen.facts``). A store whose table is
+        #: missing degrades to no enrichment instead of failing the selection,
+        #: which is why the runtime never proves the migration here.
+        self.facts_store = SqliteFactsStore(self.settings.db_path)
         #: P10: the default ``GET /screens`` document. The service owns its own
         #: 300 s verification cache (keyed by the snapshot id), so the cache is a
         #: property of the process rather than of a request — which is what makes
@@ -259,6 +268,7 @@ class Runtime:
         await self.quotes.close()
         await self.screen_repository.aclose()
         await self.fundamentals_store.aclose()
+        await self.facts_store.aclose()
 
 
 def _health_of(name: str, health: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:

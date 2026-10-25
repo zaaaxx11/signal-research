@@ -4,11 +4,12 @@ Contract (PLAN-finviz-parity.md §6 gate 3, "filter parity: 82/82 keys; filter
 expression deterministik"):
 
 * every one of the 82 Finviz filter keys either resolves to a row column, filters
-  through its option vocabulary, or is **refused by name** — 44 map to one column
+  through its option vocabulary, or is **refused by name** — 47 map to one column
   (7 light columns + 29 parity metrics the bulk scan copies + 3 derived columns
   computed from them + 3 joined from the fundamentals store + 2 computed from the
-  same fundamentals snapshot), 3 are option-driven
-  (``ta_perf``/``ta_perf2``/``ta_volatility``) and 35 are refused with the metric
+  same fundamentals snapshot + 3 joined from the screen facts store), 3 are
+  option-driven
+  (``ta_perf``/``ta_perf2``/``ta_volatility``) and 32 are refused with the metric
   they need, and none is silently ignored, because an ignored filter returns the
   unfiltered screen as if it matched;
 * a selection is one of two modes and never a mixture: ``criteria``
@@ -51,6 +52,7 @@ from app.screen.filter_fields import (
     reason_for,
     unavailable_keys,
 )
+from app.screen.facts import FACTS_FILTER_KEYS
 from app.screen.filters import FIELDS, FILTER_CATALOG, OPERATORS
 from app.screen.fundamentals import FUNDAMENTALS_FILTER_KEYS
 from app.screen.rank import SORTS
@@ -132,13 +134,14 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 47, (
+    assert len(mapped_keys()) == 50, (
         "seven light columns, the twenty-nine parity metrics a bulk scan copies "
         "and whose columns are really filled, the three derived columns computed "
         "from those cells, the three fundamentals joined from the snapshot store, "
-        "the two ratios computed from that snapshot, and the three option-driven keys"
+        "the two ratios computed from that snapshot, the three short/ownership "
+        "cells joined from the facts store, and the three option-driven keys"
     )
-    assert len(unavailable_keys()) == 35
+    assert len(unavailable_keys()) == 32
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -156,11 +159,12 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
     )
     beyond_light = {key: field for key, field in ROW_FIELDS.items() if key not in light}
     joined = {key: field for key, field in beyond_light.items() if key in FUNDAMENTALS_FILTER_KEYS}
+    facts = {key: field for key, field in beyond_light.items() if key in FACTS_FILTER_KEYS}
     derived = {key: field for key, field in beyond_light.items() if field in DERIVED_FIELDS}
     parity = {
         key: field
         for key, field in beyond_light.items()
-        if key not in derived and key not in joined
+        if key not in derived and key not in joined and key not in facts
     }
     assert len(parity) == 29
     assert set(parity.values()) <= set(PARITY_FIELDS.values()), (
@@ -170,6 +174,10 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
     assert joined == dict(FUNDAMENTALS_FILTER_KEYS), (
         "the three fundamentals keys are joined from fundamentals_snapshots "
         "(app.screen.fundamentals), not copied from the scan"
+    )
+    assert facts == dict(FACTS_FILTER_KEYS), (
+        "the three ownership/short keys are joined from screen_facts "
+        "(app.screen.facts), not copied from the scan"
     )
     assert derived == {
         "an_recom": "recom_finviz",
@@ -232,10 +240,15 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
             f"{key} filters a derived column now (app.screen.derived); a refusal "
             "here would be a stale disposition"
         )
-    assert "answered null for all" in (reason_for("sh_short") or ""), (
+    assert "answered null for all" in (reason_for("ipodate") or ""), (
         "a column that is null for every row cannot filter: refuse it, do not "
         "return an empty screen as if nothing matched"
     )
+    for key in ("sh_short", "sh_insiderown", "sh_instown"):
+        assert reason_for(key) is None, (
+            f"{key} filters a column joined from screen_facts "
+            "(app.screen.facts); a refusal here would be a stale disposition"
+        )
     for key in ("fa_fpe", "fa_ps", "fa_payoutratio"):
         assert reason_for(key) is None, (
             f"{key} filters a column joined from fundamentals_snapshots "

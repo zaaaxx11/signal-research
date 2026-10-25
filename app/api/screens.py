@@ -34,7 +34,10 @@ no metric. Every selection then joins the fundamentals cells the scan cannot ans
 (``pe_forward``, ``ps``, ``payout_ratio``) and derives the two ratios over them
 (``price_to_cash``, ``ev_to_sales``) from the runtime's
 fundamentals snapshot store, once per call and by symbol — see
-:mod:`app.screen.fundamentals`. ``GET /screens/select/schema`` serves the request
+:mod:`app.screen.fundamentals`. The same call then joins the three short and
+ownership cells (``short_float``, ``insider_own``, ``inst_own``) from the
+runtime's facts store, once per call and by symbol — see :mod:`app.screen.facts`.
+``GET /screens/select/schema`` serves the request
 schema — the same document that ships at
 ``schemas/stock_selection_request_v1.json``.
 
@@ -73,6 +76,7 @@ from app.screen.export import (
     UnknownScreenFormat,
     export_bundle,
 )
+from app.screen.facts import enrich_rows as enrich_facts
 from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.selection import (
@@ -297,6 +301,13 @@ async def select(request: Request) -> dict[str, Any]:
     # enrichment" and logs why; ``getattr`` is that same bargain for a runtime
     # built by an older composition root.
     universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
+
+    # P11J: the three short/ownership cells (Short Float, Insider Own, Inst Own)
+    # have no scan metric at all; the facts store owns them. Same contract as
+    # the fundamentals join — one batch read per selection, fresh rows only,
+    # ``None`` where the store has no answer (unknown matches no filter), and a
+    # missing table is no enrichment rather than a failed selection.
+    universe = await enrich_facts(universe, getattr(runtime, "facts_store", None))
 
     moment = datetime.now(UTC).isoformat(timespec="microseconds")
     answer = select_rows(

@@ -37,6 +37,7 @@ from app.screen.filters import (
     compile_filter,
     parse_filters,
 )
+from app.screen.facts import FACTS_ROW_FIELDS
 from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.universe import (
     DERIVED_FIELDS,
@@ -217,6 +218,11 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         # the store keeps the inputs of these two ratios, not the ratios
         "fa_pc": "price_to_cash",
         "fa_evsales": "ev_to_sales",
+        # -- joined from the screen facts store (P11J): the percentage cells the
+        # Finviz stock page prints and the bulk scan has no metric for
+        "sh_short": "short_float",
+        "sh_insiderown": "insider_own",
+        "sh_instown": "inst_own",
     }, (
         "a filter key may only name a column a row really carries (a light column "
         f"or a parity metric); got {mapped}"
@@ -225,16 +231,18 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         f"catalogue names fields with no comparison kind: {set(mapped.values()) - set(FIELDS)}"
     )
     # The other half of the claim: a field a key filters must be a field a row
-    # can carry — a light column, a parity metric copied from the scan, or a
-    # derived column computed from those cells.
+    # can carry — a light column, a parity metric copied from the scan, a
+    # derived column computed from those cells, or a cell one of the joins copies
+    # onto the row.
     carried = set(UNIVERSE_COLUMNS) | set(PARITY_FIELDS.values()) | set(DERIVED_FIELDS)
-    assert set(mapped.values()) <= carried | set(FUNDAMENTALS_ROW_FIELDS), (
+    readable = carried | set(FUNDAMENTALS_ROW_FIELDS) | set(FACTS_ROW_FIELDS)
+    assert set(mapped.values()) <= readable, (
         "filter keys point at fields no row carries: "
-        f"{sorted(set(mapped.values()) - carried - set(FUNDAMENTALS_ROW_FIELDS))}"
+        f"{sorted(set(mapped.values()) - readable)}"
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 38
+    assert len(unsourced) == 82 - len(mapped) == 35
     # The three option-driven keys also have no single column — that is why they
     # are not in `mapped` — but they are not refused: one option token names one
     # window and compiles to one column predicate (app.screen.choice_filters).

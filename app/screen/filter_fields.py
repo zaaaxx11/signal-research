@@ -14,7 +14,8 @@ parameter. So the contract is: **a filter key either filters a row — directly,
 or through one of its option tokens — or the request is rejected (422) with the
 reason**, never applied as a no-op.
 
-Forty-seven keys can filter a row today and thirty-five are refused:
+Forty-seven keys can filter a row directly and three more through their option
+vocabulary — fifty live — while thirty-two are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -48,6 +49,15 @@ Forty-seven keys can filter a row today and thirty-five are refused:
   ``None`` and does not match. That is a real observation from the table that
   owns the metric, or an identity over four of its cells — never a computed
   placeholder;
+* **three facts columns** answer the keys whose metric the bulk scan cannot
+  supply at all (:mod:`app.screen.facts`): ``sh_short`` → ``short_float`` (the
+  scan's column answers ``null`` for every row), ``sh_insiderown`` →
+  ``insider_own`` and ``sh_instown`` → ``inst_own`` (the scan has no ownership
+  column). They
+  are percentage points read from the ``screen_facts`` table (Finviz's stock
+  page: ``Short Float 0.83%``, ``Insider Own 0.12%``, ``Inst Own 68.93%``), and
+  the join copies them only while the row is fresh. A symbol the store does not
+  hold keeps ``None``, which matches no filter;
 * **three choice keys** — ``ta_perf``, ``ta_perf2`` and ``ta_volatility`` —
   filter through Finviz's option vocabulary instead of one column. The request
   is still ``{key, op: "eq", value: <option>}``, and
@@ -56,12 +66,12 @@ Forty-seven keys can filter a row today and thirty-five are refused:
   single column could name ten performance windows, so ``Binding.field`` stays
   ``None`` and ``Binding.choice`` is ``True``: the key is available, it just
   answers per token;
-* **thirty-five are refused**, each with the metric it needs: no column
-  measures it (index membership, theme, dividend growth and
-  insider/institutional ownership, news, ETF holdings, after-hours, patterns,
-  20/50-day and all-time extremes), or the column the provider offers answers
-  **null for every row** (``short_float``, ``ipo_date`` on both the US and the
-  global scan), where a filter could only ever return an empty screen.
+* **thirty-two are refused**, each with the metric it needs: no column measures
+  it (index membership, theme, dividend growth and the two insider/institutional
+  *transaction* flows, news, ETF holdings, after-hours, patterns, 20/50-day and
+  all-time extremes), or the column the provider offers answers **null for every
+  row** (``ipo_date`` on both the US and the global scan), where a filter could
+  only ever return an empty screen.
 
 Three things this module refuses to invent:
 
@@ -144,24 +154,18 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("fa_divgrowth",),
     ),
     (
-        "needs a short-interest column the scanner fills: `short_float` answered "
-        "null for all 5,720 US rows (and 96,278 global rows) when probed live, so "
-        "a filter on it can only return an empty screen",
-        ("sh_short",),
-    ),
-    (
         "needs an IPO-date column the scanner fills: `ipo_date` answered null for "
         "all 5,720 US rows (and 96,278 global rows) when probed live, so a filter "
         "on it can only return an empty screen",
         ("ipodate",),
     ),
     (
-        "needs an optionable/shortable flag: the scan carries no such column",
-        ("sh_opt",),
-    ),
-    (
         "needs a trade-count column: the scan carries no trades counter",
         ("sh_trades",),
+    ),
+    (
+        "needs an optionable/shortable flag: the scan carries no such column",
+        ("sh_opt",),
     ),
     (
         "needs a growth-rate column (EPS and sales growth this year, next year, "
@@ -190,9 +194,9 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("fa_ltdebteq",),
     ),
     (
-        "needs ownership and insider/institutional transaction flows: the scan "
-        "carries no ownership column",
-        ("sh_insiderown", "sh_insidertrans", "sh_instown", "sh_insttrans"),
+        "needs insider and institutional *transaction* flows: the scan carries "
+        "no transaction column, and holdings are not transactions",
+        ("sh_insidertrans", "sh_insttrans"),
     ),
     (
         "needs 20-day and 50-day high/low columns: the scan carries the "
@@ -398,14 +402,19 @@ def _validate() -> None:
 
     # The parity table is the other half of the same claim: a field a key filters
     # must be a field a row can carry — a light column, a parity metric, a
-    # derived column, or one of the three cells the fundamentals join copies onto
-    # the row (``app.screen.fundamentals``). ``CARRIED_FIELDS`` is the union the
-    # row layer owns; the join's own table is the one addition, because those
-    # cells come from a second store rather than from the scan.
+    # derived column, or one of the cells a join copies onto the row
+    # (``app.screen.fundamentals`` and ``app.screen.facts``). ``CARRIED_FIELDS``
+    # is the union the row layer owns; the two join tables are the additions,
+    # because those cells come from a second store rather than from the scan.
+    from app.screen import facts as facts_store
     from app.screen import fundamentals as joined
     from app.screen import universe as parity
 
-    readable = parity.CARRIED_FIELDS | frozenset(joined.FUNDAMENTALS_ROW_FIELDS)
+    readable = (
+        parity.CARRIED_FIELDS
+        | frozenset(joined.FUNDAMENTALS_ROW_FIELDS)
+        | frozenset(facts_store.FACTS_ROW_FIELDS)
+    )
     unreadable = sorted(
         field for field in mapped.values() if field not in readable
     ) + sorted(
@@ -415,7 +424,8 @@ def _validate() -> None:
     if unreadable:
         raise RuntimeError(
             "filter keys point at fields no row carries (neither a light column, "
-            f"a parity metric, a derived column nor a joined fundamental): {unreadable}"
+            "a parity metric, a derived column, a joined fundamental nor a joined "
+            f"facts cell): {unreadable}"
         )
 
 

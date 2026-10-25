@@ -626,13 +626,13 @@ def test_the_schema_publishes_the_choice_codes_vocabulary_and_counts() -> None:
     chosen = [key for key, entry in published.items() if "choice" in entry]
     assert chosen == list(KEYS)
     mapped = [key for key, entry in published.items() if entry["field"] is not None]
-    assert len(mapped) == 44
+    assert len(mapped) == 47
     refused = [
         key
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry
     ]
-    assert len(refused) == 35
+    assert len(refused) == 32
     assert len(mapped) + len(chosen) + len(refused) == 82
 
     definitions: dict[str, Any] = dict(SELECTION_REQUEST_SCHEMA["$defs"])  # type: ignore[arg-type]

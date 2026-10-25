@@ -12,7 +12,7 @@ claim that the metric behind every key is already sourced.
 
 **Only a metric the product can answer gets a field.** ``FilterSpec.field`` names
 the canonical row column a key filters, and it is ``None`` for the keys no row
-carries. **Forty-four keys map to one column today**: the seven light columns
+carries. **Forty-seven keys map to one column today**: the seven light columns
 (exchange, sector, country, market cap, price, change %, current volume),
 twenty-nine parity metrics that :data:`app.screen.universe.PARITY_FIELDS` copies
 from the bulk scan — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current,
@@ -22,17 +22,20 @@ dividend yield, RSI, the three SMAs, beta, gap and ATR — three **derived** col
 (:data:`app.screen.universe.DERIVED_FIELDS`): Finviz's 1..5 analyst score
 (``3 - 2 * recommendation``), the change from the session open
 (``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``) and the percent
-distance from the 52-week high (``(price / high_52w - 1) * 100``), plus five
-**joined** columns (:mod:`app.screen.fundamentals`): forward P/E, P/S and payout
+distance from the 52-week high (``(price / high_52w - 1) * 100``), **five joined
+columns** (:mod:`app.screen.fundamentals`): forward P/E, P/S and payout
 ratio, read from the fundamentals snapshot store because the scan answers those
 three with ``null`` for every row, and two ratios computed from the same
 snapshot cells — ``price_to_cash`` (``market_cap / cash_and_equivalents``) and
 ``ev_to_sales``
-(``(market_cap + total_debt - cash_and_equivalents) / revenue_ttm``). Three more
+(``(market_cap + total_debt - cash_and_equivalents) / revenue_ttm``), and **three
+facts columns** (:mod:`app.screen.facts`): ``short_float``, ``insider_own`` and
+``inst_own``, the percentage cells the Finviz stock page publishes and the bulk
+scan does not. Three more
 keys — ``ta_perf``, ``ta_perf2`` and ``ta_volatility`` — are **choice** keys: they
 filter through Finviz's option vocabulary instead of one column, and
-:mod:`app.screen.choice_filters` is their compiler, so **forty-seven keys can
-filter a row today** and thirty-five are refused.
+:mod:`app.screen.choice_filters` is their compiler, so **fifty keys can
+filter a row today** and thirty-two are refused.
 
 The rule for the twenty-nine copies is **one quantity, one column, and the
 provider's window or unit in the name**. ``ta_beta`` therefore resolves to
@@ -55,16 +58,19 @@ is invented. A key is *not* mapped when nothing measures it, or when the
 provider's column answers ``null`` for **every** row — the live probe returned
 no values at all for ``price_earnings_forward``, ``price_sales_ttm``,
 ``short_float`` and ``ipo_date``, and a filter on a column that is always null
-could only return an empty screen. Two of those four now have a real source
+could only return an empty screen. Three of those four now have a real source
 outside the scan: ``price_earnings_forward``/``price_sales_ttm`` are answered by
 the fundamentals snapshot store, so ``fa_fpe`` and ``fa_ps`` map to the **joined**
 columns of :mod:`app.screen.fundamentals` (with ``fa_payoutratio``, whose
 ``payout_ratio`` cell the store also fills). The same module owns the second
 documented exception — ``price_to_cash`` and ``ev_to_sales`` are two identities
 over the snapshot's own balance-sheet cells, so ``fa_pc`` and ``fa_evsales`` map
-there rather than to a column the scan does not have. ``short_float`` and
-``ipo_date`` stay refused, and the thirty-five refusals in
-:mod:`app.screen.filter_fields` name the missing metric instead.
+there rather than to a column the scan does not have. ``short_float`` is answered
+by the **facts** store (:mod:`app.screen.facts`), together with insider and
+institutional ownership — cells the Finviz stock page prints and
+``fundamentals_snapshots`` does not hold. ``ipo_date`` stays refused, and the
+thirty-two refusals in :mod:`app.screen.filter_fields` name the missing metric
+instead.
 
 **A key that spans several columns is a choice, not a refusal.** ``ta_perf`` and
 ``ta_perf2`` offer ten performance windows and ``ta_volatility`` two, so no
@@ -186,7 +192,16 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         # -- share structure and trading depth
         "shares_outstanding": "number",
         "float_shares": "number",
-        "short_float": "number",  # null on every live row
+        # Percent of the float sold short, joined from the screen facts store
+        # (Finviz "Short Float": 0.83 = 0.83%). The scan answers `short_float`
+        # null for every live row, so the facts store is its real owner
+        # (app.screen.facts).
+        "short_float": "number",
+        # Ownership percentages, joined from the same store: 0.12 = 0.12% of
+        # shares held by insiders, 68.93 = 68.93% by institutions. No scaling —
+        # the provider's number is the stored number is the filtered number.
+        "insider_own": "number",
+        "inst_own": "number",
         "avg_volume_10d": "number",
         "avg_volume_30d": "number",
         "rel_volume_10d": "number",
@@ -746,7 +761,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Short Float",
         "descriptive",
         "floatRangeSelect",
-        None,
+        "short_float",
         ("", "low", "high", "u5", "u10", "u15", "u20", "u25", "u30", "o5", "o10", "o15",
          "o20", "o25", "o30", "frange"),
     ),
@@ -1299,7 +1314,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Insider\nOwnership",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "insider_own",
         ("", "low", "high", "veryhigh", "o10", "o20", "o30", "o40", "o50", "o60", "o70",
          "o80", "o90", "frange"),
     ),
@@ -1319,7 +1334,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Institutional\nOwnership",
         "fundamental",
         "floatRangeSelect",
-        None,
+        "inst_own",
         ("", "low", "high", "u90", "u80", "u70", "u60", "u50", "u40", "u30", "u20", "u10",
          "o10", "o20", "o30", "o40", "o50", "o60", "o70", "o80", "o90", "frange"),
     ),

@@ -32,11 +32,24 @@ annual dividend per share, not a yield). ``payout_ratio`` and ``roe`` are alread
 percent on the page.
 
 ``P/FCF`` has no canonical column
----------------------------------
+--------------------------------
 It is a valuation multiple the page publishes, so :func:`parse_metrics` parses it
 and :data:`EXTRA_METRICS` names it. It is **not** emitted as an observation: an
 ``Observation.field`` outside the 92-column contract is a contract violation,
 not a new column.
+
+The short/ownership cells have their own reader
+-----------------------------------------------
+``Short Float``, ``Insider Own`` and ``Inst Own`` are not fundamentals cells in
+the 92-column contract either, and they are not valuation multiples: they are
+percentage points a selection filter reads straight off this page.
+:func:`parse_facts` reads exactly those three labels into the
+:mod:`app.screen.facts` vocabulary, with the same absent-cell rules as
+:func:`parse_metrics` (``-``/``N/A``/no label → **no value**, never zero) and
+**no** unit conversion — ``0.83%`` is stored as ``0.83``, because the store,
+the filter and Finviz's own panel all mean percent. Labels the product cannot
+filter (``Short Ratio``, ``Shs Float``) are deliberately not part of the
+vocabulary.
 """
 
 from __future__ import annotations
@@ -85,6 +98,20 @@ VALUATION_FIELDS: dict[str, tuple[str, ...]] = {
 #: the 92-column contract has no such field.
 EXTRA_METRICS: dict[str, tuple[str, ...]] = {
     "p_fcf": ("P/FCF", "Price/Free Cash Flow"),
+}
+
+#: The short/ownership cells the selection filters read
+#: (:mod:`app.screen.facts`). The labels are the live page's own (probed
+#: 2026-10-25): ``Short Float 0.83%``, ``Insider Own 0.12%``,
+#: ``Inst Own 68.93%``. Every value is already a percentage point — ``0.83``
+#: is 0.83%, **not** a fraction — so the stored number is the printed number.
+#: ``Short Ratio`` and ``Shs Float`` sit next to these cells and are
+#: deliberately absent: no filter key reads them, and storing a cell nobody can
+#: filter would widen the vocabulary without a product reason.
+FACT_FIELDS: dict[str, tuple[str, ...]] = {
+    "short_float": ("Short Float",),
+    "insider_own": ("Insider Own",),
+    "inst_own": ("Inst Own",),
 }
 
 _MONEY_FIELDS = frozenset({"eps_ttm", "revenue_ttm"})
@@ -248,6 +275,30 @@ def parse_metrics(body: str) -> dict[str, float]:
     return out
 
 
+def parse_facts(body: str) -> dict[str, float]:
+    """The short/ownership cells of the page, keyed by canonical name.
+
+    ``Short Float``, ``Insider Own`` and ``Inst Own`` are published on the same
+    snapshot table as the valuation cells and read with the same rules: a cell
+    that is absent, dashed (``-``), ``N/A`` or not numeric is simply **not in
+    the result** — no zero, no default, no borrowed neighbour. The values are
+    percentage points exactly as printed (``0.83%`` → ``0.83``); nothing is
+    scaled here, because the store and the filter both mean percent.
+    """
+
+    rows = snapshot_rows(body)
+    out: dict[str, float] = {}
+    for field_name, labels in FACT_FIELDS.items():
+        cell = _first(rows, labels)
+        if cell is None:
+            continue
+        value = _number(cell)
+        if value is None:
+            continue
+        out[field_name] = value
+    return out
+
+
 class FinvizAdapter(HttpAdapter):
     """Scraped US quote page: trust 3 (aggregator), delayed, no credential."""
 
@@ -364,9 +415,11 @@ class FinvizAdapter(HttpAdapter):
 
 __all__ = [
     "EXTRA_METRICS",
+    "FACT_FIELDS",
     "FinvizAdapter",
     "HOST",
     "VALUATION_FIELDS",
+    "parse_facts",
     "parse_metrics",
     "snapshot_rows",
 ]

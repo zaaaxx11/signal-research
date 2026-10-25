@@ -191,7 +191,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 44 that resolve to one row column, the 3 that filter through their option vocabulary, and the 35 that are refused with their reason, are listed in x-filter-keys."
+          "description": "One of the 82 Finviz filter keys. The 47 that resolve to one row column, the 3 that filter through their option vocabulary, and the 32 that are refused with their reason, are listed in x-filter-keys."
         },
         "field": {
           "enum": [
@@ -218,6 +218,8 @@
             "gross_margin",
             "high_52w",
             "industry",
+            "insider_own",
+            "inst_own",
             "is_primary",
             "listing_date",
             "low_52w",
@@ -357,8 +359,8 @@
     "sh_short": {
       "label": "Short Float",
       "tab": "descriptive",
-      "field": null,
-      "reason": "needs a short-interest column the scanner fills: `short_float` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+      "field": "short_float",
+      "kind": "number"
     },
     "an_recom": {
       "label": "Analyst Recom.",
@@ -645,26 +647,26 @@
     "sh_insiderown": {
       "label": "Insider\nOwnership",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+      "field": "insider_own",
+      "kind": "number"
     },
     "sh_insidertrans": {
       "label": "Insider\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+      "reason": "needs insider and institutional *transaction* flows: the scan carries no transaction column, and holdings are not transactions"
     },
     "sh_instown": {
       "label": "Institutional\nOwnership",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+      "field": "inst_own",
+      "kind": "number"
     },
     "sh_insttrans": {
       "label": "Institutional\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs ownership and insider/institutional transaction flows: the scan carries no ownership column"
+      "reason": "needs insider and institutional *transaction* flows: the scan carries no transaction column, and holdings are not transactions"
     },
     "ta_perf": {
       "label": "Performance",
