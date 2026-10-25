@@ -19,6 +19,17 @@ Three modes, one store:
   (``app.fundamentals.scan`` names the six it cannot). One page is not one walk
   per symbol, so this mode needs no ``--limit``/``--time-budget``/``--all``
   bound, but it refuses ``--symbols``: the symbols *are* the scan.
+* **``--source merged``** (P11F-C) — one row from four sources. The stored row
+  (a 16-cell TradingView scan, or a 22-cell Yahoo walk) is read first and kept
+  as the **base**; ``sec_edgar``, ``yahoo`` and ``finviz`` are then fetched and
+  merged into it cell by cell in trust order (SEC → Yahoo → Finviz), so a P/E
+  nobody re-serves cannot change value while the six statement cells the scan
+  never had are filled by whoever can serve them. Every filled cell records its
+  own source (``0004_field_sources``), which is the number a Finviz-beating
+  table needs: the row says ``source='multi'`` *and* which number came from
+  where. Three requests per symbol, so the same ``--limit``/``--time-budget``/
+  ``--all`` bounds apply as the walk mode; ``--refresh`` re-merges a fresh row
+  (the base is still kept, so a refresh can only add cells).
 
 Why per-symbol Yahoo walks instead of the scan's own bulk columns: the parity
 scan carries price multiples and technicals, not the 22-cell
@@ -68,6 +79,8 @@ Examples
     .venv/bin/python scripts/fundamentals-snapshot.py --universe us --time-budget 900 --json
     .venv/bin/python scripts/fundamentals-snapshot.py --universe us --source scan
     .venv/bin/python scripts/fundamentals-snapshot.py --universe us --source scan --json
+    .venv/bin/python scripts/fundamentals-snapshot.py --symbols GOOG,COST,CAT --source merged
+    .venv/bin/python scripts/fundamentals-snapshot.py --symbols GOOG,COST,CAT --source merged --refresh --json
 """
 
 from __future__ import annotations
@@ -80,7 +93,7 @@ import sys
 import time
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, TypeVar
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # runnable as a file, not only as a module
@@ -101,6 +114,10 @@ from app.fundamentals.snapshot import (  # noqa: E402
     canonical_symbol,
     migration_hint,
 )
+from app.fundamentals.merged import (  # noqa: E402
+    MergedReport,
+    build_merged_snapshots,
+)
 from app.fundamentals.scan import (  # noqa: E402
     EMPTY as SCAN_EMPTY,
     MISSING as SCAN_MISSING,
@@ -116,23 +133,26 @@ from app.fundamentals.universe import (  # noqa: E402
 )
 from app.screen.scanner import ScanError  # noqa: E402
 
-#: The two symbol sources. ``ladder`` (the default) is the per-symbol provider
+#: The three symbols sources. ``ladder`` (the default) is the per-symbol provider
 #: walk — Yahoo in production, 22 cells, one request per symbol. ``scan`` is
 #: P11D's bulk fallback: one TradingView scan, 16 cells per row, no walk per
-#: symbol. ``yahoo`` is accepted as an explicit spelling of ``ladder``.
+#: symbol. ``merged`` is P11F-C: the stored row plus SEC, Yahoo and Finviz,
+#: merged per cell. ``yahoo`` is accepted as an explicit spelling of ``ladder``.
 SOURCE_LADDER = "ladder"
 SOURCE_SCAN = "scan"
+SOURCE_MERGED = "merged"
 SOURCE_ALIASES: dict[str, str] = {
     "ladder": SOURCE_LADDER,
     "yahoo": SOURCE_LADDER,
     "scan": SOURCE_SCAN,
+    "merged": SOURCE_MERGED,
 }
-SOURCE_CHOICES: tuple[str, ...] = ("ladder", "yahoo", "scan")
+SOURCE_CHOICES: tuple[str, ...] = ("ladder", "yahoo", "scan", "merged")
 DEFAULT_SOURCE = SOURCE_LADDER
 
 
 def normalize_source(value: str | None) -> str:
-    """``--source`` as one of the two real sources (``yahoo`` → ``ladder``)."""
+    """``--source`` as one of the three real sources (``yahoo`` → ``ladder``)."""
 
     token = str(value or DEFAULT_SOURCE).strip().lower()
     try:
@@ -179,6 +199,10 @@ DEFAULT_PROGRESS_EVERY = 25
 #: How many per-symbol rows the human report prints. A 3,000-symbol bulk run
 #: wants a summary, not a scrollback; ``--json`` carries every result.
 SYMBOL_TABLE_LIMIT = 40
+
+#: The two result types a report table can print (``BuildResult``/``MergedResult``):
+#: the printer only reads ``symbol``/``status``/``filled``, so it is generic.
+_T = TypeVar("_T")
 
 
 def _symbols_from_text(text: str) -> list[str]:
@@ -398,7 +422,7 @@ def _provenance_line(coverage: dict[str, Any]) -> str:
     )
 
 
-def _table_rows(results: Sequence[BuildResult], limit: int) -> tuple[list[BuildResult], int]:
+def _table_rows(results: Sequence[_T], limit: int) -> tuple[list[_T], int]:
     """The rows the human report prints, and how many were elided.
 
     First N in scan order: the summary already carries the failure counts, and a
@@ -421,11 +445,14 @@ def render_human(
     elapsed_s: float | None = None,
     eta_s: float | None = None,
     universe_mode: bool = False,
+    mode: str | None = None,
 ) -> str:
     lines: list[str] = []
-    mode = "P11C bulk" if universe_mode or plan is not None else "P11A"
+    label = mode or (
+        "P11C bulk" if universe_mode or plan is not None else "P11A"
+    )
     lines.append(
-        f"fundamentals snapshot ({mode})  db={db_path}  head={revision or '?'}  ttl={TTL_S}s"
+        f"fundamentals snapshot ({label})  db={db_path}  head={revision or '?'}  ttl={TTL_S}s"
     )
     if plan is not None:
         limit = plan.limit if plan.limit is not None else "all"
@@ -621,14 +648,128 @@ def render_scan_human(
     return "\n".join(lines)
 
 
+def render_merged_human(
+    *,
+    db_path: Path,
+    revision: str | None,
+    report: MergedReport,
+    coverage: dict[str, Any],
+    elapsed_s: float | None = None,
+) -> str:
+    """The P11F-C report: what the merge added, and who supplied each cell.
+
+    Three blocks, deliberately separate: the per-symbol merge (``before`` →
+    ``filled``, i.e. how many holes this run filled and what the stored row
+    already had), the rows this run wrote, and the store it wrote into. Adding
+    them together would hide the difference between "the row already answered"
+    and "the merge added four cells to it".
+    """
+
+    lines: list[str] = []
+    lines.append(
+        f"fundamentals snapshot (P11F-C merged)  db={db_path}  head={revision or '?'}  "
+        f"ttl={TTL_S}s  sources={'+'.join(SECTION_SOURCES)}"
+    )
+    lines.append("")
+    header = (
+        f"{'symbol':<10} {'status':<9} {'filled':>7} {'before':>6} {'added':>5}  "
+        "cells by source"
+    )
+    lines.append(header)
+    shown, elided = _table_rows(report.results, SYMBOL_TABLE_LIMIT)
+    for item in shown:
+        mix = " ".join(
+            f"{source}={count}" for source, count in item.cells_by_source.items()
+        ) or "-"
+        lines.append(
+            f"{item.symbol:<10} {item.status:<9} "
+            f"{item.filled:>3}/{len(FUNDAMENTAL_FIELDS):<3} {item.before:>6} "
+            f"{item.added:>5}  {mix}"
+        )
+    if elided:
+        lines.append(f"… {elided} more result(s) elided; --json prints every result")
+    lines.append("")
+    lines.append(
+        "merge: "
+        f"requested={report.requested} built={report.built} written={report.written} "
+        f"cached={report.cached} kept={report.kept} empty={report.empty} "
+        f"failed={report.failed} deferred={len(report.deferred)} "
+        f"requests={report.requests}"
+    )
+    lines.append(
+        f"cells: before={report.before_cells} after={report.filled_cells} "
+        f"added={report.added_cells} "
+        f"(of {len(report.results) * len(FUNDAMENTAL_FIELDS)} possible)"
+    )
+    lines.append(f"attempts by source: {report.attempt_statuses()}")
+    lines.append(
+        f"cells by source (rows this run wrote): {report.cell_sources() or '{}'}"
+    )
+    lines.append(
+        f"elapsed={format_duration(elapsed_s)}"
+        + (
+            f"  ({len(report.deferred)} deferred symbol(s) were not started)"
+            if report.deferred
+            else ""
+        )
+    )
+    if report.dropped:
+        lines.append(f"dropped blank token(s): {list(report.dropped)!r}")
+    for item in report.results:
+        if item.reason and item.status in {EMPTY, FAILED}:
+            lines.append(f"  {item.symbol}: {item.status} — {item.reason}")
+    lines.append("")
+
+    own = report.coverage()
+    lines.append(
+        f"coverage (rows this merge wrote): rows={own['symbols']} fresh={own['fresh']} "
+        f"complete={own['complete']} partial={own['partial']} "
+        f"filled={own['filled_cells']}/{own['total_cells']} "
+        f"fill_rate={own['fill_rate']:.4f}"
+    )
+    lines.append("")
+    lines.append(f"{'field':<22} {'filled':>10}  coverage  cells by source")
+    provenance = _provenance(own)
+    for row in own["fields"]:
+        lines.append(
+            f"{row['field']:<22} {row['filled']:>4}/{row['total']:<5}  "
+            f"{_percent(row['filled'], row['total'])}  {_source_cells(row, provenance)}"
+        )
+    lines.append("")
+    lines.append(
+        "coverage (store): "
+        f"rows={coverage['symbols']} fresh={coverage['fresh']} "
+        f"expired={coverage['expired']} complete={coverage['complete']} "
+        f"partial={coverage['partial']} "
+        f"filled={coverage['filled_cells']}/{coverage['total_cells']} "
+        f"fill_rate={coverage['fill_rate']:.4f}"
+    )
+    lines.append(f"sources: {coverage['sources']}")
+    lines.append(_provenance_line(coverage))
+    lines.append("")
+    lines.append(
+        "note: the stored row is the base — a filled cell keeps its value and its "
+        "source, and the live sources (SEC > Yahoo > Finviz) only fill the holes; "
+        "'before' is how many cells the row already had, 'added' is what this run "
+        "put in."
+    )
+    return "\n".join(lines)
+
+
+#: The live sources the merged mode fetches, in the order it trusts them. Named
+#: here only for the header line; the builder owns the real list.
+SECTION_SOURCES: tuple[str, ...] = ("sec_edgar", "yahoo", "finviz")
+
+
 async def run(
     args: argparse.Namespace,
     *,
     ladder: Any | None = None,
     universe_fetch: Any | None = None,
     scan_fetch: Any | None = None,
+    adapters: Mapping[str, Any] | None = None,
 ) -> int:
-    """Execute one invocation; the three keyword seams are the test doubles."""
+    """Execute one invocation; the four keyword seams are the test doubles."""
 
     from app.config import Settings
 
@@ -651,6 +792,7 @@ async def run(
 
     plan: UniversePlan | None = None
     scan_report: ScanReport | None = None
+    merged_report: MergedReport | None = None
     scan_elapsed: float | None = None
     symbols: list[str] = []
     if not args.report_only and source != SOURCE_SCAN:
@@ -705,27 +847,50 @@ async def run(
                     )
                     return 2
             else:
-                if ladder is None:
-                    from app.runtime import Runtime
-
-                    provider: Any = Runtime(settings).ladder()
-                else:
-                    provider = ladder
-                builder = FundamentalsSnapshotBuilder(
-                    ladder=provider, store=store, ttl_s=TTL_S
-                )
                 reporter = (
                     progress_reporter(every=args.progress_every, started=time.monotonic())
                     if args.progress_every
                     else None
                 )
-                report = await builder.build_many(
-                    symbols,
-                    concurrency=args.concurrency,
-                    skip_fresh=not args.refresh,
-                    time_budget_s=args.time_budget or None,
-                    on_result=reporter,
-                )
+                if source == SOURCE_MERGED:
+                    # The adapters are the seam: injected in tests, and the
+                    # runtime's own wired set (proxy pool included) live. This
+                    # mode never builds a ladder: the four sources are fetched
+                    # directly, because a ladder would stop at the first rung
+                    # that answered while a merge needs every rung's cells.
+                    from app.runtime import Runtime
+
+                    providers = (
+                        dict(adapters)
+                        if adapters is not None
+                        else Runtime(settings).adapters()
+                    )
+                    merged_report = await build_merged_snapshots(
+                        store,
+                        symbols=symbols,
+                        adapters=providers,
+                        concurrency=args.concurrency,
+                        skip_fresh=not args.refresh,
+                        time_budget_s=args.time_budget or None,
+                        on_result=reporter,
+                    )
+                else:
+                    if ladder is None:
+                        from app.runtime import Runtime
+
+                        provider: Any = Runtime(settings).ladder()
+                    else:
+                        provider = ladder
+                    builder = FundamentalsSnapshotBuilder(
+                        ladder=provider, store=store, ttl_s=TTL_S
+                    )
+                    report = await builder.build_many(
+                        symbols,
+                        concurrency=args.concurrency,
+                        skip_fresh=not args.refresh,
+                        time_budget_s=args.time_budget or None,
+                        on_result=reporter,
+                    )
         coverage = await store.coverage()
     except FundamentalsSchemaError as exc:
         print(f"{exc}\nhint: {migration_hint(db_path)}", file=sys.stderr)
@@ -733,8 +898,16 @@ async def run(
     finally:
         await store.aclose()
 
-    elapsed_s = report.elapsed_s if report is not None else None
-    eta_s = report.eta_s if report is not None else None
+    elapsed_s = (
+        merged_report.elapsed_s
+        if merged_report is not None
+        else (report.elapsed_s if report is not None else None)
+    )
+    eta_s = (
+        merged_report.eta_s
+        if merged_report is not None
+        else (report.eta_s if report is not None else None)
+    )
 
     if args.json:
         document: dict[str, Any] = {
@@ -748,6 +921,7 @@ async def run(
             "symbols": None if plan is not None or scan_report is not None else (symbols or None),
             "universe": None,
             "scan": None,
+            "merged": None,
             "coverage": coverage,
         }
         if plan is not None:
@@ -761,11 +935,25 @@ async def run(
                 scan_document["scan_elapsed_s"] = scan_elapsed
             document["scan"] = scan_document
             document["elapsed_s"] = scan_report.elapsed_s
+        if merged_report is not None:
+            document["merged"] = merged_report.as_dict()
+            document["elapsed_s"] = merged_report.elapsed_s
+            document["eta_s"] = merged_report.eta_s
         if report is not None:
             document["build"] = report.as_dict()
             document["elapsed_s"] = elapsed_s
             document["eta_s"] = eta_s
         print(json.dumps(document, indent=2, sort_keys=True, allow_nan=False))
+    elif merged_report is not None:
+        print(
+            render_merged_human(
+                db_path=db_path,
+                revision=revision,
+                report=merged_report,
+                coverage=coverage,
+                elapsed_s=elapsed_s,
+            )
+        )
     elif scan_report is not None:
         print(
             render_scan_human(
@@ -787,9 +975,19 @@ async def run(
                 elapsed_s=elapsed_s,
                 eta_s=eta_s,
                 universe_mode=bool(args.universe),
+                mode=(
+                    "P11F-C merged, report only"
+                    if source == SOURCE_MERGED
+                    else None
+                ),
             )
         )
 
+    if merged_report is not None:
+        # Every symbol either has a row (merged, cached, kept) or is a hole.
+        if merged_report.failed or merged_report.empty:
+            return 1 if (merged_report.built or merged_report.cached or merged_report.kept) else 2
+        return 0 if merged_report.requested else 2
     if scan_report is not None:
         # Every symbol either has a row (written or kept) or is a hole: the
         # holes decide the exit code, exactly like the ladder path.
@@ -810,7 +1008,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Build 24 h fundamentals snapshots (22 canonical cells) for a "
             "configurable symbol list, or for the US universe via --universe us, "
             "through the runtime provider ladder (--source ladder, one walk per "
-            "symbol) or from one TradingView scan (--source scan, 16 cells)."
+            "symbol), from one TradingView scan (--source scan, 16 cells), or by "
+            "merging SEC + Yahoo + Finviz into the stored row "
+            "(--source merged, per-cell provenance)."
         ),
     )
     parser.add_argument(
@@ -837,7 +1037,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "where the 22 cells come from: 'ladder'/'yahoo' walks the provider "
             "once per symbol (22 cells, rate-limited); 'scan' reads one "
             "TradingView scan for the whole universe (P11D fallback: 16 cells, "
-            "no per-symbol walk; requires --universe)"
+            "no per-symbol walk; requires --universe); 'merged' keeps the stored "
+            "row and fills its holes from SEC + Yahoo + Finviz cell by cell "
+            "(P11F-C, three requests per symbol, per-cell provenance)"
         ),
     )
     parser.add_argument(
