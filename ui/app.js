@@ -81,12 +81,16 @@ const COLUMN_META = {
 };
 
 const SCREEN_VIEWS = {
-  overview: { label: "Overview", columns: ["price", "change_pct", "market_cap", "pe", "forward_pe", "rsi_14", "perf_ytd"] },
+  overview: { label: "Overview", columns: ["price", "change_pct", "market_cap", "pe", "forward_pe", "rsi_14", "perf_ytd", "index"] },
   valuation: { label: "Valuation", columns: ["market_cap", "enterprise_value", "pe", "forward_pe", "peg", "ps", "pb", "pc", "pfcf", "ev_ebitda", "ev_sales"] },
   performance: { label: "Performance", columns: ["perf_week", "perf_month", "perf_quarter", "perf_half_y", "perf_ytd", "perf_year", "perf_3y", "perf_5y", "perf_10y", "week52_high", "week52_low"] },
   ownership: { label: "Ownership", columns: ["insider_own", "insider_trans", "inst_own", "inst_trans", "shares_outstanding", "shares_float", "option_short"] },
-  financial: { label: "Financial", columns: ["income", "sales", "book_per_share", "cash_per_share", "eps_ttm", "eps_next_y", "eps_this_y", "eps_next_y_growth", "eps_next_5y", "eps_past_3_5y", "sales_past_3_5y", "eps_yoy_ttm", "sales_yoy_ttm", "eps_qoq", "sales_qoq", "roa", "roe", "roic", "gross_margin", "oper_margin", "profit_margin", "quick_ratio", "current_ratio", "debt_to_equity", "lt_debt_to_equity", "employees", "ipo"] },
+  financial: { label: "Financial", columns: ["income", "sales", "book_per_share", "cash_per_share", "eps_ttm", "eps_next_y", "eps_next_q", "eps_this_y", "eps_next_y_growth", "eps_next_5y", "eps_past_3_5y", "sales_past_3_5y", "eps_yoy_ttm", "sales_yoy_ttm", "eps_qoq", "sales_qoq", "roa", "roe", "roic", "gross_margin", "oper_margin", "profit_margin", "quick_ratio", "current_ratio", "debt_to_equity", "lt_debt_to_equity", "employees", "ipo"] },
   technical: { label: "Technical", columns: ["market_cap", "price", "prev_close", "change_pct", "volume", "avg_volume", "rel_volume", "atr_14", "rsi_14", "sma20", "sma50", "sma200", "volatility", "beta"] },
+};
+SCREEN_VIEWS.all = {
+  label: "All columns",
+  columns: [...new Set(Object.values(SCREEN_VIEWS).flatMap((view) => view.columns))],
 };
 const state = {
   rows: [],
@@ -454,7 +458,9 @@ function renderTable() {
   $("#nextPage").disabled = state.page >= totalPages;
   $("#tableFootNote").textContent = state.query
     ? `${rows.length} matches for "${state.query}" in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}`
-    : `${rows.length} names in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}. Missing values stay missing.`;
+    : state.screenView === "all"
+      ? `${rows.length} names · ${columns.length} columns · scroll horizontally`
+      : `${rows.length} names in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}. Missing values stay missing.`;
 
   if (!pageRows.length) {
     body.innerHTML = "";

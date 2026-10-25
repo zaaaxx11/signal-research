@@ -345,9 +345,9 @@ def _view_name(raw: Any) -> str | None:
 
     if raw is None:
         return None
-    if not isinstance(raw, str) or raw not in screen_views.VIEW_NAMES:
+    if not isinstance(raw, str) or raw not in screen_views.SCREEN_VIEW_NAMES:
         raise SelectionError(
-            f"unknown view {raw!r}; expected one of {', '.join(screen_views.VIEW_NAMES)}",
+            f"unknown view {raw!r}; expected one of {', '.join(screen_views.SCREEN_VIEW_NAMES)}",
             code="unknown_view",
         )
     return raw

@@ -609,3 +609,13 @@ body.is-compact .company { font-size: 9px; }
   .hero-stats { display: none; }
   .hero { padding-bottom: 15px; }
 }
+
+/* The full table is wide; keep the identity column visible while scanning it. */
+.table-wrap .market-table th.col-name,
+.table-wrap .market-table td.col-name {
+  position: sticky; left: 0; z-index: 4; background: var(--surface);
+  box-shadow: 1px 0 0 var(--line);
+}
+.table-wrap .market-table tbody tr.data-row:hover td.col-name { background: #1b101d; }
+.table-wrap .market-table tbody tr.data-row.is-selected td.col-name { background: #21101e; }
+.table-wrap .market-table th.col-name { z-index: 6; }

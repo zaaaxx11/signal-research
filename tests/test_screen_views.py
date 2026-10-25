@@ -89,6 +89,14 @@ def test_overview_touches_every_specialist_view() -> None:
         assert shared, f"overview ignores {name!r} entirely: {sorted(shared)}"
 
 
+def test_the_all_columns_view_is_every_metric_once() -> None:
+    assert V.ALL_VIEW_NAME == "all"
+    assert V.SCREEN_VIEW_NAMES == V.VIEW_NAMES + ("all",)
+    assert set(V.ALL_COLUMNS) == set(F.METRIC_BY_KEY)
+    assert len(V.ALL_COLUMNS) == len(set(V.ALL_COLUMNS)) == 71
+    assert V.view("all").columns == V.ALL_COLUMNS
+
+
 def test_every_renderable_metric_appears_in_a_view() -> None:
     shown: set[str] = set()
     for view in V.VIEWS:

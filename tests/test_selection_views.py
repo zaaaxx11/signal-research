@@ -188,6 +188,20 @@ async def test_each_view_shapes_the_row_with_its_own_columns(
     assert body["rows"][0]["symbol"] == "AAA"
 
 
+async def test_all_columns_view_returns_the_whole_metric_table(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    async with S.screen_client(tmp_path, monkeypatch, web=parity_web()) as harness:
+        response = await harness.client.post("/screens/select", json=selection_body(view="all"))
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    expected = {"rank", "symbol", "name", "as_of", "logo"} | set(V.ALL_COLUMNS)
+    for row in body["rows"]:
+        assert set(row) == expected
+    assert len(V.ALL_COLUMNS) == 71
+
+
 def test_a_view_row_is_not_the_light_row() -> None:
     request = parse_selection(selection_body(view="valuation"))
     rows = [

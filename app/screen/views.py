@@ -276,8 +276,35 @@ VIEWS: tuple[ViewDefinition, ...] = (
     ),
 )
 
-VIEW_BY_NAME: dict[str, ViewDefinition] = {view.name: view for view in VIEWS}
-VIEW_COLUMNS: dict[str, tuple[str, ...]] = {view.name: view.columns for view in VIEWS}
+#: The full table Finviz never offers as one tab: every renderable metric, in
+#: reading order (overview first, then each specialist view), with duplicates
+#: removed. It is a *view* for the API and UI, but not a seventh tab in the
+#: TabDefinition partition above; the six-tab contract stays intact.
+ALL_VIEW_NAME = "all"
+ALL_COLUMNS: tuple[str, ...] = tuple(
+    dict.fromkeys(key for view in VIEWS for key in view.columns)
+)
+ALL_VIEW = ViewDefinition(
+    name=ALL_VIEW_NAME,
+    title="All columns",
+    columns=ALL_COLUMNS,
+    description=(
+        "Every renderable Finviz metric in one horizontally scrollable table. "
+        "A cell the engine does not carry stays null; the table never invents a "
+        "number to fill the width."
+    ),
+)
+
+VIEW_BY_NAME: dict[str, ViewDefinition] = {
+    **{view.name: view for view in VIEWS},
+    ALL_VIEW_NAME: ALL_VIEW,
+}
+VIEW_COLUMNS: dict[str, tuple[str, ...]] = {
+    **{view.name: view.columns for view in VIEWS},
+    ALL_VIEW_NAME: ALL_COLUMNS,
+}
+#: Views a selection may ask for: the six Finviz tabs plus the full table.
+SCREEN_VIEW_NAMES: tuple[str, ...] = VIEW_NAMES + (ALL_VIEW_NAME,)
 
 #: The five tabs that between them own every metric except :data:`OVERVIEW_ONLY`.
 SPECIALIST_VIEW_NAMES: tuple[str, ...] = VIEW_NAMES[1:]
@@ -341,7 +368,7 @@ def view(name: str) -> ViewDefinition:
         return VIEW_BY_NAME[name]
     except KeyError:
         raise ValueError(
-            f"unknown view {name!r}; expected one of {', '.join(VIEW_NAMES)}"
+            f"unknown view {name!r}; expected one of {', '.join(SCREEN_VIEW_NAMES)}"
         ) from None
 
 
@@ -405,6 +432,10 @@ __all__ = [
     "VIEW_BY_NAME",
     "VIEW_COLUMNS",
     "VIEW_NAMES",
+    "ALL_COLUMNS",
+    "ALL_VIEW",
+    "ALL_VIEW_NAME",
+    "SCREEN_VIEW_NAMES",
     "ViewDefinition",
     "ViewRow",
     "build_view",
