@@ -165,6 +165,7 @@ function fmtPrice(value) {
 }
 
 function fmtPct(value, signed = true) {
+  if (typeof value === "string" && value.trim()) return value;
   const n = num(value);
   if (n === null) return "--";
   const sign = signed && n > 0 ? "+" : "";
@@ -289,6 +290,7 @@ async function loadData() {
     region,
     criteria: { filters: state.serverFilters, sort: state.serverSort, limit: state.perPage, offset: state.offset, common_only: true },
     view: requestedView,
+    fill_wide: requestedView === "all" && region !== "global",
   };
   const snapshotUrl = `/screens?source=tradingview${region === "us" ? "" : `&region=${region}`}`;
   const selectionRequest = fetchJSON("/screens/select", {
@@ -319,9 +321,9 @@ async function loadData() {
       const rich = richBySymbol.get(light.symbol) || {};
       const base = state.overviewBySymbol.get(light.symbol) || {};
       merged.push({
+        ...light,
         ...base,
         ...rich,
-        ...light,
         market_cap: num(rich.market_cap) ?? num(base.market_cap) ?? num(rich.market_cap_usd) ?? num(light.market_cap_usd),
         change_pct: num(rich.change_pct) ?? num(base.change_pct) ?? num(light.change_pct),
         price: num(rich.price) ?? num(base.price) ?? num(light.price),
