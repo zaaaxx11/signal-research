@@ -235,6 +235,7 @@ PARITY_FIELDS: Mapping[str, str] = {
     "Perf.6M": "ret_6m",
     "Perf.YTD": "ret_ytd",
     "Perf.Y": "ret_1y",
+    "Perf.3Y": "ret_3y",
     "Perf.5Y": "ret_5y",
     "Perf.10Y": "ret_10y",
 }

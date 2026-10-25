@@ -287,7 +287,7 @@ async function loadData() {
   const selectBody = {
     mode: "criteria",
     region,
-    criteria: { filters: state.serverFilters, sort: state.serverSort, limit: state.perPage, offset: state.offset },
+    criteria: { filters: state.serverFilters, sort: state.serverSort, limit: state.perPage, offset: state.offset, common_only: true },
     view: requestedView,
   };
   const snapshotUrl = `/screens?source=tradingview${region === "us" ? "" : `&region=${region}`}`;
@@ -295,7 +295,7 @@ async function loadData() {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(selectBody),
-  }).catch(async (error) => {
+  }, 60000).catch(async (error) => {
     const fallback = await fetchJSON(`/screens?source=multi&region=${region}`, {}, 30000);
     return { ...fallback, fallback, selectError: error.message };
   });
@@ -370,6 +370,8 @@ function renderAll() {
   renderTable();
   renderDetail();
   renderSignals();
+  renderBreadth();
+  renderCoverage();
   renderCompare();
   renderWatchCounts();
 }
@@ -408,7 +410,7 @@ function renderStats() {
   $("#statMedianPe").textContent = pe === null ? "--" : `${pe.toFixed(1)}×`;
   const universeLabel = { us: "US issuers in scan", global: "Global issuers in scan", us_etf: "US ETF issuers in scan" }[state.region] || "Issuers in scan";
   $("#statUniverseNote").textContent = universeLabel;
-  const activeCount = $("#side" + ({ us: "Us", global: "Global", us_etf: "Etf" }[state.region] || "Us") + "Count");
+  const activeCount = $("#scope" + ({ us: "Us", global: "Global", us_etf: "Etf" }[state.region] || "Us") + "Count");
   if (state.universe && activeCount) activeCount.textContent = fmtInt(state.universe);
   $("#selectionMeta").textContent = state.asOf ? `Live scan · ${fmtStamp(state.asOf)}` : "Live scan";
   $("#rowCount").textContent = String(rows.length);
@@ -709,6 +711,38 @@ function setSort(key) {
   renderTable();
 }
 
+function renderBreadth() {
+  const rows = filteredRows();
+  const advancing = rows.filter((row) => num(row.change_pct) > 0).length;
+  const declining = rows.filter((row) => num(row.change_pct) < 0).length;
+  const total = advancing + declining;
+  const upShare = total ? (advancing / total) * 100 : 0;
+  $("#breadthRatio").textContent = total ? `${Math.round(upShare)}% up` : "--";
+  $("#breadthUp").style.width = `${upShare}%`;
+  $("#breadthDown").style.width = `${100 - upShare}%`;
+  $("#breadthUpLabel").textContent = `${advancing} advancing`;
+  $("#breadthDownLabel").textContent = `${declining} declining`;
+}
+
+function renderCoverage() {
+  const rows = filteredRows();
+  const columns = currentColumns();
+  const total = rows.length * columns.length;
+  const filled = total ? rows.reduce((sum, row) => sum + columns.filter((key) => row[key] !== null && row[key] !== undefined && row[key] !== "").length, 0) : 0;
+  const percent = total ? (filled / total) * 100 : 0;
+  $("#coverageValue").textContent = `${filled.toLocaleString("en-US")} / ${total.toLocaleString("en-US")} · ${percent.toFixed(0)}%`;
+  $("#coverageFill").style.width = `${percent}%`;
+}
+
+function setRegion(region) {
+  if (!["us", "global", "us_etf"].includes(region) || state.region === region) return;
+  state.region = region;
+  state.offset = 0;
+  state.overviewBySymbol = new Map();
+  $$(".scope-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.region === region));
+  loadData();
+}
+
 function renderCompare() {
   const tray = $("#compareTray");
   tray.classList.toggle("hidden", state.compare.length === 0);
@@ -1001,13 +1035,7 @@ function wire() {
     if (chip) setFilter(chip.dataset.filter);
   });
   $$(".nav-item").forEach((item) => item.addEventListener("click", () => setView(item.dataset.view)));
-  $$(".side-row").forEach((item) => item.addEventListener("click", () => {
-    state.region = item.dataset.region;
-    state.offset = 0;
-    state.overviewBySymbol = new Map();
-    $$(".side-row").forEach((row) => row.classList.toggle("is-active", row === item));
-    loadData();
-  }));
+  $$(".scope-tab").forEach((tab) => tab.addEventListener("click", () => setRegion(tab.dataset.region)));
   $$(".view-tab").forEach((tab) => tab.addEventListener("click", () => setScreenView(tab.dataset.screenView)));
   $("#sortButton").addEventListener("click", () => {
     const keys = ["market_cap", "change_pct", "pe", "forward_pe", "rsi_14", "perf_ytd"];

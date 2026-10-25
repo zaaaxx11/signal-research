@@ -84,6 +84,7 @@ from app.screen.filter_fields import (
 )
 from app.screen.filters import FIELDS, OPERATORS, apply_filters, compile_filter
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, display_row
+from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS, VIEW_FILL_FIELDS
 from app.screen.universe import ASSET_CLASSES, REGIONS, asset_class_for
 
 #: The two modes. A selection is exactly one of them; the payload may not mix.
@@ -113,7 +114,7 @@ SELECTION_KEYS: frozenset[str] = frozenset(
         "snapshot_id",
     }
 )
-CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset"})
+CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset", "common_only"})
 FILTER_KEYS: frozenset[str] = frozenset({"key", "field", "op", "value"})
 
 #: View column (a Finviz quote metric key) → the canonical parity row field that
@@ -141,6 +142,20 @@ VIEW_FIELDS: Mapping[str, str] = {
     "pb": "pb",
     "pfcf": "pfcf",
     "ev_ebitda": "ev_ebitda",
+    "pc": "price_to_cash",
+    "ev_sales": "ev_to_sales",
+    "enterprise_value": "enterprise_value",
+    "eps_ttm": "eps_ttm",
+    "sales": "revenue_ttm",
+    "income": "net_income_ttm",
+    "book_per_share": "book_per_share",
+    "cash_per_share": "cash_per_share",
+    "prev_close": "prev_close",
+    "eps_next_y_growth": "eps_next_y_growth",
+    "avg_volume": "avg_volume_30d",
+    "atr_14": "atr_14",
+    "rel_volume": "rel_volume_10d",
+    "volatility": "volatility_w",
     # -- financial (levels the bulk scan really carries)
     "eps_next_y": "eps_forecast_next_fy",
     "eps_next_q": "eps_forecast_next_fq",
@@ -173,6 +188,7 @@ VIEW_FIELDS: Mapping[str, str] = {
     "perf_half_y": "ret_6m",
     "perf_ytd": "ret_ytd",
     "perf_year": "ret_1y",
+    "perf_3y": "ret_3y",
     "perf_5y": "ret_5y",
     "perf_10y": "ret_10y",
     # -- profile / events
@@ -200,7 +216,7 @@ def _validate_view_fields() -> None:
 
     from app.screen.universe import PARITY_FIELDS
 
-    known = set(PARITY_FIELDS.values()) | set(_VIEW_LIGHT_FIELDS) | set(VIEW_FACT_FIELDS)
+    known = set(PARITY_FIELDS.values()) | set(_VIEW_LIGHT_FIELDS) | set(VIEW_FACT_FIELDS) | set(VIEW_FILL_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS)
     unknown = sorted(set(VIEW_FIELDS.values()) - known)
     if unknown:
         raise RuntimeError(
@@ -278,6 +294,7 @@ class SelectionRequest:
     asset_class: str | None = None
     view: str | None = None
     offset: int = 0
+    common_only: bool = False
 
     @property
     def is_criteria(self) -> bool:
@@ -339,6 +356,18 @@ def _asset_class(raw: Any) -> str | None:
             f"unknown asset_class {raw!r}; expected one of {', '.join(ASSET_CLASSES)}"
         )
     return str(raw)
+
+
+def _common_only(raw: Any) -> bool:
+    """Display-only switch: leave preferred/warrant lines out of the page."""
+
+    if raw is None:
+        return False
+    if not isinstance(raw, bool):
+        raise SelectionError(
+            f"'criteria.common_only' must be a boolean, got {raw!r}"
+        )
+    return raw
 
 
 def _offset(raw: Any) -> int:
@@ -494,6 +523,7 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         sort=_sort(block.get("sort")),
         limit=_limit(block.get("limit")),
         offset=_offset(block.get("offset")),
+        common_only=_common_only(block.get("common_only")),
         symbols=(),
         source=None,
         snapshot_id=None,
@@ -562,6 +592,7 @@ def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
         asset_class=_asset_class(payload.get("asset_class")),
         view=_view_name(payload.get("view")),
         offset=0,
+        common_only=False,
     )
 
 
@@ -908,6 +939,14 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                         "Zero-based row offset after filtering and sorting. The "
                         "response still reports the full post-filter total, so "
                         "20-row pages can walk the whole universe."
+                    ),
+                },
+                "common_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Display-only switch: keep the common-stock universe and "
+                        "leave preferred/warrant lines out of the page."
                     ),
                 },
             },

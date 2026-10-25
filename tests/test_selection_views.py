@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from app.screen import selection as selection_module
+from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS, VIEW_FILL_FIELDS
 from app.screen import views as V
 from app.screen.selection import VIEW_FACT_FIELDS, VIEW_FIELDS, parse_selection, select_rows
 from tests import _screen as S
@@ -482,4 +483,4 @@ def test_view_fields_only_name_columns_a_row_or_a_view_has() -> None:
     declared = set().union(*(set(columns) for columns in V.VIEW_COLUMNS.values()))
     assert set(VIEW_FIELDS) <= declared
     light = {"price", "change_pct", "volume", "market_cap_usd"}
-    assert set(VIEW_FIELDS.values()) <= set(PARITY_FIELDS.values()) | light | set(VIEW_FACT_FIELDS)
+    assert set(VIEW_FIELDS.values()) <= set(PARITY_FIELDS.values()) | light | set(VIEW_FACT_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS) | set(VIEW_FILL_FIELDS)

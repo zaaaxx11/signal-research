@@ -77,6 +77,11 @@
           "minimum": 0,
           "default": 0,
           "description": "Zero-based row offset after filtering and sorting. The response still reports the full post-filter total, so 20-row pages can walk the whole universe."
+        },
+        "common_only": {
+          "type": "boolean",
+          "default": false,
+          "description": "Display-only switch: keep the common-stock universe and leave preferred/warrant lines out of the page."
         }
       }
     },
@@ -253,6 +258,7 @@
             "ret_1w",
             "ret_1y",
             "ret_3m",
+            "ret_3y",
             "ret_5y",
             "ret_6m",
             "ret_ytd",

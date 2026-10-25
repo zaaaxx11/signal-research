@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b070d" />
     <title>Ztockz - Market cockpit</title>
-    <link rel="stylesheet" href="./styles.css?v=20261025-13" />
+    <link rel="stylesheet" href="./styles.css?v=20261025-17" />
   </head>
   <body>
     <div class="ambient ambient-a"></div>
@@ -38,12 +38,8 @@
           </button>
         </nav>
 
-        <div class="side-label">Universe</div>
-        <div class="side-list">
-          <button class="side-row is-active" data-region="us"><span>US equities</span><b id="sideUsCount">5,579</b></button>
-          <button class="side-row" data-region="global"><span>Global</span><b id="sideGlobalCount">40,950</b></button>
-          <button class="side-row" data-region="us_etf"><span>US ETFs</span><b id="sideEtfCount">5,779</b></button>
-        </div>
+        <div class="side-label">Scope</div>
+        <div class="side-scope-note">Switch markets in the workspace<br />without leaving the cockpit.</div>
 
         <div class="side-foot">
           <div class="status-line"><span class="status-dot"></span><span id="sideStatus">Scan connected</span></div>
@@ -97,6 +93,14 @@
             </div>
           </div>
         </section>
+
+        <div class="scope-bar" id="scopeBar" role="tablist" aria-label="Market scope">
+          <span class="scope-label">Markets</span>
+          <button class="scope-tab is-active" data-region="us" role="tab"><span class="scope-dot"></span>US equities <b id="scopeUsCount">5,579</b></button>
+          <button class="scope-tab" data-region="global" role="tab"><span class="scope-dot"></span>Global <b id="scopeGlobalCount">40,950</b></button>
+          <button class="scope-tab" data-region="us_etf" role="tab"><span class="scope-dot"></span>US ETFs <b id="scopeEtfCount">5,779</b></button>
+          <span class="scope-live"><span class="status-dot"></span>same workspace</span>
+        </div>
 
         <section class="toolbar" aria-label="Screener controls">
           <div class="filter-row" id="filterChips">
@@ -232,9 +236,17 @@
               </div>
             </section>
 
+            <section class="breadth-card">
+              <div class="rail-head"><span class="panel-kicker">Breadth</span><span class="breadth-ratio" id="breadthRatio">--</span></div>
+              <div class="breadth-bar"><span class="breadth-up" id="breadthUp"></span><span class="breadth-down" id="breadthDown"></span></div>
+              <div class="breadth-meta"><span id="breadthUpLabel">-- advancing</span><span id="breadthDownLabel">-- declining</span></div>
+            </section>
+
             <section class="integrity-card">
               <div class="rail-head"><span class="panel-kicker">Data integrity</span><span class="integrity-mark">✓</span></div>
-              <p class="integrity-copy">Every cell stays auditable. Missing values stay missing.</p>
+              <p class="integrity-copy">Cells are filled from the engine store; unknown stays unknown.</p>
+              <div class="coverage-row"><span>Column coverage</span><b id="coverageValue">--</b></div>
+              <div class="coverage-track"><span id="coverageFill"></span></div>
               <div class="integrity-list">
                 <div><span>Price engine</span><b>Ztockz</b></div>
                 <div><span>Fundamentals</span><b>3,902 rows</b></div>
@@ -295,6 +307,6 @@
 
     <div class="toast hidden" id="toast" role="status"></div>
 
-    <script src="./app.js?v=20261025-13" defer></script>
+    <script src="./app.js?v=20261025-17" defer></script>
   </body>
 </html>

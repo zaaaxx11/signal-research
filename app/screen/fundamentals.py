@@ -112,6 +112,20 @@ DERIVED_ROW_FIELDS: tuple[str, ...] = ("price_to_cash", "ev_to_sales")
 #: filter key against, so a key can never point at a column no row carries.
 FUNDAMENTALS_ROW_FIELDS: tuple[str, ...] = JOINED_ROW_FIELDS + DERIVED_ROW_FIELDS
 
+#: Extra cells the full-columns view asks for. They are not filter columns and
+#: stay out of the five-cell filter contract above; they are copies or exact
+#: arithmetic from the same snapshot, used only to fill the display table.
+VIEW_FILL_FIELDS: tuple[str, ...] = (
+    "eps_ttm",
+    "revenue_ttm",
+    "net_income_ttm",
+    "enterprise_value",
+    "book_per_share",
+    "cash_per_share",
+    "prev_close",
+    "eps_next_y_growth",
+)
+
 #: Finviz key → the row column this join fills. Published for the disposition
 #: tests; :mod:`app.screen.filters` remains the one place a key gets its field
 #: (``FILTER_CATALOG``), so this table can never become a second source of truth.
@@ -288,6 +302,54 @@ async def load_snapshots(
     }
 
 
+def derive_view_cells(
+    row: Mapping[str, Any], snapshot: FundamentalsSnapshot | None
+) -> dict[str, float | None]:
+    """Exact display-only arithmetic from the row and its snapshot.
+
+    These fill the wide table without changing what a filter can address. A
+    denominator is checked, a missing input stays unknown, and no provider value
+    is invented. ``prev_close`` is an identity over the row's own price and
+    change; the balance-sheet cells come from the snapshot.
+    """
+
+    cells = snapshot.fields if snapshot is not None else {}
+    price = _cell(row.get("price"))
+    change = _cell(row.get("change_pct"))
+    market_cap = _cell(row.get("market_cap_usd")) or _cell(cells.get("market_cap"))
+    cash = _cell(cells.get("cash_and_equivalents"))
+    debt = _cell(cells.get("total_debt"))
+    shares = _cell(row.get("shares_outstanding")) or _cell(cells.get("shares_outstanding"))
+    pb = _cell(row.get("pb")) or _cell(cells.get("pb"))
+
+    enterprise_value = (
+        market_cap + debt - cash
+        if market_cap is not None and debt is not None and cash is not None
+        else None
+    )
+    book_per_share = price / pb if price is not None and pb is not None and pb > 0 else None
+    cash_per_share = cash / shares if cash is not None and shares is not None and shares > 0 else None
+    prev_close = (
+        price / (1 + change / 100)
+        if price is not None and change is not None and 1 + change / 100 > 0
+        else None
+    )
+    eps_ttm = _cell(cells.get("eps_ttm"))
+    eps_forward = _cell(cells.get("eps_forward"))
+    eps_next_y_growth = (
+        (eps_forward / eps_ttm - 1) * 100
+        if eps_ttm is not None and eps_forward is not None and eps_ttm > 0
+        else None
+    )
+    return {
+        "enterprise_value": enterprise_value,
+        "book_per_share": book_per_share,
+        "cash_per_share": cash_per_share,
+        "prev_close": prev_close,
+        "eps_next_y_growth": eps_next_y_growth,
+    }
+
+
 def apply_fundamentals(
     rows: Sequence[Mapping[str, Any]], snapshots: Mapping[str, FundamentalsSnapshot]
 ) -> list[dict[str, Any]]:
@@ -318,6 +380,32 @@ def apply_fundamentals(
     return enriched
 
 
+def apply_view_fill(
+    rows: Sequence[Mapping[str, Any]], snapshots: Mapping[str, FundamentalsSnapshot]
+) -> list[dict[str, Any]]:
+    """Add the display-only wide-table cells after the filter contract is shaped.
+
+    Kept separate from :func:`apply_fundamentals` on purpose: the five filter
+    cells are a contract, while these extras only fill the All-columns display.
+    The caller's rows and snapshots are never mutated.
+    """
+
+    filled: list[dict[str, Any]] = []
+    for row in rows:
+        joined = dict(row)
+        key = _row_key(row)
+        snapshot = snapshots.get(key) if key is not None else None
+        for name in ("eps_ttm", "revenue_ttm", "net_income_ttm"):
+            current = joined.get(name)
+            value = snapshot.fields.get(name) if snapshot is not None else None
+            joined[name] = current if value is None else value
+        display = derive_view_cells(joined, snapshot)
+        for name in ("enterprise_value", "book_per_share", "cash_per_share", "prev_close", "eps_next_y_growth"):
+            joined[name] = display.get(name)
+        filled.append(joined)
+    return filled
+
+
 async def enrich_rows(
     rows: Sequence[Mapping[str, Any]],
     store: SnapshotReader | None = None,
@@ -335,7 +423,7 @@ async def enrich_rows(
     if not rows:
         return []
     snapshots = await load_snapshots(store, (_row_key(row) or "" for row in rows), now=now)
-    return apply_fundamentals(rows, snapshots)
+    return apply_view_fill(apply_fundamentals(rows, snapshots), snapshots)
 
 
 __all__ = [
@@ -345,9 +433,12 @@ __all__ = [
     "DERIVED_ROW_FIELDS",
     "FUNDAMENTALS_FILTER_KEYS",
     "FUNDAMENTALS_ROW_FIELDS",
+    "VIEW_FILL_FIELDS",
+    "derive_view_cells",
     "JOINED_ROW_FIELDS",
     "SnapshotReader",
     "apply_fundamentals",
+    "apply_view_fill",
     "derive_cells",
     "enrich_rows",
     "fresh_snapshots",

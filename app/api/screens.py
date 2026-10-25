@@ -299,7 +299,7 @@ async def select(request: Request) -> dict[str, Any]:
             region=region,
             min_market_cap=None if family == "etf" else 0,
             columns=PARITY_COLUMNS,
-            allow_any_subtype=True,
+            allow_any_subtype=not selection.common_only,
             asset_class=family,
         )
     else:

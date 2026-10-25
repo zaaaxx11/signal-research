@@ -245,6 +245,7 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "ret_6m": "number",
         "ret_ytd": "number",
         "ret_1y": "number",
+        "ret_3y": "number",
         "ret_5y": "number",
         "ret_10y": "number",
     }

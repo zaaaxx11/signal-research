@@ -260,7 +260,7 @@ h1 em { color: var(--pink); font-style: normal; }
 
 .notice { margin-top: 14px; border: 1px solid rgba(255, 202, 138, 0.25); border-radius: 10px; padding: 10px 12px; color: var(--amber); font-size: 11px; background: rgba(255, 202, 138, 0.06); }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 322px; gap: 18px; padding: 24px 0 36px; align-items: start; }
-.table-panel, .detail-card, .signal-card, .integrity-card {
+.table-panel, .detail-card, .signal-card, .breadth-card, .integrity-card {
   border: 1px solid var(--line); border-radius: var(--radius-lg); background: linear-gradient(160deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.12);
 }
@@ -338,7 +338,7 @@ h1 em { color: var(--pink); font-style: normal; }
 .pager b { font-family: var(--mono); font-size: 9px; font-weight: 400; color: var(--faint); }
 
 .insight-rail { display: grid; gap: 12px; align-self: start; }
-.detail-card, .signal-card, .integrity-card { padding: 15px 16px; }
+.detail-card, .signal-card, .breadth-card, .integrity-card { padding: 15px 16px; }
 .detail-head, .rail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .detail-empty { padding: 21px 0 8px; color: var(--faint); font-size: 11px; }
 .detail-body { padding-top: 13px; }
@@ -636,3 +636,43 @@ body.is-all-view .market-table { min-width: 2200px; }
 @media (max-width: 640px) {
   body.is-all-view .insight-rail { grid-template-columns: 1fr; }
 }
+
+/* Market scope switch: one workspace, three markets. */
+.side-scope-note { color: var(--faint); font-size: 10px; line-height: 1.6; padding: 2px 10px 0; }
+.scope-bar {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 9px 0 10px; border-bottom: 1px solid var(--line);
+}
+.scope-label { color: var(--faint); font-family: var(--mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; margin-right: 5px; }
+.scope-tab {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 31px;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--muted); font-size: 11px; padding: 5px 9px; cursor: pointer;
+  transition: all .25s var(--ease);
+}
+.scope-tab:hover { color: var(--text); background: rgba(255,255,255,.035); }
+.scope-tab.is-active { color: var(--pink-soft); border-color: rgba(255,79,153,.3); background: var(--pink-wash); }
+.scope-tab b { color: var(--faint); font-family: var(--mono); font-size: 9px; font-weight: 500; padding-left: 2px; border-left: 1px solid var(--line); }
+.scope-tab.is-active b { color: var(--pink-soft); }
+.scope-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.scope-tab.is-active .scope-dot { background: var(--pink); box-shadow: 0 0 8px var(--pink); }
+.scope-live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.scope-live .status-dot { width: 5px; height: 5px; }
+@media (max-width: 700px) {
+  .scope-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .scope-bar::-webkit-scrollbar { display: none; }
+  .scope-tab { flex: 0 0 auto; font-size: 10px; padding: 5px 7px; }
+  .scope-live, .scope-label { display: none; }
+}
+
+/* Breadth and coverage are computed from the visible page, never guessed. */
+.breadth-card { min-height: 112px; }
+.breadth-ratio { color: var(--pink-soft); font-family: var(--mono); font-size: 11px; }
+.breadth-bar { display: flex; height: 5px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.07); margin: 13px 0 8px; }
+.breadth-up { width: 0; background: var(--green); transition: width .5s var(--ease); }
+.breadth-down { width: 0; background: var(--red); transition: width .5s var(--ease); }
+.breadth-meta { display: flex; justify-content: space-between; color: var(--faint); font-family: var(--mono); font-size: 9px; }
+.coverage-row { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 10px; margin-top: 3px; }
+.coverage-row b { color: var(--pink-soft); font-family: var(--mono); font-size: 12px; }
+.coverage-track { height: 4px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; margin: 8px 0 13px; }
+.coverage-track span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--pink-deep), var(--pink-soft)); transition: width .5s var(--ease); }
