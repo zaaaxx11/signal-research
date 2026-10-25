@@ -4,6 +4,90 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const WATCH_KEY = "ztockz.watchlist.v1";
 const COLS_KEY = "ztockz.columns.v1";
+
+const COLUMN_META = {
+  price: ["Price", "price"],
+  prev_close: ["Prev close", "price"],
+  change_pct: ["1D", "pct"],
+  volume: ["Volume", "int"],
+  avg_volume: ["Avg vol", "int"],
+  market_cap: ["Mkt cap", "cap"],
+  market_cap_usd: ["Mkt cap", "cap"],
+  enterprise_value: ["EV", "cap"],
+  pe: ["P/E", "ratio"],
+  forward_pe: ["Fwd P/E", "ratio"],
+  peg: ["PEG", "ratio"],
+  ps: ["P/S", "ratio"],
+  pb: ["P/B", "ratio"],
+  pc: ["P/C", "ratio"],
+  pfcf: ["P/FCF", "ratio"],
+  ev_ebitda: ["EV/EBITDA", "ratio"],
+  ev_sales: ["EV/Sales", "ratio"],
+  eps_ttm: ["EPS ttm", "ratio"],
+  eps_next_y: ["EPS next Y", "ratio"],
+  rsi_14: ["RSI", "rsi"],
+  rel_volume: ["Rel vol", "ratio"],
+  atr_14: ["ATR", "ratio"],
+  beta: ["Beta", "ratio"],
+  perf_week: ["1W", "pct"],
+  perf_month: ["1M", "pct"],
+  perf_quarter: ["1Q", "pct"],
+  perf_half_y: ["6M", "pct"],
+  perf_ytd: ["YTD", "pct"],
+  perf_year: ["1Y", "pct"],
+  perf_3y: ["3Y", "pct"],
+  perf_5y: ["5Y", "pct"],
+  perf_10y: ["10Y", "pct"],
+  week52_high: ["52W high", "price"],
+  week52_low: ["52W low", "price"],
+  insider_own: ["Insider own", "pct_plain"],
+  insider_trans: ["Insider trans", "pct"],
+  inst_own: ["Inst own", "pct_plain"],
+  inst_trans: ["Inst trans", "pct"],
+  shares_outstanding: ["Shares out", "int"],
+  shares_float: ["Float", "int"],
+  option_short: ["Shortable", "text"],
+  income: ["Income", "cap"],
+  sales: ["Sales", "cap"],
+  book_per_share: ["Book/sh", "ratio"],
+  cash_per_share: ["Cash/sh", "ratio"],
+  eps_next_q: ["EPS next Q", "ratio"],
+  eps_this_y: ["EPS this Y", "pct"],
+  eps_next_y_growth: ["EPS next Y", "pct"],
+  eps_next_5y: ["EPS next 5Y", "pct"],
+  eps_past_3_5y: ["EPS past 3/5Y", "pct"],
+  sales_past_3_5y: ["Sales past 3/5Y", "pct"],
+  eps_yoy_ttm: ["EPS YOY ttm", "pct"],
+  sales_yoy_ttm: ["Sales YOY ttm", "pct"],
+  eps_qoq: ["EPS Q/Q", "pct"],
+  sales_qoq: ["Sales Q/Q", "pct"],
+  roa: ["ROA", "pct"],
+  roe: ["ROE", "pct"],
+  roic: ["ROIC", "pct"],
+  gross_margin: ["Gross margin", "pct"],
+  oper_margin: ["Oper margin", "pct"],
+  profit_margin: ["Profit margin", "pct"],
+  quick_ratio: ["Quick ratio", "ratio"],
+  current_ratio: ["Current ratio", "ratio"],
+  debt_to_equity: ["Debt/Eq", "ratio"],
+  lt_debt_to_equity: ["LT Debt/Eq", "ratio"],
+  employees: ["Employees", "int"],
+  ipo: ["IPO", "text"],
+  sma20: ["SMA20", "ratio"],
+  sma50: ["SMA50", "ratio"],
+  sma200: ["SMA200", "ratio"],
+  volatility: ["Volatility", "ratio"],
+  index: ["Index", "text"],
+};
+
+const SCREEN_VIEWS = {
+  overview: { label: "Overview", columns: ["price", "change_pct", "market_cap", "pe", "forward_pe", "rsi_14", "perf_ytd"] },
+  valuation: { label: "Valuation", columns: ["market_cap", "enterprise_value", "pe", "forward_pe", "peg", "ps", "pb", "pc", "pfcf", "ev_ebitda", "ev_sales"] },
+  performance: { label: "Performance", columns: ["perf_week", "perf_month", "perf_quarter", "perf_half_y", "perf_ytd", "perf_year", "perf_3y", "perf_5y", "perf_10y", "week52_high", "week52_low"] },
+  ownership: { label: "Ownership", columns: ["insider_own", "insider_trans", "inst_own", "inst_trans", "shares_outstanding", "shares_float", "option_short"] },
+  financial: { label: "Financial", columns: ["income", "sales", "book_per_share", "cash_per_share", "eps_ttm", "eps_next_y", "eps_this_y", "eps_next_y_growth", "eps_next_5y", "eps_past_3_5y", "sales_past_3_5y", "eps_yoy_ttm", "sales_yoy_ttm", "eps_qoq", "sales_qoq", "roa", "roe", "roic", "gross_margin", "oper_margin", "profit_margin", "quick_ratio", "current_ratio", "debt_to_equity", "lt_debt_to_equity", "employees", "ipo"] },
+  technical: { label: "Technical", columns: ["market_cap", "price", "prev_close", "change_pct", "volume", "avg_volume", "rel_volume", "atr_14", "rsi_14", "sma20", "sma50", "sma200", "volatility", "beta"] },
+};
 const state = {
   rows: [],
   names: {},
@@ -15,6 +99,10 @@ const state = {
   perPage: 20,
   region: "us",
   view: "discover",
+  screenView: "overview",
+  overviewBySymbol: new Map(),
+  serverFilters: [],
+  serverSort: "market_cap",
   watch: new Set(readJSON(WATCH_KEY, [])),
   compare: [],
   hiddenColumns: new Set(readJSON(COLS_KEY, [])),
@@ -113,7 +201,7 @@ function fmtStamp(value) {
   if (!value) return "--";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
-  return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${fmtTime(value)}`;
+  return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${fmtTime(value)} UTC`;
 }
 
 function mark(symbol) {
@@ -122,6 +210,32 @@ function mark(symbol) {
 
 function company(row) {
   return row.name || state.names[row.symbol] || "US equity";
+}
+
+function renderCell(row, key) {
+  const [label, kind] = COLUMN_META[key] || [key, "ratio"];
+  const value = row[key];
+  if (value === null || value === undefined || value === "") {
+    return '<span class="metric dim" title="' + esc(label) + '">--</span>';
+  }
+  if (kind === "price") return `<span class="price">${fmtPrice(value)}</span>`;
+  if (kind === "cap") return `<span class="cap">${fmtCap(value)}</span>`;
+  if (kind === "int") return `<span class="metric">${fmtInt(value)}</span>`;
+  if (kind === "pct") return `<span class="metric ${pctClass(value)}">${fmtPct(value)}</span>`;
+  if (kind === "pct_plain") {
+    const n = num(value);
+    return `<span class="metric">${n === null ? "--" : `${n.toFixed(2)}%`}</span>`;
+  }
+  if (kind === "rsi") {
+    const n = num(value);
+    return `<span class="rsi-wrap"><span class="rsi-bar"><i style="width:${n === null ? 0 : Math.max(3, Math.min(100, n))}%"></i></span><span class="metric">${n === null ? "--" : n.toFixed(1)}</span></span>`;
+  }
+  if (kind === "text") return `<span class="metric">${esc(value)}</span>`;
+  return `<span class="metric">${fmtRatio(value)}</span>`;
+}
+
+function currentColumns() {
+  return SCREEN_VIEWS[state.screenView]?.columns || SCREEN_VIEWS.overview.columns;
 }
 
 function median(values) {
@@ -163,11 +277,12 @@ async function loadData() {
   state.lastError = "";
   renderLoading();
   const region = state.region;
+  const requestedView = state.screenView;
   const selectBody = {
     mode: "criteria",
     region,
-    criteria: { filters: [], sort: "market_cap", limit: 24 },
-    view: "overview",
+    criteria: { filters: state.serverFilters, sort: state.serverSort, limit: 24 },
+    view: requestedView,
   };
   const snapshotUrl = `/screens?source=tradingview${region === "us" ? "" : `&region=${region}`}`;
   const selectionRequest = fetchJSON("/screens/select", {
@@ -190,23 +305,28 @@ async function loadData() {
       if (row.symbol && row.name) state.names[row.symbol] = row.name;
     }
     const seenAliases = new Set(["GOOGN", "GOOGM", "JPM/PD", "JPM/PC", "JPM/PL", "JPM/PK"]);
-    const richBySymbol = new Map(rows.filter((row) => !seenAliases.has(row.symbol)).map((row) => [row.symbol, row]));
+    const richBySymbol = new Map(rows.filter((row) => !seenAliases.has(row.symbol) && !String(row.symbol).includes("/")).map((row) => [row.symbol, row]));
     const merged = [];
+    const hasServerFilters = state.serverFilters.length > 0;
     for (const light of snapshotRows) {
+      if (hasServerFilters && !richBySymbol.has(light.symbol)) continue;
       const rich = richBySymbol.get(light.symbol) || {};
+      const base = state.overviewBySymbol.get(light.symbol) || {};
       merged.push({
+        ...base,
         ...rich,
         ...light,
-        market_cap: num(rich.market_cap) ?? num(rich.market_cap_usd) ?? num(light.market_cap_usd),
-        change_pct: num(rich.change_pct) ?? num(light.change_pct),
-        price: num(rich.price) ?? num(light.price),
+        market_cap: num(rich.market_cap) ?? num(base.market_cap) ?? num(rich.market_cap_usd) ?? num(light.market_cap_usd),
+        change_pct: num(rich.change_pct) ?? num(base.change_pct) ?? num(light.change_pct),
+        price: num(rich.price) ?? num(base.price) ?? num(light.price),
       });
       richBySymbol.delete(light.symbol);
       if (merged.length >= 20) break;
     }
     for (const rich of richBySymbol.values()) {
       if (merged.length >= 20) break;
-      merged.push(rich);
+      const base = state.overviewBySymbol.get(rich.symbol) || {};
+      merged.push({ ...base, ...rich, market_cap: num(rich.market_cap) ?? num(base.market_cap) ?? num(rich.market_cap_usd) });
     }
     state.rows = merged.map((row, index) => ({
       ...row,
@@ -214,6 +334,9 @@ async function loadData() {
       name: row.name || state.names[row.symbol] || "",
       sector: row.sector || "",
     }));
+    if (requestedView === "overview") {
+      state.overviewBySymbol = new Map(state.rows.map((row) => [row.symbol, row]));
+    }
     state.source = selection.source || selection.fallback?.source || "tradingview";
     state.universe = num(selection.universe_total) ?? num(selection.total) ?? rows.length;
     state.asOf = selection.as_of || selection.fallback?.as_of || null;
@@ -273,7 +396,7 @@ function renderStats() {
   const pe = median(rows.map((row) => row.pe));
   $("#statMedianPe").textContent = pe === null ? "--" : `${pe.toFixed(1)}×`;
   $("#sideUsCount").textContent = state.region === "us" && state.universe ? fmtInt(state.universe) : $("#sideUsCount").textContent;
-  $("#selectionMeta").textContent = `${state.source || "scan"}${state.asOf ? ` · ${fmtStamp(state.asOf)}` : ""}`;
+  $("#selectionMeta").textContent = state.asOf ? `Live scan · ${fmtStamp(state.asOf)}` : "Live scan";
   $("#rowCount").textContent = String(rows.length);
   $("#sideStatus").textContent = state.loading ? "Scanning market" : state.rows.length ? "Scan connected" : "Scan unavailable";
   $("#heroClock").textContent = `${new Date().toISOString().slice(11, 16)} UTC`;
@@ -290,6 +413,7 @@ function filteredRows() {
     rows = rows.filter((row) => `${row.symbol} ${company(row)}`.toLowerCase().includes(query));
   }
   const { key, dir } = state.sort;
+  if (!key) return rows;
   const direction = dir === "asc" ? 1 : -1;
   rows.sort((a, b) => {
     const left = num(a[key]);
@@ -305,52 +429,61 @@ function filteredRows() {
 function renderTable() {
   if (state.loading) return;
   const rows = filteredRows();
+  const columns = currentColumns();
   const totalPages = Math.max(1, Math.ceil(rows.length / state.perPage));
   state.page = Math.min(state.page, totalPages);
   const start = (state.page - 1) * state.perPage;
   const pageRows = rows.slice(start, start + state.perPage);
   const body = $("#tableBody");
+  const head = $("#tableHead");
+
+  head.innerHTML = `
+    <th class="col-rank">#</th>
+    <th class="col-name">Company</th>
+    ${columns.map((key) => {
+      const [label] = COLUMN_META[key] || [key, "ratio"];
+      const hidden = state.hiddenColumns.has(columnShort(key)) ? " col-hidden" : "";
+      return `<th class="col-num sortable${hidden}" data-sort="${esc(key)}">${esc(label)}</th>`;
+    }).join("")}
+    <th class="col-star">Watch</th>`;
+
   $("#emptyState").classList.toggle("hidden", pageRows.length > 0);
   $("#marketTable").classList.toggle("is-empty", pageRows.length === 0);
   $("#pageLabel").textContent = `${state.page} / ${totalPages}`;
   $("#prevPage").disabled = state.page <= 1;
   $("#nextPage").disabled = state.page >= totalPages;
   $("#tableFootNote").textContent = state.query
-    ? `${rows.length} matches for "${state.query}"`
-    : "One scan, 20 names. Every cell keeps its source.";
+    ? `${rows.length} matches for "${state.query}" in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}`
+    : `${rows.length} names in ${SCREEN_VIEWS[state.screenView].label.toLowerCase()}. Missing values stay missing.`;
 
   if (!pageRows.length) {
     body.innerHTML = "";
+    updateSortHeaders();
     return;
   }
 
   body.innerHTML = pageRows.map((row) => {
-    const changeClass = pctClass(row.change_pct);
-    const rsi = num(row.rsi_14);
-    const rsiWidth = rsi === null ? 0 : Math.max(3, Math.min(100, rsi));
     const selected = state.selected === row.symbol;
     return `
       <tr class="data-row${selected ? " is-selected" : ""}" data-symbol="${esc(row.symbol)}" tabindex="0">
         <td class="col-rank"><span class="rank-num">${esc(String(row.rank).padStart(2, "0"))}</span></td>
         <td class="col-name">
           <div class="ticker-wrap">
-            <span class="ticker-mark">${esc(mark(row.symbol))}</span>
+            <span class="ticker-mark"><span class="ticker-fallback">${esc(mark(row.symbol))}</span><img class="ticker-logo" src="${esc(row.logo || "")}" alt="" loading="eager" /></span>
             <span class="ticker-copy"><span class="ticker" title="${esc(company(row))}">${esc(row.symbol)}</span><span class="company" title="${esc(company(row))}">${esc(company(row))}</span></span>
           </div>
         </td>
-        <td class="col-num"><span class="price">${fmtPrice(row.price)}</span></td>
-        <td class="col-num"><span class="change ${changeClass}">${fmtPct(row.change_pct)}</span></td>
-        <td class="col-num"><span class="cap">${fmtCap(row.market_cap)}</span></td>
-        <td class="col-num"><span class="metric">${fmtRatio(row.pe)}</span></td>
-        <td class="col-num col-fpe"><span class="metric dim">${fmtRatio(row.forward_pe)}</span></td>
-        <td class="col-num col-rsi">
-          <span class="rsi-wrap"><span class="rsi-bar"><i style="width:${rsiWidth}%"></i></span><span class="metric${rsi !== null && rsi > 70 ? "" : " dim"}">${rsi === null ? "--" : rsi.toFixed(1)}</span></span>
-        </td>
-        <td class="col-num col-ytd"><span class="metric ${pctClass(row.perf_ytd)}">${fmtPct(row.perf_ytd)}</span></td>
+        ${columns.map((key) => {
+          const hidden = state.hiddenColumns.has(columnShort(key)) ? " col-hidden" : "";
+          return `<td class="col-num${hidden}">${renderCell(row, key)}</td>`;
+        }).join("")}
         <td class="col-star"><button class="star${state.watch.has(row.symbol) ? " is-on" : ""}" data-star="${esc(row.symbol)}" aria-label="${state.watch.has(row.symbol) ? "Remove" : "Add"} ${esc(row.symbol)} from watchlist">${state.watch.has(row.symbol) ? "★" : "☆"}</button></td>
       </tr>`;
   }).join("");
 
+  $$(".ticker-logo", body).forEach((image) => {
+    image.addEventListener("error", () => image.remove());
+  });
   $$(".star", body).forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -366,7 +499,14 @@ function renderTable() {
       }
     });
   });
+  $$("#tableHead th.sortable").forEach((header) => {
+    header.addEventListener("click", () => setSort(header.dataset.sort));
+  });
   updateSortHeaders();
+}
+
+function columnShort(key) {
+  return { forward_pe: "fpe", rsi_14: "rsi", perf_ytd: "ytd" }[key] || key;
 }
 
 function updateSortHeaders() {
@@ -405,10 +545,14 @@ function renderDetail() {
   $("#detailStar").classList.toggle("is-on", Boolean(row && state.watch.has(row.symbol)));
   if (!row) {
     $("#detailSymbol").textContent = "--";
+    $("#detailLogo").innerHTML = "Z";
     $("#detailStar").textContent = "☆";
     return;
   }
   $("#detailSymbol").textContent = row.symbol;
+  $("#detailLogo").innerHTML = `<span class="ticker-fallback">${esc(mark(row.symbol))}</span><img class="ticker-logo" src="${esc(row.logo || "")}" alt="" />`;
+  const detailImage = $("#detailLogo .ticker-logo");
+  if (detailImage) detailImage.addEventListener("error", () => detailImage.remove());
   $("#detailStar").textContent = state.watch.has(row.symbol) ? "★" : "☆";
   $("#detailPrice").textContent = fmtPrice(row.price);
   const change = $("#detailChange");
@@ -421,7 +565,7 @@ function renderDetail() {
   $("#detailRsi").textContent = row.rsi_14 === null || row.rsi_14 === undefined ? "--" : Number(row.rsi_14).toFixed(1);
   $("#detailYtd").textContent = fmtPct(row.perf_ytd);
   $("#detailBeta").textContent = fmtRatio(row.beta);
-  $("#detailSource").textContent = `${state.source || "scan"} · ${fmtStamp(row.as_of || state.asOf)}`;
+  $("#detailSource").textContent = fmtStamp(row.as_of || state.asOf);
   const low = num(row.week52_low);
   const high = num(row.week52_high);
   const price = num(row.price);
@@ -484,6 +628,59 @@ function setView(view) {
   if (view === "watchlist") setFilter("watchlist");
   else if (view === "signals") setFilter("momentum");
   else setFilter("all");
+}
+
+function setScreenView(name) {
+  if (!SCREEN_VIEWS[name] || state.screenView === name) return;
+  state.screenView = name;
+  state.page = 1;
+  $$(".view-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.screenView === name));
+  loadData();
+}
+
+function exportJson() {
+  const rows = filteredRows();
+  const columns = currentColumns();
+  const document = {
+    engine: "Ztockz",
+    view: state.screenView,
+    as_of: state.asOf,
+    count: rows.length,
+    rows: rows.map((row) => {
+      const usable = { rank: row.rank, symbol: row.symbol, name: company(row), logo: row.logo || "" };
+      for (const key of columns) usable[key] = row[key] ?? null;
+      return usable;
+    }),
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(document, null, 2)], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `ztockz-${state.screenView}-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  toast(`${rows.length} rows exported as JSON`);
+}
+
+function exportCsv() {
+  const rows = filteredRows();
+  const columns = currentColumns();
+  const header = ["Symbol", "Company", ...columns.map((key) => COLUMN_META[key]?.[0] || key)];
+  const lines = [header, ...rows.map((row) => [
+    row.symbol,
+    company(row),
+    ...columns.map((key) => {
+      const value = row[key];
+      return value === null || value === undefined ? "" : value;
+    }),
+  ])];
+  const csv = lines.map((line) => line.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `ztockz-${state.screenView}-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  toast(`${rows.length} rows exported as CSV`);
 }
 
 function setSort(key) {
@@ -567,7 +764,7 @@ function openNews() {
         <div><span class="panel-kicker">News enrichment</span><h2>${esc(row.symbol)} · headlines</h2></div>
         <button class="icon-button" data-close-news aria-label="Close news">×</button>
       </div>
-      <div class="news-list" id="newsList"><div class="detail-empty">Loading source-backed headlines...</div></div>
+      <div class="news-list" id="newsList"><div class="detail-empty">Loading engine headlines...</div></div>
     </div>`;
   document.body.append(modal);
   modal.addEventListener("click", (event) => {
@@ -583,7 +780,7 @@ function openNews() {
       }
       list.innerHTML = items.map((item) => `
         <a class="news-item" href="${esc(safeUrl(item.url))}" target="_blank" rel="noreferrer">
-          <span class="news-source">${esc(item.source || "wire")}</span>
+          <span class="news-source">NEWS</span>
           <strong>${esc(item.headline || "Untitled")}</strong>
           <span class="news-time">${esc(fmtStamp(item.published_at))}</span>
         </a>`).join("");
@@ -646,13 +843,75 @@ function movePalette(delta) {
   renderPalette($("#paletteInput").value);
 }
 
+function filterFields() {
+  return [
+    ["filterCap", "cap", "gte", 1e9],
+    ["filterPe", "fa_pe", "lte", 1],
+    ["filterPrice", "sh_price", "gte", 1],
+    ["filterRsi", "ta_rsi", "lte", 1],
+  ];
+}
+
+function openFilters() {
+  const byKey = new Map(state.serverFilters.map((filter) => [filter.key, filter.value]));
+  $("#filterCap").value = byKey.has("cap") ? byKey.get("cap") / 1e9 : "";
+  $("#filterPe").value = byKey.get("fa_pe") ?? "";
+  $("#filterPrice").value = byKey.get("sh_price") ?? "";
+  $("#filterRsi").value = byKey.get("ta_rsi") ?? "";
+  $("#filterSort").value = state.serverSort;
+  const sector = state.serverFilters.find((filter) => filter.key === "sec");
+  $("#filterSector").value = sector?.value || "";
+  $("#filterModal").classList.remove("hidden");
+  setTimeout(() => $("#filterCap").focus(), 30);
+}
+
+function closeFilters() {
+  $("#filterModal").classList.add("hidden");
+}
+
+function updateFilterCount() {
+  const count = state.serverFilters.length;
+  $("#filterCount").textContent = String(count);
+  $("#filterButton").classList.toggle("has-filters", count > 0);
+}
+
+function applyFilters() {
+  const filters = [];
+  const sector = $("#filterSector").value;
+  if (sector) filters.push({ key: "sec", op: "eq", value: sector });
+  for (const [id, key, op, scale] of filterFields()) {
+    const raw = $(`#${id}`).value.trim();
+    if (raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) {
+      toast("Enter a valid positive number");
+      return;
+    }
+    filters.push({ key, op, value: value * scale });
+  }
+  state.serverFilters = filters;
+  state.serverSort = $("#filterSort").value;
+  state.sort = { key: null, dir: "desc" };
+  state.page = 1;
+  updateFilterCount();
+  closeFilters();
+  loadData();
+  toast(filters.length ? `${filters.length} engine filters applied` : "Engine filters cleared");
+}
+
 function clearFilters() {
+  const hadServerFilters = state.serverFilters.length > 0;
   state.filter = "all";
   state.query = "";
   state.page = 1;
+  state.serverFilters = [];
+  state.serverSort = "market_cap";
+  state.sort = { key: "market_cap", dir: "desc" };
   $("#searchInput").value = "";
   $$(".chip").forEach((chip) => chip.classList.toggle("is-active", chip.dataset.filter === "all"));
-  renderTable();
+  updateFilterCount();
+  if (hadServerFilters) loadData();
+  else renderTable();
 }
 
 function toggleCompact() {
@@ -740,10 +999,11 @@ function wire() {
   $$(".nav-item").forEach((item) => item.addEventListener("click", () => setView(item.dataset.view)));
   $$(".side-row").forEach((item) => item.addEventListener("click", () => {
     state.region = item.dataset.region;
+    state.overviewBySymbol = new Map();
     $$(".side-row").forEach((row) => row.classList.toggle("is-active", row === item));
     loadData();
   }));
-  $$(".market-table th.sortable").forEach((header) => header.addEventListener("click", () => setSort(header.dataset.sort)));
+  $$(".view-tab").forEach((tab) => tab.addEventListener("click", () => setScreenView(tab.dataset.screenView)));
   $("#sortButton").addEventListener("click", () => {
     const keys = ["market_cap", "change_pct", "pe", "forward_pe", "rsi_14", "perf_ytd"];
     const current = keys.indexOf(state.sort.key);
@@ -751,6 +1011,19 @@ function wire() {
   });
   $("#compactButton").addEventListener("click", toggleCompact);
   $("#columnsButton").addEventListener("click", openColumnsMenu);
+  $("#exportButton").addEventListener("click", exportCsv);
+  $("#exportJsonButton").addEventListener("click", exportJson);
+  $("#filterButton").addEventListener("click", openFilters);
+  $("#closeFilter").addEventListener("click", closeFilters);
+  $("#applyFilters").addEventListener("click", applyFilters);
+  $("#resetFilters").addEventListener("click", () => {
+    $$(".filter-form input").forEach((input) => { input.value = ""; });
+    $("#filterSector").value = "";
+    $("#filterSort").value = "market_cap";
+  });
+  $("#filterModal").addEventListener("click", (event) => {
+    if (event.target === $("#filterModal")) closeFilters();
+  });
   $("#clearFilters").addEventListener("click", clearFilters);
   $("#prevPage").addEventListener("click", () => { state.page = Math.max(1, state.page - 1); renderTable(); });
   $("#nextPage").addEventListener("click", () => {
@@ -780,6 +1053,7 @@ function wire() {
       closeCompare();
       $("#newsModal")?.remove();
       $("#columnMenu")?.remove();
+      closeFilters();
       return;
     }
     if (editing) return;

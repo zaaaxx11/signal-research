@@ -171,6 +171,7 @@
       "required": [
         "rank",
         "symbol",
+        "logo",
         "name",
         "exchange",
         "country",
@@ -193,6 +194,11 @@
         "symbol": {
           "type": "string",
           "minLength": 1
+        },
+        "logo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Guaranteed brand mark for the instrument. A vendored asset or an offline monogram data URI; never null."
         },
         "name": {
           "type": [

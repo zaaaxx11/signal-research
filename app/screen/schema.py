@@ -165,6 +165,7 @@ SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
             "required": [
                 "rank",
                 "symbol",
+                "logo",
                 "name",
                 "exchange",
                 "country",
@@ -181,6 +182,14 @@ SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
             "properties": {
                 "rank": {"type": "integer", "minimum": 1, "maximum": 20},
                 "symbol": {"type": "string", "minLength": 1},
+                "logo": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": (
+                        "Guaranteed brand mark for the instrument. A vendored asset "
+                        "or an offline monogram data URI; never null."
+                    ),
+                },
                 "name": {"type": ["string", "null"]},
                 "exchange": {"type": ["string", "null"]},
                 "country": {"type": ["string", "null"]},

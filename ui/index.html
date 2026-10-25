@@ -47,7 +47,7 @@
 
         <div class="side-foot">
           <div class="status-line"><span class="status-dot"></span><span id="sideStatus">Scan connected</span></div>
-          <div class="status-meta">Source-backed. No filler.</div>
+          <div class="status-meta">Engine-backed. No filler.</div>
         </div>
       </aside>
 
@@ -105,6 +105,19 @@
             <button class="chip" data-filter="value">Value</button>
             <button class="chip" data-filter="quality">Quality</button>
             <button class="chip" data-filter="watchlist">Watchlist <span id="watchChipCount">0</span></button>
+            <button class="chip chip-filter" id="filterButton">Advanced filters <span id="filterCount">0</span></button>
+          </div>
+          <div class="view-row">
+            <div class="view-tabs" id="viewTabs" role="tablist" aria-label="Stock view">
+              <button class="view-tab is-active" data-screen-view="overview" role="tab">Overview</button>
+              <button class="view-tab" data-screen-view="valuation" role="tab">Valuation</button>
+              <button class="view-tab" data-screen-view="performance" role="tab">Performance</button>
+              <button class="view-tab" data-screen-view="ownership" role="tab">Ownership</button>
+              <button class="view-tab" data-screen-view="financial" role="tab">Financial</button>
+              <button class="view-tab" data-screen-view="technical" role="tab">Technical</button>
+            </div>
+            <button class="soft-button export-button" id="exportJsonButton">Export JSON</button>
+            <button class="soft-button export-button" id="exportButton">Export CSV <span>↓</span></button>
           </div>
           <div class="tool-row">
             <div class="inline-search">
@@ -138,7 +151,7 @@
             <div class="table-wrap">
               <table class="market-table" id="marketTable">
                 <thead>
-                  <tr>
+                  <tr id="tableHead">
                     <th class="col-rank">#</th>
                     <th class="col-name">Company</th>
                     <th class="col-num sortable" data-sort="price">Price</th>
@@ -167,7 +180,7 @@
               <button class="ghost-button" id="clearFilters">Clear filters</button>
             </div>
             <div class="panel-foot">
-              <span id="tableFootNote">One scan, 20 names. Every cell keeps its source.</span>
+              <span id="tableFootNote">One scan, 20 names. Every cell keeps its evidence.</span>
               <span class="pager"><button id="prevPage" aria-label="Previous page">←</button><b id="pageLabel">1 / 1</b><button id="nextPage" aria-label="Next page">→</button></span>
             </div>
           </div>
@@ -175,9 +188,12 @@
           <aside class="insight-rail" aria-label="Market insight">
             <section class="detail-card" id="detailCard">
               <div class="detail-head">
-                <div>
-                  <span class="panel-kicker">Selected name</span>
-                  <h2 id="detailSymbol">--</h2>
+                <div class="detail-identity">
+                  <span class="ticker-mark detail-logo" id="detailLogo">Z</span>
+                  <div>
+                    <span class="panel-kicker">Selected name</span>
+                    <h2 id="detailSymbol">--</h2>
+                  </div>
                 </div>
                 <button class="icon-button small" id="detailStar" title="Add to watchlist" aria-label="Add to watchlist">☆</button>
               </div>
@@ -201,7 +217,7 @@
                   <div class="range-track"><span class="range-fill" id="detailRangeFill"></span><span class="range-dot" id="detailRangeDot"></span></div>
                   <div class="range-ends"><span id="detailLow">--</span><span id="detailHigh">--</span></div>
                 </div>
-                <div class="evidence-row"><span>Source</span><b id="detailSource">TradingView scan</b></div>
+                <div class="evidence-row"><span>Updated</span><b id="detailSource">--</b></div>
                 <div class="detail-actions">
                   <button class="primary-button compact" id="compareButton">Add to compare <span class="button-arrow">+</span></button>
                   <button class="ghost-button compact" id="newsButton">Open news</button>
@@ -218,9 +234,9 @@
 
             <section class="integrity-card">
               <div class="rail-head"><span class="panel-kicker">Data integrity</span><span class="integrity-mark">✓</span></div>
-              <p class="integrity-copy">Every cell is traceable to its source. Missing values stay missing.</p>
+              <p class="integrity-copy">Every cell stays auditable. Missing values stay missing.</p>
               <div class="integrity-list">
-                <div><span>Scan</span><b>TradingView</b></div>
+                <div><span>Price engine</span><b>Ztockz</b></div>
                 <div><span>Fundamentals</span><b>3,902 rows</b></div>
                 <div><span>Ownership facts</span><b>3,831 rows</b></div>
               </div>
@@ -230,7 +246,7 @@
 
         <footer class="footer">
           <span>Ztockz / market cockpit</span>
-          <span>Source backed. <button class="text-button" id="footerPalette">Open command palette</button></span>
+          <span>Engine backed. <button class="text-button" id="footerPalette">Open command palette</button></span>
         </footer>
       </main>
     </div>
@@ -246,6 +262,27 @@
         <div class="palette-input-wrap"><span>⌕</span><input id="paletteInput" placeholder="Type a command or ticker" autocomplete="off" /><kbd>ESC</kbd></div>
         <div class="palette-list" id="paletteList"></div>
         <div class="palette-foot"><span>↑↓ navigate</span><span>↵ select</span><span>esc close</span></div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="filterModal" role="dialog" aria-modal="true" aria-label="Advanced filters">
+      <div class="modal-panel filter-panel">
+        <div class="modal-head">
+          <div><span class="panel-kicker">Engine query</span><h2>Filter the market</h2></div>
+          <button class="icon-button" id="closeFilter" aria-label="Close filters">×</button>
+        </div>
+        <div class="filter-form">
+          <label><span>Market cap, min</span><div class="input-unit"><input id="filterCap" type="number" min="0" step="1" placeholder="Any" /><b>$B</b></div></label>
+          <label><span>P/E, max</span><input id="filterPe" type="number" min="0" step="0.1" placeholder="Any" /></label>
+          <label><span>Price, min</span><div class="input-unit"><input id="filterPrice" type="number" min="0" step="0.01" placeholder="Any" /><b>$</b></div></label>
+          <label><span>RSI, max</span><input id="filterRsi" type="number" min="0" max="100" step="0.1" placeholder="Any" /></label>
+          <label class="filter-sector"><span>Sector</span><select id="filterSector"><option value="">All sectors</option><option>Technology Services</option><option>Electronic Technology</option><option>Finance</option><option>Health Technology</option><option>Health Services</option><option>Consumer Non-Durables</option><option>Consumer Durables</option><option>Retail Trade</option><option>Consumer Services</option><option>Energy Minerals</option><option>Producer Manufacturing</option><option>Process Industries</option><option>Industrial Services</option><option>Commercial Services</option><option>Distribution Services</option><option>Transportation</option><option>Communications</option><option>Utilities</option><option>Non-Energy Minerals</option></select></label>
+          <label class="filter-sort"><span>Sort</span><select id="filterSort"><option value="market_cap">Market cap</option><option value="turnover">Turnover</option><option value="gainers">Gainers</option></select></label>
+        </div>
+        <div class="filter-foot">
+          <button class="ghost-button compact" id="resetFilters">Reset</button>
+          <button class="primary-button compact" id="applyFilters">Apply filters <span class="button-arrow">→</span></button>
+        </div>
       </div>
     </div>
 

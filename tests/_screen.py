@@ -132,6 +132,7 @@ SCREEN_ROW_KEYS: frozenset[str] = frozenset(
     {
         "rank",
         "symbol",
+        "logo",
         "name",
         "exchange",
         "country",

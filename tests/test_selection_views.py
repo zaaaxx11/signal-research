@@ -23,7 +23,7 @@ import pytest
 
 from app.screen import selection as selection_module
 from app.screen import views as V
-from app.screen.selection import VIEW_FIELDS, parse_selection, select_rows
+from app.screen.selection import VIEW_FACT_FIELDS, VIEW_FIELDS, parse_selection, select_rows
 from tests import _screen as S
 from tests.test_screen_etf import ETF_UNIVERSE_TOTAL, TOP20, etf_web
 
@@ -179,7 +179,7 @@ async def test_each_view_shapes_the_row_with_its_own_columns(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["total"] == len(ROWS) and body["returned"] == len(ROWS)
-    expected = {"rank", "symbol", "as_of"} | set(V.VIEW_COLUMNS[view])
+    expected = {"rank", "symbol", "name", "as_of", "logo"} | set(V.VIEW_COLUMNS[view])
     for row in body["rows"]:
         assert set(row) == expected, (
             f"a {view} row must be identity + exactly the declared columns; "
@@ -212,7 +212,7 @@ def test_a_view_row_is_not_the_light_row() -> None:
     document = select_rows(rows, request, region="us", as_of=AS_OF).as_document()
     row = document["rows"][0]
 
-    assert set(row) == {"rank", "symbol", "as_of"} | set(V.VIEW_COLUMNS["valuation"])
+    assert set(row) == {"rank", "symbol", "name", "as_of"} | set(V.VIEW_COLUMNS["valuation"])
     assert row["pe"] == 25.5 and row["pb"] == 8.5
     assert "market_cap_usd" not in row and "turnover_usd" not in row, (
         "the light row's own column names must not leak into a view row"
@@ -342,7 +342,7 @@ async def test_an_etf_view_row_reads_etf_parity_metrics(
     assert row["symbol"] == "SPY"
     assert row["rsi_14"] == 30.0, "the fixture's first ETF carries RSI 30"
     assert row["beta"] == 0.6
-    assert set(row) == {"rank", "symbol", "as_of"} | set(V.VIEW_COLUMNS["technical"])
+    assert set(row) == {"rank", "symbol", "name", "as_of", "logo"} | set(V.VIEW_COLUMNS["technical"])
 
 
 async def test_an_unknown_asset_class_is_a_422(tmp_path: Any, monkeypatch: Any) -> None:
@@ -398,6 +398,7 @@ async def test_a_stock_selection_without_view_is_still_the_light_row(
     assert set(row) == {
         "rank",
         "symbol",
+        "logo",
         "name",
         "exchange",
         "country",
@@ -455,7 +456,7 @@ async def test_symbols_mode_can_ask_for_a_view(
     assert response.status_code == 200, response.text
     assert [row["symbol"] for row in body["rows"]] == ["QQQ", "SPY"]
     assert [row["rank"] for row in body["rows"]] == [1, 2]
-    assert set(body["rows"][0]) == {"rank", "symbol", "as_of"} | set(
+    assert set(body["rows"][0]) == {"rank", "symbol", "name", "as_of", "logo"} | set(
         V.VIEW_COLUMNS["overview"]
     )
     assert body["rows"][0]["market_cap"] == 330_000_000_000
@@ -467,4 +468,4 @@ def test_view_fields_only_name_columns_a_row_or_a_view_has() -> None:
     declared = set().union(*(set(columns) for columns in V.VIEW_COLUMNS.values()))
     assert set(VIEW_FIELDS) <= declared
     light = {"price", "change_pct", "volume", "market_cap_usd"}
-    assert set(VIEW_FIELDS.values()) <= set(PARITY_FIELDS.values()) | light
+    assert set(VIEW_FIELDS.values()) <= set(PARITY_FIELDS.values()) | light | set(VIEW_FACT_FIELDS)

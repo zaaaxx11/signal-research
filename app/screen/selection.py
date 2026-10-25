@@ -153,9 +153,11 @@ VIEW_FIELDS: Mapping[str, str] = {
     "quick_ratio": "quick_ratio",
     "current_ratio": "current_ratio",
     "debt_to_equity": "debt_to_equity",
-    # -- ownership (share counts only; holdings are not in a bulk scan)
+    # -- ownership (share counts; holdings come from the facts store)
     "shares_outstanding": "shares_outstanding",
     "shares_float": "float_shares",
+    "insider_own": "insider_own",
+    "inst_own": "inst_own",
     # -- technicals
     "sma20": "sma_20",
     "sma50": "sma_50",
@@ -190,6 +192,7 @@ _HINTS: Mapping[str, str] = {
 _VIEW_LIGHT_FIELDS: frozenset[str] = frozenset(
     {"price", "change_pct", "volume", "market_cap_usd"}
 )
+VIEW_FACT_FIELDS: frozenset[str] = frozenset({"insider_own", "inst_own"})
 
 
 def _validate_view_fields() -> None:
@@ -197,7 +200,7 @@ def _validate_view_fields() -> None:
 
     from app.screen.universe import PARITY_FIELDS
 
-    known = set(PARITY_FIELDS.values()) | set(_VIEW_LIGHT_FIELDS)
+    known = set(PARITY_FIELDS.values()) | set(_VIEW_LIGHT_FIELDS) | set(VIEW_FACT_FIELDS)
     unknown = sorted(set(VIEW_FIELDS.values()) - known)
     if unknown:
         raise RuntimeError(
@@ -699,6 +702,7 @@ def view_row(row: Mapping[str, Any], name: str, *, as_of: str) -> dict[str, Any]
     shaped: dict[str, Any] = {
         "rank": int(row["rank"]),
         "symbol": row.get("symbol"),
+        "name": row.get("name"),
         "as_of": as_of,
     }
     for column in definition.columns:
@@ -976,6 +980,7 @@ __all__ = [
     "SELECTION_REQUEST_SCHEMA",
     "SOURCES",
     "VIEW_FIELDS",
+    "VIEW_FACT_FIELDS",
     "Criterion",
     "Selection",
     "SelectionError",

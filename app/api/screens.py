@@ -67,6 +67,7 @@ from starlette.background import BackgroundTask
 
 from app.api.markets import runtime_of
 from app.auth import ApiError, owner_fingerprint
+from app.branding import logo_for
 from app.export.manifest import file_sha256
 from app.runtime import Runtime
 from app.screen.export import (
@@ -105,6 +106,22 @@ ScreenSource = Literal["multi", "tradingview"]
 SCREEN_EXPORT_SERVICE = "screen_export"
 
 
+def _with_logos(document: dict[str, Any]) -> dict[str, Any]:
+    """Attach a guaranteed brand mark to every row without mutating a snapshot.
+
+    ``logo`` belongs to the instrument identity, not to the source that answered.
+    The resolver is filesystem-only, so this adds no provider call and no
+    latency; a symbol without a vendored asset gets an offline monogram.
+    """
+
+    result = dict(document)
+    result["rows"] = [
+        {**dict(row), "logo": logo_for(row.get("symbol"))}
+        for row in document.get("rows", [])
+    ]
+    return result
+
+
 class ExportPayload(BaseModel):
     """``POST /screens/{id}/export`` body; an unknown knob is a 422."""
 
@@ -138,8 +155,10 @@ async def browse(
     runtime = runtime_of(request)
     try:
         if source == "multi":
-            return await runtime.multi_source_screen.load(region, sort)
-        return await load_screen(region, sort, repository=runtime.screen_repository)
+            return _with_logos(await runtime.multi_source_screen.load(region, sort))
+        return _with_logos(
+            await load_screen(region, sort, repository=runtime.screen_repository)
+        )
     except ScanError as exc:
         raise ApiError(
             status_code=503,
@@ -318,7 +337,7 @@ async def select(request: Request) -> dict[str, Any]:
         source=source,
         snapshot_id=snapshot_id,
     )
-    return answer.as_document()
+    return _with_logos(answer.as_document())
 
 
 @router.post("/{screen_id}/export", status_code=202)
