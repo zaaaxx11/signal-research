@@ -6,9 +6,10 @@ walks the registry. A registry name without an adapter is a rung the ladder
 reports as ``skipped`` (honest: the capability is declared, the implementation
 is not).
 
-Fase 2 ships the five QUOTE rungs. ``sec_edgar``, ``ecb``, ``coingecko``,
-``ishares`` and ``openfigi`` are declared for coverage but have no adapter yet,
-so ``/providers`` marks them unavailable rather than promising data nobody wrote.
+Fase 2 ships the five QUOTE rungs. ``sec_edgar`` and ``finviz`` answer
+FUNDAMENTALS (P11F-B); ``ecb``, ``coingecko``, ``ishares`` and ``openfigi`` are
+declared for coverage but have no adapter yet, so ``/providers`` marks them
+unavailable rather than promising data nobody wrote.
 """
 
 from __future__ import annotations
@@ -17,15 +18,19 @@ from typing import Mapping
 
 from app.providers.adapters._support import HttpAdapter
 from app.providers.adapters.finnhub import FinnhubAdapter
+from app.providers.adapters.finviz import FinvizAdapter
 from app.providers.adapters.nasdaq import NasdaqAdapter
 from app.providers.adapters.polygon import PolygonAdapter
+from app.providers.adapters.sec import SecEdgarAdapter
 from app.providers.adapters.stooq import StooqAdapter
 from app.providers.adapters.yahoo import YahooAdapter
 from app.providers.proxy_pool import ProxyPool
 
 #: Adapters implemented in this phase, keyed by the registry name they serve.
 ADAPTER_CLASSES: tuple[type[HttpAdapter], ...] = (
+    SecEdgarAdapter,
     YahooAdapter,
+    FinvizAdapter,
     StooqAdapter,
     NasdaqAdapter,
     FinnhubAdapter,

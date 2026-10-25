@@ -45,7 +45,11 @@ What it does, in order:
    16 cells, the rest null);
 3. reports ``requested/built/written/cached/failed/requests``, the elapsed time,
    the ETA for a deferred tail, and the measured field coverage of the rows that
-   are now fresh — the numbers to quote, instead of "22 columns exist". Scan mode
+   are now fresh — the numbers to quote, instead of "22 columns exist". Coverage
+   is reported **per cell source** as well as per field (``0004_field_sources``):
+   the ``sources`` histogram says which source won each row, the ``cells by
+   source`` column says who supplied each number, and ``unattributed`` counts the
+   filled cells with no record instead of crediting them to a guess. Scan mode
    reports per source (written vs kept, and which source kept each symbol), the
    coverage of the rows it wrote, and the fields the source never serves.
 
@@ -76,7 +80,7 @@ import sys
 import time
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # runnable as a file, not only as a module
@@ -352,6 +356,48 @@ def _percent(filled: int, total: int) -> str:
     return f"{(100.0 * filled / total):5.1f}%" if total else "    -"
 
 
+def _provenance(coverage: dict[str, Any]) -> dict[str, Any]:
+    """The coverage document's per-cell provenance block (``0004``), or empty.
+
+    A caller that hands this module a coverage document from an older build has
+    no block; the report then says ``-`` instead of inventing a source.
+    """
+
+    block = coverage.get("field_sources")
+    return block if isinstance(block, dict) else {}
+
+
+def _source_cells(row: Mapping[str, Any], provenance: dict[str, Any]) -> str:
+    """``yahoo=8 tradingview=4`` for one field, plus its unattributed cells.
+
+    Cells, not rows: one merged row can carry several sources, so this is the
+    column that answers "who said this number" while the ``sources`` histogram
+    above answers "which source won this row".
+    """
+
+    entry = (provenance.get("fields") or {}).get(row.get("field")) or {}
+    parts = [
+        f"{source}={count}"
+        for source, count in (entry.get("sources") or {}).items()
+    ]
+    if entry.get("unattributed"):
+        parts.append(f"unattributed={entry['unattributed']}")
+    return " ".join(parts) or "-"
+
+
+def _provenance_line(coverage: dict[str, Any]) -> str:
+    """One line: how many cells are attributed, to whom, and how many are not."""
+
+    block = _provenance(coverage)
+    cells = block.get("cells") or {}
+    unattributed = int(block.get("unattributed") or 0)
+    attributed = int(block.get("attributed") or 0)
+    return (
+        f"provenance: attributed={attributed} unattributed={unattributed} "
+        f"cells by source: {cells or '{}'}"
+    )
+
+
 def _table_rows(results: Sequence[BuildResult], limit: int) -> tuple[list[BuildResult], int]:
     """The rows the human report prints, and how many were elided.
 
@@ -446,22 +492,24 @@ def render_human(
         f"fill_rate={coverage['fill_rate']:.4f}"
     )
     lines.append(f"sources: {coverage['sources']}")
+    lines.append(_provenance_line(coverage))
     if coverage["oldest_as_of"]:
         lines.append(
             f"as_of: {coverage['oldest_as_of']} .. {coverage['newest_as_of']} "
             "(data clock, not the fetch clock)"
         )
     lines.append("")
-    lines.append(f"{'field':<22} {'filled':>10}  coverage")
+    provenance = _provenance(coverage)
+    lines.append(f"{'field':<22} {'filled':>10}  coverage  cells by source")
     for row in coverage["fields"]:
         lines.append(
             f"{row['field']:<22} {row['filled']:>4}/{row['total']:<5}  "
-            f"{_percent(row['filled'], row['total'])}"
+            f"{_percent(row['filled'], row['total'])}  {_source_cells(row, provenance)}"
         )
     lines.append("")
     lines.append(
         "note: 22 canonical cells per symbol is the vocabulary; the filled column is "
-        "what the provider actually served."
+        "what the provider actually served, and 'cells by source' is who served each one."
     )
     if plan is not None:
         lines.append(
@@ -537,11 +585,12 @@ def render_scan_human(
         f"{', '.join(scan.missing_fields)}"
     )
     lines.append("")
-    lines.append(f"{'field':<22} {'filled':>10}  coverage")
+    lines.append(f"{'field':<22} {'filled':>10}  coverage  cells by source")
+    provenance = _provenance(own)
     for row in own["fields"]:
         lines.append(
             f"{row['field']:<22} {row['filled']:>4}/{row['total']:<5}  "
-            f"{_percent(row['filled'], row['total'])}"
+            f"{_percent(row['filled'], row['total'])}  {_source_cells(row, provenance)}"
         )
     lines.append("")
     lines.append(
@@ -553,6 +602,7 @@ def render_scan_human(
         f"fill_rate={coverage['fill_rate']:.4f}"
     )
     lines.append(f"sources: {coverage['sources']}")
+    lines.append(_provenance_line(coverage))
     if coverage["oldest_as_of"]:
         lines.append(
             f"as_of: {coverage['oldest_as_of']} .. {coverage['newest_as_of']} "

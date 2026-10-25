@@ -755,7 +755,7 @@ async def test_build_report_separates_every_status(tmp_path: Path) -> None:
     await store.aclose()
 
 
-async def test_migration_0003_is_the_head_and_the_table_exists(tmp_path: Path) -> None:
+async def test_migration_0004_is_the_head_and_the_table_exists(tmp_path: Path) -> None:
     store = await store_for(tmp_path)
     await store.ensure_ready()  # bootstraps a fresh file: one migration path only
 
@@ -768,11 +768,12 @@ async def test_migration_0003_is_the_head_and_the_table_exists(tmp_path: Path) -
         indexes = {
             row[1] for row in connection.execute("PRAGMA index_list(fundamentals_snapshots)").fetchall()
         }
-    assert [row[0] for row in head] == ["0003"]
+    assert [row[0] for row in head] == ["0004"]
     assert set(columns) == {
         "symbol",
         "instrument_id",
         "fields",
+        "field_sources",
         "source",
         "as_of",
         "fetched_at",
@@ -782,6 +783,7 @@ async def test_migration_0003_is_the_head_and_the_table_exists(tmp_path: Path) -
         "updated_at",
     }
     assert columns["fields"] == "TEXT"
+    assert columns["field_sources"] == "TEXT"
     assert "ix_fundamentals_expiry" in indexes
     await store.aclose()
 
@@ -820,7 +822,7 @@ async def test_apply_migrations_brings_an_existing_database_to_head(tmp_path: Pa
     db = tmp_path / "existing.db"
     command.upgrade(alembic_config(db), "0002")
 
-    assert apply_migrations(db) == "0003"
+    assert apply_migrations(db) == "0004"
 
     store = SqliteFundamentalsStore(db)
     builder = FundamentalsSnapshotBuilder(
@@ -832,6 +834,6 @@ async def test_apply_migrations_brings_an_existing_database_to_head(tmp_path: Pa
     assert await store.count() == 1
     with closing(sqlite3.connect(db)) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("0003",)
+            ("0004",)
         ]
     await store.aclose()

@@ -23,6 +23,16 @@ answers it with a fixed vocabulary:
   (all 22 keys, missing ones ``null``) so a reader can tell "the provider has no
   P/E for this ETF" from "this key is not part of the vocabulary". A non-finite
   number (``NaN``/``inf``) is absent for the same reason a blank is.
+* **Every filled cell names its own source.** ``field_sources`` is a second
+  full-width JSON column (``0004_field_sources``): 22 field→source keys, one per
+  filled cell, ``null`` where the cell is empty or its origin is unknown. ``source``
+  stays the row's aggregate label (``multi`` when a merge took cells from several
+  places) because one label cannot answer "who said this number" for a row — and
+  that question is the product's whole claim over a single-source screener. A
+  single-source row attributes its filled cells to that source; a pre-0004 row
+  (column ``NULL``) reads back the same way from the row label, and a cell nobody
+  can vouch for stays unattributed and is *counted*, never credited to a guess.
+  :mod:`app.fundamentals.provenance` owns the merge and the counts.
 * **A failed build writes nothing.** An all-rungs-failed walk, an empty body, or
   a payload that served none of the 22 fields leaves the previous row (if any)
   standing and reports ``failed``/``empty`` with the ladder verdict. Writing a
@@ -30,8 +40,9 @@ answers it with a fixed vocabulary:
   turn a transient outage into data loss.
 * **Coverage is measured, never claimed.** :func:`coverage_report` counts the
   filled cells of the rows that are still fresh, per field, and reports the
-  source histogram and the fresh/expired split. A schema with 22 keys is not a
-  coverage claim; this function is what can be quoted.
+  source histogram, the per-source cell counts and the fresh/expired split. A
+  schema with 22 keys is not a coverage claim; this function is what can be
+  quoted.
 * **A batch can be bounded by time.** ``build_many(..., time_budget_s=...)``
   stops *starting* walks when the budget expires; the untouched tail is
   ``deferred`` — not failed, not written — and ``skip_fresh`` resumes it on the
@@ -54,7 +65,7 @@ import json
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
@@ -106,17 +117,30 @@ _LOCK_BACKOFF_S = 0.02
 #: that cannot prove its age is expired, which is the safe direction.
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
-#: The one table this module owns (``0003_fundamentals``).
+#: The one table this module owns (``0003_fundamentals``; ``0004`` adds its
+#: per-cell provenance column).
 TABLE = "fundamentals_snapshots"
+
+#: The column ``0004_field_sources`` adds. Stored as JSON: 22 field→source keys,
+#: a ``null`` where a cell is empty or its origin is unknown.
+PROVENANCE_COLUMN = "field_sources"
+
+#: The row label a merged row carries when more than one source supplied its
+#: cells. It is **not** a source name: a merged row must also carry its
+#: per-cell map (:mod:`app.fundamentals.provenance`), because this label cannot
+#: say which number came from where.
+MULTI_SOURCE = "multi"
 
 
 class FundamentalsSchemaError(RuntimeError):
-    """The database has no ``fundamentals_snapshots`` table (not at 0003 yet).
+    """The database is behind this build: no table (``0003``) or no column (``0004``).
 
     ``ensure_schema`` bootstraps an *empty* file and deliberately does nothing to
     a database that already has the job tables — a long-lived service must not
     migrate itself on a read. An existing database is therefore upgraded through
-    Alembic, by the CLI (``apply_migrations``) or by an operator.
+    Alembic, by the CLI (``apply_migrations``) or by an operator. A database at
+    ``0003`` still *reads* (its rows carry no per-cell provenance, so the row
+    label stands in); only the write path refuses, and it says what to run.
     """
 
 
@@ -237,9 +261,56 @@ def _parse_stamp(value: Any, *, fallback: datetime | None = None) -> datetime:
 # ---------------------------------------------------------------------------
 
 
+def _field_source_map(
+    symbol: str,
+    fields: Mapping[str, Any],
+    sources: Mapping[str, Any] | None,
+    source: str | None,
+) -> dict[str, str | None]:
+    """The full-width field→source map: one entry per filled cell, 22 keys always.
+
+    Three rules, in order:
+
+    * a key outside the 22-cell vocabulary is a caller error (the vocabulary is
+      the contract's, and a typo must not become a silent ``null``);
+    * a *record without a cell* is dropped — it would claim an origin for a value
+      the row does not carry;
+    * a filled cell with no record falls back to the row's own ``source``, which
+      is the same fact at cell granularity. ``multi`` is exempt: it says "more
+      than one source", so it cannot honestly label a single cell.
+
+    A cell that stays unattributed keeps ``None`` in the map. That is the gap
+    ``provenance.field_source_counts`` counts, not a source this module invents.
+    """
+
+    explicit: dict[str, str] = {}
+    for name, value in dict(sources or {}).items():
+        if name not in _FIELD_SET:
+            raise ValueError(
+                f"{symbol}: provenance for {name!r}, which is not a fundamentals field; "
+                f"the vocabulary is {len(FUNDAMENTAL_FIELDS)} canonical columns"
+            )
+        if value is None:
+            continue
+        label = str(value).strip()
+        if label:
+            explicit[name] = label
+
+    fallback = str(source).strip() if source is not None else ""
+    if fallback == MULTI_SOURCE:
+        fallback = ""
+    cells: dict[str, str | None] = {}
+    for name in FUNDAMENTAL_FIELDS:
+        if fields.get(name) is None:
+            cells[name] = None
+            continue
+        cells[name] = explicit.get(name) or fallback or None
+    return cells
+
+
 @dataclass(frozen=True, slots=True)
 class FundamentalsSnapshot:
-    """One symbol's fundamentals, with the clocks and the source that own it."""
+    """One symbol's fundamentals, with the clocks and the sources that own it."""
 
     symbol: str
     instrument_id: str
@@ -248,6 +319,11 @@ class FundamentalsSnapshot:
     as_of: datetime
     fetched_at: datetime
     expires_at: datetime
+    #: Full width: all 22 keys, each the source that supplied that cell or
+    #: ``None``. A single-source row attributes its filled cells to ``source``;
+    #: a merged row carries the map :func:`app.fundamentals.provenance.merge_snapshots`
+    #: built. Stored in the ``field_sources`` column (``0004_field_sources``).
+    field_sources: Mapping[str, str | None] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not str(self.symbol).strip():
@@ -267,6 +343,13 @@ class FundamentalsSnapshot:
                 raise ValueError(
                     f"{self.symbol}: {name} is {type(value).__name__}, not a scalar cell"
                 )
+        # Normalised here, once: every snapshot leaving this constructor has a
+        # full-width map whose filled keys are exactly the filled cells.
+        object.__setattr__(
+            self,
+            "field_sources",
+            _field_source_map(self.symbol, self.fields, self.field_sources, self.source),
+        )
 
     @property
     def field_count(self) -> int:
@@ -303,6 +386,11 @@ class FundamentalsSnapshot:
             "field_count": self.field_count,
             "complete": self.complete,
             "fields": {name: self.fields.get(name) for name in FUNDAMENTAL_FIELDS},
+            # Full width, like ``fields``: a reader can tell "no provenance
+            # record" (``null``) from "not in the vocabulary" (absent key).
+            "field_sources": {
+                name: self.field_sources.get(name) for name in FUNDAMENTAL_FIELDS
+            },
         }
         if now is not None:
             document["stale"] = self.is_stale(now)
@@ -343,11 +431,20 @@ def snapshot_from_observations(
     must not be smuggled in. ``as_of`` is the newest observation clock — the
     provider's own stamp for the cells this row holds — and falls back to
     ``fetched_at`` when no observation carried one.
+
+    Each cell carries the source of **its own observation**
+    (``observation["source"]``), which is what makes a walk that answered from
+    two rungs visible per cell instead of only as a row label. An observation
+    that names no source falls back to the row-level ``source`` argument — that
+    is the same rung, one level up — and a cell with neither stays unattributed
+    rather than being credited to a guess. When two observations claim one cell,
+    the last one wins the value **and** its source, exactly like the value.
     """
 
     if ttl_s <= 0:
         raise ValueError("ttl_s must be positive")
     cells: dict[str, Any] = {}
+    sources: dict[str, str] = {}
     stamps: list[datetime] = []
     for observation in observations:
         if not isinstance(observation, Mapping):
@@ -359,6 +456,11 @@ def snapshot_from_observations(
         if value is None:
             continue
         cells[name] = value
+        label = str(observation.get("source") or "").strip()
+        if label:
+            sources[name] = label
+        else:
+            sources.pop(name, None)
         # A missing/unreadable stamp contributes nothing: falling back to the
         # *fetch* clock here would let a provider omission make old data look new.
         stamp = _parse_stamp(observation.get("as_of"))
@@ -371,6 +473,7 @@ def snapshot_from_observations(
         instrument_id=instrument_id,
         fields=fields,
         source=source,
+        field_sources=sources,
         as_of=as_of,
         fetched_at=fetched_at,
         expires_at=fetched_at + timedelta(seconds=int(ttl_s)),
@@ -565,7 +668,18 @@ def coverage_report(
     carries its own denominator, so a report over three symbols and one over
     three thousand cannot be confused. Zero fresh rows is ``0.0`` with
     ``total=0``, not a division error and not an invented percentage.
+
+    ``field_sources`` is the provenance block: how many filled cells each source
+    supplied, per field, plus the ``unattributed`` count. It is measured over the
+    same fresh rows as everything else, so "who said it" and "how much of it is
+    there" always describe one population. A source histogram over *rows* is not
+    a substitute — one merged row can hold five sources.
     """
+
+    # Imported here, not at module level: ``provenance`` imports this module for
+    # the vocabulary and the snapshot type, and a module-level import either way
+    # would close the cycle.
+    from app.fundamentals.provenance import field_source_counts
 
     rows = list(snapshots)
     fresh = [snapshot for snapshot in rows if snapshot.is_fresh(now)]
@@ -604,6 +718,7 @@ def coverage_report(
         "fill_rate": (filled_cells / total_cells) if total_cells else 0.0,
         "fields": fields,
         "sources": dict(sorted(sources.items())),
+        "field_sources": field_source_counts(fresh),
         "oldest_as_of": iso(min(moments)) if moments else None,
         "newest_as_of": iso(max(moments)) if moments else None,
     }
@@ -628,6 +743,7 @@ class SqliteFundamentalsStore:
         self._engine: AsyncEngine | None = None
         self._ready = asyncio.Lock()
         self._verified = False
+        self._writable = False
 
     # -- infrastructure ----------------------------------------------------
 
@@ -707,6 +823,29 @@ class SqliteFundamentalsStore:
 
     # -- writes ------------------------------------------------------------
 
+    async def _ensure_writable(self) -> None:
+        """Prove the provenance column exists before an insert needs it.
+
+        A database that stopped at ``0003`` still **reads** (``SELECT *`` simply
+        has no ``field_sources`` key, and the row's own ``source`` fills the map
+        in), so a read-only report keeps working. A write would die on ``no such
+        column``, which is why the write path says what to run instead — the same
+        bargain :meth:`ensure_ready` makes for a missing table.
+        """
+
+        await self.ensure_ready()
+        if self._writable:
+            return
+        async with self.engine.begin() as connection:
+            result = await connection.execute(text(f"PRAGMA table_info({TABLE})"))
+            columns = {str(row[1]) for row in result.fetchall()}
+        if PROVENANCE_COLUMN not in columns:
+            raise FundamentalsSchemaError(
+                f"{self.db_path} has a {TABLE} table without a {PROVENANCE_COLUMN} "
+                f"column (schema before 0004); run: {migration_hint(self.db_path)}"
+            )
+        self._writable = True
+
     async def upsert(self, snapshot: FundamentalsSnapshot) -> bool:
         """Insert or replace one symbol's row; ``False`` when it was older.
 
@@ -721,6 +860,7 @@ class SqliteFundamentalsStore:
         (the ``partial`` status and the coverage report make the loss visible).
         """
 
+        await self._ensure_writable()
         moment = self._clock()
         payload = {
             "symbol": canonical_symbol(snapshot.symbol),
@@ -730,6 +870,11 @@ class SqliteFundamentalsStore:
                 sort_keys=True,
                 ensure_ascii=False,
                 allow_nan=False,
+            ),
+            "field_sources": json.dumps(
+                {name: snapshot.field_sources.get(name) for name in FUNDAMENTAL_FIELDS},
+                sort_keys=True,
+                ensure_ascii=False,
             ),
             "source": snapshot.source,
             "as_of": iso(snapshot.as_of),
@@ -743,15 +888,16 @@ class SqliteFundamentalsStore:
             await self._execute(
                 """
                 INSERT INTO fundamentals_snapshots (
-                    symbol, instrument_id, fields, source, as_of, fetched_at,
-                    expires_at, field_count, complete, updated_at
+                    symbol, instrument_id, fields, field_sources, source, as_of,
+                    fetched_at, expires_at, field_count, complete, updated_at
                 ) VALUES (
-                    :symbol, :instrument_id, :fields, :source, :as_of, :fetched_at,
-                    :expires_at, :field_count, :complete, :updated_at
+                    :symbol, :instrument_id, :fields, :field_sources, :source, :as_of,
+                    :fetched_at, :expires_at, :field_count, :complete, :updated_at
                 )
                 ON CONFLICT(symbol) DO UPDATE SET
                     instrument_id = excluded.instrument_id,
                     fields = excluded.fields,
+                    field_sources = excluded.field_sources,
                     source = excluded.source,
                     as_of = excluded.as_of,
                     fetched_at = excluded.fetched_at,
@@ -818,7 +964,15 @@ class SqliteFundamentalsStore:
 
 
 def _snapshot_from_row(row: Mapping[str, Any]) -> FundamentalsSnapshot:
-    """Decode one table row; a corrupt JSON cell becomes ``null``, not a crash."""
+    """Decode one table row; a corrupt JSON cell becomes ``null``, not a crash.
+
+    A row written before ``0004_field_sources`` has no provenance stored (the
+    column is ``NULL``, or absent entirely on a database still at ``0003``). That
+    is not an error: the row's own ``source`` still says who served every cell it
+    filled, and the snapshot constructor applies exactly that fallback. What it
+    does **not** do is invent a source for a row that names none — those cells
+    stay unattributed and a coverage report counts them.
+    """
 
     raw = row.get("fields")
     cells: Mapping[str, Any] = {}
@@ -830,6 +984,24 @@ def _snapshot_from_row(row: Mapping[str, Any]) -> FundamentalsSnapshot:
             parsed = {}
         if isinstance(parsed, Mapping):
             cells = parsed
+    raw_sources = row.get("field_sources")
+    provenance: Mapping[str, Any] = {}
+    if isinstance(raw_sources, str) and raw_sources.strip():
+        try:
+            parsed_sources = json.loads(raw_sources)
+        except json.JSONDecodeError:  # pragma: no cover - only a hand-edited row
+            logger.warning(
+                "unreadable field_sources JSON symbol=%s", row.get("symbol")
+            )
+            parsed_sources = {}
+        if isinstance(parsed_sources, Mapping):
+            # Only vocabulary keys with a real label: the constructor would drop
+            # the rest anyway, and a malformed row must not sink a whole report.
+            provenance = {
+                name: value
+                for name, value in parsed_sources.items()
+                if name in _FIELD_SET and isinstance(value, str) and value.strip()
+            }
     fetched_at = _parse_stamp(row.get("fetched_at"), fallback=_EPOCH)
     expires_at = _parse_stamp(row.get("expires_at"), fallback=_EPOCH)
     stored = {
@@ -842,6 +1014,7 @@ def _snapshot_from_row(row: Mapping[str, Any]) -> FundamentalsSnapshot:
         instrument_id=str(row.get("instrument_id") or ""),
         fields={name: stored.get(name) for name in FUNDAMENTAL_FIELDS},
         source=(str(row["source"]) if row.get("source") is not None else None),
+        field_sources=provenance,
         as_of=_parse_stamp(row.get("as_of"), fallback=fetched_at),
         fetched_at=fetched_at,
         expires_at=expires_at,
@@ -1138,7 +1311,9 @@ __all__ = [
     "EMPTY_VERDICTS",
     "FAILED",
     "FUNDAMENTAL_FIELDS",
+    "MULTI_SOURCE",
     "PARTIAL",
+    "PROVENANCE_COLUMN",
     "STATUSES",
     "TABLE",
     "TTL_S",

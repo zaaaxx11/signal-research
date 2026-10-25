@@ -44,6 +44,19 @@ def _us_or_pl(_asset_class: str, mic: str) -> bool:
     return mic in {"XNAS", "XNYS", "XASE", "XWAR"}
 
 
+def _us_equity_only(asset_class: str, mic: str) -> bool:
+    """SEC ``companyfacts`` covers US-listed equities that file 10-K/10-Q.
+
+    A fund/ETF files N-CSR rather than 10-K, and a foreign listing has no CIK at
+    all. Both must be **skipped** (zero requests) instead of answered
+    ``not_found``: the ladder treats ``not_found`` as terminal, so a rung that
+    cannot cover the instrument would end the walk before the vendor rung that
+    can is ever asked.
+    """
+
+    return asset_class == "equity" and mic in {"XNAS", "XNYS", "XASE"}
+
+
 def _spec(
     name: str,
     capabilities: tuple[Capability, ...],
@@ -79,6 +92,7 @@ REGISTRY: tuple[ProviderSpec, ...] = (
         tier="T0",
         trust=1,
         delay="eod",
+        supports=_us_equity_only,
     ),
     _spec(
         "yahoo",
@@ -92,6 +106,18 @@ REGISTRY: tuple[ProviderSpec, ...] = (
         tier="T0",
         trust=3,
         delay="realtime",
+    ),
+    # Free scrape, US-listed only: a valuation cross-check for the fields the
+    # official filings do not carry (P/E, EV/EBITDA, P/FCF). Trust 3 and one
+    # request per symbol, so it sits after the vendor that owns the row.
+    _spec(
+        "finviz",
+        (Capability.FUNDAMENTALS,),
+        tier="T0",
+        trust=3,
+        delay="delayed",
+        rate_limit=(2, 1.0),
+        supports=_us_only,
     ),
     _spec(
         "stooq",
@@ -158,7 +184,7 @@ LADDER_ORDER: dict[Capability, tuple[str, ...]] = {
     Capability.REFERENCE: ("sec_edgar", "coingecko", "openfigi"),
     Capability.QUOTE: ("yahoo", "stooq", "nasdaq", "finnhub", "polygon"),
     Capability.EOD_BARS: ("yahoo", "stooq", "polygon"),
-    Capability.FUNDAMENTALS: ("sec_edgar", "yahoo", "finnhub"),
+    Capability.FUNDAMENTALS: ("sec_edgar", "yahoo", "finviz", "finnhub"),
     Capability.OPTIONS: ("yahoo", "polygon"),
     Capability.CONSTITUENTS: ("ishares",),
     Capability.CORPORATE_ACTIONS: ("yahoo",),
