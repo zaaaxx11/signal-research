@@ -50,15 +50,18 @@ def build_adapters(
 ) -> dict[str, HttpAdapter]:
     """One instance per implemented provider (fresh, stateless, no key read).
 
-    Only Yahoo takes the egress ladder today: its ``quoteSummary`` endpoint is
-    the one whose IP limit made a bulk walk fail. Other adapters keep their
-    existing constructor contract; the ladder is transport policy, not a
-    provider-wide retry.
+    The egress ladder is transport policy, so it reaches the scrapes that sit
+    behind an IP wall: Yahoo ``quoteSummary`` (its 429 made a bulk walk fail)
+    and Finviz (Cloudflare refuses a datacenter exit). Both take the **same**
+    ``ProxyPool`` — one cooldown table, one rotation cursor — so a fill that
+    alternates providers does not re-burn a proxy the other one just failed.
+    Other adapters keep their existing constructor contract: a proxy on a rung
+    that never needed one would be an extra hop, not a fix.
     """
 
     adapters: dict[str, HttpAdapter] = {}
     for cls in ADAPTER_CLASSES:
-        if cls is YahooAdapter:
+        if cls in (YahooAdapter, FinvizAdapter):
             adapters[cls.name] = cls(
                 timeout_s=timeout_s,
                 proxy_pool=proxy_pool,

@@ -38,6 +38,29 @@ and :data:`EXTRA_METRICS` names it. It is **not** emitted as an observation: an
 ``Observation.field`` outside the 92-column contract is a contract violation,
 not a new column.
 
+Egress is a ladder, not a retry
+-------------------------------
+Finviz sits behind Cloudflare, and a ``403``/``429`` or a ``Just a moment…``
+interstitial is a property of the **exit IP**, not of the symbol: the same page
+answers ``200`` from another wire. :meth:`FinvizAdapter.fetch` therefore walks
+``direct → r.jina.ai (free) → free proxies → paid proxies`` and keeps the first
+body that is not a block. The reader comes before the proxies because it is
+free, needs no key and returns the page's own HTML; a proxy request is spent
+only after it. A direct refusal cools the direct rung for the rest of a bulk run
+(``direct_cooldown_s``), so a 3,000-symbol fill does not spend one blocked
+request per symbol. The verdict still reads the response status and content —
+the proxy and the reader are transport, never a second source: the observations
+keep ``source="finviz"`` and the exit is reported on the raw response as
+``egress`` for the run log.
+
+What climbs: ``401``/``403``/``429``, a ``200`` Cloudflare challenge, and (on
+the reader rung) a markdown body — the reader ignored ``X-Return-Format: html``,
+which carries no snapshot table and is never parsed as if it did.
+What does **not**: ``404`` (the symbol is not there), ``5xx`` (the provider had
+a bad minute and another exit would repeat it), and a ``200`` page that simply
+lacks the snapshot table (``schema_drift`` — a shape change, not a wall). Those
+are answers about the page, and the next exit would give the same one.
+
 The short/ownership cells have their own reader
 -----------------------------------------------
 ``Short Float``, ``Insider Own`` and ``Inst Own`` are not fundamentals cells in
@@ -56,6 +79,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, Mapping, Sequence
@@ -70,9 +94,31 @@ from app.providers.adapters._support import (
     utc_now,
 )
 from app.providers.base import InstrumentRef, ProviderError, Verdict
+from app.providers.proxy_pool import FREE, PAID, ProxyPool
 
 HOST = "https://finviz.com"
 STOCK_PATH = "/stock?t={symbol}"
+
+#: The reader that renders the page from Jina's own egress when the direct wire
+#: is refused. ``r.jina.ai`` fetches over plain HTTP (the host redirects
+#: internally), so the path is spelled exactly as probed live 2026-10-25:
+#: ``https://r.jina.ai/http://finviz.com/stock?t=AAPL`` → 200 with the page's
+#: own 278 KB HTML when ``X-Return-Format: html`` is sent. Without that header
+#: the reader answers markdown, which carries no snapshot table and is never
+#: parsed as if it did.
+JINA_HOST = "https://r.jina.ai"
+JINA_SOURCE = "http://finviz.com"
+JINA_RETURN_FORMAT = "html"
+#: The rung's name in the egress order and on the raw response's ``egress``.
+JINA = "jina"
+#: The header the reader honours to return the page's HTML instead of markdown.
+JINA_FORMAT_HEADERS = {
+    "x-return-format": JINA_RETURN_FORMAT,
+    "x-respond-with": JINA_RETURN_FORMAT,
+}
+#: A markdown body starts with these sections; it is an answer *about* the
+#: transport (the header was ignored), not the page, and must not be parsed.
+_JINA_MARKDOWN_MARKERS = ("markdown content:",)
 
 #: The page is HTML; a JSON accept header gets a challenge more often.
 ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -130,6 +176,10 @@ _CHALLENGE_MARKERS = (
     "enable javascript and cookies",
     "verify you are human",
 )
+
+#: Statuses that mean "this exit is refused", not "this page is wrong". They
+#: climb to the next egress rung; a ``404`` or a ``5xx`` does not.
+_BLOCKED_STATUSES = frozenset({401, 403, 429})
 
 #: ``148.75``, ``5.07T``, ``39,539,912``, ``-0.14%`` — one token, with an
 #: optional magnitude suffix. Anything else (``Yes / Yes``, ``1.68% 1.82%``,
@@ -307,6 +357,23 @@ class FinvizAdapter(HttpAdapter):
     capabilities = frozenset({Capability.FUNDAMENTALS})
     accept = ACCEPT
 
+    def __init__(
+        self,
+        *,
+        timeout_s: float = 20.0,
+        proxy_pool: ProxyPool | None = None,
+        proxy_attempts: int = 3,
+        direct_cooldown_s: float = 600.0,
+    ) -> None:
+        super().__init__(timeout_s=timeout_s)
+        self.proxy_pool = proxy_pool
+        self.proxy_attempts = max(1, int(proxy_attempts))
+        self.direct_cooldown_s = max(0.0, float(direct_cooldown_s))
+        #: A direct 403/429 is a property of this egress, not this symbol: once
+        #: Cloudflare refuses the direct wire, a bulk fill should start on the
+        #: reader/proxy rungs instead of spending one blocked request per symbol.
+        self._direct_blocked_until = 0.0
+
     @staticmethod
     def _symbol(instrument: InstrumentRef) -> str:
         """Finviz spells a share class with a hyphen, like Yahoo: ``BRK-B``."""
@@ -316,9 +383,144 @@ class FinvizAdapter(HttpAdapter):
     def url(self, instrument: InstrumentRef) -> str:
         return f"{HOST}{STOCK_PATH.format(symbol=self._symbol(instrument))}"
 
+    def jina_url(self, instrument: InstrumentRef) -> str:
+        """The same stock page, fetched through the reader's own egress."""
+
+        return f"{JINA_HOST}/{JINA_SOURCE}{STOCK_PATH.format(symbol=self._symbol(instrument))}"
+
+    # -- egress ------------------------------------------------------------
+
+    def _egress_candidates(self) -> list[tuple[str, str | None]]:
+        """``(rung, proxy)`` in order: direct → Jina (free) → free → paid.
+
+        Jina's reader is *free* (no key, its own egress) and answers the page's
+        own HTML, so it is the first fallback after the direct wire — before
+        spending a proxy request. A proxy rung is skipped when the pool has
+        none; the list is never empty because the reader needs no pool.
+        """
+
+        candidates: list[tuple[str, str | None]] = []
+        if time.monotonic() >= self._direct_blocked_until:
+            candidates.append(("direct", None))
+        candidates.append((JINA, None))
+        pool = self.proxy_pool
+        if pool is not None:
+            seen: set[str] = set()
+            for _ in range(self.proxy_attempts):
+                proxy = pool.acquire(FREE)
+                if proxy and proxy not in seen:
+                    seen.add(proxy)
+                    candidates.append((FREE, proxy))
+            if pool.available(PAID):
+                proxy = pool.acquire(PAID)
+                if proxy and proxy not in seen:
+                    candidates.append((PAID, proxy))
+        return candidates
+
+    @staticmethod
+    def _challenged(raw: Mapping[str, Any]) -> bool:
+        """True when this body is a refusal of the *exit*, worth another wire.
+
+        A challenge page can arrive as ``200`` with an interstitial body, and a
+        ``401``/``403``/``429`` is a refusal whatever the body says. A ``200``
+        page without a snapshot table is **not** a challenge: that is a shape
+        change (``schema_drift``), and every exit would return the same one.
+        """
+
+        status = int(raw.get("status") or 0)
+        if status in _BLOCKED_STATUSES:
+            return True
+        if status != 200:
+            return False
+        lowered = text_of(raw).lower()
+        return any(marker in lowered for marker in _CHALLENGE_MARKERS)
+
+    def _usable(self, raw: Mapping[str, Any], rung: str) -> bool:
+        """A body that may be returned as the page: not a block, not markdown."""
+
+        if self._challenged(raw):
+            return False
+        if rung == JINA and self._markdown(raw):
+            return False
+        return True
+
+    def _raw(
+        self, response: Any, url: str, instrument: InstrumentRef, proxy: str | None
+    ) -> dict[str, Any]:
+        """One response as the raw document the ladder reads, with its exit."""
+
+        return {
+            "status": int(response.status_code),
+            "headers": {str(key).lower(): str(value) for key, value in response.headers.items()},
+            "body": response.content,
+            "url": url,
+            "capability": Capability.FUNDAMENTALS.value,
+            "egress": proxy or "direct",
+        }
+
+    @staticmethod
+    def _markdown(raw: Mapping[str, Any]) -> bool:
+        """True when the reader answered markdown instead of the page's HTML."""
+
+        lowered = text_of(raw).lower()
+        return any(marker in lowered for marker in _JINA_MARKDOWN_MARKERS)
+
+    async def _attempt(
+        self, rung: str, proxy: str | None, instrument: InstrumentRef, headers: dict[str, str]
+    ) -> dict[str, Any] | None:
+        """One rung: the reader (no proxy, HTML format) or one proxied GET."""
+
+        if rung == JINA:
+            return await self._fetch_jina(instrument, headers)
+        url = self.url(instrument)
+        try:
+            async with provider_http.build_client(
+                timeout_s=self.timeout_s, headers=headers, proxy=proxy
+            ) as client:
+                response = await client.get(url)
+                return self._raw(response, url, instrument, proxy)
+        except Exception as exc:  # noqa: BLE001 - one bad exit must not stop the walk
+            if self.proxy_pool is not None and proxy is not None:
+                self.proxy_pool.report_failure(proxy, FREE)
+            return {
+                "status": -1,
+                "headers": {},
+                "body": f"{type(exc).__name__}: {exc}".encode("utf-8"),
+                "url": url,
+                "capability": Capability.FUNDAMENTALS.value,
+                "egress": proxy or "direct",
+            }
+
+    async def _fetch_jina(
+        self, instrument: InstrumentRef, headers: Mapping[str, str]
+    ) -> dict[str, Any] | None:
+        """The page through ``r.jina.ai`` — transport, never a new source.
+
+        The reader does the fetching on its own egress, so this request carries
+        no proxy (a proxy here would only add a second failure point). ``None``
+        means the reader itself was unreachable; a reachable reader's body is
+        returned and judged by the same verdict, with the source still
+        ``finviz`` because the bytes are Finviz's page.
+        """
+
+        jina_headers = dict(headers)
+        jina_headers.update(JINA_FORMAT_HEADERS)
+        jina_headers["accept"] = ACCEPT
+        url = self.jina_url(instrument)
+        try:
+            async with provider_http.build_client(
+                timeout_s=self.timeout_s, headers=jina_headers
+            ) as client:
+                response = await client.get(url)
+                return self._raw(response, url, instrument, "jina")
+        except Exception:  # noqa: BLE001 - the reader is a fallback, not a promise
+            return None
+
     async def fetch(
         self, capability: Capability, instrument: InstrumentRef, fields: set[str]
     ) -> dict[str, Any]:
+        """One page over the first exit that is not refused; the last refusal else."""
+
         if capability not in self.capabilities:
             raise ProviderError(
                 Verdict(
@@ -328,23 +530,40 @@ class FinvizAdapter(HttpAdapter):
                 )
             )
         headers = self.request_headers(instrument)
-        async with provider_http.build_client(
-            timeout_s=self.timeout_s, headers=headers
-        ) as client:
-            response = await client.get(self.url(instrument))
-            body = response.content
-        return {
-            "status": int(response.status_code),
-            "headers": {str(key).lower(): str(value) for key, value in response.headers.items()},
-            "body": body,
+        last: dict[str, Any] | None = None
+        for rung, proxy in self._egress_candidates():
+            candidate = await self._attempt(rung, proxy, instrument, headers)
+            if candidate is None:
+                # The reader itself was unreachable; the wire below it already
+                # left its refusal in ``last``.
+                continue
+            if self._usable(candidate, rung):
+                if self.proxy_pool is not None and proxy is not None:
+                    self.proxy_pool.report_success(proxy, FREE)
+                return candidate
+
+            last = candidate
+            if rung == "direct":
+                self._direct_blocked_until = time.monotonic() + self.direct_cooldown_s
+            elif proxy is not None and self.proxy_pool is not None:
+                self.proxy_pool.report_failure(proxy, FREE)
+
+        return last or {
+            "status": -1,
+            "headers": {},
+            "body": b"no egress candidate",
             "url": self.url(instrument),
             "capability": Capability.FUNDAMENTALS.value,
+            "egress": "direct",
         }
 
     # -- verdict -----------------------------------------------------------
 
     def verdict(self, raw: Mapping[str, Any], instrument: InstrumentRef) -> Verdict:
         status = int(raw.get("status") or 0)
+        if status <= 0:
+            detail = text_of(raw).strip() or "no response"
+            return Verdict(False, "error", f"no response: {detail}")
         if status in (401, 403):
             return Verdict(False, "authwall", f"status {status}")
         if status == 404:
@@ -365,6 +584,12 @@ class FinvizAdapter(HttpAdapter):
         hit = next((marker for marker in _CHALLENGE_MARKERS if marker in lowered), None)
         if hit is not None:
             return Verdict(False, "blocked", f"Cloudflare challenge page ({hit})")
+        if self._markdown(raw):
+            # The reader ignored ``X-Return-Format: html``. Markdown carries no
+            # snapshot table, so this is a transport shape change, not a page.
+            return Verdict(
+                False, "schema_drift", "r.jina.ai answered markdown, not the page HTML"
+            )
 
         rows = snapshot_rows(body)
         if not rows:
@@ -418,6 +643,9 @@ __all__ = [
     "FACT_FIELDS",
     "FinvizAdapter",
     "HOST",
+    "JINA",
+    "JINA_HOST",
+    "JINA_SOURCE",
     "VALUATION_FIELDS",
     "parse_facts",
     "parse_metrics",
