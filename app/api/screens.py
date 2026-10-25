@@ -116,7 +116,7 @@ def _with_logos(document: dict[str, Any]) -> dict[str, Any]:
 
     result = dict(document)
     result["rows"] = [
-        {**dict(row), "logo": logo_for(row.get("symbol"))}
+        {**dict(row), "logo": logo_for(row.get("symbol"), row.get("name"))}
         for row in document.get("rows", [])
     ]
     return result

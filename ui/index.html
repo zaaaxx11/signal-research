@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b070d" />
     <title>Ztockz - Market cockpit</title>
-    <link rel="stylesheet" href="./styles.css?v=20261025-10" />
+    <link rel="stylesheet" href="./styles.css?v=20261025-13" />
   </head>
   <body>
     <div class="ambient ambient-a"></div>
@@ -41,8 +41,8 @@
         <div class="side-label">Universe</div>
         <div class="side-list">
           <button class="side-row is-active" data-region="us"><span>US equities</span><b id="sideUsCount">5,579</b></button>
-          <button class="side-row" data-region="global"><span>Global</span><b>40,950</b></button>
-          <button class="side-row" data-region="us_etf"><span>US ETFs</span><b>5,779</b></button>
+          <button class="side-row" data-region="global"><span>Global</span><b id="sideGlobalCount">40,950</b></button>
+          <button class="side-row" data-region="us_etf"><span>US ETFs</span><b id="sideEtfCount">5,779</b></button>
         </div>
 
         <div class="side-foot">
@@ -83,7 +83,7 @@
             <div class="stat-card stat-main">
               <span class="stat-label">Universe</span>
               <strong id="statUniverse">--</strong>
-              <span class="stat-note">US issuers in scan</span>
+              <span class="stat-note" id="statUniverseNote">Issuers in scan</span>
             </div>
             <div class="stat-card">
               <span class="stat-label">Advancing</span>
@@ -295,6 +295,6 @@
 
     <div class="toast hidden" id="toast" role="status"></div>
 
-    <script src="./app.js?v=20261025-10" defer></script>
+    <script src="./app.js?v=20261025-13" defer></script>
   </body>
 </html>

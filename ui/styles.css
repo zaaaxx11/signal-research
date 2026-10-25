@@ -293,7 +293,7 @@ h1 em { color: var(--pink); font-style: normal; }
 .market-table tbody tr.data-row.is-selected { background: rgba(255, 79, 153, 0.09); box-shadow: inset 2px 0 0 var(--pink); }
 .market-table tbody tr.data-row:last-child td { border-bottom: 0; }
 .col-rank { width: 34px; color: var(--faint); }
-.col-name { min-width: 170px; }
+.col-name { min-width: 300px; }
 .col-num { text-align: right !important; font-family: var(--mono); white-space: nowrap; }
 .col-star { width: 36px; text-align: center !important; }
 .rank-num { color: var(--faint); font-family: var(--mono); font-size: 10px; }
@@ -304,8 +304,8 @@ h1 em { color: var(--pink); font-style: normal; }
   font-size: 9px; font-weight: 700; letter-spacing: -0.02em;
 }
 .ticker-copy { min-width: 0; }
-.ticker { display: block; font-weight: 650; letter-spacing: -0.02em; font-size: 12px; }
-.company { display: block; color: var(--faint); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; margin-top: 1px; }
+.ticker { display: block; font-weight: 650; letter-spacing: -0.02em; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+.company { display: block; color: var(--faint); font-size: 9px; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; margin-top: 2px; letter-spacing: 0.02em; }
 .price { font-family: var(--mono); font-size: 12px; color: var(--text); }
 .change { font-family: var(--mono); font-size: 11px; }
 .change.up { color: var(--green); }

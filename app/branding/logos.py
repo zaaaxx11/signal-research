@@ -51,14 +51,24 @@ LOGO_DOMAINS: dict[str, str] = {
 _LOGO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 
 
-def _initials(symbol: str) -> str:
-    """A short, deterministic ticker mark; dots and slashes are not initials."""
+def _initials(symbol: str, name: str | None = None) -> str:
+    """A short mark; prefer real company words, never a numeric ticker.
 
-    cleaned = "".join(char for char in symbol.upper() if char.isalnum())
+    A global row often has a numeric local symbol (``2330``). Using that as a
+    monogram would put a number in the Company column even when the provider
+    supplied the issuer name. Words from ``name`` are the honest fallback.
+    """
+
+    if name:
+        words = [word.strip(".,;:()[]") for word in str(name).split()]
+        words = [word for word in words if word and any(char.isalpha() for char in word)]
+        if words:
+            return "".join(word[0] for word in words[:3]).upper()
+    cleaned = "".join(char for char in str(symbol).upper() if char.isalpha())
     return (cleaned or "?")[:4]
 
 
-def _monogram(symbol: str) -> str:
+def _monogram(symbol: str, name: str | None = None) -> str:
     """A colour-stable SVG mark; data URI keeps the field useful offline."""
 
     seed = int(hashlib.sha256(symbol.upper().encode("utf-8")).hexdigest()[:8], 16)
@@ -66,7 +76,7 @@ def _monogram(symbol: str) -> str:
     # Two nearby hues keep the palette in the cockpit's pink/rose family.
     top = f"hsl({hue} 72% 58%)"
     bottom = f"hsl({(hue + 28) % 360} 62% 38%)"
-    label = escape(_initials(symbol))
+    label = escape(_initials(symbol, name))
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">'
         f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
@@ -90,18 +100,19 @@ def _vendored(symbol: str) -> str | None:
     return None
 
 
-def logo_for(symbol: str | None) -> str:
+def logo_for(symbol: str | None, name: str | None = None) -> str:
     """Return a non-empty logo URL for every instrument.
 
-    ``symbol`` is the canonical ticker. The function is deliberately pure and
+    ``symbol`` is the canonical ticker and ``name`` is the provider's issuer
+    label when one is available. The function is deliberately pure and
     filesystem-only: no provider request is made while serving a screen, and a
     new symbol cannot add latency to the browse path.
     """
 
     if not symbol:
-        return _monogram("?")
+        return _monogram("?", name)
     key = str(symbol).upper()
-    return _vendored(key) or _monogram(key)
+    return _vendored(key) or _monogram(key, name)
 
 
 def logo_domain(symbol: str) -> str | None:

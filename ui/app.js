@@ -406,7 +406,10 @@ function renderStats() {
   $("#statAdvancingNote").textContent = "of current page";
   const pe = median(rows.map((row) => row.pe));
   $("#statMedianPe").textContent = pe === null ? "--" : `${pe.toFixed(1)}×`;
-  $("#sideUsCount").textContent = state.region === "us" && state.universe ? fmtInt(state.universe) : $("#sideUsCount").textContent;
+  const universeLabel = { us: "US issuers in scan", global: "Global issuers in scan", us_etf: "US ETF issuers in scan" }[state.region] || "Issuers in scan";
+  $("#statUniverseNote").textContent = universeLabel;
+  const activeCount = $("#side" + ({ us: "Us", global: "Global", us_etf: "Etf" }[state.region] || "Us") + "Count");
+  if (state.universe && activeCount) activeCount.textContent = fmtInt(state.universe);
   $("#selectionMeta").textContent = state.asOf ? `Live scan · ${fmtStamp(state.asOf)}` : "Live scan";
   $("#rowCount").textContent = String(rows.length);
   $("#sideStatus").textContent = state.loading ? "Scanning market" : state.rows.length ? "Scan connected" : "Scan unavailable";
@@ -482,7 +485,7 @@ function renderTable() {
         <td class="col-name">
           <div class="ticker-wrap">
             <span class="ticker-mark"><span class="ticker-fallback">${esc(mark(row.symbol))}</span><img class="ticker-logo" src="${esc(row.logo || "")}" alt="" loading="eager" /></span>
-            <span class="ticker-copy"><span class="ticker" title="${esc(company(row))}">${esc(row.symbol)}</span><span class="company" title="${esc(company(row))}">${esc(company(row))}</span></span>
+            <span class="ticker-copy"><span class="ticker" title="${esc(company(row))}">${esc(company(row))}</span><span class="company" title="${esc(row.symbol)}">${esc(row.symbol)}${row.exchange ? ` · ${esc(row.exchange)}` : ""}</span></span>
           </div>
         </td>
         ${columns.map((key) => {
