@@ -103,7 +103,7 @@ const state = {
   perPage: 20,
   region: "us",
   view: "discover",
-  screenView: "overview",
+  screenView: "all",
   overviewBySymbol: new Map(),
   serverFilters: [],
   serverSort: "market_cap",
