@@ -521,8 +521,8 @@ def test_latest_observation_lets_a_later_restatement_win() -> None:
     assert latest is not None and latest.value == pytest.approx(21.0)
 
 
-def test_latest_observation_prefers_the_first_default_tag_that_has_evidence() -> None:
-    """Documented precedence: tag order first, recency within the chosen tag."""
+def test_latest_observation_prefers_the_newest_filing_across_tags() -> None:
+    """Recency is primary: a retired primary tag must not beat a current alias."""
 
     observations = one(
         {
@@ -536,10 +536,31 @@ def test_latest_observation_prefers_the_first_default_tag_that_has_evidence() ->
     latest = latest_observation(observations, "revenue")
 
     assert latest is not None
-    assert latest.tag == "RevenueFromContractWithCustomerExcludingAssessedTax"
-    assert latest.value == pytest.approx(111.0), (
-        "the alias is older; recency only decides between rows of the chosen tag"
+    assert latest.tag == "Revenues"
+    assert latest.value == pytest.approx(999.0), (
+        "the alias was filed a year later; tag order cannot revive the retired primary"
     )
+
+
+def test_latest_observation_uses_tag_order_as_a_tiebreaker() -> None:
+    """When recency is identical, the documented primary tag still wins."""
+
+    observations = one(
+        {
+            "Revenues": [
+                row("2026-03-31", 111.0, accn="same", filed="2026-05-01")
+            ],
+            "RevenueFromContractWithCustomerExcludingAssessedTax": [
+                row("2026-03-31", 111.0, accn="same", filed="2026-05-01")
+            ],
+        }
+    )
+
+    latest = latest_observation(observations, "revenue")
+
+    assert latest is not None
+    assert latest.tag == "RevenueFromContractWithCustomerExcludingAssessedTax"
+    assert latest.value == pytest.approx(111.0)
 
 
 def test_latest_observation_falls_through_to_the_second_tag() -> None:

@@ -28,14 +28,16 @@ Which fact wins
 appears in the 10-K, again in the next year's comparatives, and again after a
 restatement. The order is fixed and documented:
 
-1. **Tag precedence** — :data:`DEFAULT_TAGS` lists one or more us-gaap names
-   per engine key, primary first. The first tag with any usable row wins; an
-   older row of the primary concept beats a newer row of an alias, because the
-   alias is a fallback for issuers that do not use the primary concept at all.
-2. **Recency** — within the chosen tag, the newest ``filed`` wins, then the
-   newest ``period_end``, then ``accession`` and ``value`` purely to make the
-   choice reproducible. A later accession therefore beats the original filing
-   it restates, which is the point of reading ``filed`` rather than ``end``.
+1. **Recency across aliases** — :data:`DEFAULT_TAGS` lists one or more us-gaap
+   names per engine key, primary first. All aliases are candidates, and the
+   newest filing wins: an issuer that stopped using a primary concept must not
+   keep publishing its last 2022 value while a current alias exists. The tag
+   order breaks ties only when two observations have the same filed date,
+   period end, accession and value.
+2. **Recency within a tag** — newest ``filed`` wins, then newest ``period_end``,
+   then ``accession`` and ``value`` purely to make the choice reproducible. A
+   later accession therefore beats the original filing it restates, which is
+   the point of reading ``filed`` rather than ``end``.
 3. **Form filter** — ``forms=("10-K", "10-Q")`` restricts the field to periodic
    reports. The filter is opt-in: an 8-K or a 20-F row is a real fact, and the
    caller decides whether it belongs in its slice.
@@ -298,18 +300,32 @@ def _latest(
     tag_names: Sequence[str],
     forms: frozenset[str] | None,
 ) -> FactObservation | None:
-    """Newest observation among ``tag_names`` in precedence order, or ``None``."""
+    """Newest observation across ``tag_names``, with tag order as a tie-break.
 
-    for tag in tag_names:
-        candidates = [
-            observation
-            for observation in observations
-            if observation.tag == tag
-            and (forms is None or observation.form.upper() in forms)
-        ]
-        if candidates:
-            return max(candidates, key=_recency)
-    return None
+    Recency is the primary rule because issuers retire concepts: NVIDIA's
+    ``RevenueFromContractWithCustomerExcludingAssessedTax`` ends in fiscal 2022
+    while ``Revenues`` is current, and choosing the first tag with *any* row
+    would publish a four-year-old revenue figure. A primary tag still wins when
+    two aliases were filed on the same day and report the same period, so the
+    preference remains deterministic where recency cannot decide.
+    """
+
+    preferred = {tag: index for index, tag in enumerate(tag_names)}
+    candidates = [
+        observation
+        for observation in observations
+        if observation.tag in preferred
+        and (forms is None or observation.form.upper() in forms)
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda observation: (
+            _recency(observation),
+            -preferred[observation.tag],
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -437,10 +453,11 @@ def latest_observation(
 ) -> FactObservation | None:
     """The newest observation for canonical ``key``, or ``None``.
 
-    ``key`` is a :data:`DEFAULT_TAGS` key (``"revenue"``, ``"total_debt"``, …).
-    A name outside the map is treated as a raw us-gaap tag, so a caller can read
-    a concept this slice has no canonical key for; if neither matches anything
-    the answer is ``None``. There is no fallback value and no zero.
+    The winner is the newest filing across every alias in the canonical key's
+    group, with :data:`DEFAULT_TAGS` order as the tie-break. A raw us-gaap tag
+    outside the map is also accepted, so a caller can read a concept this slice
+    has no canonical key for; if neither matches anything the answer is
+    ``None``. There is no fallback value and no zero.
 
     ``forms`` optionally restricts the field to a set of filing forms, matched
     case-insensitively; ``forms=()`` matches nothing, which is an explicit
