@@ -484,8 +484,7 @@ def observations_to_cells(
 ) -> dict[str, Cell]:
     """One :class:`Cell` per canonical key that has a usable observation.
 
-    The winner is chosen by :func:`latest_observation`'s rules (tag precedence,
-    then recency). Provenance is the filing, not the parse: ``source="sec"``,
+    The winner is chosen by :func:`latest_observation`'s rules (newest filing across aliases; tag order is a tie-break). Provenance is the filing, not the parse: ``source="sec"``,
     ``as_of`` is the observation's ``period_end`` (falling back to ``filed``
     only if a hand-built observation has no period end), ``url=None`` because a
     companyfacts row carries no document URL, and ``inputs`` is
