@@ -34,7 +34,11 @@ def engine_service_of(request: Request) -> EngineService:
 
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
-    return engine_service_of(request).health()
+    document = engine_service_of(request).health()
+    startup_error = getattr(request.app.state, "engine_startup_error", None)
+    if startup_error is not None:
+        document["startup_error"] = startup_error
+    return document
 
 
 @router.get("/catalog")

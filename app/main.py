@@ -11,6 +11,8 @@ exactly that) never share a database or an export directory.
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
@@ -22,6 +24,7 @@ from app.api import health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
+from app.engine.ingest import load_sec_dataset
 from app.engine.service import EngineService
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
@@ -64,6 +67,36 @@ def mount_router(application: FastAPI, router: APIRouter) -> None:
         application.router.routes.append(route)
 
 
+@asynccontextmanager
+async def _engine_lifespan(application: FastAPI):
+    """Optionally load one SEC dataset before serving requests.
+
+    The engine is deliberately empty by default: a process should not surprise
+    its operator with an EDGAR fetch. Setting ``MEE_ENGINE_SYMBOLS`` (comma
+    separated) opts in; ``MEE_ENGINE_CACHE_DIR`` chooses the per-CIK document
+    cache. A failed load is recorded on ``state.engine_startup_error`` and the
+    app still starts, because an unavailable enrichment source must degrade to
+    the honest ``503`` route rather than make the whole API unstartable.
+    """
+
+    raw_symbols = os.environ.get("MEE_ENGINE_SYMBOLS", "")
+    symbols = tuple(
+        part.strip().upper() for part in raw_symbols.split(",") if part.strip()
+    )
+    if symbols:
+        raw_cache = os.environ.get("MEE_ENGINE_CACHE_DIR", "").strip()
+        cache_dir = Path(raw_cache).expanduser() if raw_cache else None
+        try:
+            dataset = await load_sec_dataset(symbols, cache_dir=cache_dir)
+        except Exception as exc:  # noqa: BLE001 - startup must stay observable
+            application.state.engine_startup_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+        else:
+            application.state.engine = EngineService.from_dataset(dataset)
+    yield
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the ASGI application from settings (no I/O at import time)."""
 
@@ -73,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         docs_url=None,
         redoc_url=None,
+        lifespan=_engine_lifespan,
     )
     application.state.runtime = runtime
     #: Read-only engine projections (catalog/identity). The full ingestion
