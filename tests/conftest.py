@@ -15,10 +15,15 @@ is expected to be non-empty and is cleared before teardown.
 
 from __future__ import annotations
 
+import os
 import socket
 from typing import Iterator
 
 import pytest
+
+#: The suite makes thousands of mocked SEC requests; a real 10 req/s gate would
+#: turn that into minutes of sleep. Production enables it through engine.env.
+os.environ.setdefault("MEE_SEC_RATE_LIMIT", "0")
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "", None})
 _AF_UNIX = getattr(socket, "AF_UNIX", None)

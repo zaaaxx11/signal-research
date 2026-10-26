@@ -34,6 +34,7 @@ import tempfile
 from typing import Any
 
 from app.engine.ingest import DEFAULT_USER_AGENT
+from app.engine.ratelimit import sec_get
 from app.engine.sources.sec import normalize_cik
 from app.providers import http as provider_http
 
@@ -198,9 +199,9 @@ async def _fetch_text(url: str, *, client: Any) -> str:
     try:
         if client is None:
             async with provider_http.build_client(headers=headers) as owned:
-                response = await owned.get(url, headers=headers)
+                response = await sec_get(owned, url, headers=headers)
         else:
-            response = await client.get(url, headers=headers)
+            response = await sec_get(client, url, headers=headers)
         text = response.text
     except Exception as exc:  # noqa: BLE001 - one domain error for the boundary
         raise FundSeriesError(

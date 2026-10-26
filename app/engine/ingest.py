@@ -81,6 +81,7 @@ from typing import Any
 
 from app.engine.facts import fact_ttm_summary
 from app.engine.model import Cell, Provenance
+from app.engine.ratelimit import sec_get
 from app.engine.security import SecurityMaster
 from app.engine.sources.sec import (
     SOURCE_NAME,
@@ -239,9 +240,9 @@ async def _fetch_json(
     try:
         if client is None:
             async with provider_http.build_client(headers=headers) as owned:
-                response = await owned.get(url, headers=headers)
+                response = await sec_get(owned, url, headers=headers)
         else:
-            response = await client.get(url, headers=headers)
+            response = await sec_get(client, url, headers=headers)
         response.raise_for_status()
         text = response.text
     except Exception as exc:  # noqa: BLE001 - one domain error for the boundary

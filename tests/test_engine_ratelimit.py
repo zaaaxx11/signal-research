@@ -126,7 +126,7 @@ async def test_sec_get_acquires_then_gets(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     assert result == "response"
-    assert events == ["acquire:1", "get:https://data.sec.gov/x"]
+    assert events == ["acquire:1.0", "get:https://data.sec.gov/x"]
 
 
 async def test_ingest_goes_through_sec_get(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,18 +134,20 @@ async def test_ingest_goes_through_sec_get(monkeypatch: pytest.MonkeyPatch) -> N
 
     async def fake_sec_get(client: Any, url: str, **kwargs: Any) -> Any:
         calls.append(url)
-        return httpx2.Response(200, json={"ok": True})
+        return httpx2.Response(
+            200, json={"ok": True}, request=httpx2.Request("GET", url)
+        )
 
     monkeypatch.setattr(ingest, "sec_get", fake_sec_get)
 
     payload, text = await ingest._fetch_json(
         "https://data.sec.gov/submissions/CIK0000000001.json",
         client=object(),
-        user_agent="test-agent",
+        user_agent="ztockz-test/1.0 (test@example.com)",
     )
 
     assert payload == {"ok": True}
     assert calls == ["https://data.sec.gov/submissions/CIK0000000001.json"], (
         "the ingest boundary must use the shared limiter, not client.get"
     )
-    assert text == '{"ok": true}'
+    assert text == '{"ok":true}'
