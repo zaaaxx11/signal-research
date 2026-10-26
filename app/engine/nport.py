@@ -42,6 +42,7 @@ import tempfile
 from typing import Any
 import xml.etree.ElementTree as ET
 
+from app.engine.fund_series import FundSeries, fund_series_path, load_fund_series
 from app.engine.ingest import DEFAULT_USER_AGENT, fetch_submissions
 from app.engine.sources.sec import normalize_cik
 from app.providers import http as provider_http
@@ -50,6 +51,14 @@ from app.providers import http as provider_http
 #: (a list of the fund's other securities) and ``N-CSR`` is an annual report:
 #: neither is the monthly portfolio this slice publishes.
 NPORT_FORM = "NPORT-P"
+
+#: EDGAR full-text search. Unlike ``submissions`` this index answers "which
+#: filings mention this series id", which is the only official way to tell two
+#: series of one trust apart. One page of 100 covers a series' whole quarterly
+#: history, so the lookup never paginates.
+EFTS_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
+EFTS_PAGE_SIZE = 100
+
 
 #: EDGAR's archive path for one filing body. ``cik`` is the unpadded integer
 #: spelling and ``accession`` carries no dashes — that is the published shape.
@@ -145,6 +154,27 @@ def _number(raw: str | None) -> float | None:
     except ValueError:
         return None
     return value if math.isfinite(value) else None
+
+
+def _xml_text(xml_text: str, tag: str) -> str | None:
+    """The text of the first element named ``tag``, or ``None``.
+
+    ``seriesId`` and ``repPdDate`` live in ``genInfo``; matching on the local
+    name keeps a namespaced document readable (the real body declares the
+    nport namespace, a copy may omit it). A body that does not parse answers
+    ``None`` rather than raising: :func:`parse_nport` already owns the "this is
+    not an N-PORT" judgement, and the caller uses the miss only as a fallback
+    for a date it can take from the index instead.
+    """
+
+    try:
+        root = ET.fromstring(xml_text)
+    except (ET.ParseError, ValueError):
+        return None
+    for element in root.iter():
+        if _local(element.tag) == tag:
+            return _text(element)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -435,12 +465,284 @@ def _sort_key(holding: EtfHolding) -> tuple[bool, float, bool, float]:
     )
 
 
+def _efts_hits(payload: object) -> list[object]:
+    """The ``hits.hits`` list of an EFTS response, or ``[]``.
+
+    EFTS wraps its rows twice (``hits.hits``); anything else — an error object,
+    a bare list — is not a result set this lookup can read, and answering "no
+    rows" would turn a malformed answer into a "fund has no filings" verdict.
+    The caller distinguishes the two, so a wrong shape is a failure.
+    """
+
+    if not isinstance(payload, Mapping):
+        return []
+    hits = payload.get("hits")
+    if not isinstance(hits, Mapping):
+        return []
+    rows = hits.get("hits")
+    if isinstance(rows, (str, bytes)) or not isinstance(rows, Sequence):
+        return []
+    return list(rows)
+
+
+def _contains_cik(values: object, cik: str) -> bool:
+    """True when the hit's ``ciks`` names the padded ten-digit ``cik``."""
+
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        return False
+    return any(normalize_cik(value) == cik for value in values)
+
+
+def _contains_nport_form(values: object) -> bool:
+    """True when the hit's ``root_forms`` includes ``NPORT-P``.
+
+    ``NPORT-EX`` is an exhibit and ``N-CSR`` an annual report: either may
+    mention the series, and neither carries the monthly portfolio.
+    """
+
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        return False
+    return any(
+        isinstance(value, str) and value.strip().upper() == NPORT_FORM
+        for value in values
+    )
+
+
+def _series_filings(payload: object, *, cik: str) -> list[SeriesFiling]:
+    """Every EFTS hit for ``cik`` that is an NPORT-P, newest-date data intact.
+
+    ``_id`` is ``<accession>:<document>`` and is split at the **first** colon:
+    the document name itself can contain one, while the accession cannot.
+    """
+
+    filings: list[SeriesFiling] = []
+    for hit in _efts_hits(payload):
+        if not isinstance(hit, Mapping):
+            continue
+        source = hit.get("_source")
+        if not isinstance(source, Mapping):
+            continue
+        if not _contains_cik(source.get("ciks"), cik):
+            continue
+        if not _contains_nport_form(source.get("root_forms")):
+            continue
+        identifier = hit.get("_id")
+        if not isinstance(identifier, str):
+            continue
+        accession, _, document = identifier.partition(":")
+        accession = accession.strip()
+        document = document.strip()
+        filed = source.get("file_date")
+        filed = filed.strip() if isinstance(filed, str) else ""
+        if not accession or not document or not filed:
+            continue
+        report_date = source.get("period_ending")
+        filings.append(
+            SeriesFiling(
+                filed=filed,
+                report_date=(
+                    report_date.strip()
+                    if isinstance(report_date, str) and report_date.strip()
+                    else None
+                ),
+                accession=accession,
+                document=document,
+            )
+        )
+    return filings
+
+
 async def find_series_filing(
     series_id: str, cik: str, *, client: Any = None
 ) -> SeriesFiling | None:
-    """Locate the newest N-PORT filing for one series. Implemented in R5E."""
+    """Locate the newest N-PORT filing that belongs to one series.
 
-    raise NotImplementedError("find_series_filing is implemented in R5E")
+    A trust CIK files one NPORT-P per series, so the submissions index cannot
+    answer "which filing is IVV's": its newest row may be another ETF. EDGAR's
+    full-text search can, because it indexes the XML body — asking for the
+    series id returns exactly the filings whose document contains it.
+
+    The result is filtered twice more, because full-text search is not a
+    guarantee: the hit must name the padded CIK (another trust may mention the
+    series) and its ``root_forms`` must be ``NPORT-P``. "Newest" is
+    ``(file_date, accession)`` descending — the filing date is what a reader
+    means, and the accession breaks a tie between two same-day filings.
+
+    No qualifying hit is ``None`` (a normal "this fund has no filing", which the
+    collector turns into :class:`HoldingsNotFound`); a transport or JSON failure
+    is :class:`HoldingsUnavailable`, never an empty result set.
+    """
+
+    if not isinstance(series_id, str) or not series_id.strip():
+        raise ValueError("series_id must be a non-blank SEC series id")
+    key = normalize_cik(cik)
+    if key is None:
+        raise HoldingsUnavailable(f"ValueError: not a SEC CIK: {cik!r}")
+
+    headers = {"user-agent": DEFAULT_USER_AGENT, "accept": "application/json"}
+    params = {
+        "q": series_id.strip(),
+        "forms": NPORT_FORM,
+        "from": "0",
+        "size": str(EFTS_PAGE_SIZE),
+    }
+    try:
+        if client is None:
+            async with provider_http.build_client(headers=headers) as owned:
+                response = await owned.get(
+                    EFTS_SEARCH_URL, params=params, headers=headers
+                )
+        else:
+            response = await client.get(
+                EFTS_SEARCH_URL, params=params, headers=headers
+            )
+    except Exception as exc:  # noqa: BLE001 - one domain error for the boundary
+        raise HoldingsUnavailable(
+            f"EFTS search failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if response.status_code != 200:
+        raise HoldingsUnavailable(
+            f"HTTPStatusError: HTTP {response.status_code} on {EFTS_SEARCH_URL}"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise HoldingsUnavailable(
+            f"EFTS search did not answer JSON: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    filings = _series_filings(payload, cik=key)
+    if not filings:
+        return None
+    filings.sort(key=lambda filing: (filing.filed, filing.accession), reverse=True)
+    return filings[0]
+
+
+def _series_for(symbol: str, cache_dir: Path | None) -> FundSeries | None:
+    """The fund-map row for ``symbol``, or ``None`` to take the fallback path.
+
+    The map is consulted only when there is a cache directory to read it from;
+    ``cache_dir=None`` keeps the startup behaviour (one request per document,
+    no disk at all). An absent or unreadable map yields ``{}``, which is the
+    same answer as "symbol not listed" — both mean the CIK-wide submissions
+    path, never a guessed series.
+    """
+
+    if cache_dir is None:
+        return None
+    ticker = symbol.strip().upper() if isinstance(symbol, str) else ""
+    if not ticker:
+        return None
+    return load_fund_series(fund_series_path(cache_dir)).get(ticker)
+
+
+async def _read_or_fetch_body(
+    url: str, path: Path | None, *, client: Any
+) -> tuple[str, bool]:
+    """The body from disk when the cache is warm, else exactly one request.
+
+    The boolean says whether a request paid for it, so a warm entry is never
+    rewritten and a body that fails to parse is never cached at all.
+    """
+
+    cached = _read_cache(path)
+    if cached is not None:
+        return cached, False
+    return await _fetch_body(url, client=client), True
+
+
+def _document(
+    symbol: str,
+    holdings: Sequence[EtfHolding],
+    *,
+    as_of: str | None,
+    filed: str,
+    accession: str,
+    limit: int,
+) -> dict[str, object]:
+    """Project the portfolio into the frozen seven-key document shape.
+
+    ``limit`` bounds the page, not the analysis: the sort runs over the whole
+    portfolio so the page really is the largest positions, and ``count`` is the
+    number of rows returned.
+    """
+
+    ordered = sorted(holdings, key=_sort_key, reverse=True)
+    limit_value = limit if isinstance(limit, int) and limit > 0 else 0
+    page = ordered[:limit_value]
+    return {
+        "symbol": symbol,
+        "as_of": as_of,
+        "filed": filed,
+        "accession": accession,
+        "count": len(page),
+        "holdings": [holding.document() for holding in page],
+        "provider_errors": [],
+    }
+
+
+async def _collect_series_holdings(
+    symbol: str,
+    series: FundSeries,
+    *,
+    client: Any,
+    cache_dir: Path | None,
+    limit: int,
+) -> dict[str, object]:
+    """Collect one series' portfolio: EFTS locates it, the XML proves it.
+
+    The submissions index is deliberately not read here. It is keyed by CIK, so
+    its newest NPORT-P may belong to a sibling series — the exact bug this path
+    exists to prevent. EFTS is the index lookup (it names the accession, the
+    document and the dates); the downloaded XML is the evidence, and its
+    ``seriesId`` must agree with the map before a single row is published.
+
+    The EFTS dates win over the body's own ``repPdDate``: the index is the
+    filing's metadata, and a body whose period disagrees is a mis-filed
+    document, not a second opinion.
+    """
+
+    filing = await find_series_filing(series.series_id, series.cik, client=client)
+    if filing is None:
+        raise HoldingsNotFound(
+            f"series {series.series_id} (CIK{series.cik}) has no NPORT-P filing "
+            "in EDGAR full-text search"
+        )
+
+    url = nport_archive_url(series.cik, filing.accession, filing.document)
+    path = (
+        nport_cache_path(cache_dir, series.cik, filing.accession)
+        if cache_dir is not None
+        else None
+    )
+    text, fetched = await _read_or_fetch_body(url, path, client=client)
+
+    holdings = parse_nport(text)
+    if not holdings:
+        raise HoldingsUnavailable(
+            f"ParseError: {url} carried no invstOrSec rows"
+        )
+    filed_series = _xml_text(text, "seriesId")
+    if filed_series != series.series_id:
+        # Full-text search is an index, not a promise: stop rather than publish
+        # another ETF's portfolio under this ticker.
+        raise HoldingsUnavailable(
+            "series mismatch: expected "
+            f"{series.series_id}, got {filed_series or 'no seriesId'} ({url})"
+        )
+    if fetched and path is not None:
+        _write_cache(path, text)
+
+    return _document(
+        symbol,
+        holdings,
+        as_of=filing.report_date
+        or _xml_text(text, "repPdDate")
+        or filing.filed,
+        filed=filing.filed,
+        accession=filing.accession,
+        limit=limit,
+    )
 
 
 async def collect_holdings(
@@ -451,31 +753,47 @@ async def collect_holdings(
     cache_dir: Path | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
-    """Read the latest N-PORT-P portfolio for one registrant.
+    """Read the latest N-PORT-P portfolio for one fund.
 
-    The issuer's submissions document is the index: it lists every filing with
-    its form, dates and primary document, so one request replaces a crawl of
-    the registrant's filing history. Only the newest ``NPORT-P`` is read — an
-    older quarter is a different portfolio and mixing them would publish
-    positions the fund no longer holds.
+    Two paths, because one CIK is not one fund:
 
-    The body is read from ``cache_dir`` first and fetched once on a miss; the
-    cache is what makes a repeated call free. A body is cached **after** it
-    parses to at least one row, so an error page can never become evidence the
-    next call trusts.
+    * **Series path** — when ``cache_dir`` holds SEC's fund ticker map and the
+      symbol is in it, the series id is authoritative. EDGAR full-text search
+      locates the newest NPORT-P that carries that series id, and the XML must
+      confirm the same ``seriesId`` before anything is published. The
+      submissions index is never read on this path: it is keyed by CIK, and a
+      trust's newest filing may belong to another of its ETFs.
+    * **Fallback path** — no map, or a symbol absent from it (SPY is a UIT, and
+      UITs are not in the mutual-fund map). The issuer's submissions document
+      is the index: it lists every filing with its form, dates and primary
+      document, so one request replaces a crawl of the registrant's history.
+      Only the newest ``NPORT-P`` is read — an older quarter is a different
+      portfolio.
+
+    On both paths the body is read from ``cache_dir`` first and fetched once on
+    a miss; the cache is what makes a repeated call free. A body is cached
+    **after** it parses to at least one row (and, on the series path, after its
+    series id matches), so an error page or a sibling fund's document can never
+    become evidence the next call trusts.
 
     ``limit`` bounds the page, not the analysis: the sort runs over the whole
     portfolio so the page really is the largest positions, and ``count`` is the
     number of rows returned.
 
-    Raises :class:`HoldingsNotFound` when the index has no NPORT-P row and
-    :class:`HoldingsUnavailable` for every fetch or parse failure. No partial
-    or invented rows are ever returned.
+    Raises :class:`HoldingsNotFound` when neither index has an NPORT-P row and
+    :class:`HoldingsUnavailable` for every fetch, parse or series-mismatch
+    failure. No partial or invented rows are ever returned.
     """
 
     key = normalize_cik(cik)
     if key is None:
         raise HoldingsUnavailable(f"ValueError: not a SEC CIK: {cik!r}")
+
+    series = _series_for(symbol, cache_dir)
+    if series is not None:
+        return await _collect_series_holdings(
+            symbol, series, client=client, cache_dir=cache_dir, limit=limit
+        )
 
     try:
         submissions = await fetch_submissions(
@@ -496,10 +814,7 @@ async def collect_holdings(
         if cache_dir is not None
         else None
     )
-    text = _read_cache(path)
-    fetched = text is None
-    if text is None:
-        text = await _fetch_body(url, client=client)
+    text, fetched = await _read_or_fetch_body(url, path, client=client)
 
     holdings = parse_nport(text)
     if not holdings:
@@ -509,21 +824,19 @@ async def collect_holdings(
     if fetched and path is not None:
         _write_cache(path, text)
 
-    ordered = sorted(holdings, key=_sort_key, reverse=True)
-    limit_value = limit if isinstance(limit, int) and limit > 0 else 0
-    page = ordered[:limit_value]
-    return {
-        "symbol": symbol,
-        "as_of": filing.report_date,
-        "filed": filing.filed,
-        "accession": filing.accession,
-        "count": len(page),
-        "holdings": [holding.document() for holding in page],
-        "provider_errors": [],
-    }
+    return _document(
+        symbol,
+        holdings,
+        as_of=filing.report_date,
+        filed=filing.filed,
+        accession=filing.accession,
+        limit=limit,
+    )
 
 
 __all__ = [
+    "EFTS_PAGE_SIZE",
+    "EFTS_SEARCH_URL",
     "EtfHolding",
     "HoldingsNotFound",
     "HoldingsUnavailable",
