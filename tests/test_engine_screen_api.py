@@ -276,3 +276,65 @@ async def test_screen_route_rejects_invalid_json_with_422(
 
     assert response.status_code == 422
     assert response.json()["error"] == "invalid_json"
+
+
+async def test_screen_route_reports_the_page_quote_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The historical page refresh now states its scope, counts and freshness."""
+
+    from httpx2 import ASGITransport, AsyncClient
+
+    from app.main import create_app
+
+    class FakeQuoteEngine:
+        async def poll_many(
+            self, symbols: list[str]
+        ) -> dict[str, QuoteTick | None]:
+            assert symbols == ["AAPL"]
+            return {
+                "AAPL": QuoteTick(
+                    symbol="AAPL",
+                    last=200.0,
+                    prev_close=100.0,
+                    volume=2_000.0,
+                    ts_exchange=datetime(2026, 10, 26, 14, 30, tzinfo=UTC),
+                    ts_received=datetime(2026, 10, 26, 14, 30, 1, tzinfo=UTC),
+                    source="yahoo",
+                )
+            }
+
+    monkeypatch.setenv("MEE_DB_PATH", str(tmp_path / "mee.db"))
+    monkeypatch.setenv("MEE_EXPORT_DIR", str(tmp_path / "exports"))
+    application = create_app()
+    application.state.engine = EngineService.from_dataset(_dataset())
+    monkeypatch.setattr(
+        "app.api.engine.quote_engine_of", lambda request: FakeQuoteEngine()
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://mee.test"
+    ) as client:
+        response = await client.post(
+            "/engine/screen",
+            json={
+                "filters": [{"field": "ticker", "op": "eq", "value": "AAPL"}],
+                "limit": 20,
+                "offset": 0,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "quote_snapshot" in body, body
+    snapshot = body["quote_snapshot"]
+
+    assert snapshot["refreshed"] is True
+    assert snapshot["scope"] == "page"
+    assert snapshot["requested"] == 1
+    assert snapshot["returned"] == 1
+    assert snapshot["as_of"] == "2026-10-26T14:30:00+00:00"
+    assert snapshot["filter_used_snapshot"] is False
+    assert "source" not in snapshot
+    assert "provider" not in snapshot
+    assert body["rows"][0]["price"]["value"] == 200.0
