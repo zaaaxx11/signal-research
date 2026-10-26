@@ -23,6 +23,7 @@ from app.engine.dataset import DatasetRows
 from app.engine.ingest import EngineDataset
 from app.engine.license import LicensePolicy
 from app.engine.model import Cell, MetricSpec, SecurityRecord
+from app.engine.quotes import QuoteSnapshot
 from app.engine.screener import ScreenResult, apply, parse_query
 from app.engine.security import SecurityMaster
 
@@ -149,10 +150,17 @@ class EngineService:
         return apply(self.rows.rows(), query)
 
     @staticmethod
-    def screen_document(result: ScreenResult) -> dict[str, Any]:
-        """Project a :class:`ScreenResult` into a JSON-ready document."""
+    def screen_document(
+        result: ScreenResult, *, quote_snapshot: QuoteSnapshot | None = None
+    ) -> dict[str, Any]:
+        """Project a :class:`ScreenResult` into a JSON-ready document.
 
-        return {
+        ``quote_snapshot`` is the freshness sidecar for the prices attached to
+        the page; it is omitted when the caller has no refresh story to tell,
+        so a direct unit-test call keeps the historical four-key envelope.
+        """
+
+        document: dict[str, Any] = {
             "total": result.total,
             "returned": result.returned,
             "limit": result.limit,
@@ -163,6 +171,9 @@ class EngineService:
                 for row in result.rows
             ],
         }
+        if quote_snapshot is not None:
+            document["quote_snapshot"] = quote_snapshot.document()
+        return document
 
     @staticmethod
     def _cell_document(value: object) -> object:

@@ -13,9 +13,12 @@ No network, no clock and no state: a tick in, a mapping out.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 from app.market.quote import QuoteTick
 
-__all__ = ["quote_fields"]
+__all__ = ["QuoteSnapshot", "quote_fields"]
 
 
 def quote_fields(tick: QuoteTick) -> dict[str, object]:
@@ -43,3 +46,84 @@ def quote_fields(tick: QuoteTick) -> dict[str, object]:
         "volume": tick.volume,
         "as_of": tick.ts_exchange.isoformat(),
     }
+
+
+#: The only scopes a refresh may claim. ``none`` means no fetch was attempted,
+#: ``page`` means the refresh targeted the symbols of the returned page, and
+#: ``candidates`` means it targeted the whole loaded dataset **before** a
+#: quote-based filter or sort ran.
+REFRESH_SCOPES: frozenset[str] = frozenset({"none", "page", "candidates"})
+
+
+@dataclass(frozen=True, slots=True)
+class QuoteSnapshot:
+    """Sidecar metadata for the quotes attached to one screen document.
+
+    The row already carries the price in a :class:`~app.engine.model.Cell` with
+    its own provenance. This object answers the questions the row cannot: *was
+    a fetch attempted*, *over which set*, *how fresh is the newest print*, and
+    *did a filter run against a snapshot instead of a refreshed value*. It
+    deliberately carries no provider name: a source label is audit metadata,
+    not a presentation field.
+
+    ``stale`` is the quote engine's own verdict (``any`` returned tick was
+    stamped stale), not a second clock computed here. ``as_of`` is the newest
+    exchange timestamp among the returned ticks, so a partial batch cannot look
+    newer than its oldest member by accident — it reports the best print it
+    actually has.
+    """
+
+    refreshed: bool = False
+    scope: str = "none"
+    requested: int = 0
+    returned: int = 0
+    as_of: str | None = None
+    stale: bool | None = None
+    reason: str | None = None
+    filter_used_snapshot: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.refreshed, bool):
+            raise TypeError(f"refreshed must be a bool, got {self.refreshed!r}")
+        scope = self.scope.strip().lower() if isinstance(self.scope, str) else ""
+        if scope not in REFRESH_SCOPES:
+            raise ValueError(
+                f"scope must be one of {sorted(REFRESH_SCOPES)}, got {self.scope!r}"
+            )
+        object.__setattr__(self, "scope", scope)
+        for name in ("requested", "returned"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer, got {value!r}")
+        if self.returned > self.requested:
+            raise ValueError("returned cannot exceed requested")
+        if self.refreshed and scope == "none":
+            raise ValueError("a refreshed snapshot must name its scope")
+        if self.stale is not None and not isinstance(self.stale, bool):
+            raise TypeError(f"stale must be a bool or None, got {self.stale!r}")
+        if self.filter_used_snapshot and not isinstance(self.filter_used_snapshot, bool):
+            raise TypeError("filter_used_snapshot must be a bool")
+        if self.as_of is not None:
+            text = self.as_of.strip() if isinstance(self.as_of, str) else ""
+            if not text:
+                raise ValueError("as_of must be non-blank text or None")
+            object.__setattr__(self, "as_of", text)
+        if self.reason is not None:
+            text = self.reason.strip() if isinstance(self.reason, str) else ""
+            if not text:
+                raise ValueError("reason must be non-blank text or None")
+            object.__setattr__(self, "reason", text)
+
+    def document(self) -> dict[str, Any]:
+        """Project the snapshot into the JSON shape of the screen document."""
+
+        return {
+            "refreshed": self.refreshed,
+            "scope": self.scope,
+            "requested": self.requested,
+            "returned": self.returned,
+            "as_of": self.as_of,
+            "stale": self.stale,
+            "reason": self.reason,
+            "filter_used_snapshot": self.filter_used_snapshot,
+        }
