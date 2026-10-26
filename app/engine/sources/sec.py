@@ -1,9 +1,21 @@
-"""SEC EDGAR as the identity source: two documents, one record shape.
+"""SEC EDGAR as the identity source: three documents, one record shape.
 
-EDGAR answers "who is this instrument?" from two public documents:
+EDGAR answers "who is this instrument?" from three public documents:
 
-* ``https://www.sec.gov/files/company_tickers.json`` — the whole registrant
-  index. It is an **object keyed by index strings**, not an array::
+* ``https://www.sec.gov/files/company_tickers_exchange.json`` — the whole
+  registrant index **with the venue SEC publishes**. Its body is a named-column
+  table, not an object::
+
+      {"fields": ["cik", "name", "ticker", "exchange"],
+       "data": [[320193, "Apple Inc.", "AAPL", "Nasdaq"], ...]}
+
+  This is the bulk identity authority: one request gives the universe and every
+  venue, so resolving 10k symbols does not need 10k submissions calls. Columns
+  are bound by the ``fields`` header, never by position — a reordered header
+  still parses, because position is presentation, not data.
+* ``https://www.sec.gov/files/company_tickers.json`` — the legacy registrant
+  index, kept as the fallback. It is an **object keyed by index strings**, not
+  an array::
 
       {"0": {"cik_str": 1045810, "ticker": "NVDA", "title": "NVIDIA CORP"}, ...}
 
@@ -83,6 +95,10 @@ SEC_SOURCE = SourceSpec(
 #: Venue name as EDGAR prints it → ISO 10383 MIC. Only venues whose mapping is
 #: unambiguous are listed; anything else is ``None``. A guessed MIC would make
 #: a record look verified when it is not.
+#:
+#: ``TXSE`` (Texas Stock Exchange) is deliberately absent: the venue is too new
+#: to have a verified MIC, so the record keeps the raw venue and ``mic=None``
+#: rather than borrowing another exchange's code.
 _EXCHANGE_MIC: dict[str, str] = {
     "NASDAQ": "XNAS",
     "NASDAQ GLOBAL SELECT": "XNAS",
@@ -96,7 +112,23 @@ _EXCHANGE_MIC: dict[str, str] = {
     "AMEX": "XASE",
     "CBOE BZX": "BATS",
     "CBOE EDGX": "EDGX",
+    "OTC": "OTCM",
+    "CBOE": "XCBO",
 }
+
+#: US states plus the territories EDGAR can print in ``stateOrCountry``. A
+#: submissions business address in one of these is the United States as a
+#: country; the code alone names a subdivision, not a country.
+_US_STATE_CODES: frozenset[str] = frozenset(
+    {
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+        "DC", "PR", "VI", "GU", "AS", "MP",
+    }
+)
 
 
 def normalize_cik(value: Any) -> str | None:
@@ -171,11 +203,15 @@ def _record(
     name: str,
     cik: str,
     exchange: str | None = None,
+    industry: str | None = None,
+    country: str | None = None,
 ) -> SecurityRecord:
-    """Build the identity record both SEC documents describe.
+    """Build the identity record every SEC document describes.
 
-    The parsers share this constructor so a record from the index and a record
-    from a submissions body cannot disagree about which fields are known.
+    The parsers share this constructor so a record from the bulk document, a
+    record from the legacy index and a record from a submissions body cannot
+    disagree about which fields are known. ``industry``/``country`` default to
+    ``None`` because only a submissions profile states them.
     """
 
     return SecurityRecord(
@@ -186,11 +222,25 @@ def _record(
         mic=exchange_mic(exchange),
         asset_class=ASSET_CLASS,
         currency=CURRENCY,
-        country=None,
+        country=country,
         sector=None,
-        industry=None,
+        industry=industry,
         active=True,
     )
+
+
+def _text(value: Any) -> str | None:
+    """A trimmed non-blank string, or ``None`` — never ``str(value)``.
+
+    Printing ``None``, a number or an empty string as identity text would make
+    an absent field look stated, which is exactly the fabrication the records
+    avoid.
+    """
+
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def parse_company_tickers(payload: Any) -> tuple[SecurityRecord, ...]:
@@ -238,6 +288,12 @@ def parse_submissions(payload: Any) -> tuple[SecurityRecord, ...]:
     exchange element leaves the venue unknown rather than borrowing a sibling's.
     The body is unusable without a CIK, a name and a list of tickers, and an
     empty body is an empty parse.
+
+    The profile fields come from SEC's own wording: ``sicDescription`` is the
+    industry (the bare ``sic`` code is a code, not a description), and the
+    business address is the location. ``sector`` stays ``None`` because SIC is
+    an industry taxonomy and inventing a sector mapping would be a fabricated
+    classification.
     """
 
     if not isinstance(payload, Mapping):
@@ -254,6 +310,8 @@ def parse_submissions(payload: Any) -> tuple[SecurityRecord, ...]:
         return ()
     raw_exchanges = payload.get("exchanges")
     exchanges = raw_exchanges if isinstance(raw_exchanges, list) else []
+    industry = _text(payload.get("sicDescription"))
+    country = submissions_country(payload)
 
     records: list[SecurityRecord] = []
     seen: set[str] = set()
@@ -267,21 +325,115 @@ def parse_submissions(payload: Any) -> tuple[SecurityRecord, ...]:
             candidate = exchanges[index]
             if isinstance(candidate, str):
                 exchange = candidate.strip() or None
-        records.append(_record(symbol=symbol, name=name, cik=cik, exchange=exchange))
+        records.append(
+            _record(
+                symbol=symbol,
+                name=name,
+                cik=cik,
+                exchange=exchange,
+                industry=industry,
+                country=country,
+            )
+        )
 
     return tuple(sorted(records, key=lambda record: record.symbol))
 
 
 def parse_company_tickers_exchange(payload: Any) -> tuple[SecurityRecord, ...]:
-    """Parse ``company_tickers_exchange.json``. Implemented in R3."""
+    """Parse ``company_tickers_exchange.json`` into records sorted by symbol.
 
-    raise NotImplementedError("parse_company_tickers_exchange is implemented in R3")
+    The body is ``{"fields": [...], "data": [[...], ...]}``: a header and
+    positional rows. The header, not the position, binds a value to a field —
+    EDGAR may reorder its columns, and a row read by assumption would silently
+    become another issuer.
+
+    A row without a valid CIK, a normalisable ticker or a non-blank name is
+    skipped: repairing a malformed identity would make the master assert
+    something no document says. A ticker bound to two different CIKs is
+    ambiguous and dropped entirely; a repeated ticker with the same CIK is one
+    instrument and keeps its first row. The venue is the raw string SEC
+    publishes (``None`` when the document has none); :func:`exchange_mic` is
+    the only place a venue becomes a MIC. Any body that is not this table is an
+    empty parse, not an exception.
+    """
+
+    if not isinstance(payload, Mapping):
+        return ()
+    fields = payload.get("fields")
+    rows = payload.get("data")
+    if not isinstance(fields, list) or not isinstance(rows, list):
+        return ()
+
+    columns: dict[str, int] = {}
+    for position, field_name in enumerate(fields):
+        if isinstance(field_name, str):
+            key = field_name.strip().casefold()
+            if key and key not in columns:
+                columns[key] = position
+
+    def cell(row: list[Any], column: str) -> Any:
+        """The row's value for one named column, or ``None`` when absent."""
+
+        position = columns.get(column)
+        if position is None or position >= len(row):
+            return None
+        return row[position]
+
+    by_symbol: dict[str, SecurityRecord] = {}
+    ciks_by_symbol: dict[str, set[str]] = {}
+
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        symbol = normalize_symbol(cell(row, "ticker"))
+        cik = normalize_cik(cell(row, "cik"))
+        name = _text(cell(row, "name"))
+        if symbol is None or cik is None or name is None:
+            continue
+        exchange = _text(cell(row, "exchange"))
+        ciks_by_symbol.setdefault(symbol, set()).add(cik)
+        by_symbol.setdefault(
+            symbol,
+            _record(symbol=symbol, name=name, cik=cik, exchange=exchange),
+        )
+
+    ambiguous = {
+        symbol for symbol, ciks in ciks_by_symbol.items() if len(ciks) > 1
+    }
+    return tuple(
+        by_symbol[symbol]
+        for symbol in sorted(by_symbol)
+        if symbol not in ambiguous
+    )
 
 
 def submissions_country(payload: Any) -> str | None:
-    """Read the issuer's country from a submissions body. Implemented in R3."""
+    """The issuer's country from a submissions body, or ``None``.
 
-    raise NotImplementedError("submissions_country is implemented in R3")
+    SEC states the business address, not a country field. A two-letter US
+    state/territory code means the United States — taking the subdivision name
+    (``California``) as a country would be wrong, and taking the code itself
+    would be an abbreviation in a country field. Any other location is only
+    named by SEC's own description (``P7``/``Netherlands``); a code with no
+    description is unknown, never the code printed as a country. The company
+    name is never consulted: a name is not a location.
+    """
+
+    if not isinstance(payload, Mapping):
+        return None
+    addresses = payload.get("addresses")
+    if not isinstance(addresses, Mapping):
+        return None
+    business = addresses.get("business")
+    if not isinstance(business, Mapping):
+        return None
+
+    code = _text(business.get("stateOrCountry"))
+    if code is None:
+        return None
+    if code.upper() in _US_STATE_CODES:
+        return "United States"
+    return _text(business.get("stateOrCountryDescription"))
 
 
 __all__ = [

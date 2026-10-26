@@ -1,14 +1,21 @@
 """SEC ingestion: fetch the documents, cache the bodies, build one dataset.
 
 The engine's identity and accounting facts both come from EDGAR, and EDGAR is
-three documents, not one API:
+four documents, not one API:
 
-* ``company_tickers.json`` — the registrant index (ticker → CIK → title);
+* ``company_tickers_exchange.json`` — the whole registrant index **with the
+  venue SEC publishes** (``fields`` + ``data``). One request is the identity
+  authority for the universe: a symbol's exchange does not depend on asking
+  that symbol's own document, so a 10k-symbol load does not need 10k calls;
+* ``company_tickers.json`` — the legacy registrant index (ticker → CIK →
+  title), read only when the bulk document fails or carries no usable row. The
+  fallback keeps a load working when one document is down, and its records
+  simply have no venue;
 * ``submissions/CIK##########.json`` — one registrant, its classes and venues;
 * ``api/xbrl/companyfacts/CIK##########.json`` — every us-gaap fact the issuer
   has tagged, with its accession and filing date.
 
-This module is the I/O boundary for those three. It decodes nothing that
+This module is the I/O boundary for those four. It decodes nothing that
 :mod:`app.engine.sources.sec` and :mod:`app.engine.facts` already own: the
 parsers stay pure, and the load composes them. What lives here is the part that
 touches the network and the disk, which is why it is the part with a cache and
@@ -29,6 +36,11 @@ Rules this slice makes structural
 * **No redirects.** ``build_client`` already sets ``follow_redirects=False``,
   and a 3xx is treated as a failed fetch. Following a ``Location`` would let an
   allowlisted host walk the request to an arbitrary one.
+* **One identity document, then one fallback.** The bulk document is attempted
+  first and exactly once; the legacy index is attempted only when that fetch
+  fails, returns the wrong shape, or parses to an empty universe. With neither,
+  the load raises :class:`SecIngestError` before any issuer document is
+  requested: an empty universe is not a universe of unknowns.
 * **One document per issuer.** The disk cache is keyed by the ten-digit CIK and
   the document kind (``CIK0000320193-companyfacts.json``), because
   ``companyfacts`` is per issuer and Berkshire's two classes are one document.
@@ -38,9 +50,10 @@ Rules this slice makes structural
 * **Per-symbol errors, never per-symbol guesses.** A failed issuer fetch is
   recorded in :attr:`EngineDataset.errors` and produces no facts entry. The
   other symbols in the same load still resolve.
-* **The index is not cached.** It is the authority for *current* identity; a
-  day-old copy could resolve a delisted ticker to a live-looking record, and it
-  is one request per load. Only the per-issuer documents are cached.
+* **The identity documents are not cached.** They are the authority for
+  *current* identity; a day-old copy could resolve a delisted ticker to a
+  live-looking record, and they are one request per load. Only the per-issuer
+  documents are cached.
 
 No database, no scheduler, no sleeps: a dataset is one pass over a universe.
 """
@@ -58,12 +71,15 @@ from types import MappingProxyType
 from typing import Any
 
 from app.engine.facts import fact_ttm_summary
-from app.engine.model import Cell
+from app.engine.model import Cell, Provenance
 from app.engine.security import SecurityMaster
 from app.engine.sources.sec import (
+    SOURCE_NAME,
+    TICKERS_EXCHANGE_URL,
     TICKERS_URL,
     normalize_cik,
     normalize_symbol,
+    parse_company_tickers_exchange,
     submissions_url,
 )
 from app.providers import http as provider_http
@@ -242,9 +258,12 @@ async def fetch_company_tickers(
 async def fetch_company_tickers_exchange(
     *, client: Any = None, user_agent: str | None = None
 ) -> object:
-    """Read ``company_tickers_exchange.json``. Implemented in R3."""
+    """Read ``company_tickers_exchange.json`` (the bulk index with venues)."""
 
-    raise NotImplementedError("fetch_company_tickers_exchange is implemented in R3")
+    payload, _ = await _fetch_json(
+        TICKERS_EXCHANGE_URL, client=client, user_agent=user_agent
+    )
+    return payload
 
 
 async def fetch_submissions(
@@ -418,6 +437,42 @@ class _IssuerReader:
         return payload
 
 
+async def _identity_master(*, client: Any, observed: str) -> SecurityMaster:
+    """The universe, from the bulk document or (failing that) the legacy index.
+
+    The bulk document is one request and states each venue, so it is tried
+    first; only a failed fetch or an empty parse falls through. A fallback is a
+    recovery, not an error — the load proceeds with records whose venue is
+    unknown rather than reporting every symbol as a failure. When neither
+    document yields a registrant there is no identity to load, so the caller
+    gets :class:`SecIngestError` before any issuer document is requested.
+    """
+
+    try:
+        bulk = await fetch_company_tickers_exchange(client=client)
+    except SecIngestError:
+        bulk = None
+
+    records = parse_company_tickers_exchange(bulk)
+    if records:
+        master = SecurityMaster()
+        master.load(
+            records,
+            Provenance(
+                source=SOURCE_NAME, as_of=observed, url=TICKERS_EXCHANGE_URL
+            ),
+        )
+        return master
+
+    index_payload = await fetch_company_tickers(client=client)
+    if not isinstance(index_payload, Mapping):
+        raise SecIngestError("company_tickers.json was not a JSON object")
+    master = SecurityMaster.from_company_tickers(index_payload, as_of=observed)
+    if not master.symbols():
+        raise SecIngestError("company_tickers.json contained no usable registrant")
+    return master
+
+
 async def load_sec_dataset(
     symbols: Sequence[str],
     *,
@@ -427,12 +482,13 @@ async def load_sec_dataset(
 ) -> EngineDataset:
     """Load identity and facts for ``symbols`` in one pass, no database.
 
-    Identity comes from the registrant index, loaded every time because it is
-    the authority for current listings. Facts come from each issuer's cached
-    ``companyfacts`` document, keyed by CIK so two classes of one issuer share
-    one read. A symbol that the master cannot resolve, and a document that
-    cannot be read or parsed, lands in ``errors`` with no ``facts`` entry; every
-    other symbol still loads.
+    Identity comes from the bulk ``company_tickers_exchange.json`` document —
+    the authority for current listings *and* venues — with the legacy index as
+    the one fallback. Facts come from each issuer's cached ``companyfacts``
+    document, keyed by CIK so two classes of one issuer share one read. A
+    symbol that the master cannot resolve, and a document that cannot be read
+    or parsed, lands in ``errors`` with no ``facts`` entry; every other symbol
+    still loads.
     """
 
     if isinstance(symbols, (str, bytes)):
@@ -441,12 +497,7 @@ async def load_sec_dataset(
     fetched_at = _utc_now()
     observed = _observed_on(as_of)
 
-    index_payload = await fetch_company_tickers(client=client)
-    if not isinstance(index_payload, Mapping):
-        raise SecIngestError("company_tickers.json was not a JSON object")
-    master = SecurityMaster.from_company_tickers(index_payload, as_of=observed)
-    if not master.symbols():
-        raise SecIngestError("company_tickers.json contained no usable registrant")
+    master = await _identity_master(client=client, observed=observed)
 
     facts: dict[str, Mapping[str, Cell]] = {}
     errors: dict[str, str] = {}
@@ -465,7 +516,7 @@ async def load_sec_dataset(
 
         record = master.get(symbol)
         if record is None:
-            errors[symbol] = "not in the SEC company_tickers index"
+            errors[symbol] = "not in the SEC registrant index"
             continue
         if record.cik is None:
             errors[symbol] = "the SEC index carries no CIK for this symbol"
