@@ -33,13 +33,16 @@ API. A security lookup against an empty master is a 404, not an empty 200:
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
 
 from app.api.market import quote_engine_of
 from app.auth import ApiError
+from app.engine.insider import collect_insider
 from app.engine.model import Cell
 from app.engine.quotes import (
     MAX_QUOTE_REFRESH_SYMBOLS,
@@ -166,6 +169,113 @@ async def security(symbol: str, request: Request) -> dict[str, Any]:
             f"security {symbol!r} is not in the loaded identity master",
         )
     return document
+
+
+@router.get("/insider/{symbol}")
+async def insider(symbol: str, request: Request, limit: str = "5") -> dict[str, Any]:
+    """Recent Form 4 filings for one issuer, read from EDGAR's own XML.
+
+    ``limit`` is taken as raw text and parsed here rather than as an ``int``
+    query parameter: FastAPI would answer a framework-shaped ``422`` for
+    ``?limit=x``, while the house contract is the ``{error, errorMessage}``
+    envelope with ``invalid_limit``. The bound is 1..20, so one request cannot
+    become a crawl of an issuer's whole filing history.
+
+    The route is deliberately linear about what it knows:
+
+    1. an unusable ``limit`` is rejected before anything else, so a typo never
+       looks like an empty filing history and never reaches the network;
+    2. no identity master at all is ``503 screen_unavailable`` — "nothing was
+       ingested" must not look like "this company has no insiders";
+    3. a symbol outside the master is ``404 security_not_found``;
+    4. a symbol the index knows without a CIK has no filings to ask for, and
+       answers a truthful empty ``200`` naming ``no CIK`` instead of a 503.
+
+    Only then does the collector run. A body that failed is reported in
+    ``provider_errors`` and the readable rows still return; when every selected
+    filing failed there is no document to serve and the answer is ``503
+    insider_unavailable`` rather than an empty page that claims a quiet period.
+    ``as_of`` is the newest ``filed`` among the returned rows, never the clock.
+    """
+
+    bounded = _insider_limit(limit)
+    service = engine_service_of(request)
+    master = service.security_master
+    if master is None:
+        raise ApiError(
+            503,
+            "screen_unavailable",
+            "the engine has no identity master loaded yet; ingest a dataset first",
+        )
+    record = master.get(symbol)
+    if record is None:
+        raise ApiError(
+            404,
+            "security_not_found",
+            f"security {symbol!r} is not in the loaded identity master",
+        )
+    if record.cik is None:
+        return {
+            "symbol": record.symbol,
+            "as_of": None,
+            "count": 0,
+            "items": [],
+            "provider_errors": ["no CIK"],
+        }
+
+    items, errors = await collect_insider(
+        record.symbol,
+        record.cik,
+        cache_dir=_insider_cache_dir(),
+        limit=bounded,
+    )
+    if not items and errors:
+        raise ApiError(
+            503,
+            "insider_unavailable",
+            "no Form 4 body could be read for this issuer: " + "; ".join(errors),
+        )
+    return {
+        "symbol": record.symbol,
+        "as_of": max((item.filed for item in items), default=None),
+        "count": len(items),
+        "items": [item.document() for item in items],
+        "provider_errors": list(errors),
+    }
+
+
+def _insider_limit(raw: str) -> int:
+    """The validated ``limit``, or ``422 invalid_limit``.
+
+    Blank, non-numeric, zero and anything above twenty are the same refusal:
+    the caller asked for a page this endpoint cannot define.
+    """
+
+    text = raw.strip() if isinstance(raw, str) else ""
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise ApiError(
+            422, "invalid_limit", f"limit must be an integer 1..20, got {raw!r}"
+        ) from exc
+    if not 1 <= value <= 20:
+        raise ApiError(
+            422, "invalid_limit", f"limit must be an integer 1..20, got {raw!r}"
+        )
+    return value
+
+
+def _insider_cache_dir() -> Path | None:
+    """``MEE_ENGINE_CACHE_DIR`` as a path, or ``None`` when unset.
+
+    Read per request rather than captured at import time: the directory is a
+    deployment setting, and a test or operator may set it after this module was
+    imported. Unset means "no disk cache", which is one request per filing and
+    never a silent cache from a previous process.
+    """
+
+    raw = os.environ.get("MEE_ENGINE_CACHE_DIR", "").strip()
+    return Path(raw).expanduser() if raw else None
 
 
 @router.get("/fundamentals/{symbol}")
