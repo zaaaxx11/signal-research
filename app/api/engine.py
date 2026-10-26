@@ -168,6 +168,31 @@ async def security(symbol: str, request: Request) -> dict[str, Any]:
     return document
 
 
+@router.get("/fundamentals/{symbol}")
+async def fundamentals(symbol: str, request: Request) -> dict[str, Any]:
+    """One instrument's point-in-time document: fact cells plus derived cells.
+
+    The document is dated by its newest provenance, not by the request, and
+    carries no provider label beyond each cell's audit ``source``. An unknown
+    symbol is a ``404`` (the identity master does not hold it) and a deployment
+    with no row provider is a ``503 screen_unavailable`` — the same two house
+    envelopes the rest of ``/engine`` uses, so "no such company" and "nothing
+    loaded" can never be confused with an empty document.
+    """
+
+    try:
+        document = engine_service_of(request).fundamentals(symbol)
+    except EngineUnavailable as exc:
+        raise ApiError(503, exc.code, str(exc)) from exc
+    if document is None:
+        raise ApiError(
+            404,
+            "security_not_found",
+            f"security {symbol!r} is not in the loaded identity master",
+        )
+    return document
+
+
 async def _screen_payload(request: Request) -> dict[str, Any]:
     """Read the screen body as a JSON object; a bad body is a 422."""
 

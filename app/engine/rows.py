@@ -77,15 +77,17 @@ fact key (``fact_summary``)   catalog key     why it is exact
 
 The rejections matter as much as the mappings. ``equity`` does **not** fill
 ``book_per_share``: total stockholders' equity is a balance, and a per-share
-book value would require dividing it by a share count — a derivation this
-module does not claim and the catalog does not name. ``net_income`` is **not**
-renamed ``income``: the catalog's column is ``net_income``, and a second
-spelling would be a second vocabulary. ``assets``, ``liabilities``,
-``cash_and_equivalents``, ``total_debt``, ``operating_cash_flow`` and ``capex``
-have no catalog column at all; two of them (the cash-flow pair) are read only
-to derive ``fcf``. A fact under a catalog key that is not in the mapping — a
-stray ``price`` or ``pe`` — is ignored, so a facts mapping can never smuggle a
-number into a field it does not own.
+book value requires dividing it by a share count, so the balance is read only
+as a *derivation input* (R4, below) and never copied into a per-share column.
+``net_income`` is **not** renamed ``income``: the catalog's column is
+``net_income``, and a second spelling would be a second vocabulary. ``assets``,
+``liabilities``, ``cash_and_equivalents``, ``total_debt``,
+``operating_cash_flow`` and ``capex`` have no catalog column at all: the
+cash-flow pair is read only to derive ``fcf``, and the balance-sheet quantities
+(plus ``gross_profit`` and ``operating_income``) only to derive the statement
+fundamentals. A fact under a catalog key that is not in the mapping — a stray
+``price`` or ``pe`` — is ignored, so a facts mapping can never smuggle a number
+into a field it does not own.
 
 A fact cell is copied by identity: its value, unit, ``as_of``, tag and
 accession stay exactly as the filing produced them. The assembler re-dates
@@ -128,7 +130,24 @@ cell                                    inputs
 ``ps``                                  row ``price``, quote ``sales_per_share``
 ``fcf``                                 fact ``operating_cash_flow``, fact ``capex``
 ``earnings_yield``                      row ``pe``
+``gross_margin``                        fact ``gross_profit``, fact ``revenue``
+``operating_margin``                    fact ``operating_income``, fact ``revenue``
+``net_margin``                          fact ``net_income``, fact ``revenue``
+``roa``                                 fact ``net_income``, fact ``assets``
+``roe``                                 fact ``net_income``, fact ``equity``
+``current_ratio``                       fact ``current_assets``, fact ``current_liabilities``
+``debt_to_equity``                      fact ``total_debt``, fact ``equity``
+``book_per_share``                      fact ``equity``, fact ``shares_outstanding``
+``cash_per_share``                      fact ``cash_and_equivalents``, fact ``shares_outstanding``
 ======================================  =====================================
+
+The nine statement fundamentals are a second, fact-only pass: unlike the
+multiples they never read the quote, because a margin is built from reported
+revenue and reported profit. Every input goes through
+:data:`_READ_FACT_UNITS`, so a balance in the wrong unit is refused before a
+row exists rather than coerced into a derivation. They fill gaps only, exactly
+like the multiples — an observed ``gross_margin`` (a screener column, say) is
+never replaced by arithmetic.
 
 A derivation that cannot produce a finite number is **omitted**, never written
 as a null placeholder and never as ``0``. The recipe for that absence (a
@@ -138,8 +157,9 @@ the same thing it says about a quote the caller did not supply.
 
 A derived cell is dated by the number it divided, not by the build: the
 price-based multiples carry the quote's ``as_of``, ``fcf`` carries the
-operating-cash-flow fact's period end, and ``earnings_yield`` carries the
-``pe`` cell's date. Nothing here invents a timestamp, and
+operating-cash-flow fact's period end, ``earnings_yield`` carries the ``pe``
+cell's date, and each statement fundamental carries the period end of its
+numerator's fact. Nothing here invents a timestamp, and
 :data:`INPUT_SOURCES` records which key or mapping every semantic input name in
 a derived cell's provenance came from.
 
@@ -160,7 +180,7 @@ from __future__ import annotations
 
 import math
 import numbers
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
@@ -228,6 +248,16 @@ INPUT_SOURCES: Mapping[str, str] = MappingProxyType(
         "operating_cash_flow": "facts:operating_cash_flow",
         "capex": "facts:capex",
         "pe": "row:pe",
+        "gross_profit": "facts:gross_profit",
+        "operating_income": "facts:operating_income",
+        "revenue": "facts:revenue",
+        "net_income": "facts:net_income",
+        "assets": "facts:assets",
+        "equity": "facts:equity",
+        "current_assets": "facts:current_assets",
+        "current_liabilities": "facts:current_liabilities",
+        "total_debt": "facts:total_debt",
+        "cash_and_equivalents": "facts:cash_and_equivalents",
     }
 )
 
@@ -243,7 +273,8 @@ _POSITIVE_QUOTE_FIELDS: frozenset[str] = frozenset(
 
 #: Every fact key this module reads → the units that may fill it. The list is
 #: wider than :data:`FACT_TO_METRIC` because ``fcf`` reads two cash-flow facts
-#: that have no catalog column of their own.
+#: that have no catalog column of their own, and the statement fundamentals
+#: read balances and income lines the catalog only names as ratios.
 _READ_FACT_UNITS: Mapping[str, frozenset[Unit]] = MappingProxyType(
     {
         "revenue": frozenset({Unit.USD}),
@@ -254,7 +285,46 @@ _READ_FACT_UNITS: Mapping[str, frozenset[Unit]] = MappingProxyType(
         "shares_outstanding": frozenset({Unit.SHARES}),
         "operating_cash_flow": frozenset({Unit.USD}),
         "capex": frozenset({Unit.USD}),
+        "gross_profit": frozenset({Unit.USD}),
+        "operating_income": frozenset({Unit.USD}),
+        "assets": frozenset({Unit.USD}),
+        "equity": frozenset({Unit.USD}),
+        "current_assets": frozenset({Unit.USD}),
+        "current_liabilities": frozenset({Unit.USD}),
+        "total_debt": frozenset({Unit.USD}),
+        "cash_and_equivalents": frozenset({Unit.USD}),
     }
+)
+
+#: key → (factory, numerator fact, denominator fact). One row per statement
+#: fundamental, in the order they are attempted; the table *is* the recipe, so
+#: a new derivation cannot be wired to a different input than the one the
+#: module docstring documents. The factory is
+#: :mod:`app.engine.derived`'s two-argument function, and the numerator's fact
+#: is also the cell that dates the result.
+_STATEMENT_DERIVATIONS: tuple[
+    tuple[str, Callable[[float | None, float | None], DerivedValue], str, str],
+    ...,
+] = (
+    ("gross_margin", derived.gross_margin, "gross_profit", "revenue"),
+    ("operating_margin", derived.operating_margin, "operating_income", "revenue"),
+    ("net_margin", derived.net_margin, "net_income", "revenue"),
+    ("roa", derived.roa, "net_income", "assets"),
+    ("roe", derived.roe, "net_income", "equity"),
+    (
+        "current_ratio",
+        derived.current_ratio,
+        "current_assets",
+        "current_liabilities",
+    ),
+    ("debt_to_equity", derived.debt_to_equity, "total_debt", "equity"),
+    ("book_per_share", derived.book_per_share, "equity", "shares_outstanding"),
+    (
+        "cash_per_share",
+        derived.cash_per_share,
+        "cash_and_equivalents",
+        "shares_outstanding",
+    ),
 )
 
 _EXTENSION_UNITS: Mapping[str, Unit] = MappingProxyType(
@@ -343,6 +413,7 @@ def build_row(
             row[target] = cell
 
     _add_derivations(row, fact_cells, quote_map, quote_date)
+    _add_fundamentals(row, fact_cells)
     return row
 
 
@@ -640,6 +711,47 @@ def _add_derivations(
             row,
             "earnings_yield",
             _derived_cell(derived.earnings_yield(_row_number(row, "pe")), pe_date),
+        )
+
+
+def _fundamental_cell(value: DerivedValue, primary: Cell | None) -> Cell | None:
+    """A statement fundamental as a cell, dated by the fact it divided.
+
+    The numerator's fact supplies the date for the same reason the multiples
+    take the quote's: the derived number is only true *as of* the observation
+    it was computed from, and the numerator is that observation here. A
+    missing numerator has no date and therefore no cell — the derivation would
+    be empty anyway.
+    """
+
+    as_of = _cell_as_of(primary)
+    if as_of is None:
+        return None
+    return _derived_cell(value, as_of)
+
+
+def _add_fundamentals(
+    row: dict[str, Cell], fact_cells: Mapping[str, Cell]
+) -> None:
+    """Attempt the nine statement fundamentals; fill only gaps.
+
+    Every input is read from :data:`_STATEMENT_DERIVATIONS` — the declared
+    recipe — rather than from the row, so a fact cannot be substituted for an
+    observed quote value (or vice versa). ``_fill`` still wins only empty keys:
+    an observed ``gross_margin`` from a screener column is left exactly as it
+    arrived, and a zero or negative denominator simply leaves the key absent.
+    """
+
+    for key, factory, numerator_key, denominator_key in _STATEMENT_DERIVATIONS:
+        numerator = fact_cells.get(numerator_key)
+        denominator = fact_cells.get(denominator_key)
+        _fill(
+            row,
+            key,
+            _fundamental_cell(
+                factory(_cell_number(numerator), _cell_number(denominator)),
+                numerator,
+            ),
         )
 
 

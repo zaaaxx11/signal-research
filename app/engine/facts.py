@@ -146,6 +146,37 @@ DEFAULT_TAGS: Mapping[str, tuple[str, ...]] = {
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "PaymentsToAcquireProductiveAssets",
     ),
+    # --- R4 fundamentals depth -------------------------------------------
+    # Appended, never inserted: the order above is a published contract, and a
+    # consumer that walks this mapping must keep seeing the shipped eleven keys
+    # first. Each group is the contract's concept list, primary first, and no
+    # alias was invented — a concept the filing does not name is a metric this
+    # slice declines to guess at.
+    "gross_profit": ("GrossProfit",),
+    "operating_income": ("OperatingIncomeLoss",),
+    # Two ways to tag the same expense line: ``CostOfRevenue`` for a single
+    # consolidated line, ``CostOfGoodsAndServicesSold`` for a split presenter.
+    "cost_of_revenue": ("CostOfRevenue", "CostOfGoodsAndServicesSold"),
+    "eps_basic": ("EarningsPerShareBasic",),
+    "current_assets": ("AssetsCurrent",),
+    "current_liabilities": ("LiabilitiesCurrent",),
+    "inventory": ("InventoryNet",),
+    # ``ReceivablesNetCurrent`` is the post-ASU-2016-13 spelling that folds
+    # allowances into the net figure; the older accounts-only concept is the
+    # primary because it is the one most issuers still tag.
+    "receivables": ("AccountsReceivableNetCurrent", "ReceivablesNetCurrent"),
+    "ppe": ("PropertyPlantAndEquipmentNet",),
+    "long_term_debt": ("LongTermDebtNoncurrent",),
+    # A negative retained earnings is an accumulated deficit, not a parse
+    # error: the concept is signed and the sign is kept.
+    "retained_earnings": ("RetainedEarningsAccumulatedDeficit",),
+    "dividends_paid": ("PaymentsOfDividends", "PaymentsOfDividendsCommonStock"),
+    "buybacks": ("PaymentsForRepurchaseOfCommonStock",),
+    "depreciation_amortization": (
+        "DepreciationDepletionAndAmortization",
+        "DepreciationAmortizationAndAccretionNet",
+    ),
+    "interest_expense": ("InterestExpense", "InterestExpenseNonoperating"),
 }
 
 
@@ -333,6 +364,12 @@ def _latest(
 #: Metrics that are **flows** and can be converted to a trailing-twelve-month
 #: value by period arithmetic. Everything else in :data:`DEFAULT_TAGS` is an
 #: instant (a balance or a share count) and uses the newest observation.
+#:
+#: The R4 duration metrics join this set for one reason: an income-statement
+#: figure reported in a 10-Q is a quarter or a year-to-date slice, so handing
+#: back the newest observation as a "run rate" would publish three months as
+#: twelve. Balances (``current_assets``, ``inventory``, ``long_term_debt`` …)
+#: stay out: a point-in-time stock summed over a year is meaningless.
 FLOW_KEYS: frozenset[str] = frozenset(
     {
         "revenue",
@@ -340,6 +377,15 @@ FLOW_KEYS: frozenset[str] = frozenset(
         "eps_diluted",
         "operating_cash_flow",
         "capex",
+        # --- R4 duration metrics ---
+        "gross_profit",
+        "operating_income",
+        "cost_of_revenue",
+        "eps_basic",
+        "dividends_paid",
+        "buybacks",
+        "depreciation_amortization",
+        "interest_expense",
     }
 )
 

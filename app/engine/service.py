@@ -1,10 +1,10 @@
 """Read-only projection of the engine's foundational slices.
 
 This service is deliberately small: it exposes the frozen catalog, the licence
-policy, the in-memory security master and an optional screen row provider. The
-API can therefore ship a stable ``/engine`` surface while ingestion and
-persistence land in later slices; a deployment with no dataset answers ``503``
-rather than inventing rows.
+policy, the in-memory security master, an optional screen row provider and the
+point-in-time document for one instrument. The API can therefore ship a stable
+``/engine`` surface while ingestion and persistence land in later slices; a
+deployment with no dataset answers ``503`` rather than inventing rows.
 
 ``source_keys`` are intentionally omitted from :meth:`catalog` and
 :meth:`metric`: they are adapter vocabulary, not presentation fields. The
@@ -216,6 +216,58 @@ class EngineService:
             )
         return apply(self.rows.rows(), query)
 
+    def fundamentals(self, symbol: str) -> dict[str, Any] | None:
+        """One instrument's point-in-time document, or ``None`` when unknown.
+
+        The document is a projection of a single assembled row — every cell the
+        dataset holds for the symbol plus every cell the row assembler derived —
+        so a caller can see the filing behind each number instead of a
+        table of pre-chewed ratios. ``as_of`` is the **newest provenance date in
+        the row** (max, never the wall clock): a document is as current as its
+        most recently observed cell, and borrowing today's date would claim a
+        freshness no filing supports.
+
+        ``None`` answers "this symbol is not in the loaded identity master";
+        a deployment with no row provider raises :class:`EngineUnavailable` with
+        the house ``screen_unavailable`` code, because "nothing was ingested" and
+        "no such company" must not look the same. The lookup is deliberately
+        one row: :meth:`DatasetRows.row` builds the symbol asked for, not the
+        ten-thousand-row universe a screen needs.
+
+        No provider name is added outside the ``source`` already inside each
+        cell's provenance: the response states evidence, not who sold it.
+        """
+
+        provider = self.rows
+        if provider is None:
+            raise EngineUnavailable(
+                "screen_unavailable",
+                "the engine has no row provider loaded yet; ingest a dataset first",
+            )
+        lookup = getattr(provider, "row", None)
+        if not callable(lookup):
+            raise EngineUnavailable(
+                "screen_unavailable",
+                "the loaded row provider cannot answer a single symbol",
+            )
+
+        row = lookup(symbol)
+        if row is None:
+            return None
+        if not isinstance(row, Mapping):
+            raise TypeError(
+                "a row provider must return a mapping of key to Cell, got "
+                f"{type(row).__name__}"
+            )
+
+        return {
+            "symbol": self._row_symbol(row, symbol),
+            "as_of": self._row_as_of(row),
+            "metrics": {
+                key: self._cell_document(value) for key, value in row.items()
+            },
+        }
+
     @staticmethod
     def screen_document(
         result: ScreenResult, *, quote_snapshot: QuoteSnapshot | None = None
@@ -241,6 +293,41 @@ class EngineService:
         if quote_snapshot is not None:
             document["quote_snapshot"] = quote_snapshot.document()
         return document
+
+    @staticmethod
+    def _row_symbol(row: Mapping[str, object], requested: str) -> str:
+        """The row's own ticker when it has one, else the requested spelling.
+
+        The identity layer owns symbol spelling (``BRK.B`` stays ``BRK.B``), so
+        the document echoes the row instead of normalising the caller's path
+        segment into a second vocabulary.
+        """
+
+        cell = row.get("ticker")
+        value = cell.value if isinstance(cell, Cell) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return requested.strip().upper()
+
+    @staticmethod
+    def _row_as_of(row: Mapping[str, object]) -> str | None:
+        """The newest provenance date in ``row``, or ``None`` when it has none.
+
+        ``max`` over ISO-8601 strings is chronological because the engine only
+        ever emits prefix-ordered dates (a date-only value sorts before the same
+        day's timestamp and after the previous day's). Cells without provenance
+        cannot contribute a date, and no date is ever invented: an empty row
+        answers ``None`` rather than today.
+        """
+
+        dates = [
+            cell.provenance.as_of
+            for cell in row.values()
+            if isinstance(cell, Cell)
+            and cell.provenance is not None
+            and cell.provenance.as_of
+        ]
+        return max(dates) if dates else None
 
     @staticmethod
     def _cell_document(value: object) -> object:

@@ -75,5 +75,27 @@ class DatasetRows:
             )
         return tuple(rows)
 
+    def row(self, symbol: str) -> dict[str, Cell] | None:
+        """Build the row for ``symbol`` alone, or ``None`` when it is unknown.
+
+        A single-instrument endpoint must not assemble the universe to read one
+        company: :meth:`rows` is the screen's contract (every identity, symbol
+        order), while this is the same build for one looked-up record. ``None``
+        is the honest answer for a symbol the master does not hold — "no such
+        instrument" is not an identity row with nothing on it — and the lookup
+        keeps the master's own tolerance (case-insensitive, ``BRK.B`` is
+        ``BRK-B``).
+        """
+
+        security = self.dataset.security_master.get(symbol)
+        if security is None:
+            return None
+        return build_row(
+            security,
+            self.dataset.facts.get(security.symbol, {}),
+            self.quotes.get(security.symbol),
+            as_of=self.dataset.fetched_at,
+        )
+
 
 __all__ = ["DatasetRows"]

@@ -80,7 +80,36 @@ key                         formula
 ``fcf``                     ``operating_cash_flow - abs(capex)``
 ``earnings_yield``          ``(1 / pe) * 100``
 ``ttm_sum``                 ``q1 + q2 + q3 + q4``
+``gross_margin``            ``gross_profit / revenue * 100``
+``operating_margin``        ``operating_income / revenue * 100``
+``net_margin``              ``net_income / revenue * 100``
+``roa``                     ``net_income / assets * 100``
+``roe``                     ``net_income / equity * 100``
+``current_ratio``           ``current_assets / current_liabilities``
+``debt_to_equity``          ``total_debt / equity * 100``
+``book_per_share``          ``equity / shares_outstanding``
+``cash_per_share``          ``cash_and_equivalents / shares_outstanding``
 ==========================  ==================================================
+
+The statement fundamentals (R4)
+-------------------------------
+The last nine rows read two reported quantities and answer one catalog key.
+They are ordinary ratios underneath :func:`safe_ratio`, so they inherit the
+whole rule set above unchanged: an unreadable input is :data:`MISSING_INPUT`,
+a denominator at zero is :data:`ZERO_DENOMINATOR`, a negative denominator is
+:data:`NEGATIVE_DENOMINATOR` (a company with negative equity has no meaningful
+return-on-equity or debt-to-equity multiple), an out-of-range quotient is
+:data:`OVERFLOW`, and the numerator's sign is preserved — a loss shows up as a
+negative margin, because that is what happened.
+
+The one thing the multiples do not need is scale. Six of these keys are printed
+in **percentage points**: ``40 / 100`` is ``40.0``, never ``0.4``, matching
+``Unit.PERCENT`` as the rest of the engine prints it (and matching the catalog's
+own ``gross_margin``/``roe``/``debt_to_equity`` columns). ``current_ratio`` is a
+plain ratio and ``book_per_share``/``cash_per_share`` are dollars per share, so
+they are not scaled. The scaling happens after :func:`safe_ratio` has decided
+the value exists, so it cannot turn an absence into a number, and it is
+re-checked for finiteness so ``inf`` is still never returned.
 
 Enterprise value's documented assumption
 -----------------------------------------
@@ -178,6 +207,15 @@ FORMULAS: Mapping[str, str] = MappingProxyType(
         "fcf": "operating_cash_flow - abs(capex)",
         "earnings_yield": "(1 / pe) * 100",
         "ttm_sum": "q1 + q2 + q3 + q4",
+        "gross_margin": "gross_profit / revenue * 100",
+        "operating_margin": "operating_income / revenue * 100",
+        "net_margin": "net_income / revenue * 100",
+        "roa": "net_income / assets * 100",
+        "roe": "net_income / equity * 100",
+        "current_ratio": "current_assets / current_liabilities",
+        "debt_to_equity": "total_debt / equity * 100",
+        "book_per_share": "equity / shares_outstanding",
+        "cash_per_share": "cash_and_equivalents / shares_outstanding",
     }
 )
 
@@ -199,6 +237,15 @@ _PS_INPUTS = ("price", "sales_per_share")
 _FCF_INPUTS = ("operating_cash_flow", "capex")
 _EARNINGS_YIELD_INPUTS = ("pe",)
 _TTM_INPUTS = ("quarters",)
+_GROSS_MARGIN_INPUTS = ("gross_profit", "revenue")
+_OPERATING_MARGIN_INPUTS = ("operating_income", "revenue")
+_NET_MARGIN_INPUTS = ("net_income", "revenue")
+_ROA_INPUTS = ("net_income", "assets")
+_ROE_INPUTS = ("net_income", "equity")
+_CURRENT_RATIO_INPUTS = ("current_assets", "current_liabilities")
+_DEBT_TO_EQUITY_INPUTS = ("total_debt", "equity")
+_BOOK_PER_SHARE_INPUTS = ("equity", "shares")
+_CASH_PER_SHARE_INPUTS = ("cash_and_equivalents", "shares")
 
 
 @dataclass(frozen=True)
@@ -568,68 +615,150 @@ def ttm_sum(quarters: Sequence[float | None]) -> DerivedValue:
     return _present("ttm_sum", _TTM_INPUTS, total)
 
 
-def gross_margin(gross_profit: float | None, revenue: float | None) -> DerivedValue:
-    """Gross margin in percentage points. Implemented in R4."""
+def _percentage(result: DerivedValue) -> DerivedValue:
+    """``result`` rescaled from a fraction to percentage points.
 
-    raise NotImplementedError("gross_margin is implemented in R4")
+    A null result keeps its key, its input trail and its reason untouched: the
+    scale is a property of the answer, and there is no answer to rescale. A
+    finite quotient whose ×100 leaves the float range is :data:`OVERFLOW`, so
+    this second multiplication cannot smuggle an ``inf`` past
+    :func:`safe_ratio`.
+    """
+
+    if result.value is None:
+        return result
+    return _present(
+        result.key, result.inputs, result.value * 100.0, result.reason
+    )
+
+
+def gross_margin(
+    gross_profit: float | None, revenue: float | None
+) -> DerivedValue:
+    """Gross margin in percentage points: ``gross_profit / revenue * 100``.
+
+    ``40 / 100`` is ``40.0`` (40%), and a negative gross profit stays negative:
+    the numerator's sign is information (see the module docstring).
+    """
+
+    return _percentage(
+        safe_ratio(
+            gross_profit,
+            revenue,
+            key="gross_margin",
+            inputs=_GROSS_MARGIN_INPUTS,
+        )
+    )
 
 
 def operating_margin(
     operating_income: float | None, revenue: float | None
 ) -> DerivedValue:
-    """Operating margin in percentage points. Implemented in R4."""
+    """Operating margin in percentage points: ``operating_income / revenue * 100``."""
 
-    raise NotImplementedError("operating_margin is implemented in R4")
+    return _percentage(
+        safe_ratio(
+            operating_income,
+            revenue,
+            key="operating_margin",
+            inputs=_OPERATING_MARGIN_INPUTS,
+        )
+    )
 
 
 def net_margin(net_income: float | None, revenue: float | None) -> DerivedValue:
-    """Net margin in percentage points. Implemented in R4."""
+    """Net margin in percentage points: ``net_income / revenue * 100``."""
 
-    raise NotImplementedError("net_margin is implemented in R4")
+    return _percentage(
+        safe_ratio(
+            net_income, revenue, key="net_margin", inputs=_NET_MARGIN_INPUTS
+        )
+    )
 
 
 def roa(net_income: float | None, assets: float | None) -> DerivedValue:
-    """Return on assets in percentage points. Implemented in R4."""
+    """Return on assets in percentage points: ``net_income / assets * 100``."""
 
-    raise NotImplementedError("roa is implemented in R4")
+    return _percentage(
+        safe_ratio(net_income, assets, key="roa", inputs=_ROA_INPUTS)
+    )
 
 
 def roe(net_income: float | None, equity: float | None) -> DerivedValue:
-    """Return on equity in percentage points. Implemented in R4."""
+    """Return on equity in percentage points: ``net_income / equity * 100``.
 
-    raise NotImplementedError("roe is implemented in R4")
+    Equity at or below zero is not a denominator: a company whose book equity
+    has gone negative has no return *on* equity a reader could compare.
+    """
+
+    return _percentage(
+        safe_ratio(net_income, equity, key="roe", inputs=_ROE_INPUTS)
+    )
 
 
 def current_ratio(
     current_assets: float | None, current_liabilities: float | None
 ) -> DerivedValue:
-    """Current assets over current liabilities. Implemented in R4."""
+    """Current ratio: ``current_assets / current_liabilities``.
 
-    raise NotImplementedError("current_ratio is implemented in R4")
+    A plain multiple, so it is not rescaled; ``2.0`` means two dollars of
+    current assets per dollar of current liabilities.
+    """
+
+    return safe_ratio(
+        current_assets,
+        current_liabilities,
+        key="current_ratio",
+        inputs=_CURRENT_RATIO_INPUTS,
+    )
 
 
 def debt_to_equity(
     total_debt: float | None, equity: float | None
 ) -> DerivedValue:
-    """Total debt over equity in percentage points. Implemented in R4."""
+    """Total debt over equity in percentage points: ``total_debt / equity * 100``.
 
-    raise NotImplementedError("debt_to_equity is implemented in R4")
+    Percentage points, matching the catalog's ``debtToEquity`` column: ``50.0``
+    means debt is half of equity. Negative equity has no such multiple.
+    """
+
+    return _percentage(
+        safe_ratio(
+            total_debt,
+            equity,
+            key="debt_to_equity",
+            inputs=_DEBT_TO_EQUITY_INPUTS,
+        )
+    )
 
 
 def book_per_share(
     equity: float | None, shares: float | None
 ) -> DerivedValue:
-    """Book value per share in USD. Implemented in R4."""
+    """Book value per share in USD: ``equity / shares_outstanding``.
 
-    raise NotImplementedError("book_per_share is implemented in R4")
+    The input trail names the share count ``shares`` (the trait every
+    per-share derivation shares), while the formula table spells
+    ``shares_outstanding`` the way the fact vocabulary does. A non-positive
+    share count has no per-share value.
+    """
+
+    return safe_ratio(
+        equity, shares, key="book_per_share", inputs=_BOOK_PER_SHARE_INPUTS
+    )
 
 
 def cash_per_share(
     cash_and_equivalents: float | None, shares: float | None
 ) -> DerivedValue:
-    """Cash per share in USD. Implemented in R4."""
+    """Cash per share in USD: ``cash_and_equivalents / shares_outstanding``."""
 
-    raise NotImplementedError("cash_per_share is implemented in R4")
+    return safe_ratio(
+        cash_and_equivalents,
+        shares,
+        key="cash_per_share",
+        inputs=_CASH_PER_SHARE_INPUTS,
+    )
 
 
 __all__ = [
