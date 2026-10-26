@@ -568,6 +568,70 @@ def ttm_sum(quarters: Sequence[float | None]) -> DerivedValue:
     return _present("ttm_sum", _TTM_INPUTS, total)
 
 
+def gross_margin(gross_profit: float | None, revenue: float | None) -> DerivedValue:
+    """Gross margin in percentage points. Implemented in R4."""
+
+    raise NotImplementedError("gross_margin is implemented in R4")
+
+
+def operating_margin(
+    operating_income: float | None, revenue: float | None
+) -> DerivedValue:
+    """Operating margin in percentage points. Implemented in R4."""
+
+    raise NotImplementedError("operating_margin is implemented in R4")
+
+
+def net_margin(net_income: float | None, revenue: float | None) -> DerivedValue:
+    """Net margin in percentage points. Implemented in R4."""
+
+    raise NotImplementedError("net_margin is implemented in R4")
+
+
+def roa(net_income: float | None, assets: float | None) -> DerivedValue:
+    """Return on assets in percentage points. Implemented in R4."""
+
+    raise NotImplementedError("roa is implemented in R4")
+
+
+def roe(net_income: float | None, equity: float | None) -> DerivedValue:
+    """Return on equity in percentage points. Implemented in R4."""
+
+    raise NotImplementedError("roe is implemented in R4")
+
+
+def current_ratio(
+    current_assets: float | None, current_liabilities: float | None
+) -> DerivedValue:
+    """Current assets over current liabilities. Implemented in R4."""
+
+    raise NotImplementedError("current_ratio is implemented in R4")
+
+
+def debt_to_equity(
+    total_debt: float | None, equity: float | None
+) -> DerivedValue:
+    """Total debt over equity in percentage points. Implemented in R4."""
+
+    raise NotImplementedError("debt_to_equity is implemented in R4")
+
+
+def book_per_share(
+    equity: float | None, shares: float | None
+) -> DerivedValue:
+    """Book value per share in USD. Implemented in R4."""
+
+    raise NotImplementedError("book_per_share is implemented in R4")
+
+
+def cash_per_share(
+    cash_and_equivalents: float | None, shares: float | None
+) -> DerivedValue:
+    """Cash per share in USD. Implemented in R4."""
+
+    raise NotImplementedError("cash_per_share is implemented in R4")
+
+
 __all__ = [
     "ASSUMED_ZERO",
     "DerivedValue",
@@ -579,15 +643,24 @@ __all__ = [
     "REASONS",
     "WRONG_QUARTER_COUNT",
     "ZERO_DENOMINATOR",
+    "book_per_share",
+    "cash_per_share",
+    "current_ratio",
+    "debt_to_equity",
     "earnings_yield",
     "enterprise_value",
     "fcf",
     "forward_pe",
+    "gross_margin",
     "market_cap",
+    "net_margin",
+    "operating_margin",
     "pe_ratio",
     "peg",
     "price_to_book",
     "price_to_sales",
+    "roa",
+    "roe",
     "safe_ratio",
     "ttm_sum",
 ]
