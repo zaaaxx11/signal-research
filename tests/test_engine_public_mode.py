@@ -416,3 +416,28 @@ async def test_public_mode_still_serves_sec_fact_cells(
     assert row["sales"]["provenance"]["as_of"] == "2025-09-27"
     assert "price" not in row
     assert forbidden.calls == []
+
+
+async def test_public_mode_refuses_realtime_quotes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``/market/quote`` is the same licence boundary as the engine screen.
+
+    The roadmap names both routes: a public deployment must not answer a
+    Yahoo/Nasdaq print through the older watchlist endpoint while the engine
+    route is fail-closed.
+    """
+
+    application = _build_app(tmp_path, monkeypatch)
+    application.state.engine = _public_service()
+    forbidden = _ForbiddenQuoteEngine()
+    _install_quote_engine(monkeypatch, forbidden)
+
+    async with _client(application) as client:
+        response = await client.get("/market/quote?symbols=AAPL")
+
+    assert response.status_code == 503, response.text
+    body = response.json()
+    assert body["error"] == "license_unavailable"
+    assert isinstance(body.get("errorMessage"), str) and body["errorMessage"].strip()
+    assert forbidden.calls == [], "a refused public quote must not poll a source"

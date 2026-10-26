@@ -85,6 +85,19 @@ def _document(tick: QuoteTick) -> dict[str, Any]:
     }
 
 
+def _public_mode(request: Request) -> bool:
+    """Whether this process serves a public product.
+
+    The engine's policy is the one deployment-level licence switch, so this
+    route reads it instead of keeping a second flag that could drift. A process
+    with no engine service is a test/tool context and stays private.
+    """
+
+    service = getattr(request.app.state, "engine", None)
+    policy = getattr(service, "policy", None)
+    return bool(getattr(policy, "public_mode", False))
+
+
 @router.get("/quote")
 async def quote(
     request: Request,
@@ -116,6 +129,18 @@ async def quote(
             422,
             "too_many_symbols",
             f"{len(wanted)} symbols requested after dedupe; the maximum is {limit}",
+        )
+
+    if _public_mode(request):
+        # Every quote rung is INTERNAL, so a public deployment cannot serve a
+        # realtime print. Validation ran first: a typo stays a 422 and a licence
+        # refusal cannot be mistaken for a malformed request.
+        raise ApiError(
+            503,
+            "license_unavailable",
+            "realtime quotes come from internal sources that do not permit "
+            "redistribution; this deployment is public and has no licensed "
+            "quote source configured",
         )
 
     engine = quote_engine_of(request)
