@@ -191,6 +191,11 @@ class EngineService:
         record = self.security_master.get(symbol)
         return self._security_document(record) if record is not None else None
 
+    def peers(self, symbol: str, *, limit: int = 10) -> dict[str, Any] | None:
+        """Same-industry peers from the identity master. Implemented in R5B."""
+
+        raise NotImplementedError("EngineService.peers is implemented in R5B")
+
     def screen(self, payload: ScreenQuery | Mapping[str, object]) -> ScreenResult:
         """Apply one screen query to the configured row provider.
 
