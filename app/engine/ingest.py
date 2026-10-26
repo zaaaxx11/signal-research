@@ -45,15 +45,17 @@ Rules this slice makes structural
   the document kind (``CIK0000320193-companyfacts.json``,
   ``CIK0000320193-submissions.json``), because both are per issuer and
   Berkshire's two classes are one document. A cache hit does not call the
-  client. A corrupt entry, or one whose body belongs to another CIK, is treated
-  as a miss and replaced — a cache is not evidence of anything except a
-  document that was once read. The identity documents are not cached, and the
-  per-issuer cache is opt-in: ``cache_dir=None`` still means one request per
-  document, so a startup load cannot silently serve yesterday's copy.
-* **A cache is what makes a 10k-issuer pass resumable.** ``submissions`` is one
-  document per registrant, so the enrichment batch (R3.5) reads ten thousand of
-  them; caching each body by CIK is what turns a 17-minute crawl into a
-  restarted job that spends requests only on what it has never read.
+  client. A corrupt entry, an entry that names no CIK, or one whose body
+  belongs to another CIK is treated as a miss and replaced — a cache is not
+  evidence of anything except a document that was once read. The identity
+  documents are not cached, and the per-issuer cache is opt-in:
+  ``cache_dir=None`` still means one request per document, so a startup load
+  cannot silently serve yesterday's copy.
+* **A cache is what makes a 10k-issuer pass resumable.** ``submissions`` and
+  ``companyfacts`` are one document per registrant, so the enrichment batches
+  (R3.5, R4.5) read ten thousand of them; caching each body by CIK is what
+  turns a 17-minute crawl into a restarted job that spends requests only on
+  what it has never read.
 * **Per-symbol errors, never per-symbol guesses.** A failed issuer fetch is
   recorded in :attr:`EngineDataset.errors` and produces no facts entry. The
   other symbols in the same load still resolve.
@@ -329,18 +331,48 @@ async def fetch_companyfacts(
     user_agent: str | None = None,
     cache_dir: Path | None = None,
 ) -> object:
-    """Read one registrant's ``companyfacts`` document and decode it."""
+    """Read one registrant's ``companyfacts`` document, through the cache.
 
-    payload, _ = await _fetch_json(
-        companyfacts_url(cik), client=client, user_agent=user_agent
+    ``cache_dir=None`` keeps the startup behaviour: exactly one request, no
+    disk. With a cache directory the entry is read first, and a usable body
+    answers the call without touching the client — a ``companyfacts`` document
+    is tens of megabytes, and a restarted bulk pass must not pay for what it
+    already read. A miss (absent, truncated, not JSON, no ``facts`` mapping, or
+    another issuer's body) is fetched once and the raw body replaces the entry
+    atomically, so a reader sees either the old file or the complete new one.
+
+    A live body that is not a companyfacts document raises
+    :class:`SecIngestError` and is not written: a proxy's error page is a
+    failure, and caching it would make the next run serve it as evidence.
+    """
+
+    key = _require_cik(cik)
+    path: Path | None = None
+    if cache_dir is not None:
+        path = facts_cache_path(cache_dir, key)
+        cached = _read_facts_cache(path, cik=key)
+        if cached is not None:
+            return cached
+
+    payload, text = await _fetch_json(
+        companyfacts_url(key), client=client, user_agent=user_agent
     )
+    if not _looks_like_companyfacts(payload):
+        raise SecIngestError(f"CIK{key} did not answer a companyfacts document")
+    if path is not None and _cacheable_companyfacts(payload, cik=key):
+        _write_cache_atomically(path, text)
     return payload
 
 
 def facts_cache_path(cache_dir: Path, cik: str) -> Path:
-    """``<cache_dir>/CIK##########-companyfacts.json``. Implemented in R4.5."""
+    """``<cache_dir>/CIK##########-companyfacts.json`` for one issuer.
 
-    raise NotImplementedError("facts_cache_path is implemented in R4.5")
+    The same contract as :func:`submissions_cache_path`: the ten-digit CIK keys
+    the entry because the document is per issuer (Berkshire's classes are one
+    file), and the kind keeps the filename honest about what it holds.
+    """
+
+    return _cache_path(Path(cache_dir), _require_cik(cik), _KIND_COMPANYFACTS)
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +390,21 @@ def _looks_like_companyfacts(payload: Any) -> bool:
     """True for the outer shape ``{"facts": {...}}`` this slice can parse."""
 
     return isinstance(payload, Mapping) and isinstance(payload.get("facts"), Mapping)
+
+
+def _cacheable_companyfacts(payload: Any, *, cik: str) -> bool:
+    """Whether ``payload`` is a document the cache may serve back for ``cik``.
+
+    Stricter than :func:`_looks_like_companyfacts` on one point: the document
+    must name the CIK it is filed under. A live body without a usable ``cik``
+    is still readable, but writing it under a CIK filename would create an
+    entry :func:`_read_facts_cache` has to reject — a cache that refetches
+    forever while claiming to hold the document.
+    """
+
+    if not _looks_like_companyfacts(payload):
+        return False
+    return normalize_cik(payload.get("cik")) == cik
 
 
 def _looks_like_submissions(payload: Any, *, cik: str) -> bool:
@@ -381,8 +428,9 @@ def _read_facts_cache(path: Path, *, cik: str) -> Any | None:
     """The cached document, or ``None`` when the entry is absent or unusable.
 
     A missing file, invalid JSON, a body without a ``facts`` mapping, or a body
-    whose own ``cik`` disagrees with the filename is a miss: the load re-fetches
-    and overwrites instead of serving a document it cannot vouch for.
+    whose own ``cik`` does not normalise to the requested one is a miss: the
+    caller re-fetches and overwrites instead of serving a document it cannot
+    vouch for. Being on disk is not evidence; being this CIK's document is.
     """
 
     try:
@@ -393,10 +441,7 @@ def _read_facts_cache(path: Path, *, cik: str) -> Any | None:
         payload = json.loads(text)
     except ValueError:
         return None
-    if not _looks_like_companyfacts(payload):
-        return None
-    document_cik = normalize_cik(payload.get("cik"))  # type: ignore[union-attr]
-    if document_cik is not None and document_cik != cik:
+    if not _cacheable_companyfacts(payload, cik=cik):
         return None
     return payload
 
@@ -479,23 +524,14 @@ def _error_key(value: Any) -> str:
 async def _issuer_facts(
     cik: str, *, client: Any, cache_dir: Path | None
 ) -> object:
-    """Read one issuer's ``companyfacts`` body, through the cache when asked."""
+    """Read one issuer's ``companyfacts`` body, through the cache when asked.
 
-    path: Path | None = None
-    if cache_dir is not None:
-        path = _cache_path(cache_dir, cik, _KIND_COMPANYFACTS)
-        cached = _read_facts_cache(path, cik=cik)
-        if cached is not None:
-            return cached
+    Kept as a named seam for :class:`_IssuerReader`: the load's reader is about
+    memoising a CIK, not about HTTP, and delegating means the cache rules live
+    in exactly one function (:func:`fetch_companyfacts`).
+    """
 
-    payload, text = await _fetch_json(
-        companyfacts_url(cik), client=client, user_agent=None
-    )
-    if not _looks_like_companyfacts(payload):
-        raise SecIngestError(f"CIK{cik} did not answer a companyfacts document")
-    if path is not None:
-        _write_cache_atomically(path, text)
-    return payload
+    return await fetch_companyfacts(cik, client=client, cache_dir=cache_dir)
 
 
 class _IssuerReader:
