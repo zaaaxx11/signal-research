@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ from app.engine.fund_series import fund_series_path, load_fund_series
 from app.engine.insider import collect_insider
 from app.engine.model import Cell
 from app.engine.nport import HoldingsNotFound, HoldingsUnavailable, collect_holdings
+from app.engine.ops import cache_stats, dataset_metrics, zero_cache_stats
 from app.engine.quotes import (
     MAX_QUOTE_REFRESH_SYMBOLS,
     QUOTE_FIELDS,
@@ -59,6 +61,12 @@ from app.engine.statements import collect_statements
 from app.market.quote import QuoteTick
 
 router = APIRouter(prefix="/engine", tags=["engine"])
+
+#: When this process started serving, on the monotonic clock. Monotonic rather
+#: than wall time because an uptime must not jump backwards when NTP steps the
+#: host clock; module level rather than per-request because the answer is a
+#: property of the process, not of the call.
+_PROCESS_STARTED = time.monotonic()
 
 #: Why a public deployment may not answer a quote-based query. Named once so the
 #: refusal and its documentation cannot drift apart.
@@ -85,6 +93,38 @@ async def health(request: Request) -> dict[str, Any]:
     quote_error = getattr(request.app.state, "engine_quote_error", None)
     if quote_error is not None:
         document["quote_error"] = quote_error
+    return document
+
+
+@router.get("/metrics")
+async def metrics(request: Request) -> dict[str, Any]:
+    """The deployment's operational document: dataset, cache, boot, uptime.
+
+    Always ``200`` while the process can answer. A metrics endpoint that failed
+    when the engine failed would be blind exactly when an operator needs it, so
+    an empty engine, a cache directory that does not exist and a failed boot are
+    all described **inside** the document (``dataset: null``, a zero cache
+    block, ``startup_error``) rather than turned into an error status.
+
+    The document carries operational metadata only — counts, ages, booleans,
+    one whole-second uptime — and never an absolute path or a cache filename.
+    That is what makes it safe to serve in public mode: it states how much was
+    cached, not what was licensed. The function's own shapes live in
+    :mod:`app.engine.ops`, so the CLI and this route cannot disagree about what
+    "the cache" means.
+    """
+
+    document = dataset_metrics(engine_service_of(request))
+    cache_dir = _engine_cache_dir()
+    document["cache"] = (
+        cache_stats(cache_dir) if cache_dir is not None else zero_cache_stats()
+    )
+    document["startup_error"] = getattr(
+        request.app.state, "engine_startup_error", None
+    )
+    document["process"] = {
+        "uptime_seconds": max(0, int(time.monotonic() - _PROCESS_STARTED))
+    }
     return document
 
 
