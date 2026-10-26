@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ import pytest
 from app.engine.ingest import EngineDataset
 from app.engine.security import SecurityMaster
 from app.main import _engine_lifespan
+from app.market.quote import QuoteTick
 
 FIXTURES = Path(__file__).with_name("fixtures")
 
@@ -84,3 +86,81 @@ async def test_lifespan_records_a_load_failure_without_failing_startup(
 
     assert application.state.engine_startup_error == "RuntimeError: EDGAR unavailable"
     assert not hasattr(application.state, "engine")
+
+
+async def test_lifespan_attaches_a_quote_snapshot_when_opted_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_load(
+        symbols: tuple[str, ...], *, cache_dir: Path | None = None
+    ) -> EngineDataset:
+        return _dataset()
+
+    class FakeQuoteEngine:
+        async def poll_many(self, symbols: tuple[str, ...]):
+            assert symbols == ("AAPL",)
+            return {
+                "AAPL": QuoteTick(
+                    symbol="AAPL",
+                    last=110.0,
+                    prev_close=100.0,
+                    volume=1_000.0,
+                    ts_exchange=datetime(2026, 10, 26, 14, 30, tzinfo=UTC),
+                    ts_received=datetime(2026, 10, 26, 14, 30, 1, tzinfo=UTC),
+                    source="yahoo",
+                )
+            }
+
+    monkeypatch.setenv("MEE_ENGINE_SYMBOLS", "AAPL")
+    monkeypatch.setenv("MEE_ENGINE_QUOTES", "1")
+    monkeypatch.setattr("app.main.load_sec_dataset", fake_load)
+    monkeypatch.setattr(
+        "app.main.build_quote_engine", lambda settings: FakeQuoteEngine()
+    )
+    application = _app()
+    application.state.runtime = SimpleNamespace(settings=object())
+
+    async with _engine_lifespan(application):
+        pass
+
+    result = application.state.engine.screen(
+        {
+            "filters": [{"field": "price", "op": "gt", "value": 0}],
+            "limit": 20,
+            "offset": 0,
+        }
+    )
+    assert result.total == 1
+    assert result.rows[0]["price"].value == 110.0
+    assert result.rows[0]["change"].value == pytest.approx(10.0)
+
+
+async def test_lifespan_keeps_the_dataset_when_quotes_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_load(
+        symbols: tuple[str, ...], *, cache_dir: Path | None = None
+    ) -> EngineDataset:
+        return _dataset()
+
+    class BrokenQuoteEngine:
+        async def poll_many(self, symbols: tuple[str, ...]):
+            raise RuntimeError("quote provider unavailable")
+
+    monkeypatch.setenv("MEE_ENGINE_SYMBOLS", "AAPL")
+    monkeypatch.setenv("MEE_ENGINE_QUOTES", "1")
+    monkeypatch.setattr("app.main.load_sec_dataset", fake_load)
+    monkeypatch.setattr(
+        "app.main.build_quote_engine", lambda settings: BrokenQuoteEngine()
+    )
+    application = _app()
+    application.state.runtime = SimpleNamespace(settings=object())
+
+    async with _engine_lifespan(application):
+        pass
+
+    assert application.state.engine_quote_error == (
+        "RuntimeError: quote provider unavailable"
+    )
+    assert application.state.engine is not None
+    assert application.state.engine.health()["rows"] is True

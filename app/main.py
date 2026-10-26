@@ -25,7 +25,9 @@ from app.api import engine as engine_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
 from app.engine.ingest import load_sec_dataset
+from app.engine.quotes import quote_fields
 from app.engine.service import EngineService
+from app.market.sources import build_quote_engine
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
 from app.news.service import build_news_service
@@ -93,7 +95,28 @@ async def _engine_lifespan(application: FastAPI):
                 f"{type(exc).__name__}: {exc}"
             )
         else:
-            application.state.engine = EngineService.from_dataset(dataset)
+            quotes: dict[str, dict[str, object]] = {}
+            if os.environ.get("MEE_ENGINE_QUOTES", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                try:
+                    engine = build_quote_engine(application.state.runtime.settings)
+                    ticks = await engine.poll_many(symbols)
+                except Exception as exc:  # noqa: BLE001 - quotes are optional
+                    application.state.engine_quote_error = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                else:
+                    quotes = {
+                        symbol: quote_fields(tick)
+                        for symbol, tick in ticks.items()
+                        if tick is not None
+                    }
+            application.state.engine = EngineService.from_dataset(
+                dataset, quotes=quotes
+            )
     yield
 
 

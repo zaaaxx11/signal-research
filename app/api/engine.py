@@ -38,6 +38,9 @@ async def health(request: Request) -> dict[str, Any]:
     startup_error = getattr(request.app.state, "engine_startup_error", None)
     if startup_error is not None:
         document["startup_error"] = startup_error
+    quote_error = getattr(request.app.state, "engine_quote_error", None)
+    if quote_error is not None:
+        document["quote_error"] = quote_error
     return document
 
 
