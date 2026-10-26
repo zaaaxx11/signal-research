@@ -611,6 +611,20 @@ async def find_series_filing(
             f"EFTS search did not answer JSON: {type(exc).__name__}: {exc}"
         ) from exc
 
+    # EDGAR's search can answer 200 with an error document when its OpenSearch
+    # backend is unhealthy.  That is an outage, not "this fund never filed":
+    # turning it into zero hits would publish holdings_not_found for a fund
+    # that files every quarter.  Only a real hits array may reach the filter.
+    if isinstance(payload, Mapping) and (
+        payload.get("errorType") or payload.get("errorMessage")
+    ):
+        raise HoldingsUnavailable(
+            "EFTS search failed: "
+            f"{payload.get('errorType')}: {payload.get('errorMessage')}"
+        )
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("hits"), Mapping):
+        raise HoldingsUnavailable("EFTS search answered without a hits object")
+
     filings = _series_filings(payload, cik=key)
     if not filings:
         return None

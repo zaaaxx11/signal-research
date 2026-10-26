@@ -1079,3 +1079,24 @@ async def test_collect_holdings_serves_a_warm_xml_cache(
         "NVIDIA Corp",
         "Apple Inc",
     ]
+
+
+async def test_efts_error_payload_is_unavailable_not_an_empty_result() -> None:
+    """An EFTS backend error is an outage, not 'this fund never filed'.
+
+    EDGAR's search can answer HTTP 200 with ``{"errorType": "ConnectionError",
+    ...}`` when its OpenSearch backend is unhealthy.  Treating that as zero
+    hits would publish ``holdings_not_found`` for a fund that actually files
+    every quarter, so it must raise ``HoldingsUnavailable`` instead.
+    """
+
+    web = Web()
+    web.efts_json(
+        {
+            "errorType": "ConnectionError",
+            "errorMessage": "getaddrinfo EBUSY efts-backend",
+        }
+    )
+
+    with pytest.raises(HoldingsUnavailable):
+        await find_series_filing(IVV_SERIES, IVV_CIK, client=web.client())
