@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=oneshot
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=/home/ubuntu/ztockz
-EnvironmentFile=/home/ubuntu/ztockz-data/engine.env
-ExecStart=/home/ubuntu/ztockz/.venv/bin/python -m app.engine.ops backup --snapshot /home/ubuntu/ztockz-data/engine-snapshot.json --dest /home/ubuntu/ztockz-data/backups --keep 7
+User=ztockz
+Group=ztockz
+WorkingDirectory=/opt/ztockz
+EnvironmentFile=/etc/ztockz/engine.env
+ExecStart=/opt/ztockz/.venv/bin/python -m app.engine.ops backup --snapshot /var/lib/ztockz/engine-snapshot.json --dest /var/lib/ztockz/backups --keep 7
 Nice=10

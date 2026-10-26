@@ -34,6 +34,7 @@ from pathlib import Path
 from stat import S_ISREG
 from typing import Any
 
+from app.engine import paths
 from app.engine.service import EngineService
 
 #: The cache vocabulary, in report order. Every kind is always present so a
@@ -752,12 +753,16 @@ def _build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     cache = commands.add_parser("cache", help="print the cache statistics document")
-    cache.add_argument("--cache-dir", required=True, help="engine cache directory")
+    cache.add_argument(
+        "--cache-dir", default=None, help="engine cache directory (default: env/data)"
+    )
 
     retention = commands.add_parser(
         "retention", help="delete re-fetchable cache documents over a limit"
     )
-    retention.add_argument("--cache-dir", required=True, help="engine cache directory")
+    retention.add_argument(
+        "--cache-dir", default=None, help="engine cache directory (default: env/data)"
+    )
     retention.add_argument("--max-bytes", type=int, default=None, help="byte budget")
     retention.add_argument(
         "--max-age-days", type=float, default=None, help="age cutoff in days"
@@ -767,8 +772,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     backup = commands.add_parser("backup", help="copy and rotate a snapshot")
-    backup.add_argument("--snapshot", required=True, help="snapshot file to copy")
-    backup.add_argument("--dest", required=True, help="directory to keep backups in")
+    backup.add_argument(
+        "--snapshot", default=None, help="snapshot file to copy (default: env/data)"
+    )
+    backup.add_argument(
+        "--dest", default=None, help="directory to keep backups in (default: env/data)"
+    )
     backup.add_argument("--keep", type=int, default=3, help="newest backups to keep")
 
     restore = commands.add_parser("restore", help="verify and restore a snapshot")
@@ -798,7 +807,9 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
     """Dispatch one parsed command to the function that owns it."""
 
     if args.command == "cache":
-        return cache_stats(Path(args.cache_dir))
+        return cache_stats(
+            Path(args.cache_dir) if args.cache_dir else paths.cache_dir()
+        )
     if args.command == "retention":
         if args.max_bytes is None and args.max_age_days is None:
             raise _UsageError(
@@ -806,14 +817,16 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
                 "delete every eligible cache file without a stated limit"
             )
         return apply_retention(
-            Path(args.cache_dir),
+            Path(args.cache_dir) if args.cache_dir else paths.cache_dir(),
             max_bytes=args.max_bytes,
             max_age_days=args.max_age_days,
             dry_run=bool(args.dry_run),
         )
     if args.command == "backup":
         return backup_snapshot(
-            Path(args.snapshot), Path(args.dest), keep=int(args.keep)
+            Path(args.snapshot) if args.snapshot else paths.snapshot_path(),
+            Path(args.dest) if args.dest else paths.backup_dir(),
+            keep=int(args.keep),
         )
     if args.command == "smoke":
         return asyncio.run(

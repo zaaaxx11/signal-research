@@ -106,6 +106,38 @@ alembic/
 tests/                # untouched contract suite
 ```
 
+## Portable deployment
+
+The engine has no host path in its code. Everything resolves from `MEE_*`
+variables, then `MEE_DATA_DIR`, then `./data`:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MEE_DATA_DIR` | `./data` | root for cache, snapshot, backups, SQLite, exports |
+| `MEE_ENGINE_CACHE_DIR` | `<data>/cache` | SEC document cache |
+| `MEE_ENGINE_SNAPSHOT` | `<data>/engine-snapshot.json` | dataset loaded at startup |
+| `MEE_BACKUP_DIR` | `<data>/backups` | `ops backup` destination |
+| `MEE_DB_PATH` | `<data>/ztockz.db` | SQLite for jobs/exports |
+| `MEE_SEC_RATE_LIMIT` | `10` | shared SEC requests/second (`0` disables) |
+
+Docker is the reference runtime:
+
+```bash
+docker compose up -d --build           # engine on :8080, volume ztockz-data:/data
+docker compose run --rm ops cache
+docker compose run --rm ops backup --snapshot /data/engine-snapshot.json --keep 7
+docker compose run --rm ops retention --max-age-days 30 --max-bytes 2000000000
+docker compose run --rm ops smoke --base-url http://engine:8080
+```
+
+To serve a populated engine, put `engine-snapshot.json` in the volume before
+starting (or run `python -m app.engine.ingest` in the container); without it the
+engine starts empty on purpose and `/engine/health` says so.
+
+Host systemd examples live in `deploy/`; they assume the app at `/opt/ztockz`
+and data at `/var/lib/ztockz`, both configurable through the same variables.
+They are an alternative to Docker, not a requirement.
+
 ## Next step
 
 Phase 1: `resolve/{intent,aliases,universe,estimator}.py`, `POST /markets/resolve`

@@ -1,0 +1,41 @@
+services:
+  engine:
+    build: .
+    image: ztockz-engine:local
+    ports:
+      - "8080:8080"
+    environment:
+      MEE_DATA_DIR: /data
+      MEE_SEC_RATE_LIMIT: "10"
+    volumes:
+      - ztockz-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/engine/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # One-shot operator commands; no port, no restart.
+  #   docker compose run --rm ops cache
+  #   docker compose run --rm ops backup --keep 7
+  #   docker compose run --rm ops retention --max-age-days 30 --max-bytes 2000000000
+  #   docker compose run --rm ops smoke --base-url http://engine:8080
+  ops:
+    profiles: ["ops"]
+    build: .
+    image: ztockz-engine:local
+    entrypoint: ["python", "-m", "app.engine.ops"]
+    environment:
+      MEE_DATA_DIR: /data
+      MEE_SEC_RATE_LIMIT: "10"
+    volumes:
+      - ztockz-data:/data
+
+volumes:
+  ztockz-data:

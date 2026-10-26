@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=oneshot
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=/home/ubuntu/ztockz
-EnvironmentFile=/home/ubuntu/ztockz-data/engine.env
-ExecStart=/home/ubuntu/ztockz/.venv/bin/python -m app.engine.ops retention --cache-dir /home/ubuntu/ztockz-data/cache --max-age-days 30 --max-bytes 2000000000
+User=ztockz
+Group=ztockz
+WorkingDirectory=/opt/ztockz
+EnvironmentFile=/etc/ztockz/engine.env
+ExecStart=/opt/ztockz/.venv/bin/python -m app.engine.ops retention --cache-dir /var/lib/ztockz/cache --max-age-days 30 --max-bytes 2000000000
 Nice=10
