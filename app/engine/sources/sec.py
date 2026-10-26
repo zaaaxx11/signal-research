@@ -57,6 +57,7 @@ from app.engine.model import LicenseClass, SecurityRecord, SourceSpec
 SOURCE_NAME = "sec"
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+TICKERS_EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 
 #: SEC prints a CIK with ten digits in the submissions path.
@@ -271,16 +272,31 @@ def parse_submissions(payload: Any) -> tuple[SecurityRecord, ...]:
     return tuple(sorted(records, key=lambda record: record.symbol))
 
 
+def parse_company_tickers_exchange(payload: Any) -> tuple[SecurityRecord, ...]:
+    """Parse ``company_tickers_exchange.json``. Implemented in R3."""
+
+    raise NotImplementedError("parse_company_tickers_exchange is implemented in R3")
+
+
+def submissions_country(payload: Any) -> str | None:
+    """Read the issuer's country from a submissions body. Implemented in R3."""
+
+    raise NotImplementedError("submissions_country is implemented in R3")
+
+
 __all__ = [
     "CIK_WIDTH",
     "SEC_SOURCE",
     "SOURCE_NAME",
     "SUBMISSIONS_URL",
+    "TICKERS_EXCHANGE_URL",
     "TICKERS_URL",
     "exchange_mic",
     "normalize_cik",
     "normalize_symbol",
     "parse_company_tickers",
+    "parse_company_tickers_exchange",
     "parse_submissions",
+    "submissions_country",
     "submissions_url",
 ]

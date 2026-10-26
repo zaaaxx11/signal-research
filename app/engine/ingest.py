@@ -239,6 +239,14 @@ async def fetch_company_tickers(
     return payload
 
 
+async def fetch_company_tickers_exchange(
+    *, client: Any = None, user_agent: str | None = None
+) -> object:
+    """Read ``company_tickers_exchange.json``. Implemented in R3."""
+
+    raise NotImplementedError("fetch_company_tickers_exchange is implemented in R3")
+
+
 async def fetch_submissions(
     cik: Any, *, client: Any = None, user_agent: str | None = None
 ) -> object:
@@ -496,6 +504,7 @@ __all__ = [
     "companyfacts_url",
     "fetch_companyfacts",
     "fetch_company_tickers",
+    "fetch_company_tickers_exchange",
     "fetch_submissions",
     "load_sec_dataset",
 ]
