@@ -267,7 +267,11 @@ async def fetch_company_tickers_exchange(
 
 
 async def fetch_submissions(
-    cik: Any, *, client: Any = None, user_agent: str | None = None
+    cik: Any,
+    *,
+    client: Any = None,
+    user_agent: str | None = None,
+    cache_dir: Path | None = None,
 ) -> object:
     """Read one registrant's submissions document (classes, venues, filings)."""
 
@@ -275,6 +279,12 @@ async def fetch_submissions(
         submissions_url(cik), client=client, user_agent=user_agent
     )
     return payload
+
+
+def submissions_cache_path(cache_dir: Path, cik: str) -> Path:
+    """``<cache_dir>/CIK##########-submissions.json``. Implemented in R3.5."""
+
+    raise NotImplementedError("submissions_cache_path is implemented in R3.5")
 
 
 async def fetch_companyfacts(
@@ -558,4 +568,5 @@ __all__ = [
     "fetch_company_tickers_exchange",
     "fetch_submissions",
     "load_sec_dataset",
+    "submissions_cache_path",
 ]
