@@ -353,6 +353,15 @@ async def test_a_non_json_body_is_a_domain_error_not_a_payload() -> None:
 async def test_load_builds_identity_and_real_aapl_facts() -> None:
     web = Web()
     web.json(TICKERS_URL, INDEX)
+    web.json(
+        SUBMISSIONS_URL.format(cik=AAPL_CIK),
+        {
+            "cik": AAPL_CIK,
+            "name": "Apple Inc.",
+            "tickers": ["AAPL"],
+            "exchanges": ["Nasdaq"],
+        },
+    )
     web.json(FACTS_URL.format(cik=AAPL_CIK), aapl_facts())
 
     dataset = await load_sec_dataset(["AAPL"], client=web.client(), as_of="2026-07-31")
@@ -361,6 +370,7 @@ async def test_load_builds_identity_and_real_aapl_facts() -> None:
     assert record is not None
     assert record.cik == AAPL_CIK
     assert record.name == "APPLE INC."
+    assert record.exchange == "Nasdaq"
     assert dataset.facts["AAPL"] == fact_ttm_summary(aapl_facts())
     assert dataset.errors == {}
 

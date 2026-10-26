@@ -443,6 +443,7 @@ async def load_sec_dataset(
     facts: dict[str, Mapping[str, Cell]] = {}
     errors: dict[str, str] = {}
     seen: set[str] = set()
+    identity_seen: set[str] = set()
     reader = _IssuerReader(client=client, cache_dir=cache_dir)
 
     for raw in symbols:
@@ -461,6 +462,17 @@ async def load_sec_dataset(
         if record.cik is None:
             errors[symbol] = "the SEC index carries no CIK for this symbol"
             continue
+
+        # Identity enrichment is best-effort: a submissions failure must not
+        # discard facts that are independently readable. It is also per-CIK,
+        # so Berkshire's two classes do not fetch the same document twice.
+        if record.cik not in identity_seen:
+            identity_seen.add(record.cik)
+            try:
+                submissions = await fetch_submissions(record.cik, client=client)
+                master.add_submissions(submissions, as_of=observed)
+            except Exception:  # noqa: BLE001 - enrichment is not the fact fetch
+                pass
 
         try:
             payload = await reader.read(record.cik)
