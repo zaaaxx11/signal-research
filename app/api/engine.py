@@ -19,6 +19,8 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from app.auth import ApiError
+from app.api.market import quote_engine_of
+from app.engine.quotes import quote_fields
 from app.engine.screener import ScreenError
 from app.engine.service import EngineService, EngineUnavailable
 
@@ -80,12 +82,40 @@ async def screen(request: Request) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ApiError(422, "invalid_body", "the screen body must be a JSON object")
 
+    refresh_quotes = bool(payload.pop("refresh_quotes", True))
+    service = engine_service_of(request)
     try:
-        result = engine_service_of(request).screen(payload)
+        result = service.screen(payload)
     except ScreenError as exc:
         raise ApiError(422, exc.code, str(exc)) from exc
     except EngineUnavailable as exc:
         raise ApiError(503, exc.code, str(exc)) from exc
+
+    if refresh_quotes and service.dataset is not None:
+        symbols = [
+            row["ticker"].value
+            for row in result.rows
+            if "ticker" in row and isinstance(row["ticker"].value, str)
+        ]
+        if symbols:
+            try:
+                engine = quote_engine_of(request)
+                ticks = await engine.poll_many(symbols)
+            except Exception:  # noqa: BLE001 - a quote outage must not kill the screen
+                ticks = {}
+            quotes = {
+                symbol: quote_fields(tick)
+                for symbol, tick in ticks.items()
+                if tick is not None
+            }
+            if quotes:
+                service = service.with_quotes(quotes)
+                request.app.state.engine = service
+                try:
+                    result = service.screen(payload)
+                except ScreenError as exc:  # pragma: no cover - same validated query
+                    raise ApiError(422, exc.code, str(exc)) from exc
+
     return EngineService.screen_document(result)
 
 

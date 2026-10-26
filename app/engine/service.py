@@ -15,7 +15,7 @@ screen routes because it contains no provider values.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Protocol
 
 from app.engine.catalog import CATALOG, CATALOG_VERSION, catalog_hash
@@ -54,6 +54,7 @@ class EngineService:
     policy: LicensePolicy = LicensePolicy()
     security_master: SecurityMaster | None = None
     rows: RowProvider | None = None
+    dataset: EngineDataset | None = None
 
     @classmethod
     def from_dataset(
@@ -74,7 +75,28 @@ class EngineService:
             policy=LicensePolicy() if policy is None else policy,
             security_master=dataset.security_master,
             rows=DatasetRows(dataset, quotes or {}),
+            dataset=dataset,
         )
+
+    def with_quotes(
+        self, quotes: Mapping[str, Mapping[str, object]]
+    ) -> EngineService:
+        """Return a service whose screen rows carry a refreshed quote map.
+
+        Only a service built from an :class:`EngineDataset` can do this: the
+        row provider needs the identity/facts snapshot as well as the new
+        prices. A service built from an arbitrary test provider is returned
+        unchanged, so this cannot turn a fake row source into a dataset.
+        """
+
+        if self.dataset is None:
+            return self
+        existing: Mapping[str, Mapping[str, object]] = {}
+        if isinstance(self.rows, DatasetRows):
+            existing = self.rows.quotes
+        merged = dict(existing)
+        merged.update(quotes)
+        return replace(self, rows=DatasetRows(self.dataset, merged))
 
     def health(self) -> dict[str, Any]:
         return {

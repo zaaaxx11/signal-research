@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -7,9 +9,12 @@ import pytest
 
 from tests._support import api_client
 
+from app.engine.ingest import EngineDataset
 from app.engine.model import Cell, CellStatus, Provenance, Unit
+from app.engine.security import SecurityMaster
 from app.engine.screener import ScreenError
 from app.engine.service import EngineService, EngineUnavailable
+from app.market.quote import QuoteTick
 
 
 def cell(value: Any, unit: Unit = Unit.USD, *, source: str = "test") -> Cell:
@@ -28,6 +33,21 @@ class FakeRows:
     def rows(self) -> tuple[dict[str, Cell], ...]:
         self.calls += 1
         return self._rows
+
+
+def _dataset() -> EngineDataset:
+    master = SecurityMaster.from_company_tickers(
+        json.loads(
+            (Path(__file__).with_name("fixtures") / "engine_sec_company_tickers_sample.json").read_text()
+        ),
+        as_of="2026-10-26",
+    )
+    return EngineDataset(
+        fetched_at="2026-10-26T12:00:00+00:00",
+        security_master=master,
+        facts={},
+        errors={},
+    )
 
 
 def test_screen_requires_a_row_provider() -> None:
@@ -124,6 +144,90 @@ async def test_screen_route_rejects_a_bad_filter_with_422(
 
     assert response.status_code == 422
     assert response.json()["error"] == "unknown_field"
+
+
+async def test_screen_route_refreshes_quotes_for_the_returned_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from httpx2 import ASGITransport, AsyncClient
+
+    from app.main import create_app
+
+    class FakeQuoteEngine:
+        async def poll_many(self, symbols: list[str]):
+            assert symbols == ["AAPL"]
+            return {
+                "AAPL": QuoteTick(
+                    symbol="AAPL",
+                    last=200.0,
+                    prev_close=100.0,
+                    volume=2_000.0,
+                    ts_exchange=datetime(2026, 10, 26, 14, 30, tzinfo=UTC),
+                    ts_received=datetime(2026, 10, 26, 14, 30, 1, tzinfo=UTC),
+                    source="yahoo",
+                )
+            }
+
+    monkeypatch.setenv("MEE_DB_PATH", str(tmp_path / "mee.db"))
+    monkeypatch.setenv("MEE_EXPORT_DIR", str(tmp_path / "exports"))
+    application = create_app()
+    application.state.engine = EngineService.from_dataset(_dataset())
+    monkeypatch.setattr(
+        "app.api.engine.quote_engine_of", lambda request: FakeQuoteEngine()
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://mee.test"
+    ) as client:
+        response = await client.post(
+            "/engine/screen",
+            json={
+                "filters": [{"field": "ticker", "op": "eq", "value": "AAPL"}],
+                "limit": 20,
+                "offset": 0,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    row = response.json()["rows"][0]
+    assert row["price"]["value"] == 200.0
+    assert row["change"]["value"] == pytest.approx(100.0)
+
+
+async def test_screen_route_can_disable_quote_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from httpx2 import ASGITransport, AsyncClient
+
+    from app.main import create_app
+
+    class NeverCalled:
+        async def poll_many(self, symbols: list[str]):
+            raise AssertionError("quote refresh was disabled but still called")
+
+    monkeypatch.setenv("MEE_DB_PATH", str(tmp_path / "mee.db"))
+    monkeypatch.setenv("MEE_EXPORT_DIR", str(tmp_path / "exports"))
+    application = create_app()
+    application.state.engine = EngineService.from_dataset(_dataset())
+    monkeypatch.setattr(
+        "app.api.engine.quote_engine_of", lambda request: NeverCalled()
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://mee.test"
+    ) as client:
+        response = await client.post(
+            "/engine/screen",
+            json={
+                "filters": [{"field": "ticker", "op": "eq", "value": "AAPL"}],
+                "refresh_quotes": False,
+                "limit": 20,
+                "offset": 0,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert "price" not in response.json()["rows"][0]
 
 
 async def test_screen_route_returns_filtered_rows_with_a_provider(
