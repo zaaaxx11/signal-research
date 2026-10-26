@@ -322,23 +322,31 @@ class EngineService:
 
     @staticmethod
     def _row_as_of(row: Mapping[str, object]) -> str | None:
-        """The newest provenance date in ``row``, or ``None`` when it has none.
+        """The newest **observation** date in ``row``, or ``None``.
+
+        Identity cells carry the load timestamp because that is when the
+        identity document was read; letting that date win would label a
+        fundamentals document with today even when its newest filing is months
+        old. Observed and derived cells answer the question this document is
+        about, so they are preferred; a fact-less row falls back to the
+        identity date because the load is the only observation it has.
 
         ``max`` over ISO-8601 strings is chronological because the engine only
         ever emits prefix-ordered dates (a date-only value sorts before the same
-        day's timestamp and after the previous day's). Cells without provenance
-        cannot contribute a date, and no date is ever invented: an empty row
-        answers ``None`` rather than today.
+        day's timestamp and after the previous day's). No date is ever invented.
         """
 
-        dates = [
-            cell.provenance.as_of
+        dated = [
+            (cell.provenance.as_of, cell.provenance.source)
             for cell in row.values()
             if isinstance(cell, Cell)
             and cell.provenance is not None
             and cell.provenance.as_of
         ]
-        return max(dates) if dates else None
+        observed = [date for date, source in dated if source != "identity"]
+        if observed:
+            return max(observed)
+        return max((date for date, _source in dated), default=None)
 
     @staticmethod
     def _cell_document(value: object) -> object:

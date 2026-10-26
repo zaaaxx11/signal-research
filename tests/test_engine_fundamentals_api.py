@@ -332,3 +332,31 @@ async def test_fundamentals_serves_the_raw_fact_vocabulary_too(
     assert metrics["equity"]["value"] == 75_000_000_000.0
     assert metrics["gross_profit"]["provenance"]["source"] == "sec"
     assert metrics["gross_margin"]["provenance"]["source"] == "derived"
+
+
+async def test_fundamentals_dates_by_observation_not_by_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A load timestamp newer than every filing must not become ``as_of``.
+
+    Identity cells are dated when the identity document was read. If that date
+    wins, a document with a June filing would claim to be current in December.
+    The observation dates answer what the document is about.
+    """
+
+    base = _dataset()
+    loaded_later = EngineDataset(
+        fetched_at="2026-12-31T00:00:00+00:00",
+        security_master=base.security_master,
+        facts=base.facts,
+        errors={},
+    )
+    async with _client(
+        tmp_path, monkeypatch, EngineService.from_dataset(loaded_later)
+    ) as client:
+        response = await client.get("/engine/fundamentals/AAPL")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["as_of"] == LATEST
+    assert body["as_of"] != "2026-12-31T00:00:00+00:00"
