@@ -69,7 +69,6 @@ class HoldingsUnavailable(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class EtfHolding:
     """One portfolio position exactly as the fund reported it."""
-
     name: str
     title: str | None
     cusip: str | None
@@ -151,6 +150,16 @@ def _number(raw: str | None) -> float | None:
 # ---------------------------------------------------------------------------
 # §1 Parser
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SeriesFiling:
+    """One N-PORT filing located through EDGAR full-text search."""
+
+    filed: str
+    report_date: str | None
+    accession: str
+    document: str
 
 
 def parse_nport(xml_text: str) -> tuple[EtfHolding, ...]:
@@ -426,6 +435,14 @@ def _sort_key(holding: EtfHolding) -> tuple[bool, float, bool, float]:
     )
 
 
+async def find_series_filing(
+    series_id: str, cik: str, *, client: Any = None
+) -> SeriesFiling | None:
+    """Locate the newest N-PORT filing for one series. Implemented in R5E."""
+
+    raise NotImplementedError("find_series_filing is implemented in R5E")
+
+
 async def collect_holdings(
     symbol: str,
     cik: str,
@@ -512,7 +529,9 @@ __all__ = [
     "HoldingsUnavailable",
     "NPORT_ARCHIVE_URL",
     "NPORT_FORM",
+    "SeriesFiling",
     "collect_holdings",
+    "find_series_filing",
     "nport_archive_url",
     "nport_cache_path",
     "parse_nport",
