@@ -323,7 +323,11 @@ def submissions_cache_path(cache_dir: Path, cik: str) -> Path:
 
 
 async def fetch_companyfacts(
-    cik: Any, *, client: Any = None, user_agent: str | None = None
+    cik: Any,
+    *,
+    client: Any = None,
+    user_agent: str | None = None,
+    cache_dir: Path | None = None,
 ) -> object:
     """Read one registrant's ``companyfacts`` document and decode it."""
 
@@ -331,6 +335,12 @@ async def fetch_companyfacts(
         companyfacts_url(cik), client=client, user_agent=user_agent
     )
     return payload
+
+
+def facts_cache_path(cache_dir: Path, cik: str) -> Path:
+    """``<cache_dir>/CIK##########-companyfacts.json``. Implemented in R4.5."""
+
+    raise NotImplementedError("facts_cache_path is implemented in R4.5")
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +647,7 @@ __all__ = [
     "EngineDataset",
     "SecIngestError",
     "companyfacts_url",
+    "facts_cache_path",
     "fetch_companyfacts",
     "fetch_company_tickers",
     "fetch_company_tickers_exchange",
