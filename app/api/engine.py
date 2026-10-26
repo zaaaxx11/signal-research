@@ -1,9 +1,10 @@
 """Read-only ``/engine`` routes.
 
-The engine is not yet the screen's data path. These routes expose the frozen
-catalog and the in-memory identity master without inventing prices or
-fundamentals. They are intentionally read-only and perform no I/O, so they are
-safe to mount while the ingestion/source adapters are still being built.
+These routes expose the frozen catalog and the in-memory identity master without
+inventing prices or fundamentals. ``POST /engine/screen`` reads a row provider
+that was already loaded by ingestion; the route performs no network I/O. A
+deployment with no provider answers ``503 screen_unavailable`` rather than an
+empty screen.
 
 Unknown keys use the same ``{error, errorMessage}`` envelope as the rest of the
 API. A security lookup against an empty master is a 404, not an empty 200:

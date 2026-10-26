@@ -1,9 +1,10 @@
 """Read-only projection of the engine's foundational slices.
 
 This service is deliberately small: it exposes the frozen catalog, the licence
-policy and the in-memory security master without pretending that an ingestion
-pipeline exists yet. The API can therefore ship a stable ``/engine`` surface
-while the adapters and database land in later slices.
+policy, the in-memory security master and an optional screen row provider. The
+API can therefore ship a stable ``/engine`` surface while ingestion and
+persistence land in later slices; a deployment with no dataset answers ``503``
+rather than inventing rows.
 
 ``source_keys`` are intentionally omitted from :meth:`catalog` and
 :meth:`metric`: they are adapter vocabulary, not presentation fields. The
