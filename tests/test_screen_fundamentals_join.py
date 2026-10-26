@@ -50,7 +50,10 @@ from app.screen.selection import SELECTION_REQUEST_SCHEMA
 from tests import _screen as S
 
 ROOT = Path(__file__).resolve().parents[1]
-NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)
+#: The wall clock at import time, truncated to the second. A fixed literal here
+#: would expire the fixture's 24-hour TTL the day after it was written — the
+#: join would then see every row as stale and silently return nothing.
+NOW = datetime.now(UTC).replace(microsecond=0)
 
 #: The three keys this pass moves from "refused" to "mapped", and their columns.
 P11G: dict[str, str] = {
