@@ -12,12 +12,14 @@ API. A security lookup against an empty master is a 404, not an empty 200:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Request
 
 from app.auth import ApiError
-from app.engine.service import EngineService
+from app.engine.screener import ScreenError
+from app.engine.service import EngineService, EngineUnavailable
 
 router = APIRouter(prefix="/engine", tags=["engine"])
 
@@ -49,6 +51,34 @@ async def metric(key: str, request: Request) -> dict[str, Any]:
             f"no metric named {key!r}; GET /engine/catalog lists the 116 fields",
         )
     return document
+
+
+@router.post("/screen")
+async def screen(request: Request) -> dict[str, Any]:
+    """Apply a local screen query to the configured row provider.
+
+    The route is read-only and does no fetching. A deployment with no dataset
+    gets an explicit 503; a malformed filter is a 422 even in that state.
+    """
+
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ApiError(
+            422,
+            "invalid_json",
+            f"the screen body is not valid JSON: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ApiError(422, "invalid_body", "the screen body must be a JSON object")
+
+    try:
+        result = engine_service_of(request).screen(payload)
+    except ScreenError as exc:
+        raise ApiError(422, exc.code, str(exc)) from exc
+    except EngineUnavailable as exc:
+        raise ApiError(503, exc.code, str(exc)) from exc
+    return EngineService.screen_document(result)
 
 
 @router.get("/security/{symbol}")
