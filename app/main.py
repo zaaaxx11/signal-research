@@ -189,8 +189,14 @@ async def _engine_quotes(
     provider outage degrades to "no prices this process" and must not make the
     API unstartable. The refresh happens after either source: a snapshot load is
     still allowed to attach live prices.
+
+    An empty target is answered without building a transport at all: the SEC
+    identity master can hold ten thousand symbols, and a startup must never turn
+    "quotes on" into a bulk crawl. Callers pass fact-bearing symbols only.
     """
 
+    if not symbols:
+        return {}
     if not _env_flag("MEE_ENGINE_QUOTES"):
         return {}
     try:
@@ -236,9 +242,11 @@ async def _engine_lifespan(application: FastAPI):
     if snapshot is not None and store is not None and store.exists():
         dataset = _load_snapshot(application, store, snapshot)
         if dataset is not None:
-            # A snapshot defines its own universe: the configured symbol list is
-            # a property of ingestion, not of the evidence being served.
-            quote_symbols = dataset.security_master.symbols()
+            # A snapshot defines its own universe, but a startup quote pass is
+            # bounded to the symbols that actually carry facts: the identity
+            # master is 10k+ rows, and polling all of them at boot would be a
+            # bulk crawl, not an enrichment.
+            quote_symbols = tuple(sorted(dataset.facts))
     else:
         symbols = _configured_symbols()
         if symbols:

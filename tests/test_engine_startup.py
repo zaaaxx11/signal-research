@@ -352,3 +352,55 @@ async def test_lifespan_saves_an_ingested_dataset_to_the_snapshot_path(
     assert block.get("symbols") == 4
     assert block.get("errors") == 0
 
+
+async def test_snapshot_quote_pass_targets_fact_symbols_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A snapshot holds the whole SEC identity master; quotes are per fact row.
+
+    The identity index is 10k+ symbols while facts exist for a handful. Polling
+    the master at boot because ``MEE_ENGINE_QUOTES=1`` would be a bulk crawl,
+    so the startup pass must ask only for symbols that actually carry facts.
+    """
+
+    from app.engine.model import Cell, Provenance, Unit
+
+    base = _dataset()
+    dataset = EngineDataset(
+        fetched_at=base.fetched_at,
+        security_master=base.security_master,
+        facts={
+            "AAPL": {
+                "sales": Cell(
+                    value=1.0,
+                    unit=Unit.USD,
+                    provenance=Provenance(source="sec", as_of="2025-09-27"),
+                )
+            }
+        },
+        errors={},
+    )
+    path = _write_snapshot(tmp_path / "snapshot.json", dataset)
+
+    class RecordingQuoteEngine:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        async def poll_many(self, symbols: tuple[str, ...]):
+            self.calls.append(tuple(symbols))
+            return {}
+
+    engine = RecordingQuoteEngine()
+    _configure_engine_env(monkeypatch, snapshot=path, symbols=None)
+    monkeypatch.setenv("MEE_ENGINE_QUOTES", "1")
+    monkeypatch.setattr("app.main.build_quote_engine", lambda settings: engine)
+    application = _app()
+    application.state.runtime = SimpleNamespace(settings=object())
+
+    async with _engine_lifespan(application):
+        pass
+
+    assert engine.calls == [("AAPL",)]
+    assert application.state.engine.dataset is not None
+    assert len(application.state.engine.dataset.security_master) == 4
+
