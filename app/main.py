@@ -19,8 +19,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import health, market, markets, news, providers, requests, screens
+from app.api import engine as engine_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
+from app.engine.service import EngineService
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
 from app.news.service import build_news_service
@@ -73,6 +75,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     application.state.runtime = runtime
+    #: Read-only engine projections (catalog/identity). The full ingestion
+    #: service will replace this object when the source adapters land; the
+    #: route contract does not change.
+    application.state.engine = EngineService()
     #: ``GET /market/quote`` builds its engine on first use (settings are the
     #: only input); tests and operators may replace it without a code path.
     application.state.quote_engine = None
@@ -91,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     mount_router(application, screens.router)
     mount_router(application, news.router)
     mount_router(application, sources_router)
+    mount_router(application, engine_api.router)
 
     ui_dir = Path(__file__).resolve().parent.parent / "ui"
     if ui_dir.is_dir():

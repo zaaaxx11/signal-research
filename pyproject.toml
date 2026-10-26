@@ -38,6 +38,9 @@ browser = ["playwright==1.64.0"]
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+"app.engine" = ["data/*.json"]
+
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]

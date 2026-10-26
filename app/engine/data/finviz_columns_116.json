@@ -1,0 +1,1668 @@
+[
+  {
+    "apiName": "ticker",
+    "key": "ticker",
+    "label": "Ticker",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "ticker"
+    ]
+  },
+  {
+    "apiName": "company",
+    "key": "company",
+    "label": "Company",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "company"
+    ]
+  },
+  {
+    "apiName": "sector",
+    "key": "sector",
+    "label": "Sector",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "sector"
+    ]
+  },
+  {
+    "apiName": "industry",
+    "key": "industry",
+    "label": "Industry",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "industry"
+    ]
+  },
+  {
+    "apiName": "securityType",
+    "key": "security_type",
+    "label": "Security Type",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "securityType"
+    ]
+  },
+  {
+    "apiName": "country",
+    "key": "country",
+    "label": "Country",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "country"
+    ]
+  },
+  {
+    "apiName": "exchange",
+    "key": "exchange",
+    "label": "Exchange",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "exchange"
+    ]
+  },
+  {
+    "apiName": "index",
+    "key": "index_membership",
+    "label": "Index",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "index"
+    ]
+  },
+  {
+    "apiName": "optionable",
+    "key": "optionable",
+    "label": "Optionable",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "optionable"
+    ]
+  },
+  {
+    "apiName": "shortable",
+    "key": "shortable",
+    "label": "Shortable",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "shortable"
+    ]
+  },
+  {
+    "apiName": "employees",
+    "key": "employees",
+    "label": "Employees",
+    "unit": "count",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "employees"
+    ]
+  },
+  {
+    "apiName": "www",
+    "key": "website",
+    "label": "Website",
+    "unit": "text",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "www"
+    ]
+  },
+  {
+    "apiName": "earningsDate",
+    "key": "earnings_date",
+    "label": "Earnings",
+    "unit": "date",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "earningsDate"
+    ]
+  },
+  {
+    "apiName": "ipoDate",
+    "key": "ipo_date",
+    "label": "IPO Date",
+    "unit": "date",
+    "category": "identification-classification",
+    "views": [
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "ipoDate"
+    ]
+  },
+  {
+    "apiName": "marketCap",
+    "key": "market_cap",
+    "label": "Market Cap",
+    "unit": "USD",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "marketCap"
+    ]
+  },
+  {
+    "apiName": "enterpriseValue",
+    "key": "enterprise_value",
+    "label": "Enterprise Value",
+    "unit": "USD",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "enterpriseValue"
+    ]
+  },
+  {
+    "apiName": "PE",
+    "key": "pe",
+    "label": "P/E",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "PE"
+    ]
+  },
+  {
+    "apiName": "forwardPE",
+    "key": "forward_pe",
+    "label": "Forward P/E",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "forwardPE"
+    ]
+  },
+  {
+    "apiName": "PEG",
+    "key": "peg",
+    "label": "PEG",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "PEG"
+    ]
+  },
+  {
+    "apiName": "PS",
+    "key": "ps",
+    "label": "P/S",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "PS"
+    ]
+  },
+  {
+    "apiName": "PB",
+    "key": "pb",
+    "label": "P/B",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "PB"
+    ]
+  },
+  {
+    "apiName": "PC",
+    "key": "pc",
+    "label": "P/C",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "PC"
+    ]
+  },
+  {
+    "apiName": "PFCF",
+    "key": "pfcf",
+    "label": "P/FCF",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "PFCF"
+    ]
+  },
+  {
+    "apiName": "evEbitda",
+    "key": "ev_ebitda",
+    "label": "EV/EBITDA",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "evEbitda"
+    ]
+  },
+  {
+    "apiName": "evSales",
+    "key": "ev_sales",
+    "label": "EV/Sales",
+    "unit": "ratio",
+    "category": "valuation",
+    "views": [
+      "valuation",
+      "screener"
+    ],
+    "source_keys": [
+      "evSales"
+    ]
+  },
+  {
+    "apiName": "eps",
+    "key": "eps",
+    "label": "EPS",
+    "unit": "USD",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "eps"
+    ]
+  },
+  {
+    "apiName": "income",
+    "key": "net_income",
+    "label": "Income",
+    "unit": "USD",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "income"
+    ]
+  },
+  {
+    "apiName": "sales",
+    "key": "sales",
+    "label": "Sales",
+    "unit": "USD",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "sales"
+    ]
+  },
+  {
+    "apiName": "estQ1",
+    "key": "eps_next_q",
+    "label": "EPS next Q",
+    "unit": "USD",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "estQ1"
+    ]
+  },
+  {
+    "apiName": "epsYoY",
+    "key": "eps_this_y",
+    "label": "EPS This Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "epsYoY"
+    ]
+  },
+  {
+    "apiName": "epsYoY1",
+    "key": "eps_next_y",
+    "label": "EPS Next Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "epsYoY1"
+    ]
+  },
+  {
+    "apiName": "eps3Years",
+    "key": "eps_past_3y",
+    "label": "EPS Past 3Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "eps3Years"
+    ]
+  },
+  {
+    "apiName": "eps5Years",
+    "key": "eps_past_5y",
+    "label": "EPS Past 5Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "eps5Years"
+    ]
+  },
+  {
+    "apiName": "estLTGrowth",
+    "key": "eps_next_5y",
+    "label": "EPS Next 5Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "estLTGrowth"
+    ]
+  },
+  {
+    "apiName": "sales3Years",
+    "key": "sales_past_3y",
+    "label": "Sales Past 3Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "sales3Years"
+    ]
+  },
+  {
+    "apiName": "sales5Years",
+    "key": "sales_past_5y",
+    "label": "Sales Past 5Y",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "sales5Years"
+    ]
+  },
+  {
+    "apiName": "epsQoQ",
+    "key": "eps_qoq",
+    "label": "EPS Q/Q",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "epsQoQ"
+    ]
+  },
+  {
+    "apiName": "salesQoQ",
+    "key": "sales_qoq",
+    "label": "Sales Q/Q",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "salesQoQ"
+    ]
+  },
+  {
+    "apiName": "epsYoYTTM",
+    "key": "eps_yoy_ttm",
+    "label": "EPS YoY TTM",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "epsYoYTTM"
+    ]
+  },
+  {
+    "apiName": "salesYoYTTM",
+    "key": "sales_yoy_ttm",
+    "label": "Sales YoY TTM",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "salesYoYTTM"
+    ]
+  },
+  {
+    "apiName": "epsSurprise",
+    "key": "eps_surprise",
+    "label": "EPS Surprise",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "epsSurprise"
+    ]
+  },
+  {
+    "apiName": "revenueSurprise",
+    "key": "revenue_surprise",
+    "label": "Revenue Surprise",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "revenueSurprise"
+    ]
+  },
+  {
+    "apiName": "grossMargin",
+    "key": "gross_margin",
+    "label": "Gross M",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "grossMargin"
+    ]
+  },
+  {
+    "apiName": "operMargin",
+    "key": "operating_margin",
+    "label": "Oper M",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "operMargin"
+    ]
+  },
+  {
+    "apiName": "netMargin",
+    "key": "net_margin",
+    "label": "Profit M",
+    "unit": "pct",
+    "category": "income-statements-ratios",
+    "views": [
+      "income",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "netMargin"
+    ]
+  },
+  {
+    "apiName": "roa",
+    "key": "roa",
+    "label": "ROA",
+    "unit": "pct",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "roa"
+    ]
+  },
+  {
+    "apiName": "roe",
+    "key": "roe",
+    "label": "ROE",
+    "unit": "pct",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "roe"
+    ]
+  },
+  {
+    "apiName": "roi",
+    "key": "roic",
+    "label": "ROIC",
+    "unit": "pct",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "roi"
+    ]
+  },
+  {
+    "apiName": "curRatio",
+    "key": "current_ratio",
+    "label": "Curr R",
+    "unit": "ratio",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "curRatio"
+    ]
+  },
+  {
+    "apiName": "quickRatio",
+    "key": "quick_ratio",
+    "label": "Quick R",
+    "unit": "ratio",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "quickRatio"
+    ]
+  },
+  {
+    "apiName": "ltdebtEq",
+    "key": "lt_debt_to_equity",
+    "label": "LTDebt/Eq",
+    "unit": "ratio",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "ltdebtEq"
+    ]
+  },
+  {
+    "apiName": "debtEq",
+    "key": "debt_to_equity",
+    "label": "Debt/Eq",
+    "unit": "ratio",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "debtEq"
+    ]
+  },
+  {
+    "apiName": "book",
+    "key": "book_per_share",
+    "label": "Book/sh",
+    "unit": "USD",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "book"
+    ]
+  },
+  {
+    "apiName": "cashPerShare",
+    "key": "cash_per_share",
+    "label": "Cash/sh",
+    "unit": "USD",
+    "category": "balance-sheet-ratios",
+    "views": [
+      "balance_sheet",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "cashPerShare"
+    ]
+  },
+  {
+    "apiName": "dividend",
+    "key": "dividend",
+    "label": "Dividend",
+    "unit": "USD",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividend"
+    ]
+  },
+  {
+    "apiName": "dividendYield",
+    "key": "dividend_yield",
+    "label": "Dividend Yield",
+    "unit": "pct",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividendYield"
+    ]
+  },
+  {
+    "apiName": "dividendTTM",
+    "key": "dividend_ttm",
+    "label": "Dividend TTM",
+    "unit": "USD",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividendTTM"
+    ]
+  },
+  {
+    "apiName": "payoutRatio",
+    "key": "payout_ratio",
+    "label": "Payout Ratio",
+    "unit": "pct",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "payoutRatio"
+    ]
+  },
+  {
+    "apiName": "dividendExDate",
+    "key": "dividend_ex_date",
+    "label": "Dividend Ex Date",
+    "unit": "date",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividendExDate"
+    ]
+  },
+  {
+    "apiName": "dividend1y",
+    "key": "dividend_growth_1y",
+    "label": "Dividend Gr. 1Y",
+    "unit": "pct",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividend1y"
+    ]
+  },
+  {
+    "apiName": "dividend3y",
+    "key": "dividend_growth_3y",
+    "label": "Dividend Gr. 3Y",
+    "unit": "pct",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividend3y"
+    ]
+  },
+  {
+    "apiName": "dividend5y",
+    "key": "dividend_growth_5y",
+    "label": "Dividend Gr. 5Y",
+    "unit": "pct",
+    "category": "dividend",
+    "views": [
+      "dividends",
+      "fundamentals",
+      "screener"
+    ],
+    "source_keys": [
+      "dividend5y"
+    ]
+  },
+  {
+    "apiName": "sharesOutstanding2",
+    "key": "shares_outstanding",
+    "label": "Outstanding",
+    "unit": "shares",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "sharesOutstanding2"
+    ]
+  },
+  {
+    "apiName": "sharesFloat",
+    "key": "shares_float",
+    "label": "Float",
+    "unit": "shares",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "sharesFloat"
+    ]
+  },
+  {
+    "apiName": "floatoutstandingpct",
+    "key": "float_pct",
+    "label": "Float %",
+    "unit": "pct",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "floatoutstandingpct"
+    ]
+  },
+  {
+    "apiName": "insiderOwn",
+    "key": "insider_own",
+    "label": "Insider Own",
+    "unit": "pct",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "insiderOwn"
+    ]
+  },
+  {
+    "apiName": "insiderTrans",
+    "key": "insider_trans",
+    "label": "Insider Trans",
+    "unit": "pct",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "insiderTrans"
+    ]
+  },
+  {
+    "apiName": "instOwn",
+    "key": "inst_own",
+    "label": "Inst Own",
+    "unit": "pct",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "instOwn"
+    ]
+  },
+  {
+    "apiName": "instTrans",
+    "key": "inst_trans",
+    "label": "Inst Trans",
+    "unit": "pct",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "instTrans"
+    ]
+  },
+  {
+    "apiName": "shortInterestShare",
+    "key": "short_float",
+    "label": "Short Float",
+    "unit": "pct",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "shortInterestShare"
+    ]
+  },
+  {
+    "apiName": "shortInterestRatio",
+    "key": "short_ratio",
+    "label": "Short Ratio",
+    "unit": "ratio",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "shortInterestRatio"
+    ]
+  },
+  {
+    "apiName": "shortInterest",
+    "key": "short_interest",
+    "label": "Short Interest",
+    "unit": "shares",
+    "category": "ownership",
+    "views": [
+      "ownership",
+      "screener"
+    ],
+    "source_keys": [
+      "shortInterest"
+    ]
+  },
+  {
+    "apiName": "perf1w",
+    "key": "perf_1w",
+    "label": "Perf Week",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf1w"
+    ]
+  },
+  {
+    "apiName": "perf4w",
+    "key": "perf_4w",
+    "label": "Perf Month",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf4w"
+    ]
+  },
+  {
+    "apiName": "perf13w",
+    "key": "perf_13w",
+    "label": "Perf Quart",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf13w"
+    ]
+  },
+  {
+    "apiName": "perf26w",
+    "key": "perf_26w",
+    "label": "Perf Half",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf26w"
+    ]
+  },
+  {
+    "apiName": "perf52w",
+    "key": "perf_52w",
+    "label": "Perf Year",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf52w"
+    ]
+  },
+  {
+    "apiName": "perfYtd",
+    "key": "perf_ytd",
+    "label": "Perf YTD",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perfYtd"
+    ]
+  },
+  {
+    "apiName": "perf3y",
+    "key": "perf_3y",
+    "label": "Perf 3Y",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf3y"
+    ]
+  },
+  {
+    "apiName": "perf5y",
+    "key": "perf_5y",
+    "label": "Perf 5Y",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf5y"
+    ]
+  },
+  {
+    "apiName": "perf10y",
+    "key": "perf_10y",
+    "label": "Perf 10Y",
+    "unit": "pct",
+    "category": "performance",
+    "views": [
+      "performance",
+      "screener"
+    ],
+    "source_keys": [
+      "perf10y"
+    ]
+  },
+  {
+    "apiName": "beta",
+    "key": "beta",
+    "label": "Beta",
+    "unit": "ratio",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "beta"
+    ]
+  },
+  {
+    "apiName": "averageTrueRange",
+    "key": "atr",
+    "label": "ATR",
+    "unit": "USD",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "averageTrueRange"
+    ]
+  },
+  {
+    "apiName": "volatility1w",
+    "key": "volatility_1w",
+    "label": "Volatility W",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "volatility1w"
+    ]
+  },
+  {
+    "apiName": "volatility4w",
+    "key": "volatility_4w",
+    "label": "Volatility M",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "volatility4w"
+    ]
+  },
+  {
+    "apiName": "sma20",
+    "key": "sma20",
+    "label": "SMA20",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "sma20"
+    ]
+  },
+  {
+    "apiName": "sma50",
+    "key": "sma50",
+    "label": "SMA50",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "sma50"
+    ]
+  },
+  {
+    "apiName": "sma200",
+    "key": "sma200",
+    "label": "SMA200",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "sma200"
+    ]
+  },
+  {
+    "apiName": "high50d",
+    "key": "high_50d",
+    "label": "50D High",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "high50d"
+    ]
+  },
+  {
+    "apiName": "low50d",
+    "key": "low_50d",
+    "label": "50D Low",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "low50d"
+    ]
+  },
+  {
+    "apiName": "high52w",
+    "key": "high_52w",
+    "label": "52W High",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "high52w"
+    ]
+  },
+  {
+    "apiName": "low52w",
+    "key": "low_52w",
+    "label": "52W Low",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "low52w"
+    ]
+  },
+  {
+    "apiName": "rsi",
+    "key": "rsi",
+    "label": "RSI",
+    "unit": "ratio",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "rsi"
+    ]
+  },
+  {
+    "apiName": "highAt",
+    "key": "all_time_high",
+    "label": "All-Time High",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "highAt"
+    ]
+  },
+  {
+    "apiName": "lowAt",
+    "key": "all_time_low",
+    "label": "All-Time Low",
+    "unit": "pct",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "lowAt"
+    ]
+  },
+  {
+    "apiName": "changeopen",
+    "key": "change_from_open",
+    "label": "Change from Open %",
+    "unit": "pct",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "changeopen"
+    ]
+  },
+  {
+    "apiName": "gap",
+    "key": "gap",
+    "label": "Gap",
+    "unit": "pct",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "gap"
+    ]
+  },
+  {
+    "apiName": "recom",
+    "key": "recommendation",
+    "label": "Recom",
+    "unit": "ratio",
+    "category": "sentiment-analyst-data",
+    "views": [
+      "analyst",
+      "screener"
+    ],
+    "source_keys": [
+      "recom"
+    ]
+  },
+  {
+    "apiName": "targetPrice",
+    "key": "target_price",
+    "label": "Target Price",
+    "unit": "USD",
+    "category": "sentiment-analyst-data",
+    "views": [
+      "analyst",
+      "screener"
+    ],
+    "source_keys": [
+      "targetPrice"
+    ]
+  },
+  {
+    "apiName": "newsUrl",
+    "key": "news_url",
+    "label": "News URL",
+    "unit": "text",
+    "category": "news",
+    "views": [
+      "news"
+    ],
+    "source_keys": [
+      "newsUrl"
+    ]
+  },
+  {
+    "apiName": "newsTitle",
+    "key": "news_title",
+    "label": "News Title",
+    "unit": "text",
+    "category": "news",
+    "views": [
+      "news"
+    ],
+    "source_keys": [
+      "newsTitle"
+    ]
+  },
+  {
+    "apiName": "newsTime",
+    "key": "news_time",
+    "label": "News Time",
+    "unit": "text",
+    "category": "news",
+    "views": [
+      "news"
+    ],
+    "source_keys": [
+      "newsTime"
+    ]
+  },
+  {
+    "apiName": "wiimDailyDigest",
+    "key": "daily_digest",
+    "label": "Daily Digest",
+    "unit": "text",
+    "category": "news",
+    "views": [
+      "news"
+    ],
+    "source_keys": [
+      "wiimDailyDigest"
+    ]
+  },
+  {
+    "apiName": "prevClose",
+    "key": "prev_close",
+    "label": "Prev Close",
+    "unit": "USD",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "prevClose"
+    ]
+  },
+  {
+    "apiName": "price",
+    "key": "price",
+    "label": "Price",
+    "unit": "USD",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "price"
+    ]
+  },
+  {
+    "apiName": "change",
+    "key": "change",
+    "label": "Change %",
+    "unit": "pct",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "change"
+    ]
+  },
+  {
+    "apiName": "volume",
+    "key": "volume",
+    "label": "Volume",
+    "unit": "shares",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "volume"
+    ]
+  },
+  {
+    "apiName": "averageVolume",
+    "key": "average_volume",
+    "label": "Avg Volume",
+    "unit": "shares",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "averageVolume"
+    ]
+  },
+  {
+    "apiName": "relativeVolume",
+    "key": "relative_volume",
+    "label": "Rel Volume",
+    "unit": "ratio",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "relativeVolume"
+    ]
+  },
+  {
+    "apiName": "open",
+    "key": "open",
+    "label": "Open",
+    "unit": "USD",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "open"
+    ]
+  },
+  {
+    "apiName": "high",
+    "key": "high",
+    "label": "High",
+    "unit": "USD",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "high"
+    ]
+  },
+  {
+    "apiName": "low",
+    "key": "low",
+    "label": "Low",
+    "unit": "USD",
+    "category": "intraday",
+    "views": [
+      "price",
+      "overview",
+      "screener"
+    ],
+    "source_keys": [
+      "low"
+    ]
+  },
+  {
+    "apiName": "candlestick",
+    "key": "candlestick_pattern",
+    "label": "Candlestick",
+    "unit": "unknown",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "candlestick"
+    ]
+  },
+  {
+    "apiName": "52Wrange",
+    "key": "week_52_range",
+    "label": "52W Range",
+    "unit": "unknown",
+    "category": "technical-indicators",
+    "views": [
+      "technical",
+      "screener"
+    ],
+    "source_keys": [
+      "52Wrange"
+    ]
+  },
+  {
+    "apiName": "order",
+    "key": "sort_order",
+    "label": "Sort Order",
+    "unit": "count",
+    "category": "meta",
+    "views": [
+      "screener"
+    ],
+    "source_keys": [
+      "order"
+    ]
+  },
+  {
+    "apiName": "type",
+    "key": "row_type",
+    "label": "Row Type",
+    "unit": "text",
+    "category": "meta",
+    "views": [
+      "screener"
+    ],
+    "source_keys": [
+      "type"
+    ]
+  }
+]
