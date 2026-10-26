@@ -171,6 +171,39 @@ async def security(symbol: str, request: Request) -> dict[str, Any]:
     return document
 
 
+@router.get("/peers/{symbol}")
+async def peers(symbol: str, request: Request, limit: str = "10") -> dict[str, Any]:
+    """Who else shares this symbol's SEC industry, computed from identity.
+
+    ``limit`` is taken as raw text and parsed here rather than as an ``int``
+    query parameter for the same reason as ``/engine/insider``: a framework
+    422 would bypass the house ``{error, errorMessage}`` envelope. The order is
+    validation, then lookup, so an unusable limit is a ``422 invalid_limit``
+    even for a symbol the master does not hold — a typo in the page size must
+    never be reported as "no such company".
+
+    The three answers are deliberately distinct: no master at all is
+    ``503 screen_unavailable`` (nothing was ingested), a symbol outside the
+    master is ``404 security_not_found``, and a known company with no industry
+    or no industry-mates is an honest ``200`` with ``count: 0``. The route is
+    read-only and performs no network I/O; ``as_of`` comes from the subject's
+    own provenance, never from the request clock.
+    """
+
+    bounded = _peers_limit(limit)
+    try:
+        document = engine_service_of(request).peers(symbol, limit=bounded)
+    except EngineUnavailable as exc:
+        raise ApiError(503, exc.code, str(exc)) from exc
+    if document is None:
+        raise ApiError(
+            404,
+            "security_not_found",
+            f"security {symbol!r} is not in the loaded identity master",
+        )
+    return document
+
+
 @router.get("/insider/{symbol}")
 async def insider(symbol: str, request: Request, limit: str = "5") -> dict[str, Any]:
     """Recent Form 4 filings for one issuer, read from EDGAR's own XML.
@@ -261,6 +294,28 @@ def _insider_limit(raw: str) -> int:
     if not 1 <= value <= 20:
         raise ApiError(
             422, "invalid_limit", f"limit must be an integer 1..20, got {raw!r}"
+        )
+    return value
+
+
+def _peers_limit(raw: str) -> int:
+    """The validated ``limit`` for the peer page, or ``422 invalid_limit``.
+
+    Blank, non-numeric, zero and anything above fifty are one refusal: the
+    caller asked for a page this endpoint cannot define. Fifty is inclusive
+    because a group page is bounded by the identity master, not by a crawl.
+    """
+
+    text = raw.strip() if isinstance(raw, str) else ""
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise ApiError(
+            422, "invalid_limit", f"limit must be an integer 1..50, got {raw!r}"
+        ) from exc
+    if not 1 <= value <= 50:
+        raise ApiError(
+            422, "invalid_limit", f"limit must be an integer 1..50, got {raw!r}"
         )
     return value
 

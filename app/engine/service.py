@@ -192,9 +192,81 @@ class EngineService:
         return self._security_document(record) if record is not None else None
 
     def peers(self, symbol: str, *, limit: int = 10) -> dict[str, Any] | None:
-        """Same-industry peers from the identity master. Implemented in R5B."""
+        """Who else is in this symbol's SEC industry group, up to ``limit``.
 
-        raise NotImplementedError("EngineService.peers is implemented in R5B")
+        The group is computed from the identity the engine already owns — the
+        SIC ``industry`` on :class:`~app.engine.model.SecurityRecord` — so the
+        answer needs no peer list from a vendor and no market capitalisation
+        the universe does not have. Case and surrounding whitespace are folded
+        away before comparing: ``" electronic computers "`` and
+        ``"ELECTRONIC COMPUTERS"`` are one industry, not three.
+
+        A missing industry is an *honest empty group*, not a 503 and not every
+        other company whose SIC is unknown: "we do not know what this company
+        does" must not silently become "these companies are alike". The same
+        refusal applies to a null ``mic`` when ordering: a venue nobody stated
+        is not a venue shared with another null.
+
+        The order is deterministic and explains itself — same MIC as the
+        subject first (the group reads like a venue page), then symbol
+        ascending — because a market-cap rank would be an invented number.
+        ``limit`` is applied *after* ordering, so a page always starts with the
+        same head of the same list; ``count`` therefore reports the page, not
+        the group.
+
+        ``as_of`` is the newest document that asserted the **subject**, never a
+        peer's newer document and never the load clock: the peer set cannot
+        make the subject's identity fresher than its own filing. Only a master
+        with no provenance at all falls back to the dataset's ``fetched_at``,
+        and a bare in-memory master answers ``None`` rather than a made-up
+        date. ``None`` as a return value answers "this symbol is not in the
+        master"; a deployment with no master raises
+        :class:`EngineUnavailable` first, because "nothing was ingested" and
+        "no such company" must not look the same.
+        """
+
+        master = self.security_master
+        if master is None:
+            raise EngineUnavailable(
+                "screen_unavailable",
+                "the engine has no identity master loaded yet; ingest a dataset first",
+            )
+
+        subject = master.get(symbol)
+        if subject is None:
+            return None
+
+        industry_key = self._industry_key(subject.industry)
+        members: list[SecurityRecord] = (
+            []
+            if industry_key is None
+            else [
+                record
+                for record in master.records()
+                if record.symbol != subject.symbol
+                and self._industry_key(record.industry) == industry_key
+            ]
+        )
+        same_venue = subject.mic is not None
+        members.sort(
+            key=lambda record: (
+                0 if same_venue and record.mic == subject.mic else 1,
+                record.symbol,
+            )
+        )
+        # A non-positive limit is an empty page, not a Python negative slice
+        # (which would silently return every peer but the last few). The route
+        # rejects 0/51/'x' before reaching here; this only keeps a direct
+        # service call truthful.
+        page = members[:limit] if limit > 0 else []
+
+        return {
+            "symbol": subject.symbol,
+            "industry": subject.industry,
+            "as_of": self._identity_as_of(subject.symbol),
+            "count": len(page),
+            "peers": [self._peer_document(record) for record in page],
+        }
 
     def screen(self, payload: ScreenQuery | Mapping[str, object]) -> ScreenResult:
         """Apply one screen query to the configured row provider.
@@ -382,6 +454,60 @@ class EngineService:
             "unit": metric.unit.value,
             "views": list(metric.views),
             "derivation": metric.derivation,
+        }
+
+    def _identity_as_of(self, symbol: str) -> str | None:
+        """The newest document date that asserted ``symbol``, or ``None``.
+
+        Provenance is per symbol and ordered oldest first, so ``max`` over the
+        documents is the freshest evidence the master holds for *this* record.
+        A master loaded without a dataset has no load clock to borrow, and
+        borrowing one would label a filing with the day of the request; the
+        dataset's ``fetched_at`` is therefore only a fallback for a master that
+        kept no provenance at all. Nothing else is ever invented.
+        """
+
+        master = self.security_master
+        if master is not None:
+            documents = master.provenance(symbol)
+            if documents:
+                return max(document.as_of for document in documents)
+        dataset = self.dataset
+        return None if dataset is None else dataset.fetched_at
+
+    @staticmethod
+    def _industry_key(industry: str | None) -> str | None:
+        """The grouping key for an SIC industry label.
+
+        Case and runs of whitespace are presentation, not a different
+        industry, so they are folded away before comparing. A missing (or
+        blank) industry answers ``None`` — never a shared key — because "we do
+        not know this company's industry" is not evidence that two companies
+        are alike.
+        """
+
+        if industry is None:
+            return None
+        return " ".join(industry.split()).casefold() or None
+
+    @staticmethod
+    def _peer_document(record: SecurityRecord) -> dict[str, Any]:
+        """Exactly the six identity fields a peer page may state.
+
+        No provider label, no market cap and no composite score: the engine
+        holds no caps for the universe, and a rank it cannot cite would be
+        presented as authority it does not have. ``industry`` is the peer's own
+        record rather than the subject's spelling; both fold to the same group
+        key, and the row stays a statement about that company.
+        """
+
+        return {
+            "symbol": record.symbol,
+            "name": record.name,
+            "exchange": record.exchange,
+            "mic": record.mic,
+            "industry": record.industry,
+            "country": record.country,
         }
 
     @staticmethod
