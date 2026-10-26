@@ -42,6 +42,7 @@ from fastapi import APIRouter, Request
 
 from app.api.market import quote_engine_of
 from app.auth import ApiError
+from app.engine.fund_series import fund_series_path, load_fund_series
 from app.engine.insider import collect_insider
 from app.engine.model import Cell
 from app.engine.nport import HoldingsNotFound, HoldingsUnavailable, collect_holdings
@@ -530,41 +531,58 @@ async def etf_holdings(
             "the engine has no identity master loaded yet; ingest a dataset first",
         )
     record = master.get(symbol)
+    target = symbol.strip().upper()
+    cache_dir = _engine_cache_dir()
     if record is None:
-        raise ApiError(
-            404,
-            "security_not_found",
-            f"security {symbol!r} is not in the loaded identity master",
+        # The operating-company index does not carry most ETFs (IVV and QQQ are
+        # absent; SPY is a registrant).  The official ticker→series map is the
+        # only place that knows their CIK, and a fund outside the screener
+        # universe is still a legitimate holdings question.  Without the map
+        # this branch is empty and the old 404 stands.
+        series = (
+            load_fund_series(fund_series_path(cache_dir)).get(target)
+            if cache_dir is not None
+            else None
         )
-    if record.cik is None:
-        return {
-            "symbol": record.symbol,
-            "as_of": None,
-            "filed": None,
-            "accession": None,
-            "count": 0,
-            "holdings": [],
-            "provider_errors": ["no CIK"],
-        }
+        if series is None:
+            raise ApiError(
+                404,
+                "security_not_found",
+                f"security {symbol!r} is not in the loaded identity master",
+            )
+        cik = series.cik
+    else:
+        target = record.symbol
+        if record.cik is None:
+            return {
+                "symbol": record.symbol,
+                "as_of": None,
+                "filed": None,
+                "accession": None,
+                "count": 0,
+                "holdings": [],
+                "provider_errors": ["no CIK"],
+            }
+        cik = record.cik
 
     try:
         return await collect_holdings(
-            record.symbol,
-            record.cik,
-            cache_dir=_engine_cache_dir(),
+            target,
+            cik,
+            cache_dir=cache_dir,
             limit=bounded,
         )
     except HoldingsNotFound as exc:
         raise ApiError(
             404,
             "holdings_not_found",
-            f"no N-PORT-P portfolio is on file for {record.symbol}: {exc}",
+            f"no N-PORT-P portfolio is on file for {target}: {exc}",
         ) from exc
     except HoldingsUnavailable as exc:
         raise ApiError(
             503,
             "holdings_unavailable",
-            f"the N-PORT-P body could not be read for {record.symbol}: {exc}",
+            f"the N-PORT-P body could not be read for {target}: {exc}",
         ) from exc
     except Exception as exc:  # noqa: BLE001 - every collection failure is one refusal
         # The class is named rather than swallowed: an operator reading the
@@ -574,7 +592,7 @@ async def etf_holdings(
         raise ApiError(
             503,
             "holdings_unavailable",
-            f"the N-PORT-P body could not be read for {record.symbol}: "
+            f"the N-PORT-P body could not be read for {target}: "
             f"{type(exc).__name__}: {exc}",
         ) from exc
 
