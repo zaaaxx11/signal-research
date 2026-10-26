@@ -9,16 +9,44 @@ dollar amount as percent points. This adapter names that conversion explicitly
 and leaves every missing field as ``None`` for the row assembler to omit.
 
 No network, no clock and no state: a tick in, a mapping out.
+
+:data:`QUOTE_FIELDS` and :func:`snapshot_from_ticks` are the other half of the
+bridge: which catalog keys a quote actually observes, and how one polled batch
+becomes the freshness sidecar a screen document carries. Both are pure, so a
+route can report *what it has* without consulting a clock of its own.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from app.market.quote import QuoteTick
 
-__all__ = ["QuoteSnapshot", "quote_fields"]
+__all__ = [
+    "MAX_QUOTE_REFRESH_SYMBOLS",
+    "QUOTE_FIELDS",
+    "QuoteSnapshot",
+    "quote_fields",
+    "snapshot_from_ticks",
+]
+
+#: The catalog keys whose value a quote rung observes. A query "uses quote
+#: fields" — and so depends on freshness — when any filter field or the sort
+#: field is in this set. ``market_cap`` is deliberately absent: the row derives
+#: it from price × shares, so it is a derived value, not an observed print.
+QUOTE_FIELDS: frozenset[str] = frozenset(
+    {"price", "change", "volume", "prev_close"}
+)
+
+#: A quote-based filter refreshes its candidate set *before* it decides
+#: membership, which is only safe while that set is small: the loaded SEC
+#: identity master can hold 10k+ symbols, and one screen request must not turn
+#: into a bulk quote crawl. Above this many symbols the route keeps the
+#: pre-refresh snapshot and says ``quote_filter_capped`` instead of claiming the
+#: filter saw fresh prices. A persisted quote universe (R3) is the real fix.
+MAX_QUOTE_REFRESH_SYMBOLS = 100
 
 
 def quote_fields(tick: QuoteTick) -> dict[str, object]:
@@ -127,3 +155,48 @@ class QuoteSnapshot:
             "reason": self.reason,
             "filter_used_snapshot": self.filter_used_snapshot,
         }
+
+
+def snapshot_from_ticks(
+    ticks: Mapping[str, QuoteTick | None],
+    *,
+    scope: str,
+    requested: int,
+    reason: str | None = None,
+    filter_used_snapshot: bool = False,
+) -> QuoteSnapshot:
+    """Build the sidecar for one attempted refresh from the batch it returned.
+
+    ``ticks`` is the engine's own answer, including the ``None`` values that
+    mean "nobody had this symbol". Those are not prices, so ``returned`` counts
+    only real ticks and ``refreshed`` is true only when at least one exists:
+    a batch of four ``None`` values must not read as a refreshed page.
+
+    ``as_of`` is the newest ``ts_exchange`` in the batch — never ``ts_received``
+    and never the wall clock — so a cached print cannot be made to look fresh by
+    polling it again. ``stale`` is the engine's verdict over the same set, and
+    stays ``None`` when there is no tick to judge.
+
+    ``requested`` is passed in rather than derived from ``ticks`` because a
+    batch that raised before answering still has a known target set: the caller
+    reports what it asked for, not what came back.
+    """
+
+    returned_ticks = tuple(
+        tick for tick in ticks.values() if isinstance(tick, QuoteTick)
+    )
+    newest = max((tick.ts_exchange for tick in returned_ticks), default=None)
+    return QuoteSnapshot(
+        refreshed=bool(returned_ticks),
+        scope=scope,
+        requested=requested,
+        returned=len(returned_ticks),
+        as_of=None if newest is None else newest.isoformat(),
+        stale=(
+            None
+            if not returned_ticks
+            else any(tick.stale for tick in returned_ticks)
+        ),
+        reason=reason,
+        filter_used_snapshot=filter_used_snapshot,
+    )

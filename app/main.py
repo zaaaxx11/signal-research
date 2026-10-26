@@ -24,9 +24,11 @@ from app.api import health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
-from app.engine.ingest import load_sec_dataset
+from app.engine.ingest import EngineDataset, load_sec_dataset
+from app.engine.license import LicensePolicy
 from app.engine.quotes import quote_fields
 from app.engine.service import EngineService
+from app.engine.store import EngineStore
 from app.market.sources import build_quote_engine
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
@@ -69,54 +71,186 @@ def mount_router(application: FastAPI, router: APIRouter) -> None:
         application.router.routes.append(route)
 
 
+#: The spellings of a boolean environment flag this process accepts. Anything
+#: else — including an empty string — is false, so a typo cannot silently turn
+#: a licence boundary or an external fetch on.
+_TRUE_FLAGS = frozenset({"1", "true", "yes"})
+
+
+def _env_flag(name: str) -> bool:
+    """Whether ``name`` is set to one of the accepted true spellings."""
+
+    return os.environ.get(name, "").strip().lower() in _TRUE_FLAGS
+
+
+def _engine_policy(application: FastAPI) -> LicensePolicy:
+    """The licence policy this process serves under.
+
+    ``create_app`` builds the policy from ``MEE_ENGINE_PUBLIC_MODE`` and hangs it
+    on the placeholder service, so the dataset-backed service built here must
+    reuse it: replacing the service must never downgrade a public deployment to
+    private. The lifespan is also called directly in tests and by tools with a
+    bare ``state`` namespace, hence ``getattr`` rather than an attribute read;
+    when no service exists yet the environment is the only source of truth.
+    """
+
+    service = getattr(application.state, "engine", None)
+    policy = getattr(service, "policy", None)
+    if isinstance(policy, LicensePolicy):
+        return policy
+    return LicensePolicy(public_mode=_env_flag("MEE_ENGINE_PUBLIC_MODE"))
+
+
+def _configured_symbols() -> tuple[str, ...]:
+    """``MEE_ENGINE_SYMBOLS`` as a canonical, de-duplicated tuple."""
+
+    raw = os.environ.get("MEE_ENGINE_SYMBOLS", "")
+    return tuple(
+        part.strip().upper() for part in raw.split(",") if part.strip()
+    )
+
+
+def _configured_snapshot() -> Path | None:
+    """``MEE_ENGINE_SNAPSHOT`` as a path, or ``None`` when unset."""
+
+    raw = os.environ.get("MEE_ENGINE_SNAPSHOT", "").strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def _cache_dir() -> Path | None:
+    """``MEE_ENGINE_CACHE_DIR`` as a path, or ``None`` when unset."""
+
+    raw = os.environ.get("MEE_ENGINE_CACHE_DIR", "").strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def _record_startup_error(application: FastAPI, exc: BaseException) -> None:
+    """Expose a startup failure on state without aborting the process.
+
+    The exception class is kept in the text because ``RuntimeError`` and
+    ``SnapshotError`` are different operator stories (a provider outage versus a
+    snapshot that must be regenerated), and the route that degrades to ``503``
+    has no other channel to say which one happened.
+    """
+
+    application.state.engine_startup_error = f"{type(exc).__name__}: {exc}"
+
+
+def _load_snapshot(
+    application: FastAPI, store: EngineStore, path: Path
+) -> EngineDataset | None:
+    """Load the configured snapshot; record the failure and fail closed.
+
+    Failing closed is the point: when the operator points the process at a
+    snapshot, a silent EDGAR fetch would replace evidence the deployment claims
+    to be serving with a different dataset, and the difference would be
+    invisible. ``None`` therefore means "no dataset", never "ingest instead".
+    """
+
+    try:
+        dataset = store.load()
+    except Exception as exc:  # noqa: BLE001 - startup must stay observable
+        _record_startup_error(application, exc)
+        return None
+    application.state.engine_snapshot = str(path)
+    return dataset
+
+
+async def _load_ingested_dataset(
+    application: FastAPI, symbols: tuple[str, ...], snapshot: Path | None
+) -> EngineDataset | None:
+    """Ingest ``symbols`` over EDGAR; persist the result when asked to.
+
+    A failed ingestion is reported like any other startup failure. A snapshot
+    that cannot be written after a successful ingest is *not* fatal: the process
+    has a usable dataset in memory, and refusing to start because a side artefact
+    could not be persisted would take a working API down for a caching problem.
+    """
+
+    try:
+        dataset = await load_sec_dataset(symbols, cache_dir=_cache_dir())
+    except Exception as exc:  # noqa: BLE001 - startup must stay observable
+        _record_startup_error(application, exc)
+        return None
+    if snapshot is not None:
+        try:
+            EngineStore(snapshot).save(dataset)
+        except Exception as exc:  # noqa: BLE001 - persistence is a side effect
+            application.state.engine_snapshot_error = f"{type(exc).__name__}: {exc}"
+    return dataset
+
+
+async def _engine_quotes(
+    application: FastAPI, symbols: tuple[str, ...]
+) -> dict[str, dict[str, object]]:
+    """Poll the opt-in quote engine; a failure is recorded, never raised.
+
+    Quotes are an enrichment on top of a dataset that is already servable, so a
+    provider outage degrades to "no prices this process" and must not make the
+    API unstartable. The refresh happens after either source: a snapshot load is
+    still allowed to attach live prices.
+    """
+
+    if not _env_flag("MEE_ENGINE_QUOTES"):
+        return {}
+    try:
+        engine = build_quote_engine(application.state.runtime.settings)
+        ticks = await engine.poll_many(symbols)
+    except Exception as exc:  # noqa: BLE001 - quotes are optional
+        application.state.engine_quote_error = f"{type(exc).__name__}: {exc}"
+        return {}
+    return {
+        symbol: quote_fields(tick)
+        for symbol, tick in ticks.items()
+        if tick is not None
+    }
+
+
 @asynccontextmanager
 async def _engine_lifespan(application: FastAPI):
     """Optionally load one SEC dataset before serving requests.
 
     The engine is deliberately empty by default: a process should not surprise
-    its operator with an EDGAR fetch. Setting ``MEE_ENGINE_SYMBOLS`` (comma
-    separated) opts in; ``MEE_ENGINE_CACHE_DIR`` chooses the per-CIK document
-    cache. A failed load is recorded on ``state.engine_startup_error`` and the
-    app still starts, because an unavailable enrichment source must degrade to
-    the honest ``503`` route rather than make the whole API unstartable.
+    its operator with an EDGAR fetch. Two opt-ins are supported, in this order:
+
+    1. ``MEE_ENGINE_SNAPSHOT`` points at a file that exists — load it, and make
+       no network call. A load failure is recorded on
+       ``state.engine_startup_error`` and startup continues **without** falling
+       back to ingestion.
+    2. ``MEE_ENGINE_SYMBOLS`` (comma separated) — ingest from EDGAR;
+       ``MEE_ENGINE_CACHE_DIR`` chooses the per-CIK document cache. If a
+       snapshot path is configured, the result is written there.
+
+    With neither, nothing is attached and the engine routes answer honestly.
+    ``MEE_ENGINE_QUOTES`` opts into a quote snapshot after either source. A
+    failed load is recorded on ``state.engine_startup_error`` and the app still
+    starts, because an unavailable enrichment source must degrade to the honest
+    ``503`` route rather than make the whole API unstartable.
     """
 
-    raw_symbols = os.environ.get("MEE_ENGINE_SYMBOLS", "")
-    symbols = tuple(
-        part.strip().upper() for part in raw_symbols.split(",") if part.strip()
-    )
-    if symbols:
-        raw_cache = os.environ.get("MEE_ENGINE_CACHE_DIR", "").strip()
-        cache_dir = Path(raw_cache).expanduser() if raw_cache else None
-        try:
-            dataset = await load_sec_dataset(symbols, cache_dir=cache_dir)
-        except Exception as exc:  # noqa: BLE001 - startup must stay observable
-            application.state.engine_startup_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
-        else:
-            quotes: dict[str, dict[str, object]] = {}
-            if os.environ.get("MEE_ENGINE_QUOTES", "").strip().lower() in {
-                "1",
-                "true",
-                "yes",
-            }:
-                try:
-                    engine = build_quote_engine(application.state.runtime.settings)
-                    ticks = await engine.poll_many(symbols)
-                except Exception as exc:  # noqa: BLE001 - quotes are optional
-                    application.state.engine_quote_error = (
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                else:
-                    quotes = {
-                        symbol: quote_fields(tick)
-                        for symbol, tick in ticks.items()
-                        if tick is not None
-                    }
-            application.state.engine = EngineService.from_dataset(
-                dataset, quotes=quotes
-            )
+    dataset: EngineDataset | None = None
+    quote_symbols: tuple[str, ...] = ()
+
+    snapshot = _configured_snapshot()
+    store = EngineStore(snapshot) if snapshot is not None else None
+    if snapshot is not None and store is not None and store.exists():
+        dataset = _load_snapshot(application, store, snapshot)
+        if dataset is not None:
+            # A snapshot defines its own universe: the configured symbol list is
+            # a property of ingestion, not of the evidence being served.
+            quote_symbols = dataset.security_master.symbols()
+    else:
+        symbols = _configured_symbols()
+        if symbols:
+            dataset = await _load_ingested_dataset(application, symbols, snapshot)
+            if dataset is not None:
+                quote_symbols = symbols
+
+    if dataset is not None:
+        quotes = await _engine_quotes(application, quote_symbols)
+        application.state.engine = EngineService.from_dataset(
+            dataset, quotes=quotes, policy=_engine_policy(application)
+        )
     yield
 
 
@@ -135,7 +269,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: Read-only engine projections (catalog/identity). The full ingestion
     #: service will replace this object when the source adapters land; the
     #: route contract does not change.
-    application.state.engine = EngineService()
+    #:
+    #: The licence policy is built here, from the environment, because this is
+    #: the composition root: the lifespan reuses it when it swaps in the
+    #: dataset-backed service, so a public deployment is never silently
+    #: downgraded to private. ``MEE_ENGINE_PUBLIC_MODE`` is the deploy switch.
+    application.state.engine = EngineService(
+        policy=LicensePolicy(public_mode=_env_flag("MEE_ENGINE_PUBLIC_MODE"))
+    )
     #: ``GET /market/quote`` builds its engine on first use (settings are the
     #: only input); tests and operators may replace it without a code path.
     application.state.quote_engine = None

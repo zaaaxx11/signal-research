@@ -23,9 +23,10 @@ from app.engine.dataset import DatasetRows
 from app.engine.ingest import EngineDataset
 from app.engine.license import LicensePolicy
 from app.engine.model import Cell, MetricSpec, SecurityRecord
-from app.engine.quotes import QuoteSnapshot
-from app.engine.screener import ScreenResult, apply, parse_query
+from app.engine.quotes import QUOTE_FIELDS, QuoteSnapshot
+from app.engine.screener import ScreenQuery, ScreenResult, apply, parse_query
 from app.engine.security import SecurityMaster
+from app.engine.sources.quote import quote_source_available
 
 
 class RowProvider(Protocol):
@@ -99,7 +100,59 @@ class EngineService:
         merged.update(quotes)
         return replace(self, rows=DatasetRows(self.dataset, merged))
 
+    def quotes_admitted(self) -> bool:
+        """May this service poll a quote rung at all?
+
+        Every observed-quote source is ``INTERNAL`` (see
+        :mod:`app.engine.sources.quote`), so a public deployment answers
+        ``False``. The route uses this as a gate *before* a fetch: a caller
+        cannot license a source by asking for a refresh, and a public response
+        must not carry a price it is not allowed to redistribute.
+        """
+
+        return quote_source_available(public_mode=self.policy.public_mode)
+
+    def candidate_symbols(self) -> tuple[str, ...]:
+        """Every symbol a quote-based screen could need: the whole dataset.
+
+        A filter on ``price`` decides *membership*, so the page cannot be known
+        before the values exist. The refresh target is therefore the loaded
+        identity master, not the page — and an empty tuple when no dataset was
+        ingested, which is a different answer from "there are no quotes".
+        """
+
+        if self.dataset is None:
+            return ()
+        return self.dataset.security_master.symbols()
+
+    def uses_quote_fields(self, query: object) -> bool:
+        """Does ``query`` filter or sort on an observed quote field?
+
+        Accepts the wire shape or an already-parsed
+        :class:`~app.engine.screener.ScreenQuery`. The answer decides both the
+        refresh scope (candidates vs page) and whether the response must admit
+        that it read a snapshot; it is computed from the *validated* query so
+        ``market_cap`` — a derived price × shares value — does not count as an
+        observed print.
+        """
+
+        parsed = parse_query(query)
+        if parsed.sort is not None and parsed.sort.field in QUOTE_FIELDS:
+            return True
+        return any(spec.field in QUOTE_FIELDS for spec in parsed.filters)
+
     def health(self) -> dict[str, Any]:
+        """The deployment's read-only self-description.
+
+        ``dataset`` is the one key that answers "what is backing the rows": a
+        process can be healthy with no dataset at all (the engine starts empty
+        on purpose), so this is ``None`` rather than a block of zeroes, and the
+        error count is reported next to the symbol count instead of being
+        swallowed — a dataset that loaded four identities and failed two facts
+        fetches is not the same as a clean one.
+        """
+
+        dataset = self.dataset
         return {
             "engine": "v2",
             "catalog_version": CATALOG_VERSION,
@@ -108,6 +161,15 @@ class EngineService:
             "public_mode": self.policy.public_mode,
             "security_master": self.security_master is not None,
             "rows": self.rows is not None,
+            "dataset": (
+                None
+                if dataset is None
+                else {
+                    "fetched_at": dataset.fetched_at,
+                    "symbols": len(dataset.security_master),
+                    "errors": len(dataset.errors),
+                }
+            ),
         }
 
     def catalog(self) -> dict[str, Any]:
@@ -129,8 +191,13 @@ class EngineService:
         record = self.security_master.get(symbol)
         return self._security_document(record) if record is not None else None
 
-    def screen(self, payload: Mapping[str, object]) -> ScreenResult:
+    def screen(self, payload: ScreenQuery | Mapping[str, object]) -> ScreenResult:
         """Apply one screen query to the configured row provider.
+
+        ``payload`` is the wire document or an already-validated
+        :class:`~app.engine.screener.ScreenQuery`; the route parses once, so a
+        refresh can re-run the same validated query instead of re-reading (and
+        re-checking) the caller's body.
 
         The query is validated before the provider check on purpose: a malformed
         filter is a client error even when the deployment has no data yet, and

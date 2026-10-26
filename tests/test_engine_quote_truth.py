@@ -587,3 +587,49 @@ async def test_page_scope_as_of_is_the_newest_exchange_print(
         if "price" in row
     }
     assert prices == {"AAPL": 200.0, "MSFT": 300.0}
+
+
+async def test_a_quote_filter_over_the_cap_says_it_used_the_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SEC identity master is 10k+ symbols; one screen must not crawl them all.
+
+    A quote filter refreshes candidates before deciding membership, which is only
+    affordable on a bounded set. Above the cap the route keeps the snapshot and
+    labels the response instead of pretending it saw fresh prices.
+    """
+
+    monkeypatch.setattr("app.api.engine.MAX_QUOTE_REFRESH_SYMBOLS", 3)
+    engine = RecordingQuoteEngine(
+        {
+            "AAPL": _tick("AAPL", 200.0),
+            "BRK-B": _tick("BRK-B", 300.0),
+            "MSFT": _tick("MSFT", 300.0),
+            "NVDA": _tick("NVDA", 300.0),
+        }
+    )
+    application = _app(tmp_path, monkeypatch, _service(), engine)
+
+    response = await _post(
+        application,
+        {
+            "filters": [{"field": "price", "op": "gte", "value": 200}],
+            "limit": 20,
+            "offset": 0,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "quote_snapshot" in body, body
+    sidecar = body["quote_snapshot"]
+
+    assert engine.calls == []
+    assert sidecar["reason"] == "quote_filter_capped"
+    assert sidecar["scope"] == "candidates"
+    assert sidecar["refreshed"] is False
+    assert sidecar["requested"] == 4
+    assert sidecar["returned"] == 0
+    assert sidecar["filter_used_snapshot"] is True
+    assert body["total"] == 0
+    assert body["rows"] == []
