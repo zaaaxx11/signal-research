@@ -260,12 +260,23 @@ class EngineService:
                 f"{type(row).__name__}"
             )
 
+        symbol_key = self._row_symbol(row, symbol)
+        # Start from the raw fact vocabulary when the dataset is available: the
+        # row carries only cells that have a catalog column, but this endpoint's
+        # job is the filing, not the screen. Row cells win on a shared key
+        # because they are the assembled/derived projection of those facts.
+        metrics: dict[str, Any] = {}
+        if self.dataset is not None:
+            for key, cell in self.dataset.facts.get(symbol_key, {}).items():
+                metrics[key] = self._cell_document(cell)
+        metrics.update(
+            {key: self._cell_document(value) for key, value in row.items()}
+        )
+
         return {
-            "symbol": self._row_symbol(row, symbol),
+            "symbol": symbol_key,
             "as_of": self._row_as_of(row),
-            "metrics": {
-                key: self._cell_document(value) for key, value in row.items()
-            },
+            "metrics": metrics,
         }
 
     @staticmethod

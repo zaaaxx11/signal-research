@@ -305,3 +305,30 @@ def test_the_service_returns_the_document_or_none() -> None:
     assert "sales" in document["metrics"]
     assert "gross_margin" in document["metrics"]
     assert document["as_of"] == LATEST
+
+
+async def test_fundamentals_serves_the_raw_fact_vocabulary_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The endpoint is the filing, not the screen: uncatalogued facts must show.
+
+    A row only carries facts that have a catalog column, but the statement
+    vocabulary (``gross_profit``, ``assets``, …) is exactly the depth a caller
+    opens this endpoint for. Omitting it would make the document a narrower
+    projection than the dataset it claims to describe.
+    """
+
+    async with _client(
+        tmp_path, monkeypatch, EngineService.from_dataset(_dataset())
+    ) as client:
+        response = await client.get("/engine/fundamentals/AAPL")
+
+    assert response.status_code == 200, response.text
+    metrics = response.json()["metrics"]
+
+    assert metrics["gross_profit"]["value"] == GROSS_PROFIT
+    assert metrics["gross_profit"]["unit"] == "USD"
+    assert metrics["assets"]["value"] == 365_000_000_000.0
+    assert metrics["equity"]["value"] == 75_000_000_000.0
+    assert metrics["gross_profit"]["provenance"]["source"] == "sec"
+    assert metrics["gross_margin"]["provenance"]["source"] == "derived"
