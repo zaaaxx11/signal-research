@@ -44,6 +44,7 @@ from app.api.market import quote_engine_of
 from app.auth import ApiError
 from app.engine.insider import collect_insider
 from app.engine.model import Cell
+from app.engine.nport import HoldingsNotFound, HoldingsUnavailable, collect_holdings
 from app.engine.quotes import (
     MAX_QUOTE_REFRESH_SYMBOLS,
     QUOTE_FIELDS,
@@ -346,6 +347,31 @@ def _statements_periods(raw: str) -> int:
     return value
 
 
+def _holdings_limit(raw: str) -> int:
+    """The validated ``limit`` for the ETF holdings page, or ``422 invalid_limit``.
+
+    The bound is 1..500: a fund portfolio is roughly five hundred rows, so the
+    page can be the whole book without becoming an unbounded document. Blank,
+    non-numeric, zero and anything above five hundred are one refusal — the
+    caller asked for a page this endpoint cannot define — and it is raised
+    before any identity lookup or network call, so a typo in the page size is
+    never reported as "no such company" and never costs an EDGAR request.
+    """
+
+    text = raw.strip() if isinstance(raw, str) else ""
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise ApiError(
+            422, "invalid_limit", f"limit must be an integer 1..500, got {raw!r}"
+        ) from exc
+    if not 1 <= value <= 500:
+        raise ApiError(
+            422, "invalid_limit", f"limit must be an integer 1..500, got {raw!r}"
+        )
+    return value
+
+
 def _engine_cache_dir() -> Path | None:
     """``MEE_ENGINE_CACHE_DIR`` as a path, or ``None`` when unset.
 
@@ -353,8 +379,9 @@ def _engine_cache_dir() -> Path | None:
     deployment setting, and a test or operator may set it after this module was
     imported. Unset means "no disk cache", which is one request per filing and
     never a silent cache from a previous process. Shared by every engine route
-    that reads an EDGAR document (insider filings, annual statements): one
-    setting, one cache directory, so a deployment configures it once.
+    that reads an EDGAR document (insider filings, annual statements, ETF
+    holdings): one setting, one cache directory, so a deployment configures it
+    once.
     """
 
     raw = os.environ.get("MEE_ENGINE_CACHE_DIR", "").strip()
@@ -457,6 +484,97 @@ async def statements(
             503,
             "statements_unavailable",
             f"SEC companyfacts could not be read for {record.symbol}: "
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@router.get("/etf/{symbol}/holdings")
+async def etf_holdings(
+    symbol: str, request: Request, limit: str = "50"
+) -> dict[str, Any]:
+    """One ETF's latest SEC N-PORT-P portfolio, largest positions first.
+
+    ``limit`` is taken as raw text and parsed here for the same reason as
+    ``/engine/insider`` and ``/engine/peers``: a framework-shaped ``422`` would
+    bypass the house ``{error, errorMessage}`` envelope. The bound is 1..500 —
+    a whole portfolio is ~500 rows, while one request must not become an
+    unbounded document. Validation is first, so an unusable page size is
+    ``422 invalid_limit`` even for a symbol the master does not hold: a typo in
+    the page size must never be reported as "no such company".
+
+    The four answers are deliberately distinct, because each wrong pairing
+    would publish a different lie:
+
+    * no identity master at all is ``503 screen_unavailable`` — nothing was
+      ingested, so "no holdings" is not something this deployment knows;
+    * a symbol outside the master is ``404 security_not_found``;
+    * a known symbol without a CIK has no registrant to ask, so it is an honest
+      empty ``200`` naming ``no CIK`` and the collector is never called;
+    * a CIK with no NPORT-P filing is ``404 holdings_not_found``, while a body
+      that could not be fetched or parsed is ``503 holdings_unavailable`` —
+      "SEC filed no portfolio" and "SEC did not answer" are different facts.
+
+    SEC is public, so this route may run in public mode: it reads a regulatory
+    document about a fund, not a licensed quote. ``as_of`` and ``filed`` come
+    from the filing itself, never from the request clock, and the collector's
+    document is served unchanged so the page has exactly one definition.
+    """
+
+    bounded = _holdings_limit(limit)
+    service = engine_service_of(request)
+    master = service.security_master
+    if master is None:
+        raise ApiError(
+            503,
+            "screen_unavailable",
+            "the engine has no identity master loaded yet; ingest a dataset first",
+        )
+    record = master.get(symbol)
+    if record is None:
+        raise ApiError(
+            404,
+            "security_not_found",
+            f"security {symbol!r} is not in the loaded identity master",
+        )
+    if record.cik is None:
+        return {
+            "symbol": record.symbol,
+            "as_of": None,
+            "filed": None,
+            "accession": None,
+            "count": 0,
+            "holdings": [],
+            "provider_errors": ["no CIK"],
+        }
+
+    try:
+        return await collect_holdings(
+            record.symbol,
+            record.cik,
+            cache_dir=_engine_cache_dir(),
+            limit=bounded,
+        )
+    except HoldingsNotFound as exc:
+        raise ApiError(
+            404,
+            "holdings_not_found",
+            f"no N-PORT-P portfolio is on file for {record.symbol}: {exc}",
+        ) from exc
+    except HoldingsUnavailable as exc:
+        raise ApiError(
+            503,
+            "holdings_unavailable",
+            f"the N-PORT-P body could not be read for {record.symbol}: {exc}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - every collection failure is one refusal
+        # The class is named rather than swallowed: an operator reading the
+        # response can tell a transport error from a body that was not an
+        # N-PORT document, which is the difference between retrying and
+        # investigating the CIK. The route still never invents an empty page.
+        raise ApiError(
+            503,
+            "holdings_unavailable",
+            f"the N-PORT-P body could not be read for {record.symbol}: "
             f"{type(exc).__name__}: {exc}",
         ) from exc
 
