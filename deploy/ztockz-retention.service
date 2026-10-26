@@ -1,0 +1,12 @@
+[Unit]
+Description=Ztockz cache retention (age + size, fund map protected)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ztockz
+EnvironmentFile=/home/ubuntu/ztockz-data/engine.env
+ExecStart=/home/ubuntu/ztockz/.venv/bin/python -m app.engine.ops retention --cache-dir /home/ubuntu/ztockz-data/cache --max-age-days 30 --max-bytes 2000000000
+Nice=10

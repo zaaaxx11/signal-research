@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Ztockz cache retention
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=ztockz-retention.service
+
+[Install]
+WantedBy=timers.target

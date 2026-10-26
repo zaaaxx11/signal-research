@@ -21,6 +21,7 @@ Two rules shape almost every function here:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from stat import S_ISREG
+from typing import Any
 
 from app.engine.service import EngineService
 
@@ -599,6 +601,131 @@ def restore_snapshot(backup: Path, target: Path) -> dict[str, object]:
     return {"target": str(destination), "sha256": expected, "bytes": size}
 
 
+async def smoke_check(
+    base_url: str,
+    *,
+    client: Any = None,
+    expect_public: bool | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, object]:
+    """Check a running deployment's health and metrics. Implemented in R7."""
+
+    if client is not None:
+        return await _smoke_document(
+            base_url,
+            client=client,
+            expect_public=expect_public,
+            max_age_seconds=max_age_seconds,
+        )
+    from app.providers import http as provider_http
+
+    async with provider_http.build_client() as owned:
+        return await _smoke_document(
+            base_url,
+            client=owned,
+            expect_public=expect_public,
+            max_age_seconds=max_age_seconds,
+        )
+
+
+async def _smoke_document(
+    base_url: str,
+    *,
+    client: Any,
+    expect_public: bool | None,
+    max_age_seconds: float | None,
+) -> dict[str, object]:
+    """Read the two documents and turn them into named checks.
+
+    An HTTP failure is a failed check, not an exception: ``smoke`` exists to
+    report a deployment, and a traceback is not a report.  The four always-on
+    checks are status codes and dataset presence; the two conditional checks
+    appear only when the operator asked for them, so a report cannot claim a
+    check it never ran.
+    """
+
+    base = base_url.rstrip("/")
+    checks: list[dict[str, object]] = []
+
+    def add(name: str, ok: bool, detail: str) -> None:
+        checks.append({"name": name, "ok": bool(ok), "detail": detail})
+
+    async def fetch(path: str) -> tuple[Any, dict[str, object] | None, str | None]:
+        try:
+            response = await client.get(f"{base}{path}")
+        except Exception as exc:  # noqa: BLE001 - the failure is the check
+            return None, None, f"{type(exc).__name__}: {exc}"
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            return response, None, f"non-JSON body: {type(exc).__name__}"
+        if not isinstance(payload, dict):
+            return response, None, "body is not a JSON object"
+        return response, payload, None
+
+    health_response, health, health_error = await fetch("/engine/health")
+    metrics_response, metrics, metrics_error = await fetch("/engine/metrics")
+
+    add(
+        "health_status",
+        health_response is not None and health_response.status_code == 200,
+        "HTTP 200" if health_response is not None and health_response.status_code == 200
+        else (health_error or f"HTTP {getattr(health_response, 'status_code', 'none')}"),
+    )
+    add(
+        "metrics_status",
+        metrics_response is not None and metrics_response.status_code == 200,
+        "HTTP 200" if metrics_response is not None and metrics_response.status_code == 200
+        else (metrics_error or f"HTTP {getattr(metrics_response, 'status_code', 'none')}"),
+    )
+
+    dataset = health.get("dataset") if isinstance(health, dict) else None
+    symbols = dataset.get("symbols") if isinstance(dataset, dict) else None
+    add(
+        "dataset_symbols",
+        isinstance(symbols, int) and symbols > 0,
+        f"symbols={symbols}" if symbols is not None else "no dataset loaded",
+    )
+
+    startup = None
+    for document in (health, metrics):
+        if isinstance(document, dict) and document.get("startup_error"):
+            startup = document["startup_error"]
+            break
+    add(
+        "startup_error",
+        startup is None,
+        "clean" if startup is None else str(startup),
+    )
+
+    if expect_public is not None:
+        actual = metrics.get("public_mode") if isinstance(metrics, dict) else None
+        add(
+            "public_mode",
+            actual is expect_public,
+            f"expected {expect_public}, got {actual}",
+        )
+
+    if max_age_seconds is not None:
+        metrics_dataset = metrics.get("dataset") if isinstance(metrics, dict) else None
+        age = (
+            metrics_dataset.get("age_seconds")
+            if isinstance(metrics_dataset, dict)
+            else None
+        )
+        add(
+            "dataset_age",
+            isinstance(age, (int, float)) and age <= max_age_seconds,
+            f"age={age}s limit={max_age_seconds}s",
+        )
+
+    return {
+        "ok": all(bool(item["ok"]) for item in checks),
+        "base_url": base,
+        "checks": checks,
+    }
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -647,6 +774,23 @@ def _build_parser() -> argparse.ArgumentParser:
     restore = commands.add_parser("restore", help="verify and restore a snapshot")
     restore.add_argument("--backup", required=True, help="backup file to restore")
     restore.add_argument("--target", required=True, help="file to write the snapshot to")
+
+    smoke = commands.add_parser(
+        "smoke", help="check a running deployment's health and metrics"
+    )
+    smoke.add_argument("--base-url", required=True, help="engine base URL")
+    smoke.add_argument(
+        "--expect-public",
+        action="store_true",
+        default=None,
+        help="fail unless public_mode is true",
+    )
+    smoke.add_argument(
+        "--max-age-seconds",
+        type=float,
+        default=None,
+        help="fail when the dataset is older than this",
+    )
     return parser
 
 
@@ -670,6 +814,14 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
     if args.command == "backup":
         return backup_snapshot(
             Path(args.snapshot), Path(args.dest), keep=int(args.keep)
+        )
+    if args.command == "smoke":
+        return asyncio.run(
+            smoke_check(
+                args.base_url,
+                expect_public=args.expect_public,
+                max_age_seconds=args.max_age_seconds,
+            )
         )
     return restore_snapshot(Path(args.backup), Path(args.target))
 
@@ -704,6 +856,10 @@ def main(argv: list[str] | None = None) -> int:
         return _fail("io_error", f"{type(exc).__name__}: {exc}")
 
     print(json.dumps(document, sort_keys=True))
+    if args.command == "smoke" and not document.get("ok"):
+        # A smoke report that says "unhealthy" must not exit 0: cron/systemd
+        # would mark the check green from the exit code alone.
+        return 2
     return 0
 
 

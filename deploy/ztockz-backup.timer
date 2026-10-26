@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Ztockz snapshot backup
+
+[Timer]
+OnCalendar=*-*-* 03:45:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=ztockz-backup.service
+
+[Install]
+WantedBy=timers.target
