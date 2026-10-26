@@ -479,6 +479,9 @@ def test_facts_without_a_catalog_target_are_not_columns() -> None:
         "industry",
         "country",
         "exchange",
+        # ``total_debt`` and ``equity`` now have a catalog target through the
+        # documented debt/equity derivation; the raw balances stay off-row.
+        "debt_to_equity",
     }
 
 
@@ -775,6 +778,9 @@ def test_derived_cells_are_finite_and_never_null() -> None:
         "ps",
         "fcf",
         "earnings_yield",
+        # ``_facts()`` carries revenue + net_income, so the documented margin
+        # derivation is reachable without any new fixture.
+        "net_margin",
     }
     for cell in _derived(row).values():
         assert isinstance(cell.value, float)
@@ -821,6 +827,16 @@ def test_derived_cells_name_their_inputs_in_the_documented_vocabulary() -> None:
         "operating_cash_flow",
         "capex",
         "pe",
+        "gross_profit",
+        "operating_income",
+        "revenue",
+        "net_income",
+        "assets",
+        "equity",
+        "current_assets",
+        "current_liabilities",
+        "total_debt",
+        "cash_and_equivalents",
     }
 
 
@@ -921,3 +937,229 @@ def test_real_companyfacts_flow_into_a_row_unchanged() -> None:
     assert "pe" not in row  # no diluted EPS in this document
     assert "forward_pe" not in row
     assert "earnings_yield" not in row
+
+
+# ===========================================================================
+# R4: the fundamentals a statement supports
+# ===========================================================================
+#
+# The nine R4 derivations read *facts*, not the quote: a margin is built from
+# reported revenue and reported profit, and the cell is dated by the filing that
+# carried those numbers. The rules that already govern the multiples still hold
+# here — an observation is never replaced, and a derivation without both inputs
+# is omitted rather than published as a null placeholder.
+
+
+def _fundamental_facts() -> dict[str, Cell]:
+    """The statement slice behind all nine R4 derivations, one period end."""
+
+    return {
+        "revenue": _fact(1_000.0),
+        "gross_profit": _fact(400.0, tag="GrossProfit"),
+        "operating_income": _fact(250.0, tag="OperatingIncomeLoss"),
+        "net_income": _fact(100.0, tag="NetIncomeLoss"),
+        "assets": _fact(800.0, tag="Assets"),
+        "equity": _fact(500.0, tag="StockholdersEquity"),
+        "current_assets": _fact(300.0, tag="AssetsCurrent"),
+        "current_liabilities": _fact(150.0, tag="LiabilitiesCurrent"),
+        "total_debt": _fact(250.0, tag="LongTermDebt"),
+        "cash_and_equivalents": _fact(
+            200.0, tag="CashAndCashEquivalentsAtCarryingValue"
+        ),
+        "shares_outstanding": _fact(
+            10.0, unit=Unit.SHARES, tag="CommonStockSharesOutstanding"
+        ),
+    }
+
+
+#: R4 key → (exact value, the frozen catalog's unit, the input trail the cell
+#: must carry). The value is the §2 scale: ``40.0`` gross margin, ``50.0``
+#: debt/equity, ``2.0`` current ratio, ``50.0`` book value per share.
+FUNDAMENTAL_CELLS: dict[str, tuple[float, Unit, tuple[str, ...]]] = {
+    "gross_margin": (40.0, Unit.PERCENT, ("gross_profit", "revenue")),
+    "operating_margin": (25.0, Unit.PERCENT, ("operating_income", "revenue")),
+    "net_margin": (10.0, Unit.PERCENT, ("net_income", "revenue")),
+    "roa": (12.5, Unit.PERCENT, ("net_income", "assets")),
+    "roe": (20.0, Unit.PERCENT, ("net_income", "equity")),
+    "current_ratio": (2.0, Unit.RATIO, ("current_assets", "current_liabilities")),
+    # §2 prints debt/equity in percentage points, so the value is 50.0 and not
+    # 0.5; the cell's *unit* is the frozen catalog's own label for the column.
+    "debt_to_equity": (50.0, Unit.RATIO, ("total_debt", "equity")),
+    "book_per_share": (50.0, Unit.USD, ("equity", "shares")),
+    "cash_per_share": (20.0, Unit.USD, ("cash_and_equivalents", "shares")),
+}
+
+
+def test_fundamentals_are_derived_from_the_statement_facts() -> None:
+    row = build_row(_record(), _fundamental_facts(), as_of=DAY)
+
+    for key, (value, unit, inputs) in FUNDAMENTAL_CELLS.items():
+        assert key in row, key
+        cell = row[key]
+
+        assert cell.value == pytest.approx(value), key
+        assert isinstance(cell.value, float), key
+        assert cell.unit is unit, key
+        assert cell.provenance is not None, key
+        assert cell.provenance.source == "derived", key
+        assert cell.provenance.status is CellStatus.DERIVED, key
+        assert cell.provenance.inputs == inputs, key
+        # Dated by the filing that carried the numbers, not by the build call.
+        assert cell.provenance.as_of == PERIOD_END, key
+        # Nothing was fetched for this row, so no derivation may claim a URL.
+        assert cell.provenance.url is None, key
+
+
+def test_the_fundamentals_exist_beside_the_older_derivations() -> None:
+    row = build_row(_record(), _fundamental_facts(), _quote(), as_of=DAY)
+    derived_cells = _derived(row)
+
+    assert set(FUNDAMENTAL_CELLS) <= set(derived_cells)
+    for key, cell in derived_cells.items():
+        assert cell.provenance is not None, key
+        assert cell.provenance.source == "derived", key
+        assert cell.provenance.status is CellStatus.DERIVED, key
+        assert cell.value is not None, key
+
+
+def test_every_fundamental_input_is_named_in_the_input_table() -> None:
+    row = build_row(_record(), _fundamental_facts(), as_of=DAY)
+
+    names = set()
+    for key in FUNDAMENTAL_CELLS:
+        cell = row.get(key)
+        assert cell is not None, key
+        assert cell.provenance is not None, key
+        names.update(cell.provenance.inputs)
+
+    assert names
+    assert names <= set(INPUT_SOURCES)
+
+
+def test_a_fundamentals_derivation_never_replaces_an_observation() -> None:
+    facts = _fundamental_facts()
+    row = build_row(
+        _record(),
+        facts,
+        {"price": 20.0, "market_cap": 999.0, "as_of": QUOTE_DAY},
+        as_of=DAY,
+    )
+
+    # The fact cell *is* the row cell: same object, same provenance, so a
+    # derivation that read revenue cannot have rewritten it.
+    assert row["sales"] is facts["revenue"]
+    assert row["sales"].value == 1_000.0
+    assert row["sales"].unit is Unit.USD
+    assert row["sales"].provenance is not None
+    assert row["sales"].provenance.source == "sec"
+    assert row["sales"].provenance.status is CellStatus.OK
+    assert row["sales"].provenance.inputs == (
+        _REVENUE_TAG,
+        "0000320193-25-000079",
+    )
+
+    # A quote's market cap is observed; price × shares must not displace it.
+    assert row["market_cap"].value == 999.0
+    assert row["market_cap"].provenance is not None
+    assert row["market_cap"].provenance.source == "quote"
+
+    # The identity and the quote are untouched, and the margins still land.
+    assert row["ticker"].provenance is not None
+    assert row["ticker"].provenance.source == "identity"
+    assert row["price"].value == 20.0
+    assert row["price"].provenance is not None
+    assert row["price"].provenance.source == "quote"
+    assert "gross_margin" in row
+    assert row["gross_margin"].provenance is not None
+    assert row["gross_margin"].provenance.source == "derived"
+
+
+def test_a_missing_fundamentals_input_omits_the_cell() -> None:
+    facts = _fundamental_facts()
+    del facts["equity"]
+    del facts["gross_profit"]
+
+    row = build_row(_record(), facts, as_of=DAY)
+
+    for key in ("gross_margin", "roe", "debt_to_equity", "book_per_share"):
+        assert key not in row, key
+
+    # What still has both inputs is still derived.
+    for key in ("net_margin", "roa", "current_ratio", "cash_per_share"):
+        assert key in row, key
+    assert row["net_margin"].value == pytest.approx(10.0)
+    assert row["roa"].value == pytest.approx(12.5)
+    assert row["current_ratio"].value == pytest.approx(2.0)
+    assert row["cash_per_share"].value == pytest.approx(20.0)
+
+    # A gap is a gap: no null placeholder anywhere in the row.
+    assert all(cell.value is not None for cell in row.values())
+
+
+@pytest.mark.parametrize(
+    ("fact_key", "value", "unit", "absent"),
+    [
+        ("revenue", 0.0, Unit.USD, ("gross_margin", "operating_margin", "net_margin")),
+        ("equity", -500.0, Unit.USD, ("roe", "debt_to_equity")),
+        ("current_liabilities", 0.0, Unit.USD, ("current_ratio",)),
+        ("assets", -800.0, Unit.USD, ("roa",)),
+        (
+            "shares_outstanding",
+            0.0,
+            Unit.SHARES,
+            ("book_per_share", "cash_per_share"),
+        ),
+    ],
+)
+def test_an_unusable_denominator_omits_the_fundamental(
+    fact_key: str,
+    value: float,
+    unit: Unit,
+    absent: tuple[str, ...],
+) -> None:
+    """A zero or negative denominator has no cell — and no invented ``0.0``."""
+
+    facts = _fundamental_facts()
+    facts[fact_key] = _fact(value, unit=unit)
+
+    row = build_row(_record(), facts, as_of=DAY)
+
+    for key in absent:
+        assert key not in row, key
+    assert all(cell.value is not None for cell in row.values())
+
+
+@pytest.mark.parametrize(
+    ("fact_key", "unit"),
+    [
+        ("gross_profit", Unit.SHARES),
+        ("shares_outstanding", Unit.USD),
+        ("equity", Unit.PERCENT),
+        ("assets", Unit.UNKNOWN),
+    ],
+)
+def test_a_fundamentals_fact_in_a_wrong_unit_is_refused(
+    fact_key: str, unit: Unit
+) -> None:
+    """No coercion: the fact is not a derivation input in another unit."""
+
+    facts = _fundamental_facts()
+    facts[fact_key] = _fact(1.0, unit=unit)
+
+    with pytest.raises(RowBuildError) as caught:
+        build_row(_record(), facts, as_of=DAY)
+
+    assert caught.value.code == "unit_mismatch"
+
+
+def test_a_loss_is_derived_as_a_negative_margin() -> None:
+    facts = _fundamental_facts()
+    facts["net_income"] = _fact(-100.0, tag="NetIncomeLoss")
+
+    row = build_row(_record(), facts, as_of=DAY)
+
+    for key in ("net_margin", "roa", "roe"):
+        assert key in row, key
+    assert row["net_margin"].value == pytest.approx(-10.0)
+    assert row["roa"].value == pytest.approx(-12.5)
+    assert row["roe"].value == pytest.approx(-20.0)

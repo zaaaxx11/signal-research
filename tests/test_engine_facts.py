@@ -31,8 +31,10 @@ import pytest
 
 from app.engine.facts import (
     DEFAULT_TAGS,
+    FLOW_KEYS,
     FactObservation,
     fact_summary,
+    fact_ttm_summary,
     latest_observation,
     observations_to_cells,
     parse_companyfacts,
@@ -44,7 +46,13 @@ FIXTURE = ROOT / "tests" / "fixtures" / "sec_companyfacts_aapl.json"
 
 #: The canonical metrics this slice promises. An engine key outside this tuple
 #: has no us-gaap mapping, so no cell may appear for it.
+#:
+#: R4 appends the fifteen fundamentals keys below, in this exact order, after the
+#: eleven keys the slice shipped with. The tuple is the oracle: it is written
+#: down here rather than read from :data:`DEFAULT_TAGS`, so the map growing by a
+#: key nobody asked for fails the contract instead of quietly extending it.
 CANONICAL_KEYS = (
+    # --- as shipped ---
     "revenue",
     "net_income",
     "eps_diluted",
@@ -56,6 +64,73 @@ CANONICAL_KEYS = (
     "shares_outstanding",
     "operating_cash_flow",
     "capex",
+    # --- R4 fundamentals depth ---
+    "gross_profit",
+    "operating_income",
+    "cost_of_revenue",
+    "eps_basic",
+    "current_assets",
+    "current_liabilities",
+    "inventory",
+    "receivables",
+    "ppe",
+    "long_term_debt",
+    "retained_earnings",
+    "dividends_paid",
+    "buybacks",
+    "depreciation_amortization",
+    "interest_expense",
+)
+
+#: The R4 addition on its own: canonical key → us-gaap concepts, primary first.
+#: Transcribed from the contract table, so a missing alias or a reordered pair is
+#: a test failure rather than a comment nobody reads.
+NEW_TAG_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("gross_profit", ("GrossProfit",)),
+    ("operating_income", ("OperatingIncomeLoss",)),
+    ("cost_of_revenue", ("CostOfRevenue", "CostOfGoodsAndServicesSold")),
+    ("eps_basic", ("EarningsPerShareBasic",)),
+    ("current_assets", ("AssetsCurrent",)),
+    ("current_liabilities", ("LiabilitiesCurrent",)),
+    ("inventory", ("InventoryNet",)),
+    ("receivables", ("AccountsReceivableNetCurrent", "ReceivablesNetCurrent")),
+    ("ppe", ("PropertyPlantAndEquipmentNet",)),
+    ("long_term_debt", ("LongTermDebtNoncurrent",)),
+    ("retained_earnings", ("RetainedEarningsAccumulatedDeficit",)),
+    ("dividends_paid", ("PaymentsOfDividends", "PaymentsOfDividendsCommonStock")),
+    ("buybacks", ("PaymentsForRepurchaseOfCommonStock",)),
+    (
+        "depreciation_amortization",
+        ("DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccretionNet"),
+    ),
+    ("interest_expense", ("InterestExpense", "InterestExpenseNonoperating")),
+)
+
+#: R4 duration metrics: a TTM value is arithmetic, not the newest filing.
+FLOW_ADDITIONS: frozenset[str] = frozenset(
+    {
+        "gross_profit",
+        "operating_income",
+        "cost_of_revenue",
+        "eps_basic",
+        "dividends_paid",
+        "buybacks",
+        "depreciation_amortization",
+        "interest_expense",
+    }
+)
+
+#: R4 instant metrics: a balance or a share count, never summed over a year.
+INSTANT_ADDITIONS: frozenset[str] = frozenset(
+    {
+        "current_assets",
+        "current_liabilities",
+        "inventory",
+        "receivables",
+        "ppe",
+        "long_term_debt",
+        "retained_earnings",
+    }
 )
 
 #: AAPL's latest filed 10-Q (FY2026 Q3) — the accession most cells come from.
@@ -607,6 +682,14 @@ def test_latest_observation_matches_forms_case_insensitively() -> None:
 
 
 def test_cells_cover_the_apple_balance_sheet_and_cash_flow() -> None:
+    """The real document's canonical cells, unchanged key set.
+
+    R4 adds three cells to Apple because the trimmed document already carries
+    ``OperatingIncomeLoss``, ``LongTermDebtNoncurrent`` and
+    ``DepreciationDepletionAndAmortization``; a concept the map now names is a
+    cell, so the oracle lists them instead of relaxing to a subset.
+    """
+
     cells = observations_to_cells(parse_companyfacts(facts()))
 
     assert set(cells) == {
@@ -618,6 +701,9 @@ def test_cells_cover_the_apple_balance_sheet_and_cash_flow() -> None:
         "total_debt",
         "operating_cash_flow",
         "capex",
+        "operating_income",
+        "long_term_debt",
+        "depreciation_amortization",
     }, f"unexpected cell set: {sorted(cells)}"
 
     expected = {
@@ -629,6 +715,9 @@ def test_cells_cover_the_apple_balance_sheet_and_cash_flow() -> None:
         "total_debt": 82_300_000_000,
         "operating_cash_flow": 116_996_000_000,
         "capex": 6_799_000_000,
+        "operating_income": 122_432_000_000,
+        "long_term_debt": 71_340_000_000,
+        "depreciation_amortization": 9_973_000_000,
     }
     for key, value in expected.items():
         cell = cells[key]
@@ -683,9 +772,15 @@ def test_cells_omit_a_tag_the_document_leaves_empty() -> None:
 
 
 def test_cells_omit_a_tag_that_is_not_canonical() -> None:
+    """A concept outside the map is evidence for nothing; it must not leak.
+
+    R4 gave ``OperatingIncomeLoss`` a key of its own, so the example moved to a
+    concept the map still does not name — the rule under test is unchanged.
+    """
+
     payload = document(
         {
-            "OperatingIncomeLoss": [row("2024-12-31", 5.0, accn="a")],
+            "ResearchAndDevelopmentExpense": [row("2024-12-31", 5.0, accn="a")],
             "Revenues": [row("2024-12-31", 7.0, accn="a")],
         }
     )
@@ -693,8 +788,8 @@ def test_cells_omit_a_tag_that_is_not_canonical() -> None:
     summary = fact_summary(payload)
 
     assert set(summary) == {"revenue"}, (
-        "operating income has no canonical engine key in this slice; it must not "
-        f"leak into the summary: {sorted(summary)}"
+        "research and development has no canonical engine key in this slice; it "
+        f"must not leak into the summary: {sorted(summary)}"
     )
 
 
@@ -798,3 +893,411 @@ def test_fact_summary_reports_the_latest_period_not_the_first() -> None:
         "the 2024 six-month figure is the first row in the document, not the "
         "latest fact"
     )
+
+
+# ---------------------------------------------------------------------------
+# R4 — the fifteen fundamentals keys
+# ---------------------------------------------------------------------------
+
+#: Which new canonical key is projected into which engine unit when the filing
+#: reports it. The second alias of a multi-tag group is used on purpose: the
+#: fallback concept must reach the same cell as the primary one.
+R4_UNIT_CASES: tuple[tuple[str, str, str, Unit], ...] = (
+    ("gross_profit", "GrossProfit", "USD", Unit.USD),
+    ("operating_income", "OperatingIncomeLoss", "USD", Unit.USD),
+    ("cost_of_revenue", "CostOfGoodsAndServicesSold", "USD", Unit.USD),
+    ("current_assets", "AssetsCurrent", "USD", Unit.USD),
+    ("current_liabilities", "LiabilitiesCurrent", "USD", Unit.USD),
+    ("inventory", "InventoryNet", "USD", Unit.USD),
+    ("receivables", "ReceivablesNetCurrent", "USD", Unit.USD),
+    ("ppe", "PropertyPlantAndEquipmentNet", "USD", Unit.USD),
+    ("long_term_debt", "LongTermDebtNoncurrent", "USD", Unit.USD),
+    ("retained_earnings", "RetainedEarningsAccumulatedDeficit", "USD", Unit.USD),
+    ("dividends_paid", "PaymentsOfDividendsCommonStock", "USD", Unit.USD),
+    ("buybacks", "PaymentsForRepurchaseOfCommonStock", "USD", Unit.USD),
+    (
+        "depreciation_amortization",
+        "DepreciationAmortizationAndAccretionNet",
+        "USD",
+        Unit.USD,
+    ),
+    ("interest_expense", "InterestExpenseNonoperating", "USD", Unit.USD),
+    ("eps_basic", "EarningsPerShareBasic", "USD/shares", Unit.UNKNOWN),
+)
+
+
+def test_r4_appends_exactly_fifteen_keys_after_the_shipped_ones() -> None:
+    """Growth is append-only: the shipped keys keep their order, then come the new ones."""
+
+    shipped = (
+        "revenue",
+        "net_income",
+        "eps_diluted",
+        "assets",
+        "liabilities",
+        "equity",
+        "cash_and_equivalents",
+        "total_debt",
+        "shares_outstanding",
+        "operating_cash_flow",
+        "capex",
+    )
+    added = tuple(key for key, _tags in NEW_TAG_ALIASES)
+
+    assert len(NEW_TAG_ALIASES) == 15, (
+        f"R4 adds fifteen fact keys; the oracle lists {len(NEW_TAG_ALIASES)}"
+    )
+    assert CANONICAL_KEYS == shipped + added
+    assert tuple(DEFAULT_TAGS) == CANONICAL_KEYS, (
+        "the tag map must be exactly the oracle, in order: a key appended out of "
+        f"turn is a different vocabulary: {sorted(DEFAULT_TAGS)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "tags"),
+    NEW_TAG_ALIASES,
+    ids=[key for key, _tags in NEW_TAG_ALIASES],
+)
+def test_r4_key_maps_to_the_contract_concepts(key: str, tags: tuple[str, ...]) -> None:
+    """Each new key answers to the contract's concepts, primary first, in order."""
+
+    mapped = DEFAULT_TAGS.get(key)
+
+    assert mapped == tags, (
+        f"{key} maps to {mapped!r}; the contract says {tags!r} (primary concept "
+        "first, aliases after it)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "tag", "xbrl_unit", "engine_unit"),
+    R4_UNIT_CASES,
+    ids=[key for key, _tag, _unit, _engine_unit in R4_UNIT_CASES],
+)
+def test_r4_fact_is_projected_into_the_unit_the_filing_reported(
+    key: str, tag: str, xbrl_unit: str, engine_unit: Unit
+) -> None:
+    """A parsed R4 concept becomes one cell, in the unit its rows were quoted in."""
+
+    payload = document(
+        {tag: concept([row("2025-09-27", 1_234.5, accn="a")], unit=xbrl_unit)}
+    )
+
+    summary = fact_summary(payload)
+
+    assert key in summary, (
+        f"{tag} is reported in {xbrl_unit} but produced no {key} cell: "
+        f"the summary holds {sorted(summary)}"
+    )
+    assert summary[key].value == pytest.approx(1_234.5)
+    assert summary[key].unit is engine_unit, (
+        f"{key} came out as {summary[key].unit!r}; a per-share amount is not a "
+        "dollar amount and Unit.USD here would be a lie"
+    )
+
+
+def test_a_share_count_keeps_the_shares_unit_next_to_the_r4_money_cells() -> None:
+    """The R4 vocabulary does not reclassify the share count it sits beside."""
+
+    payload = document(
+        {
+            "GrossProfit": [row("2025-09-27", 3_000.0, accn="a")],
+            "CommonStockSharesOutstanding": concept(
+                [row("2025-09-27", 15_000_000_000, accn="a")], unit="shares"
+            ),
+        }
+    )
+
+    summary = fact_summary(payload)
+
+    assert set(summary) == {"gross_profit", "shares_outstanding"}, sorted(summary)
+    assert summary["gross_profit"].unit is Unit.USD
+    assert summary["shares_outstanding"].unit is Unit.SHARES
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "GrossProfitAdjusted",
+        "AdjustedOperatingIncome",
+        "CoreEarningsPerShareBasic",
+        "ResearchAndDevelopmentExpense",
+        "AssetsCurrentNoncurrent",
+    ],
+)
+def test_a_concept_outside_the_r4_map_is_not_a_canonical_key(tag: str) -> None:
+    """An invented or adjacent concept is not a licence to invent an engine key."""
+
+    summary = fact_summary(document({tag: [row("2025-09-27", 5.0, accn="a")]}))
+
+    assert summary == {}, (
+        f"{tag} has no canonical key, so it must produce no cell; the summary "
+        f"holds {sorted(summary)}"
+    )
+
+
+@pytest.mark.parametrize("key", sorted(FLOW_ADDITIONS))
+def test_r4_duration_key_is_a_flow(key: str) -> None:
+    """A duration metric outside ``FLOW_KEYS`` would report a quarter as a year."""
+
+    assert key in FLOW_KEYS, (
+        f"{key} is a duration metric; without FLOW_KEYS membership "
+        "fact_ttm_summary hands back the newest 10-Q figure as if it were a "
+        "trailing twelve months"
+    )
+
+
+@pytest.mark.parametrize("key", sorted(INSTANT_ADDITIONS))
+def test_r4_balance_key_is_an_instant(key: str) -> None:
+    """A balance is a point, not a period: summing it over a year is nonsense."""
+
+    assert key not in FLOW_KEYS, (
+        f"{key} is an instant; treating it as a flow would add last year's "
+        "balance sheet to this quarter's"
+    )
+
+
+def test_r4_keys_are_each_classified_exactly_once() -> None:
+    """Flow and instant are a partition of the new vocabulary, not overlapping sets."""
+
+    new_keys = {key for key, _tags in NEW_TAG_ALIASES}
+
+    assert FLOW_ADDITIONS.isdisjoint(INSTANT_ADDITIONS)
+    assert FLOW_ADDITIONS | INSTANT_ADDITIONS == new_keys, (
+        "unclassified or invented keys: "
+        f"{sorted((FLOW_ADDITIONS | INSTANT_ADDITIONS) ^ new_keys)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# R4 — flow arithmetic vs instant snapshots
+# ---------------------------------------------------------------------------
+
+
+def gross_profit_ytd_payload() -> dict[str, Any]:
+    """Three ``GrossProfit`` rows: FY2025 annual, FY2026 YTD, FY2025 YTD comparative.
+
+    The values are round numbers chosen so the TTM arithmetic is checkable by
+    hand: ``195.2 + 140.0 - 126.0 = 209.2`` (USD billions), and only the middle
+    row ends on the current period end the cell must be dated to.
+    """
+
+    return document(
+        {
+            "GrossProfit": [
+                row(
+                    "2025-09-27",
+                    195_200_000_000,
+                    start="2024-09-29",
+                    accn="0000320193-25-000079",
+                    form="10-K",
+                    filed="2025-10-31",
+                    fy=2025,
+                    fp="FY",
+                ),
+                row(
+                    "2025-06-28",
+                    126_000_000_000,
+                    start="2024-09-29",
+                    accn="0000320193-25-000073",
+                    form="10-Q",
+                    filed="2025-08-01",
+                    fy=2025,
+                    fp="Q3",
+                ),
+                row(
+                    "2026-06-27",
+                    140_000_000_000,
+                    start="2025-09-28",
+                    accn="0000320193-26-000020",
+                    form="10-Q",
+                    filed="2026-07-31",
+                    fy=2026,
+                    fp="Q3",
+                ),
+            ]
+        }
+    )
+
+
+def test_a_flow_fact_becomes_annual_plus_ytd_minus_prior_ytd() -> None:
+    """``gross_profit`` is a duration: its cell is three filings, not the newest one."""
+
+    summary = fact_ttm_summary(gross_profit_ytd_payload())
+
+    assert "gross_profit" in summary, (
+        "gross profit is in the vocabulary, so a document that reports it must "
+        f"produce a cell; the summary holds {sorted(summary)}"
+    )
+    cell = summary["gross_profit"]
+
+    assert cell.value == pytest.approx(209_200_000_000), (
+        "TTM is annual + current YTD - prior-year YTD; a bare YTD or a bare "
+        f"annual is a different number: {cell.value!r}"
+    )
+    assert cell.unit is Unit.USD
+    assert cell.provenance is not None
+    assert cell.provenance.as_of == "2026-06-27", (
+        "a TTM cell is dated to the period end it reaches, not to the annual "
+        f"report buried inside it: {cell.provenance.as_of!r}"
+    )
+    assert len(cell.provenance.inputs) == 6, (
+        "the three filings that built the number must all be replayable from "
+        f"provenance: {cell.provenance.inputs!r}"
+    )
+    assert cell.provenance.inputs == (
+        "GrossProfit",
+        "0000320193-25-000079",
+        "GrossProfit",
+        "0000320193-26-000020",
+        "GrossProfit",
+        "0000320193-25-000073",
+    )
+
+
+def test_fact_summary_and_fact_ttm_summary_are_distinct_entry_points() -> None:
+    """The same document answers "what did it file" and "what is the run-rate"."""
+
+    payload = gross_profit_ytd_payload()
+
+    point_summary = fact_summary(payload)
+    run_rate_summary = fact_ttm_summary(payload)
+
+    assert "gross_profit" in point_summary, (
+        f"no gross_profit cell in fact_summary: {sorted(point_summary)}"
+    )
+    assert "gross_profit" in run_rate_summary, (
+        f"no gross_profit cell in fact_ttm_summary: {sorted(run_rate_summary)}"
+    )
+
+    point = point_summary["gross_profit"]
+    run_rate = run_rate_summary["gross_profit"]
+
+    assert point.value == pytest.approx(140_000_000_000), (
+        "fact_summary reports the newest filing's own figure, never arithmetic"
+    )
+    assert run_rate.value == pytest.approx(209_200_000_000)
+    assert point.value != run_rate.value
+    assert point.provenance is not None and run_rate.provenance is not None
+    assert point.provenance.as_of == run_rate.provenance.as_of == "2026-06-27"
+
+
+def test_a_balance_fact_uses_the_newest_observation_and_no_ttm_arithmetic() -> None:
+    """``current_assets`` is an instant: the newer 10-Q replaces the 10-K."""
+
+    payload = document(
+        {
+            "AssetsCurrent": [
+                row(
+                    "2025-09-27",
+                    133_000_000_000,
+                    start=None,
+                    accn="0000320193-25-000079",
+                    form="10-K",
+                    filed="2025-10-31",
+                ),
+                row(
+                    "2026-06-27",
+                    118_000_000_000,
+                    start=None,
+                    accn="0000320193-26-000020",
+                    form="10-Q",
+                    filed="2026-07-31",
+                ),
+            ]
+        }
+    )
+
+    point = fact_summary(payload)
+    run_rate = fact_ttm_summary(payload)
+
+    assert "current_assets" in point, f"no current_assets cell: {sorted(point)}"
+    assert "current_assets" in run_rate, f"no current_assets cell: {sorted(run_rate)}"
+    assert point["current_assets"].value == pytest.approx(118_000_000_000), (
+        "the newest balance wins; an older 10-K balance is history"
+    )
+    assert run_rate["current_assets"].value == pytest.approx(118_000_000_000), (
+        "a balance has no duration, so TTM is the same snapshot — not "
+        f"{run_rate['current_assets'].value!r}"
+    )
+    assert point["current_assets"].provenance is not None
+    assert point["current_assets"].provenance.as_of == "2026-06-27"
+    assert point["current_assets"].provenance.inputs == (
+        "AssetsCurrent",
+        "0000320193-26-000020",
+    )
+
+
+# ---------------------------------------------------------------------------
+# R4 — point-in-time restatement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("key", "tag"), [("revenue", "Revenues"), ("gross_profit", "GrossProfit")]
+)
+def test_a_later_filed_restatement_replaces_the_earlier_value(key: str, tag: str) -> None:
+    """Same tag, same period, two accessions: the later ``filed`` is the truth."""
+
+    payload = document(
+        {
+            tag: [
+                row("2025-06-30", 100.0, accn="0000320193-25-000073", filed="2025-08-01"),
+                row("2025-06-30", 91.0, accn="0000320193-25-000091", filed="2025-11-15"),
+            ]
+        }
+    )
+
+    summary = fact_summary(payload)
+
+    assert key in summary, (
+        f"{tag} produced no {key} cell, so the restatement rule cannot be "
+        f"checked: {sorted(summary)}"
+    )
+    cell = summary[key]
+    assert cell.value == pytest.approx(91.0), (
+        f"{cell.value!r} is the original figure; a later accession restated it"
+    )
+    assert cell.provenance is not None
+    assert cell.provenance.as_of == "2025-06-30", (
+        "as_of is the period the number describes; borrowing the later filing "
+        f"date would make a 2025-Q2 figure look current: {cell.provenance.as_of!r}"
+    )
+    assert cell.provenance.inputs == (tag, "0000320193-25-000091"), (
+        "the cell must point at the accession that produced the value it holds"
+    )
+
+
+def test_restatement_wins_regardless_of_document_order() -> None:
+    """Point-in-time is a property of the data, not of the JSON key order."""
+
+    original = row("2025-06-30", 100.0, accn="0000320193-25-000073", filed="2025-08-01")
+    restated = row("2025-06-30", 91.0, accn="0000320193-25-000091", filed="2025-11-15")
+
+    forward = fact_summary(document({"Revenues": [original, restated]}))
+    backward = fact_summary(document({"Revenues": [restated, original]}))
+
+    assert forward == backward
+    assert forward["revenue"].value == pytest.approx(91.0)
+    assert backward["revenue"].value == pytest.approx(91.0)
+
+
+def test_the_later_accession_wins_when_two_filings_share_a_filed_date() -> None:
+    """Equal ``filed`` still has a deterministic, later-accession answer."""
+
+    payload = document(
+        {
+            "Revenues": [
+                row("2025-06-30", 100.0, accn="0000320193-26-000013", filed="2026-05-01"),
+                row("2025-06-30", 104.0, accn="0000320193-26-000020", filed="2026-05-01"),
+            ]
+        }
+    )
+
+    cell = fact_summary(payload)["revenue"]
+
+    assert cell.value == pytest.approx(104.0)
+    assert cell.provenance is not None
+    assert cell.provenance.inputs == ("Revenues", "0000320193-26-000020")
+    assert cell.provenance.as_of == "2025-06-30"

@@ -745,6 +745,15 @@ def test_the_formula_table_covers_every_key() -> None:
         "fcf",
         "earnings_yield",
         "ttm_sum",
+        "gross_margin",
+        "operating_margin",
+        "net_margin",
+        "roa",
+        "roe",
+        "current_ratio",
+        "debt_to_equity",
+        "book_per_share",
+        "cash_per_share",
     }
 
 
@@ -798,3 +807,310 @@ def test_a_missing_input_never_becomes_a_zero() -> None:
     for result in null_results:
         assert result.value is None
         assert result.reason is not None
+
+
+# ===========================================================================
+# R4: the nine fundamentals a statement reports
+# ===========================================================================
+#
+# Each of these reads two reported quantities and answers one catalog key. The
+# contract is the one the multiples above already follow — an exact value, the
+# key it answers, the two inputs it names, a documented reason when there is no
+# number — plus the scale rule the margin family needs: a 40/100 gross margin is
+# ``40.0`` percentage points, never ``0.4``.
+
+from collections.abc import Callable
+
+from app.engine.derived import (
+    book_per_share,
+    cash_per_share,
+    current_ratio,
+    debt_to_equity,
+    gross_margin,
+    net_margin,
+    operating_margin,
+    roa,
+    roe,
+)
+
+#: The six R4 keys printed in percentage points (``40.0`` means 40%).
+PERCENTAGE_KEYS: frozenset[str] = frozenset(
+    {
+        "gross_margin",
+        "operating_margin",
+        "net_margin",
+        "roa",
+        "roe",
+        "debt_to_equity",
+    }
+)
+
+#: One row per R4 factory: the key, the callable, the input trail it must name,
+#: the two arguments, and the exact value those arguments must produce.
+FUNDAMENTALS: list[
+    tuple[
+        str,
+        Callable[[float, float], DerivedValue],
+        tuple[str, ...],
+        float,
+        float,
+        float,
+    ]
+] = [
+    ("gross_margin", gross_margin, ("gross_profit", "revenue"), 40.0, 100.0, 40.0),
+    (
+        "operating_margin",
+        operating_margin,
+        ("operating_income", "revenue"),
+        25.0,
+        200.0,
+        12.5,
+    ),
+    ("net_margin", net_margin, ("net_income", "revenue"), 10.0, 250.0, 4.0),
+    ("roa", roa, ("net_income", "assets"), 50.0, 200.0, 25.0),
+    ("roe", roe, ("net_income", "equity"), 25.0, 50.0, 50.0),
+    (
+        "current_ratio",
+        current_ratio,
+        ("current_assets", "current_liabilities"),
+        300.0,
+        150.0,
+        2.0,
+    ),
+    ("debt_to_equity", debt_to_equity, ("total_debt", "equity"), 50.0, 100.0, 50.0),
+    ("book_per_share", book_per_share, ("equity", "shares"), 500.0, 10.0, 50.0),
+    (
+        "cash_per_share",
+        cash_per_share,
+        ("cash_and_equivalents", "shares"),
+        200.0,
+        10.0,
+        20.0,
+    ),
+]
+
+FUNDAMENTAL_IDS: list[str] = [row[0] for row in FUNDAMENTALS]
+PERCENTAGE_FUNDAMENTALS = [row for row in FUNDAMENTALS if row[0] in PERCENTAGE_KEYS]
+PERCENTAGE_IDS: list[str] = [row[0] for row in PERCENTAGE_FUNDAMENTALS]
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "inputs", "numerator", "denominator", "expected"),
+    FUNDAMENTALS,
+    ids=FUNDAMENTAL_IDS,
+)
+def test_a_fundamental_is_exact_and_names_its_key_and_inputs(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    inputs: tuple[str, ...],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    result = function(numerator, denominator)
+
+    assert result.key == key
+    assert result.inputs == inputs
+    assert result.value == pytest.approx(expected)
+    assert isinstance(result.value, float)
+    assert result.reason is None
+    assert result.ok is True
+    # Every R4 key is documented in the formula table.
+    assert key in FORMULAS
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "inputs", "numerator", "denominator", "expected"),
+    PERCENTAGE_FUNDAMENTALS,
+    ids=PERCENTAGE_IDS,
+)
+def test_a_percentage_fundamental_is_printed_in_percentage_points(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    inputs: tuple[str, ...],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    """``40/100`` is ``40.0`` and never the fraction ``0.4``."""
+
+    result = function(numerator, denominator)
+    fraction = numerator / denominator
+
+    assert result.value == pytest.approx(fraction * 100.0)
+    assert result.value == pytest.approx(expected)
+    assert result.value != pytest.approx(fraction)
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "inputs", "numerator", "denominator", "expected"),
+    FUNDAMENTALS,
+    ids=FUNDAMENTAL_IDS,
+)
+def test_a_fundamental_reports_a_zero_denominator(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    inputs: tuple[str, ...],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    result = function(numerator, 0.0)
+
+    assert result.value is None
+    assert result.reason == ZERO_DENOMINATOR
+    assert result.inputs == inputs
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "inputs", "numerator", "denominator", "expected"),
+    FUNDAMENTALS,
+    ids=FUNDAMENTAL_IDS,
+)
+def test_a_fundamental_reports_a_negative_denominator(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    inputs: tuple[str, ...],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    result = function(numerator, -abs(denominator))
+
+    assert result.value is None
+    assert result.reason == NEGATIVE_DENOMINATOR
+    assert result.inputs == inputs
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "inputs", "numerator", "denominator", "expected"),
+    FUNDAMENTALS,
+    ids=FUNDAMENTAL_IDS,
+)
+def test_a_fundamental_with_a_missing_input_has_no_value(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    inputs: tuple[str, ...],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    for arguments in ((None, denominator), (numerator, None)):
+        result = function(*arguments)  # type: ignore[arg-type]
+
+        assert result.value is None, arguments
+        assert result.reason == MISSING_INPUT, arguments
+        assert result.inputs == inputs, arguments
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "inputs", "numerator", "denominator", "expected"),
+    FUNDAMENTALS,
+    ids=FUNDAMENTAL_IDS,
+)
+def test_an_unreadable_fundamental_input_is_missing_not_zero(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    inputs: tuple[str, ...],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    """Nothing is parsed and nothing falls back to zero."""
+
+    for unreadable in (math.nan, math.inf, -math.inf, True, "40.0"):
+        for arguments in ((unreadable, denominator), (numerator, unreadable)):
+            result = function(*arguments)  # type: ignore[arg-type]
+
+            assert result.value is None, (unreadable, arguments)
+            assert result.reason == MISSING_INPUT, (unreadable, arguments)
+
+
+#: A numerator is allowed to be negative: a loss is information, not a zero.
+NEGATIVE_NUMERATORS: list[
+    tuple[str, Callable[[float, float], DerivedValue], float, float, float]
+] = [
+    ("gross_margin", gross_margin, -40.0, 100.0, -40.0),
+    ("operating_margin", operating_margin, -25.0, 200.0, -12.5),
+    ("net_margin", net_margin, -10.0, 250.0, -4.0),
+    ("roa", roa, -50.0, 200.0, -25.0),
+    ("roe", roe, -25.0, 50.0, -50.0),
+    ("book_per_share", book_per_share, -500.0, 10.0, -50.0),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "function", "numerator", "denominator", "expected"),
+    NEGATIVE_NUMERATORS,
+    ids=[row[0] for row in NEGATIVE_NUMERATORS],
+)
+def test_a_negative_numerator_is_preserved_not_clamped(
+    key: str,
+    function: Callable[[float, float], DerivedValue],
+    numerator: float,
+    denominator: float,
+    expected: float,
+) -> None:
+    result = function(numerator, denominator)
+
+    assert result.value == pytest.approx(expected)
+    assert result.value is not None and result.value < 0.0
+    assert result.reason is None
+
+
+@pytest.mark.parametrize(
+    "function",
+    [
+        pytest.param(gross_margin, id="gross_margin"),
+        pytest.param(net_margin, id="net_margin"),
+        pytest.param(roa, id="roa"),
+        pytest.param(book_per_share, id="book_per_share"),
+    ],
+)
+def test_a_fundamental_reports_an_overflow_instead_of_infinity(
+    function: Callable[[float, float], DerivedValue],
+) -> None:
+    result = function(1e308, 1e-308)
+
+    assert result.value is None
+    assert result.reason == OVERFLOW
+
+
+def test_a_fundamental_accepts_decimal_inputs() -> None:
+    result = gross_margin(Decimal("40"), Decimal("100"))  # type: ignore[arg-type]
+
+    assert result.value == pytest.approx(40.0)
+    assert result.reason is None
+
+
+def test_the_nine_r4_keys_are_documented_in_the_formula_table() -> None:
+    expected = {
+        "gross_margin",
+        "operating_margin",
+        "net_margin",
+        "roa",
+        "roe",
+        "current_ratio",
+        "debt_to_equity",
+        "book_per_share",
+        "cash_per_share",
+    }
+
+    assert expected <= set(FORMULAS)
+    for key in expected:
+        formula = FORMULAS[key]
+        assert isinstance(formula, str) and formula.strip(), key
+        assert "/" in formula, key
+
+
+def test_the_nine_r4_factories_answer_exactly_the_nine_r4_keys() -> None:
+    keys = {
+        function(numerator, denominator).key
+        for _, function, _, numerator, denominator, _ in FUNDAMENTALS
+    }
+
+    assert keys == set(PERCENTAGE_KEYS) | {
+        "current_ratio",
+        "book_per_share",
+        "cash_per_share",
+    }
