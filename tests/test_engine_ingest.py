@@ -31,7 +31,7 @@ from typing import Any, Callable
 import httpx2
 import pytest
 
-from app.engine.facts import fact_summary
+from app.engine.facts import fact_ttm_summary
 from app.engine.ingest import (
     EngineDataset,
     SecIngestError,
@@ -61,8 +61,8 @@ INDEX: dict[str, dict[str, Any]] = {
     "2": {"cik_str": 1067983, "ticker": "BRK-B", "title": "BERKSHIRE HATHAWAY INC"},
 }
 
-#: AAPL's revenue cell in the real fixture, from accession 0000320193-26-000020.
-AAPL_REVENUE = 364_357_000_000.0
+#: AAPL's TTM revenue in the real fixture: FY2025 + 9M FY2026 - 9M FY2025.
+AAPL_REVENUE = 466_823_000_000.0
 
 
 def aapl_facts() -> dict[str, Any]:
@@ -361,7 +361,7 @@ async def test_load_builds_identity_and_real_aapl_facts() -> None:
     assert record is not None
     assert record.cik == AAPL_CIK
     assert record.name == "APPLE INC."
-    assert dataset.facts["AAPL"] == fact_summary(aapl_facts())
+    assert dataset.facts["AAPL"] == fact_ttm_summary(aapl_facts())
     assert dataset.errors == {}
 
     revenue = dataset.facts["AAPL"]["revenue"]

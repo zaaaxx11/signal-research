@@ -51,12 +51,11 @@ kept — the parser does not pick the larger of two rows it cannot tell apart.
 One honest limitation: the duration is not modelled
 ---------------------------------------------------
 XBRL distinguishes a three-month figure from the six-month year-to-date figure
-that ends on the same day, using ``start``. :class:`FactObservation` follows
-the engine's period-end vocabulary and keeps only ``end``, so when one
-accession reports both durations for the same date the first row wins. This
-slice answers "what did the filing report for this date", not "what is the
-quarterly run-rate"; the TTM arithmetic lives in the provider adapter, which
-reads ``start`` itself.
+that ends on the same day, using ``start``. :class:`FactObservation` keeps
+``start`` so the parser does not collapse those two rows; :func:`fact_summary`
+still answers "what did the filing report for this date", while
+:func:`fact_ttm_summary` uses the duration to build a trailing-twelve-month
+value. No provider adapter has to re-read the raw document for that arithmetic.
 
 No I/O
 ------
@@ -70,6 +69,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from app.engine.model import Cell, CellStatus, Provenance, Unit
@@ -167,6 +167,7 @@ class FactObservation:
     value: float
     unit: str
     period_end: str
+    start: str | None = None
     fiscal_year: int | None = None
     fiscal_period: str | None = None
     form: str = ""
@@ -183,6 +184,7 @@ class FactObservation:
         object.__setattr__(self, "tag", _text(self.tag))
         object.__setattr__(self, "unit", _text(self.unit))
         object.__setattr__(self, "period_end", _text(self.period_end))
+        object.__setattr__(self, "start", _optional_text(self.start))
         object.__setattr__(self, "form", _text(self.form))
         object.__setattr__(self, "filed", _text(self.filed))
         object.__setattr__(self, "accession", _text(self.accession))
@@ -328,6 +330,229 @@ def _latest(
     )
 
 
+#: Metrics that are **flows** and can be converted to a trailing-twelve-month
+#: value by period arithmetic. Everything else in :data:`DEFAULT_TAGS` is an
+#: instant (a balance or a share count) and uses the newest observation.
+FLOW_KEYS: frozenset[str] = frozenset(
+    {
+        "revenue",
+        "net_income",
+        "eps_diluted",
+        "operating_cash_flow",
+        "capex",
+    }
+)
+
+_ANNUAL_MIN_DAYS = 330
+_ANNUAL_MAX_DAYS = 400
+_YTD_MIN_DAYS = 150
+_YTD_MAX_DAYS = 330
+_PRIOR_MIN_GAP_DAYS = 330
+_PRIOR_MAX_GAP_DAYS = 400
+_PRIOR_DURATION_TOLERANCE_DAYS = 14
+
+
+def _period_days(observation: FactObservation) -> int | None:
+    """The duration of an observation in days, or ``None`` when it has no start.
+
+    XBRL's ``start`` is what distinguishes a quarter from the year-to-date row
+    that ends on the same date. A malformed date is not a duration: returning
+    ``None`` keeps that row out of the arithmetic rather than guessing a
+    quarter.
+    """
+
+    start = observation.start
+    end = observation.period_end
+    if not start or not end:
+        return None
+    try:
+        first = date.fromisoformat(start)
+        last = date.fromisoformat(end)
+    except ValueError:
+        return None
+    days = (last - first).days
+    return days if days > 0 else None
+
+
+def _observation_cell(
+    observation: FactObservation,
+    *,
+    as_of: str | None = None,
+    value: float | None = None,
+    inputs: tuple[str, ...] | None = None,
+) -> Cell | None:
+    """Project one observation (or a derived sum of observations) into a Cell.
+
+    ``inputs`` is the audit trail. A single observation contributes its tag and
+    accession; a TTM value contributes the annual, current and prior filings so
+    the arithmetic can be replayed. The value is never re-dated: ``as_of`` is
+    the period end of the observation the number describes.
+    """
+
+    date_of_value = as_of or observation.period_end or observation.filed
+    if not date_of_value:
+        return None
+    published = observation.value if value is None else value
+    return Cell(
+        value=published,
+        unit=_CELL_UNITS.get(observation.unit, Unit.UNKNOWN),
+        provenance=Provenance(
+            source=SOURCE_NAME,
+            as_of=date_of_value,
+            status=CellStatus.OK,
+            url=None,
+            inputs=inputs or (observation.tag, observation.accession),
+        ),
+    )
+
+
+def _ttm_cell(candidates: Sequence[FactObservation]) -> Cell | None:
+    """A trailing-twelve-month Cell for one flow metric, or the best fallback.
+
+    The preferred path is ``annual + year-to-date - prior-year year-to-date``:
+    it uses exactly three filed observations, keeps each accession in the
+    provenance, and works for issuers whose latest filing is a Q2/Q3 10-Q (the
+    common case during the year). If the latest filing is itself an annual
+    report, that annual value **is** the TTM. If the prior YTD row is absent,
+    the annual value is returned rather than inventing a fourth quarter.
+    """
+
+    if not candidates:
+        return None
+
+    latest = max(candidates, key=_recency)
+    latest_days = _period_days(latest)
+    if latest_days is not None and _ANNUAL_MIN_DAYS <= latest_days <= _ANNUAL_MAX_DAYS:
+        return _observation_cell(latest)
+
+    annual = max(
+        (
+            observation
+            for observation in candidates
+            if (days := _period_days(observation)) is not None
+            and _ANNUAL_MIN_DAYS <= days <= _ANNUAL_MAX_DAYS
+        ),
+        key=_recency,
+        default=None,
+    )
+    ytd = max(
+        (
+            observation
+            for observation in candidates
+            if (days := _period_days(observation)) is not None
+            and _YTD_MIN_DAYS <= days < _YTD_MAX_DAYS
+        ),
+        key=_recency,
+        default=None,
+    )
+    if annual is None or ytd is None or annual.tag != ytd.tag:
+        return _observation_cell(annual or latest)
+
+    ytd_days = _period_days(ytd)
+    prior = max(
+        (
+            observation
+            for observation in candidates
+            if observation.tag == ytd.tag
+            and (days := _period_days(observation)) is not None
+            and abs(days - (ytd_days or 0)) <= _PRIOR_DURATION_TOLERANCE_DAYS
+            and (gap := _days_between(observation.period_end, ytd.period_end))
+            is not None
+            and _PRIOR_MIN_GAP_DAYS <= gap <= _PRIOR_MAX_GAP_DAYS
+            and observation.period_end < ytd.period_end
+        ),
+        key=_recency,
+        default=None,
+    )
+    if prior is None:
+        return _observation_cell(annual)
+
+    return _observation_cell(
+        ytd,
+        value=annual.value + ytd.value - prior.value,
+        inputs=(
+            annual.tag,
+            annual.accession,
+            ytd.tag,
+            ytd.accession,
+            prior.tag,
+            prior.accession,
+        ),
+    )
+
+
+def _days_between(first: str, second: str) -> int | None:
+    """Calendar days from ``first`` to ``second``, or ``None`` on bad text."""
+
+    try:
+        return (date.fromisoformat(second) - date.fromisoformat(first)).days
+    except ValueError:
+        return None
+
+
+def ttm_observations_to_cells(
+    observations: Sequence[FactObservation],
+    *,
+    tags: Mapping[str, tuple[str, ...]] | None = None,
+    forms: Sequence[str] | None = None,
+) -> dict[str, Cell]:
+    """One Cell per canonical key, with flows expressed as TTM.
+
+    Instant metrics use the newest observation; flow metrics use
+    :func:`_ttm_cell`. A missing value is still omitted, never zero, and a
+    cell's ``as_of`` is still the period end of the number it contains — a TTM
+    built from three filings is dated to the current YTD end.
+    """
+
+    mapping = DEFAULT_TAGS if tags is None else tags
+    items = tuple(observations)
+    allowed_forms = _form_filter(forms)
+    cells: dict[str, Cell] = {}
+
+    for raw_key, group in mapping.items():
+        if not isinstance(raw_key, str):
+            continue
+        key = raw_key.strip().lower()
+        if not key or key in cells:
+            continue
+        tag_names = _tag_names(group)
+        candidates = [
+            observation
+            for observation in items
+            if observation.tag in tag_names
+            and (allowed_forms is None or observation.form.upper() in allowed_forms)
+        ]
+        if not candidates:
+            continue
+        if key in FLOW_KEYS:
+            cell = _ttm_cell(candidates)
+        else:
+            cell = _observation_cell(max(candidates, key=_recency))
+        if cell is not None:
+            cells[key] = cell
+    return cells
+
+
+def fact_ttm_summary(
+    payload: Any,
+    *,
+    tags: Mapping[str, tuple[str, ...]] | None = None,
+    forms: Sequence[str] | None = None,
+) -> dict[str, Cell]:
+    """``ttm_observations_to_cells(parse_companyfacts(payload))``.
+
+    The convenience entry point for ingestion. Use :func:`fact_summary` when
+    the question is "what did the latest filing say on this date"; use this
+    when the question is "what is the current run-rate".
+    """
+
+    return ttm_observations_to_cells(
+        parse_companyfacts(payload, tags=tags),
+        tags=tags,
+        forms=forms,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -373,7 +598,7 @@ def parse_companyfacts(
         )
 
     observations: list[FactObservation] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
 
     for raw_tag, body in namespace.items():
         if not isinstance(raw_tag, str):
@@ -408,7 +633,8 @@ def parse_companyfacts(
                 if not period_end:
                     continue
                 accession = _text(entry.get("accn"))
-                identity = (tag, unit, period_end, accession)
+                start = _text(entry.get("start"))
+                identity = (tag, unit, start, period_end, accession)
                 if identity in seen:
                     continue
                 seen.add(identity)
@@ -418,6 +644,7 @@ def parse_companyfacts(
                         value=value,
                         unit=unit,
                         period_end=period_end,
+                        start=start or None,
                         fiscal_year=_optional_year(entry.get("fy")),
                         fiscal_period=_optional_text(entry.get("fp")),
                         form=_text(entry.get("form")),
@@ -431,6 +658,7 @@ def parse_companyfacts(
         key=lambda observation: (
             observation.tag,
             observation.unit,
+            observation.start or "",
             observation.period_end,
             observation.accession,
             observation.filed,
@@ -551,13 +779,16 @@ def fact_summary(
 __all__ = [
     "ACCEPTED_UNITS",
     "DEFAULT_TAGS",
+    "FLOW_KEYS",
     "FactObservation",
     "UNIT_PER_SHARE",
     "UNIT_SHARES",
     "UNIT_USD",
     "US_GAAP_NAMESPACE",
     "fact_summary",
+    "fact_ttm_summary",
     "latest_observation",
     "observations_to_cells",
     "parse_companyfacts",
+    "ttm_observations_to_cells",
 ]

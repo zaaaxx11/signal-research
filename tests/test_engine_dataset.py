@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.engine.dataset import DatasetRows
-from app.engine.facts import fact_summary
+from app.engine.facts import fact_ttm_summary
 from app.engine.ingest import EngineDataset
 from app.engine.model import Cell, CellStatus, Provenance, Unit
 from app.engine.security import SecurityMaster
@@ -23,7 +23,7 @@ def _master() -> SecurityMaster:
 
 
 def _aapl_facts() -> dict[str, Cell]:
-    return fact_summary(
+    return fact_ttm_summary(
         json.loads((FIXTURES / "sec_companyfacts_aapl.json").read_text())
     )
 
@@ -41,7 +41,7 @@ def test_dataset_rows_joins_identity_and_facts_without_inventing_a_quote() -> No
     assert len(rows) == 4
     aapl = next(row for row in rows if row["ticker"].value == "AAPL")
     assert aapl["company"].value == "Apple Inc."
-    assert aapl["sales"].value == 364_357_000_000.0
+    assert aapl["sales"].value == 466_823_000_000.0
     assert "price" not in aapl
 
     msft = next(row for row in rows if row["ticker"].value == "MSFT")

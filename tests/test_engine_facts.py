@@ -199,6 +199,7 @@ def test_parse_returns_a_deterministically_sorted_tuple() -> None:
         key=lambda item: (
             item.tag,
             item.unit,
+            item.start or "",
             item.period_end,
             item.accession,
             item.filed,

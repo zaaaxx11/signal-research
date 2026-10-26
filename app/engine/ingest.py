@@ -57,7 +57,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from app.engine.facts import fact_summary
+from app.engine.facts import fact_ttm_summary
 from app.engine.model import Cell
 from app.engine.security import SecurityMaster
 from app.engine.sources.sec import (
@@ -464,7 +464,7 @@ async def load_sec_dataset(
 
         try:
             payload = await reader.read(record.cik)
-            facts[symbol] = fact_summary(payload)
+            facts[symbol] = fact_ttm_summary(payload)
         except Exception as exc:  # noqa: BLE001 - one symbol, one error row
             errors[symbol] = str(exc) or type(exc).__name__
 
