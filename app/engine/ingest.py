@@ -42,11 +42,18 @@ Rules this slice makes structural
   the load raises :class:`SecIngestError` before any issuer document is
   requested: an empty universe is not a universe of unknowns.
 * **One document per issuer.** The disk cache is keyed by the ten-digit CIK and
-  the document kind (``CIK0000320193-companyfacts.json``), because
-  ``companyfacts`` is per issuer and Berkshire's two classes are one document.
-  A cache hit does not call the client. A corrupt entry, or one whose body
-  belongs to another CIK, is treated as a miss and replaced — a cache is not
-  evidence of anything except a document that was once read.
+  the document kind (``CIK0000320193-companyfacts.json``,
+  ``CIK0000320193-submissions.json``), because both are per issuer and
+  Berkshire's two classes are one document. A cache hit does not call the
+  client. A corrupt entry, or one whose body belongs to another CIK, is treated
+  as a miss and replaced — a cache is not evidence of anything except a
+  document that was once read. The identity documents are not cached, and the
+  per-issuer cache is opt-in: ``cache_dir=None`` still means one request per
+  document, so a startup load cannot silently serve yesterday's copy.
+* **A cache is what makes a 10k-issuer pass resumable.** ``submissions`` is one
+  document per registrant, so the enrichment batch (R3.5) reads ten thousand of
+  them; caching each body by CIK is what turns a 17-minute crawl into a
+  restarted job that spends requests only on what it has never read.
 * **Per-symbol errors, never per-symbol guesses.** A failed issuer fetch is
   recorded in :attr:`EngineDataset.errors` and produces no facts entry. The
   other symbols in the same load still resolve.
@@ -95,6 +102,7 @@ COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 #: Cache filename fragment: the CIK is the key and the kind keeps the filename
 #: honest about which per-issuer document it holds.
 _KIND_COMPANYFACTS = "companyfacts"
+_KIND_SUBMISSIONS = "submissions"
 
 
 class SecIngestError(RuntimeError):
@@ -273,18 +281,45 @@ async def fetch_submissions(
     user_agent: str | None = None,
     cache_dir: Path | None = None,
 ) -> object:
-    """Read one registrant's submissions document (classes, venues, filings)."""
+    """Read one registrant's submissions document (classes, venues, filings).
 
-    payload, _ = await _fetch_json(
-        submissions_url(cik), client=client, user_agent=user_agent
+    ``cache_dir=None`` is the startup path: exactly one request, no disk. With a
+    cache directory the body on disk is read first, and a usable entry answers
+    the call without touching the client — that is what makes a 10k-issuer
+    enrichment pass resumable instead of a full re-crawl. A miss (absent,
+    truncated, not JSON, another issuer's body, or no ticker list) is fetched
+    once and the raw body replaces the entry atomically.
+    """
+
+    key = _require_cik(cik)
+    path: Path | None = None
+    if cache_dir is not None:
+        path = submissions_cache_path(cache_dir, key)
+        cached = _read_submissions_cache(path, cik=key)
+        if cached is not None:
+            return cached
+
+    payload, text = await _fetch_json(
+        submissions_url(key), client=client, user_agent=user_agent
     )
+    if not _looks_like_submissions(payload, cik=key):
+        raise SecIngestError(
+            f"CIK{key} did not answer a submissions document"
+        )
+    if path is not None:
+        _write_cache_atomically(path, text)
     return payload
 
 
 def submissions_cache_path(cache_dir: Path, cik: str) -> Path:
-    """``<cache_dir>/CIK##########-submissions.json``. Implemented in R3.5."""
+    """``<cache_dir>/CIK##########-submissions.json`` for one issuer.
 
-    raise NotImplementedError("submissions_cache_path is implemented in R3.5")
+    The name is the contract: the ten-digit CIK keys the entry and the kind
+    keeps the file self-describing, so an operator can read the directory and a
+    second pass can tell a submissions body from a companyfacts one.
+    """
+
+    return _cache_path(Path(cache_dir), _require_cik(cik), _KIND_SUBMISSIONS)
 
 
 async def fetch_companyfacts(
@@ -315,6 +350,23 @@ def _looks_like_companyfacts(payload: Any) -> bool:
     return isinstance(payload, Mapping) and isinstance(payload.get("facts"), Mapping)
 
 
+def _looks_like_submissions(payload: Any, *, cik: str) -> bool:
+    """True when ``payload`` is ``cik``'s submissions document.
+
+    Two facts make a body usable and both are checked: the document names its
+    own CIK (and it must be the one asked for), and it carries the ``tickers``
+    list the parser reads. A body that fails either is not an answer this slice
+    can use — another issuer's document, a truncated file or an error page all
+    look the same from here, so none of them is served.
+    """
+
+    if not isinstance(payload, Mapping):
+        return False
+    if normalize_cik(payload.get("cik")) != cik:
+        return False
+    return isinstance(payload.get("tickers"), list)
+
+
 def _read_facts_cache(path: Path, *, cik: str) -> Any | None:
     """The cached document, or ``None`` when the entry is absent or unusable.
 
@@ -339,7 +391,29 @@ def _read_facts_cache(path: Path, *, cik: str) -> Any | None:
     return payload
 
 
-def _write_facts_cache(path: Path, text: str) -> None:
+def _read_submissions_cache(path: Path, *, cik: str) -> Any | None:
+    """The cached submissions body, or ``None`` when the entry is unusable.
+
+    The entry is trusted only under the same test the live body passes (see
+    :func:`_looks_like_submissions`): an unreadable file, a foreign CIK or a
+    body without a ticker list is a miss. Being on disk is not evidence; being
+    the document this CIK's parser can read is.
+    """
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return None
+    if not _looks_like_submissions(payload, cik=cik):
+        return None
+    return payload
+
+
+def _write_cache_atomically(path: Path, text: str) -> None:
     """Write the body atomically, so a crash cannot leave half a document."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,7 +484,7 @@ async def _issuer_facts(
     if not _looks_like_companyfacts(payload):
         raise SecIngestError(f"CIK{cik} did not answer a companyfacts document")
     if path is not None:
-        _write_facts_cache(path, text)
+        _write_cache_atomically(path, text)
     return payload
 
 
