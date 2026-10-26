@@ -491,9 +491,13 @@ async def test_an_unavailable_index_fails_the_load_instead_of_inventing_identiti
     with pytest.raises(SecIngestError):
         await load_sec_dataset(["AAPL"], client=web.client())
 
-    assert web.urls() == [TICKERS_URL], (
-        "without an index there is no identity, so no issuer document may be "
-        "requested and no symbol may be reported as merely unknown"
+    assert web.urls() == [
+        "https://www.sec.gov/files/company_tickers_exchange.json",
+        TICKERS_URL,
+    ], (
+        "the bulk exchange document is attempted first and then the legacy "
+        "index; without an index there is no identity, so no issuer document "
+        "may be requested and no symbol may be reported as merely unknown"
     )
 
 

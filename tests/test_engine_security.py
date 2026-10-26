@@ -673,3 +673,229 @@ def test_sec_module_exposes_the_two_document_urls() -> None:
     assert sec.TICKERS_URL == TICKERS_URL
     assert TICKERS_URL == "https://www.sec.gov/files/company_tickers.json"
     assert sec.SUBMISSIONS_URL == "https://data.sec.gov/submissions/CIK{cik}.json"
+
+
+# ---------------------------------------------------------------------------
+# R3 §1.3: the submissions profile — SIC industry and business country
+# ---------------------------------------------------------------------------
+
+#: Distinguishes "the key is absent" from "the key is present and null".
+_MISSING: object = object()
+
+
+def _profile_body(
+    *,
+    cik: str = "0000320193",
+    name: str = "Apple Inc.",
+    ticker: str = "AAPL",
+    sic_description: object = "Electronic Computers",
+    business: object = _MISSING,
+) -> dict[str, object]:
+    """A submissions body with the SIC field and an ``addresses.business``.
+
+    The SEC states industry as ``sicDescription`` and country as the business
+    address; ``_MISSING`` leaves a key out entirely so a test can tell an
+    absent field from a present but blank one.
+    """
+
+    body: dict[str, object] = {
+        "cik": cik,
+        "name": name,
+        "tickers": [ticker],
+        "exchanges": ["Nasdaq"],
+        "sic": "3571",
+    }
+    if sic_description is not _MISSING:
+        body["sicDescription"] = sic_description
+    if business is not _MISSING:
+        body["addresses"] = {"business": business}
+    return body
+
+
+def test_parse_submissions_reads_the_sic_industry_and_a_us_business_country() -> None:
+    """A US state code is ``United States``; the SIC description is industry."""
+
+    records = parse_submissions(
+        _profile_body(
+            sic_description="  Electronic Computers  ",
+            business={
+                "stateOrCountry": "CA",
+                "stateOrCountryDescription": "California",
+            },
+        )
+    )
+
+    assert len(records) == 1
+    apple = records[0]
+    assert apple.industry == "Electronic Computers"
+    assert apple.country == "United States"
+    assert apple.sector is None
+    # The venue is still read exactly as before.
+    assert apple.exchange == "Nasdaq"
+    assert apple.mic == "XNAS"
+
+
+def test_parse_submissions_uses_a_foreign_location_description_as_the_country() -> None:
+    """``P7``/``Netherlands`` is the country; the code alone is not a name."""
+
+    records = parse_submissions(
+        _profile_body(
+            cik="0000937966",
+            name="ASML Holding N.V.",
+            ticker="ASML",
+            business={
+                "stateOrCountry": "P7",
+                "stateOrCountryDescription": "Netherlands",
+            },
+        )
+    )
+
+    assert [record.symbol for record in records] == ["ASML"]
+    assert records[0].country == "Netherlands"
+    assert records[0].industry == "Electronic Computers"
+    assert records[0].sector is None
+
+
+@pytest.mark.parametrize("sic_description", [_MISSING, None, "", "   "])
+def test_a_sic_code_without_a_description_is_not_an_industry(
+    sic_description: object,
+) -> None:
+    """The description is the industry; the bare ``sic`` code is never printed."""
+
+    described = parse_submissions(_profile_body())[0]
+    undescribed = parse_submissions(_profile_body(sic_description=sic_description))[0]
+
+    assert described.industry == "Electronic Computers"
+    assert undescribed.industry is None
+    assert undescribed.sector is None
+
+
+@pytest.mark.parametrize(
+    "business",
+    [
+        _MISSING,
+        None,
+        {},
+        {"stateOrCountry": "   ", "stateOrCountryDescription": "   "},
+        {"city": "Cupertino"},
+        "CA",
+    ],
+)
+def test_an_unusable_location_is_not_a_country(business: object) -> None:
+    """No business address means no country; the industry is unaffected."""
+
+    records = parse_submissions(_profile_body(business=business))
+
+    assert records[0].country is None
+    assert records[0].industry == "Electronic Computers"
+    assert records[0].sector is None
+
+
+@pytest.mark.parametrize(
+    "code", ["CA", "NY", "TX", "FL", "DC", "PR", "VI", "GU", "AS", "MP"]
+)
+def test_submissions_country_maps_a_us_state_or_territory_to_the_united_states(
+    code: str,
+) -> None:
+    """The 50 states plus DC/PR/VI/GU/AS/MP are one country, not a place name."""
+
+    payload = {
+        "cik": "0000320193",
+        "addresses": {
+            "business": {
+                "stateOrCountry": code,
+                "stateOrCountryDescription": "Somewhere",
+            }
+        },
+    }
+
+    assert sec.submissions_country(payload) == "United States"
+
+
+@pytest.mark.parametrize(
+    ("business", "expected"),
+    [
+        (
+            {"stateOrCountry": "P7", "stateOrCountryDescription": "Netherlands"},
+            "Netherlands",
+        ),
+        (
+            {
+                "stateOrCountry": "A6",
+                "stateOrCountryDescription": "  Ontario  ",
+            },
+            "Ontario",
+        ),
+    ],
+)
+def test_submissions_country_uses_the_description_of_a_non_us_location(
+    business: dict[str, str], expected: str
+) -> None:
+    """Only the document's own description names a foreign country."""
+
+    assert sec.submissions_country({"addresses": {"business": business}}) == expected
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        [],
+        "nope",
+        3,
+        {},
+        {"addresses": []},
+        {"addresses": {"business": "CA"}},
+        {"addresses": {"business": {"stateOrCountry": "P7"}}},
+        {
+            "addresses": {
+                "business": {
+                    "stateOrCountry": "P7",
+                    "stateOrCountryDescription": "  ",
+                }
+            }
+        },
+        {
+            "addresses": {
+                "business": {
+                    "stateOrCountry": "",
+                    "stateOrCountryDescription": "Netherlands",
+                }
+            }
+        },
+    ],
+)
+def test_submissions_country_returns_none_without_a_usable_location(
+    payload: object,
+) -> None:
+    """A foreign code with no description is unknown, never the code itself."""
+
+    assert sec.submissions_country(payload) is None
+
+
+def test_add_submissions_fills_industry_and_country_on_an_indexed_record() -> None:
+    """The master enriches an index record instead of adding a second one."""
+
+    master = SecurityMaster.from_company_tickers(_company_tickers(), as_of="2026-10-26")
+    before = master.require("AAPL")
+    assert before.industry is None
+    assert before.country is None
+
+    added = master.add_submissions(
+        _profile_body(
+            business={
+                "stateOrCountry": "CA",
+                "stateOrCountryDescription": "California",
+            }
+        ),
+        as_of="2026-10-27",
+    )
+
+    assert added == 0, "AAPL is already indexed; this load only enriches it"
+    apple = master.require("AAPL")
+    assert apple.industry == "Electronic Computers"
+    assert apple.country == "United States"
+    assert apple.exchange == "Nasdaq"
+    assert apple.mic == "XNAS"
+    assert apple.sector is None
+    assert len(master.provenance("AAPL")) == 2
