@@ -131,8 +131,15 @@ docker compose run --rm ops smoke --base-url http://engine:8080
 ```
 
 To serve a populated engine, put `engine-snapshot.json` in the volume before
-starting (or run `python -m app.engine.ingest` in the container); without it the
-engine starts empty on purpose and `/engine/health` says so.
+starting, or build one inside the container:
+
+```bash
+docker compose run --rm engine python -m app.engine.bootstrap \
+  --symbols AAPL,MSFT,NVDA --output /data/engine-snapshot.json
+```
+
+Without a snapshot the engine starts empty on purpose and `/engine/health` says
+so.
 
 Host systemd examples live in `deploy/`; they assume the app at `/opt/ztockz`
 and data at `/var/lib/ztockz`, both configurable through the same variables.

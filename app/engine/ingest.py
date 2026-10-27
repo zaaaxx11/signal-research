@@ -659,7 +659,9 @@ async def load_sec_dataset(
         if record.cik not in identity_seen:
             identity_seen.add(record.cik)
             try:
-                submissions = await fetch_submissions(record.cik, client=client)
+                submissions = await fetch_submissions(
+                    record.cik, client=client, cache_dir=cache_dir
+                )
                 master.add_submissions(submissions, as_of=observed)
             except Exception:  # noqa: BLE001 - enrichment is not the fact fetch
                 pass
