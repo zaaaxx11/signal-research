@@ -50,8 +50,14 @@ NASDAQ_HOST = "https://api.nasdaq.com"
 NASDAQ_QUOTE_PATH = "/api/quote/{symbol}/info?assetclass=stocks"
 NASDAQ_ORIGIN = "https://www.nasdaq.com"
 
-#: Yahoo's documented ceiling for one v7 quote request.
+#: Yahoo's documented ceiling for one v7 quote request. The legacy single-poll
+#: path uses 20; the batch QuoteHub path has been live-tested at 400. Keeping the
+#: two limits separate prevents a change to the hub from silently changing the
+#: P8 watchlist contract.
 MAX_BATCH = 20
+
+#: Verified bulk ceiling for the quote hub (400 symbols, 11 requests for 4,217).
+MAX_BULK_BATCH = 400
 
 #: The Windows UA is the one Yahoo answers ``200`` to; Linux Chrome gets ``429``.
 BROWSER_USER_AGENT = (
@@ -277,7 +283,12 @@ def _yahoo_quote(row: Mapping[str, Any]) -> SourceQuote | None:
 
 
 class YahooQuoteSource:
-    """Batch quotes from Yahoo's unofficial v7 endpoint (up to 20 per request)."""
+    """Batch quotes from Yahoo's unofficial v7 endpoint.
+
+    The P8 watchlist construction uses 20 symbols per request; the QuoteHub
+    construction uses 400 (verified live). The ceiling is a constant, not a
+    guess, and a caller cannot exceed it silently.
+    """
 
     name = "yahoo"
 
@@ -287,11 +298,13 @@ class YahooQuoteSource:
         batch_size: int = MAX_BATCH,
         timeout_s: float = DEFAULT_TIMEOUT_S,
         user_agent: str = BROWSER_USER_AGENT,
+        bulk: bool = False,
     ) -> None:
         if isinstance(batch_size, bool) or not isinstance(batch_size, int):
             raise TypeError(f"batch_size must be an int, got {batch_size!r}")
-        if not 1 <= batch_size <= MAX_BATCH:
-            raise ValueError(f"batch_size must be 1..{MAX_BATCH}, got {batch_size!r}")
+        ceiling = MAX_BULK_BATCH if bulk else MAX_BATCH
+        if not 1 <= batch_size <= ceiling:
+            raise ValueError(f"batch_size must be 1..{ceiling}, got {batch_size!r}")
         if not timeout_s > 0:
             raise ValueError(f"timeout_s must be > 0, got {timeout_s!r}")
         if not user_agent or not str(user_agent).strip():
@@ -548,6 +561,7 @@ __all__ = [
     "BROWSER_USER_AGENT",
     "DEFAULT_TIMEOUT_S",
     "MAX_BATCH",
+    "MAX_BULK_BATCH",
     "NASDAQ_HOST",
     "SYMBOL_RE",
     "YAHOO_FIELDS",

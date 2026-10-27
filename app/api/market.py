@@ -50,6 +50,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 
 from app.auth import ApiError
+from app.market.hub import QuoteHub
 from app.market.quote import QuoteEngine, QuoteTick
 from app.market.sources import InvalidSymbol, build_quote_engine, parse_symbol_list
 
@@ -64,6 +65,13 @@ def quote_engine_of(request: Request) -> QuoteEngine:
         engine = build_quote_engine(request.app.state.runtime.settings)
         request.app.state.quote_engine = engine
     return engine
+
+
+def quote_hub_of(request: Request) -> QuoteHub | None:
+    """The process-owned QuoteHub, or ``None`` when the feature is disabled."""
+
+    hub = getattr(request.app.state, "quote_hub", None)
+    return hub if isinstance(hub, QuoteHub) else None
 
 
 def _document(tick: QuoteTick) -> dict[str, Any]:
@@ -96,6 +104,77 @@ def _public_mode(request: Request) -> bool:
     service = getattr(request.app.state, "engine", None)
     policy = getattr(service, "policy", None)
     return bool(getattr(policy, "public_mode", False))
+
+
+@router.get("/hub")
+async def hub_quote(
+    request: Request,
+    symbols: str | None = Query(
+        default=None,
+        description="Comma-separated provider symbols, e.g. AAPL,MSFT",
+    ),
+) -> dict[str, Any]:
+    """Read the last QuoteHub snapshot; this route never calls a provider.
+
+    The public document carries values and the exchange clock only. ``source``
+    and ``tier`` stay internal, as the product requested; a caller cannot infer
+    which upstream supplied a cell.
+    """
+
+    try:
+        wanted = parse_symbol_list(symbols or "")
+    except InvalidSymbol as exc:
+        raise ApiError(
+            422,
+            "invalid_symbols",
+            f"{exc} — symbols are comma-separated provider tickers (AAPL,MSFT,BRK-B)",
+        ) from exc
+    if not wanted:
+        raise ApiError(
+            422,
+            "invalid_symbols",
+            "symbols is required: pass ?symbols=AAPL,MSFT",
+        )
+
+    limit = request.app.state.runtime.settings.quote_max_symbols
+    if len(wanted) > limit:
+        raise ApiError(
+            422,
+            "too_many_symbols",
+            f"{len(wanted)} symbols requested after dedupe; the maximum is {limit}",
+        )
+
+    if _public_mode(request):
+        raise ApiError(
+            503,
+            "license_unavailable",
+            "realtime quotes come from internal sources that do not permit "
+            "redistribution; this deployment is public and has no licensed "
+            "quote source configured",
+        )
+
+    hub = quote_hub_of(request)
+    if hub is None or not hub.ready:
+        raise ApiError(
+            503,
+            "quotes_unavailable",
+            "QuoteHub is not running or has not completed a refresh",
+        )
+
+    document = hub.document(wanted)
+    if not document["quotes"]:
+        raise ApiError(
+            503,
+            "quotes_unavailable",
+            "QuoteHub has no quote for the requested symbols",
+        )
+    return {
+        "as_of": document["as_of"],
+        "requested": len(wanted),
+        "returned": document["count"],
+        "quotes": document["quotes"],
+        "missing": document["missing"],
+    }
 
 
 @router.get("/quote")
@@ -171,4 +250,4 @@ async def quote(
     }
 
 
-__all__ = ["quote", "quote_engine_of", "router"]
+__all__ = ["hub_quote", "quote", "quote_engine_of", "quote_hub_of", "router"]

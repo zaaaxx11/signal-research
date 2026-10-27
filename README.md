@@ -119,6 +119,28 @@ variables, then `MEE_DATA_DIR`, then `./data`:
 | `MEE_BACKUP_DIR` | `<data>/backups` | `ops backup` destination |
 | `MEE_DB_PATH` | `<data>/ztockz.db` | SQLite for jobs/exports |
 | `MEE_SEC_RATE_LIMIT` | `10` | shared SEC requests/second (`0` disables) |
+| `MEE_QUOTE_HUB` | `0` | start the free/premium QuoteHub loops |
+| `MEE_QUOTE_SYMBOLS` | empty | comma list when no universe file is set |
+| `MEE_QUOTE_UNIVERSE` | empty | JSON list / `{"symbols":[]}` / `{"rows":[{"name":...}]}` |
+| `MEE_QUOTE_STORE_PATH` | `data/quotes.json` | atomic latest-value snapshot |
+| `MEE_QUOTE_HISTORY_DIR` | empty | optional hourly snapshots; unset = no history |
+| `MEE_QUOTE_FREE_REFRESH_S` | `900` | free cadence (15 minutes) |
+| `MEE_QUOTE_PREMIUM_REFRESH_MIN_S` | `60` | premium cadence lower bound |
+| `MEE_QUOTE_PREMIUM_REFRESH_MAX_S` | `120` | premium cadence upper bound |
+
+### QuoteHub
+
+`MEE_QUOTE_HUB=1` starts two background loops after startup: Yahoo fills the
+free snapshot every 15 minutes, CNBC fills the premium snapshot at a random
+1–2 minute cadence. `GET /market/hub?symbols=AAPL,MSFT` reads the in-memory
+values without calling a provider; the response intentionally has no `source`
+or `tier` field. The legacy `GET /market/quote` path remains the request-time
+poller and its existing contract is unchanged.
+
+The hub is opt-in and its public-mode gate is the same fail-closed licence
+boundary as `/market/quote`; do not enable it on a public tunnel without a
+licence decision.
+
 
 Docker is the reference runtime:
 

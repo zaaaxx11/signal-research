@@ -45,6 +45,21 @@ class Settings(BaseSettings):
     quote_batch_size: int = Field(default=20, ge=1, le=20)
     quote_stale_after_s: float = Field(default=5.0, gt=0)
     quote_timeout_s: float = Field(default=10.0, gt=0)
+    #: QuoteHub (hybrid free/premium). Disabled by default so a bare checkout
+    #: never starts a background crawl. ``quote_free_refresh_s`` is the free
+    #: cadence; premium is drawn uniformly from the min/max range per cycle so
+    #: the process does not publish a fixed polling fingerprint. The universe
+    #: comes from ``MEE_QUOTE_UNIVERSE`` (JSON) or ``MEE_QUOTE_SYMBOLS``; the
+    #: JSON store is a snapshot, not a per-tick log.
+    quote_hub: bool = False
+    quote_free_refresh_s: float = Field(default=900.0, gt=0)
+    quote_premium_refresh_min_s: float = Field(default=60.0, gt=0)
+    quote_premium_refresh_max_s: float = Field(default=120.0, gt=0)
+    quote_hub_batch_size: int = Field(default=400, ge=1, le=400)
+    quote_premium_batch_size: int = Field(default=500, ge=1, le=500)
+    quote_universe_path: Path | None = None
+    quote_store_path: Path = Path("data/quotes.json")
+    quote_history_dir: Path | None = None
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the
     #: TradingView snapshot supplies the twenty candidates and one observation,
     #: Yahoo/Nasdaq/Finviz/Google re-verify their cells (P10.1 added the last

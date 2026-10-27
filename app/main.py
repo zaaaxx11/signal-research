@@ -11,7 +11,9 @@ exactly that) never share a database or an export directory.
 
 from __future__ import annotations
 
+import json
 import os
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,6 +31,7 @@ from app.engine.license import LicensePolicy
 from app.engine.quotes import quote_fields
 from app.engine.service import EngineService
 from app.engine.store import EngineStore
+from app.market.hub import QuoteHub, build_quote_hub
 from app.market.sources import build_quote_engine
 from app.export.writer import ExportFormatError, ExportFormatPending
 from app.jobs.errors import JobError, QuoteError
@@ -212,6 +215,70 @@ async def _engine_quotes(
     }
 
 
+def _quote_universe(
+    settings: Settings, dataset: EngineDataset | None
+) -> tuple[str, ...]:
+    """Load the QuoteHub universe from an explicit file, env, or the dataset.
+
+    Explicit configuration wins: an operator pointing at a curated liquid
+    universe must not silently get the 10k SEC identity master instead. A JSON
+    file may be a list of tickers, ``{"symbols": [...]}``, or the probe shape
+    ``{"rows": [{"name": ...}]}``.
+    """
+
+    path = getattr(settings, "quote_universe_path", None)
+    if path:
+        raw = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+        if isinstance(raw, Mapping):
+            rows = raw.get("symbols")
+            if rows is None:
+                rows = [row.get("symbol") or row.get("name") for row in raw.get("rows", [])]
+        else:
+            rows = raw
+        items = rows if isinstance(rows, (list, tuple)) else ()
+        return tuple(
+            str(item).strip().upper()
+            for item in items
+            if str(item or "").strip()
+        )
+
+    configured = os.environ.get("MEE_QUOTE_SYMBOLS", "")
+    if configured.strip():
+        return tuple(
+            part.strip().upper() for part in configured.split(",") if part.strip()
+        )
+
+    if dataset is not None:
+        master = getattr(dataset, "security_master", None)
+        symbols = getattr(master, "symbols", None)
+        if callable(symbols):
+            return tuple(symbols())
+    return ()
+
+
+async def _start_quote_hub(
+    application: FastAPI, settings: Settings, dataset: EngineDataset | None
+) -> QuoteHub | None:
+    """Start the opt-in hub; a failure is reported, not fatal to the API."""
+
+    if not getattr(settings, "quote_hub", False):
+        return None
+    try:
+        symbols = _quote_universe(settings, dataset)
+        if not symbols:
+            application.state.quote_hub_error = (
+                "QuoteHub is enabled but no universe was configured"
+            )
+            return None
+        hub = build_quote_hub(settings, symbols)
+        await hub.start()
+        application.state.quote_hub = hub
+        return hub
+    except Exception as exc:  # noqa: BLE001 - optional enrichment must not kill startup
+        application.state.quote_hub_error = f"{type(exc).__name__}: {exc}"
+        return None
+
+
 @asynccontextmanager
 async def _engine_lifespan(application: FastAPI):
     """Optionally load one SEC dataset before serving requests.
@@ -259,7 +326,19 @@ async def _engine_lifespan(application: FastAPI):
         application.state.engine = EngineService.from_dataset(
             dataset, quotes=quotes, policy=_engine_policy(application)
         )
-    yield
+
+    runtime = getattr(application.state, "runtime", None)
+    settings = getattr(runtime, "settings", None)
+    hub = None
+    if settings is not None:
+        hub = await _start_quote_hub(application, settings, dataset)
+    try:
+        yield
+    finally:
+        if hub is not None:
+            await hub.stop()
+        if hasattr(application.state, "quote_hub"):
+            application.state.quote_hub = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -288,6 +367,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: ``GET /market/quote`` builds its engine on first use (settings are the
     #: only input); tests and operators may replace it without a code path.
     application.state.quote_engine = None
+    #: The hub is started only when ``MEE_QUOTE_HUB=1``; routes answer 503 when
+    #: it is absent rather than scraping on the request path.
+    application.state.quote_hub = None
     #: ``GET /news/{symbol}`` (P12): one service per application, so its
     #: fifteen-minute cache is a property of the process and not of a request.
     #: Built here rather than in the route for the same reason the verifiers are
