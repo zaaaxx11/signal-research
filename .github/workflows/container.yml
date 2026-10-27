@@ -56,6 +56,29 @@ jobs:
           mkdir -p /tmp/digests
           echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ strategy.job-index }}.txt"
 
+      - name: Runtime smoke (amd64 only)
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 --load -t ztockz-engine:smoke .
+          mkdir -p smoke-data
+          chmod 777 smoke-data
+          docker run --rm -v "$PWD/smoke-data:/data" ztockz-engine:smoke \
+            python -m app.engine.bootstrap --symbols AAPL --output /data/engine-snapshot.json
+          docker run -d --name ztockz-smoke -p 8080:8080 -v "$PWD/smoke-data:/data" ztockz-engine:smoke
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/engine/health -o health.json; then break; fi
+            sleep 2
+          done
+          python3 - <<'PY'
+          import json
+          document = json.load(open("health.json"))
+          symbols = document["dataset"]["symbols"]
+          assert symbols > 0, document
+          print(f"amd64 runtime ok: {symbols} symbols")
+          PY
+          docker rm -f ztockz-smoke
+
       - uses: actions/upload-artifact@v4
         with:
           name: digests-${{ strategy.job-index }}
