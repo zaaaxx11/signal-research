@@ -145,6 +145,18 @@ Host systemd examples live in `deploy/`; they assume the app at `/opt/ztockz`
 and data at `/var/lib/ztockz`, both configurable through the same variables.
 They are an alternative to Docker, not a requirement.
 
+### Multi-arch images
+
+`.github/workflows/container.yml` builds **natively** on `ubuntu-latest`
+(amd64) and `ubuntu-24.04-arm` (arm64), pushes one digest per platform, then
+merges them into `ghcr.io/<owner>/<repo>:sha-<commit>` and `:latest`.
+
+QEMU is intentionally not used: `python:3.14-slim` starts under qemu-user 8.2
+but `import ssl` / `pip` segfault, so an emulated build is not evidence that the
+image runs on the target. The arm64 image has been built and smoke-tested
+locally (`ops smoke` true); amd64 is verified by the first CI run on a native
+runner.
+
 ## Next step
 
 Phase 1: `resolve/{intent,aliases,universe,estimator}.py`, `POST /markets/resolve`
