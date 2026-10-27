@@ -20,6 +20,7 @@ import logging
 import math
 import os
 import random
+import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -80,6 +81,23 @@ def _optional_non_negative(value: Any, name: str) -> float | None:
     return number
 
 
+_CLASS_SUFFIX = re.compile(r"^([A-Z][A-Z0-9]{0,9})\.([A-Z])$")
+
+
+def canonical_symbol(raw: Any) -> str:
+    """Normalize a provider ticker to the form the hub stores.
+
+    Class shares are the one place providers disagree: Yahoo writes ``BRK-B``,
+    CNBC/Google write ``BRK.B``. A one-letter class suffix becomes a dash; a
+    dotted exchange suffix (``2330.TW``) is left alone because it is not a
+    class share.
+    """
+
+    symbol = str(raw or "").strip().upper()
+    match = _CLASS_SUFFIX.match(symbol)
+    return f"{match.group(1)}-{match.group(2)}" if match else symbol
+
+
 @dataclass(frozen=True, slots=True)
 class QuoteValue:
     """One judged quote in the hub store."""
@@ -92,9 +110,11 @@ class QuoteValue:
     ts_received: datetime
     source: str
     tier: str
+    sources: tuple[str, ...] = ()
+    conflict: bool = False
 
     def __post_init__(self) -> None:
-        symbol = self.symbol.strip().upper() if isinstance(self.symbol, str) else ""
+        symbol = canonical_symbol(self.symbol)
         if not symbol:
             raise ValueError("symbol must be a non-empty string")
         object.__setattr__(self, "symbol", symbol)
@@ -115,6 +135,12 @@ class QuoteValue:
             raise ValueError("tier must be free or premium")
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "tier", tier)
+        names = tuple(str(name).strip() for name in (self.sources or (source,)) if str(name).strip())
+        if not names:
+            names = (source,)
+        object.__setattr__(self, "sources", names)
+        if not isinstance(self.conflict, bool):
+            raise TypeError("conflict must be a bool")
 
     @property
     def change(self) -> float | None:
@@ -242,14 +268,22 @@ class QuoteStore:
 
 
 class QuoteHub:
-    """Own the free/premium loops and the shared latest-value store."""
+    """Own the free/premium loops and the shared latest-value store.
+
+    Every source in a tier is asked on every cycle. A source is not a fallback:
+    its observation joins the same match, and the newest timestamp wins (the
+    earlier source in the sequence breaks a timestamp tie). That is what lets
+    Yahoo, CNBC, Nasdaq and future adapters disagree without hiding an answer.
+    """
 
     def __init__(
         self,
         *,
-        free_source: QuoteSourceProtocol,
-        premium_source: QuoteSourceProtocol,
         symbols: Sequence[str],
+        free_sources: Sequence[QuoteSourceProtocol] = (),
+        premium_sources: Sequence[QuoteSourceProtocol] = (),
+        free_source: QuoteSourceProtocol | None = None,
+        premium_source: QuoteSourceProtocol | None = None,
         free_interval_s: float = FREE_REFRESH_S,
         premium_min_s: float = PREMIUM_REFRESH_MIN_S,
         premium_max_s: float = PREMIUM_REFRESH_MAX_S,
@@ -261,7 +295,7 @@ class QuoteHub:
         ordered = []
         seen: set[str] = set()
         for raw in symbols:
-            symbol = str(raw).strip().upper()
+            symbol = canonical_symbol(raw)
             if not symbol or symbol in seen:
                 continue
             seen.add(symbol)
@@ -272,9 +306,29 @@ class QuoteHub:
             raise ValueError("free_interval_s must be > 0")
         if premium_min_s <= 0 or premium_max_s < premium_min_s:
             raise ValueError("premium interval range is invalid")
+        free = tuple(free_sources) or ((free_source,) if free_source else ())
+        premium = tuple(premium_sources) or (
+            (premium_source,) if premium_source else ()
+        )
+        if not free:
+            raise ValueError("at least one free source is required")
+        if not premium:
+            raise ValueError("at least one premium source is required")
+        for label, group in (("free", free), ("premium", premium)):
+            names = [str(getattr(source, "name", "") or "").strip() for source in group]
+            if any(not name for name in names):
+                raise ValueError(f"{label} source needs a non-empty name")
+            if len(set(names)) != len(names):
+                raise ValueError(f"{label} source names must be unique: {names}")
+            for source in group:
+                if not callable(getattr(source, "fetch_many", None)):
+                    raise TypeError(
+                        f"{label} source {getattr(source, 'name', source)!r} "
+                        "must implement fetch_many"
+                    )
 
-        self.free_source = free_source
-        self.premium_source = premium_source
+        self.free_sources = free
+        self.premium_sources = premium
         self.symbols = tuple(ordered)
         self.free_interval_s = float(free_interval_s)
         self.premium_min_s = float(premium_min_s)
@@ -350,47 +404,108 @@ class QuoteHub:
 
     # -- refreshes ---------------------------------------------------------
 
+    async def _collect_source(self, source: QuoteSourceProtocol) -> dict[str, SourceQuote]:
+        """Fetch one source and normalize every symbol key to hub spelling."""
+
+        answered = source.fetch_many(self.symbols)
+        result = await answered if inspect.isawaitable(answered) else answered
+        if not isinstance(result, Mapping):
+            raise TypeError(f"{source.name} fetch_many did not return a mapping")
+        return {
+            canonical_symbol(symbol): quote
+            for symbol, quote in result.items()
+            if isinstance(quote, SourceQuote)
+        }
+
+    @staticmethod
+    def _match(
+        candidates: Sequence[tuple[str, int, SourceQuote]],
+    ) -> tuple[tuple[str, int, SourceQuote], tuple[str, ...], bool]:
+        """Pick the newest observation; source order breaks an exact tie.
+
+        The result also carries every source that supplied the symbol and a
+        conflict flag. Conflict is a diagnostic, not a reason to discard a
+        quote: the newest print still wins.
+        """
+
+        ordered = sorted(
+            candidates,
+            key=lambda item: (item[2].ts_exchange, -item[1]),
+            reverse=True,
+        )
+        winner = ordered[0]
+        names = tuple(
+            source
+            for source, _priority, _quote in sorted(
+                candidates, key=lambda item: item[1]
+            )
+        )
+        prices = [item[2].last for item in candidates]
+        median = sorted(prices)[len(prices) // 2]
+        conflict = len(prices) > 1 and (
+            max(prices) - min(prices) > max(0.01, abs(median) * 0.005)
+        )
+        return winner, names, conflict
+
     async def refresh(self, tier: str) -> CycleResult:
-        source = self.free_source if tier == "free" else self.premium_source
+        sources = self.free_sources if tier == "free" else self.premium_sources
         started_at = self._clock()
         started = time.perf_counter()
-        answers: Mapping[str, SourceQuote | None] = {}
-        error: str | None = None
-        try:
-            answered = source.fetch_many(self.symbols)
-            answers = await answered if inspect.isawaitable(answered) else answered
-            answers = {
-                str(symbol).strip().upper(): quote
-                for symbol, quote in (answers or {}).items()
-            }
-        except Exception as exc:  # noqa: BLE001 - a loop must keep its schedule
-            error = f"{type(exc).__name__}: {exc}"
-            self.last_error[tier] = error
-            logger.warning("quotehub %s refresh failed: %s", tier, error)
+        observations: dict[str, list[tuple[str, int, SourceQuote]]] = {}
+        messages: list[str] = []
+        errors = 0
+
+        # Every source is asked, every cycle. There is no fallback branch:
+        # a source that returns nothing simply contributes no candidate, and a
+        # source that raises does not hide the others.
+        for priority, source in enumerate(sources):
+            try:
+                answers = await self._collect_source(source)
+            except Exception as exc:  # noqa: BLE001 - one source is not a cycle
+                errors += 1
+                message = f"{source.name}: {type(exc).__name__}: {exc}"
+                messages.append(message)
+                self.last_error[tier] = message
+                logger.warning("quotehub %s source failed: %s", tier, message)
+                continue
+            for symbol in self.symbols:
+                quote = answers.get(symbol)
+                if quote is not None:
+                    observations.setdefault(symbol, []).append(
+                        (source.name, priority, quote)
+                    )
+
         received = self._clock()
         returned = 0
-        errors = 1 if error else 0
         for symbol in self.symbols:
-            quote = answers.get(symbol)
-            if quote is None:
+            candidates = observations.get(symbol)
+            if not candidates:
                 continue
             try:
+                winner, names, conflict = self._match(candidates)
                 value = QuoteValue(
                     symbol=symbol,
-                    last=quote.last,
-                    prev_close=quote.prev_close,
-                    volume=quote.volume,
-                    ts_exchange=quote.ts_exchange,
+                    last=winner[2].last,
+                    prev_close=winner[2].prev_close,
+                    volume=winner[2].volume,
+                    ts_exchange=winner[2].ts_exchange,
                     ts_received=received,
-                    source=source.name,
+                    source=winner[0],
                     tier=tier,
+                    sources=names,
+                    conflict=conflict,
                 )
             except (TypeError, ValueError) as exc:
                 errors += 1
-                self.last_error[tier] = f"{type(exc).__name__}: {exc}"
+                message = f"{symbol}: {type(exc).__name__}: {exc}"
+                messages.append(message)
+                self.last_error[tier] = message
                 continue
             if self.store.merge(value):
                 returned += 1
+
+        if not messages:
+            self.last_error.pop(tier, None)
         result = CycleResult(
             tier=tier,
             requested=len(self.symbols),
@@ -398,7 +513,7 @@ class QuoteHub:
             errors=errors,
             started_at=started_at,
             seconds=time.perf_counter() - started,
-            error=error,
+            error="; ".join(messages)[:500] if messages else None,
         )
         self.last_cycle[tier] = result
         await self.persist()
@@ -443,8 +558,10 @@ def build_quote_hub(
     )
     premium = CnbcBatchSource(batch_size=premium_batch, timeout_s=timeout_s)
     return QuoteHub(
-        free_source=free,
-        premium_source=premium,
+        # Both sources are collected in both tiers. The tier chooses cadence,
+        # not a single provider; the newest observation wins the match.
+        free_sources=(free, premium),
+        premium_sources=(premium, free),
         symbols=symbols,
         free_interval_s=float(getattr(settings, "quote_free_refresh_s", FREE_REFRESH_S)),
         premium_min_s=float(

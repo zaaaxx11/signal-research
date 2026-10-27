@@ -18,7 +18,7 @@ import httpx2
 import pytest
 
 from app.market.bulk import CnbcBatchSource, parse_cnbc_quotes
-from app.market.hub import QuoteHub, QuoteStore, QuoteValue
+from app.market.hub import QuoteHub, QuoteStore, QuoteValue, canonical_symbol
 from app.market.quote import SourceQuote
 from tests._market_quote import install_seam
 from tests._phase2 import MockWeb
@@ -66,7 +66,15 @@ class FakeSource:
         self, symbols: Sequence[str]
     ) -> dict[str, SourceQuote | None]:
         self.calls.append(tuple(symbols))
-        return {symbol: self.values.get(symbol) for symbol in symbols}
+        by_key = {canonical_symbol(key): value for key, value in self.values.items()}
+        return {symbol: by_key.get(canonical_symbol(symbol)) for symbol in symbols}
+
+
+class BrokenSource:
+    name = "broken"
+
+    async def fetch_many(self, symbols: Sequence[str]) -> dict[str, SourceQuote | None]:
+        raise RuntimeError("source down")
 
 
 def test_store_merge_is_guarded_by_timestamp_and_tier() -> None:
@@ -142,6 +150,77 @@ def test_hub_refresh_updates_store_and_writes_json(tmp_path: Path) -> None:
     hourly = history / "2026-10-27" / "15.json"
     assert hourly.exists(), "one snapshot per hour, not one per refresh"
     assert json.loads(hourly.read_text())["count"] == 2
+
+
+def test_hub_collects_every_source_and_newest_observation_wins() -> None:
+    older = FakeSource({"AAPL": _source_quote(100.0, ts=T0)}, name="older")
+    newer = FakeSource({"AAPL": _source_quote(101.0, ts=T0 + timedelta(seconds=5))}, name="newer")
+    hub = QuoteHub(
+        symbols=["AAPL"],
+        free_sources=(older, newer),
+        premium_sources=(newer, older),
+        store_path=None,
+    )
+    result = _run(hub.refresh("free"))
+
+    assert result.returned == 1
+    assert older.calls and newer.calls, "both sources were collected, not fallback"
+    value = hub.store.get("AAPL")
+    assert value is not None
+    assert value.last == 101.0
+    assert value.source == "newer"
+    assert value.sources == ("older", "newer")
+    assert value.conflict is True
+
+
+def test_source_order_breaks_an_exact_timestamp_tie() -> None:
+    first = FakeSource({"AAPL": _source_quote(100.0, ts=T0)}, name="first")
+    second = FakeSource({"AAPL": _source_quote(101.0, ts=T0)}, name="second")
+    hub = QuoteHub(
+        symbols=["AAPL"],
+        free_sources=(first, second),
+        premium_sources=(first, second),
+        store_path=None,
+    )
+    _run(hub.refresh("free"))
+
+    value = hub.store.get("AAPL")
+    assert value is not None
+    assert value.last == 100.0
+    assert value.source == "first"
+    assert value.conflict is True
+
+
+def test_class_share_aliases_match_across_sources() -> None:
+    source = FakeSource({"BRK.B": _source_quote(450.0)}, name="fixture")
+    hub = QuoteHub(
+        symbols=["BRK-B"],
+        free_sources=(source,),
+        premium_sources=(source,),
+        store_path=None,
+    )
+    _run(hub.refresh("free"))
+
+    value = hub.store.get("BRK-B")
+    assert value is not None
+    assert value.symbol == "BRK-B"
+    assert value.last == 450.0
+
+
+def test_one_broken_source_does_not_hide_the_other() -> None:
+    good = FakeSource({"AAPL": _source_quote(101.0)}, name="good")
+    hub = QuoteHub(
+        symbols=["AAPL"],
+        free_sources=(BrokenSource(), good),
+        premium_sources=(BrokenSource(), good),
+        store_path=None,
+    )
+    result = _run(hub.refresh("free"))
+
+    assert result.returned == 1
+    assert result.errors == 1
+    assert hub.store.get("AAPL") is not None
+    assert hub.store.get("AAPL").source == "good"  # type: ignore[union-attr]
 
 
 def test_premium_delay_is_randomized_inside_the_range() -> None:
