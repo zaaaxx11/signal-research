@@ -8,6 +8,11 @@ printed. Both have an official producer, and neither needs a scrape:
   to a weight/shares column), never by fixed offset: the sheet carries a
   three-row preamble today and has changed it before.
 * NDX comes from Nasdaq's own constituent list (101 rows), not from an ETF.
+* Russell 2000 comes from the IWM holdings CSV that iShares publishes: the
+  fund is the index's own tracker, so its holdings are the membership list.
+  That file carries an eight-row fund preamble and an ``Asset Class`` column,
+  and only ``Equity`` rows are members — cash collateral, money market,
+  currency and the RTY future are not.
 * ``optionable`` is a Cboe ``HEAD``: 200 = listed options, 403/404 = none.
   No body is transferred, so 4k symbols cost zero bytes.
 
@@ -53,7 +58,15 @@ NDX_URL = (
     "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
     "?assetclass=stocks&limit=200"
 )
+#: iShares' own holdings download for IWM; the product id (239710) is stable and
+#: the file is a plain CSV, no session cookie required.
+IWM_HOLDINGS_URL = (
+    "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/"
+    "latest-holdings.csv"
+)
 CBOE_OPTION_URL = "https://cdn-api.cboe.com/api/global/delayed_quotes/options/{symbol}.json"
+
+RUSSELL_2000_LABEL = "Russell 2000"
 
 #: Fund -> index label. SPTM (S&P 1500) is deliberately not used: it would
 #: collapse 400/600 into one unlabeled bucket.
@@ -63,6 +76,11 @@ INDEX_FILES: tuple[tuple[str, str], ...] = (
     ("S&P 600", "spsm"),
     ("DJIA", "dia"),
 )
+
+#: Label -> URL for the index files that are not SSGA workbooks. IWM is the
+#: Russell 2000's own tracker, so its published holdings are the membership
+#: list; the file is CSV, not a workbook.
+CSV_INDEX_FILES: tuple[tuple[str, str], ...] = ((RUSSELL_2000_LABEL, IWM_HOLDINGS_URL),)
 
 INDEX_TTL_S = 86_400.0
 #: A partial load (one SSGA file down) is retried long before a day passes.
@@ -83,7 +101,7 @@ _BROWSER_USER_AGENT = (
 )
 
 #: Per-process cache of the parsed index files. One depth cycle asks for the
-#: same five files on behalf of every symbol; parsing them once is the whole
+#: same six files on behalf of every symbol; parsing them once is the whole
 #: point. ``clear_caches`` exists for tests and for a forced refresh.
 _INDEX_CACHE: dict[str, Any] = {}
 
@@ -297,6 +315,9 @@ _WEIGHT_HINTS = ("weight", "shares", "marketvalue")
 
 #: Plain US tickers, with one optional class suffix (``BRK.B`` / ``BRK-B``).
 _SYMBOL_RE = re.compile(r"^[A-Z]{1,6}(?:[.\-][A-Z]{1,2})?$")
+#: iShares spells a class with a space (``MOG A``, ``BH A``); the repo keys
+#: classes with a dash, so that form is collapsed before validation.
+_SPACE_CLASS_RE = re.compile(r"^([A-Z]{1,6}) ([A-Z]{1,2})$")
 #: Futures contract codes (``ESZ6``, ``RTYZ6``) are letters + month + year.
 _FUTURE_RE = re.compile(r"^[A-Z]{1,6}[FGHJKMNQUVXZ]\d{1,2}$")
 _CASH_SYMBOLS = frozenset(
@@ -348,6 +369,13 @@ def _find_header(rows: Sequence[Sequence[Any]]) -> tuple[int | None, int | None]
     return None, None
 
 
+def _canonical_class_symbol(value: Any) -> str:
+    """Canonicalise a listed ticker, including iShares' space class form."""
+
+    text = str(value if value is not None else "").strip().upper()
+    return canonical_symbol(_SPACE_CLASS_RE.sub(r"\1-\2", text))
+
+
 def _clean_ticker(value: Any) -> str | None:
     """Normalise one ticker cell, or ``None`` when the row is not an equity."""
 
@@ -356,6 +384,7 @@ def _clean_ticker(value: Any) -> str | None:
     text = str(value).strip().upper()
     if not text or text in _CASH_SYMBOLS:
         return None
+    text = _SPACE_CLASS_RE.sub(r"\1-\2", text)
     if not _SYMBOL_RE.match(text) or _FUTURE_RE.match(text):
         return None
     symbol = canonical_symbol(text)
@@ -404,6 +433,95 @@ def parse_ssga_holdings(content: bytes | str, index_name: str) -> set[str]:
 
     logger.warning("ssga holdings for %s: no ticker column found", label)
     return set()
+
+
+# ---------------------------------------------------------------------------
+# iShares holdings CSV parsing (Russell 2000 / IWM)
+# ---------------------------------------------------------------------------
+
+#: Header names iShares has used for the column that separates stock rows from
+#: cash, collateral, money-market and futures rows.
+_ASSET_CLASS_HEADERS = frozenset({"assetclass", "assettype", "asset"})
+#: Only rows whose ``Asset Class`` is this word are index members.
+_EQUITY_ASSET_CLASS = "equity"
+
+
+def _ishares_header(rows: Sequence[Sequence[Any]]) -> tuple[int | None, int | None, int | None]:
+    """Locate the holdings header row and its ticker / asset-class columns.
+
+    The header is found **by name**: a row carrying a cell literally called
+    ``Ticker`` (or ``Symbol``). The preamble's ``Ticker Symbol:`` label is not
+    a header — its normalised cell is ``tickersymbol``, not ``ticker`` — and
+    the eight-row preamble is not assumed, only bounded.
+    """
+
+    limit = min(len(rows), 60)
+    for index in range(limit):
+        ticker: int | None = None
+        asset_class: int | None = None
+        for column, cell in enumerate(rows[index]):
+            name = _normalize_header(cell)
+            if not name:
+                continue
+            if ticker is None and name in _EXACT_TICKER_HEADERS:
+                ticker = column
+            elif asset_class is None and name in _ASSET_CLASS_HEADERS:
+                asset_class = column
+        if ticker is not None:
+            return index, ticker, asset_class
+    return None, None, None
+
+
+def parse_ishares_holdings(content: bytes | str, index_name: str = RUSSELL_2000_LABEL) -> set[str]:
+    """Russell 2000 members from an iShares ``latest-holdings.csv`` payload.
+
+    The file opens with a fund preamble (name, as-of date, inception, shares
+    outstanding, then Stock/Bond/Cash/Other) and a blank line before the real
+    header; the header is therefore located by name, never by offset. Rows are
+    members only when their ``Asset Class`` cell is ``Equity`` — the file also
+    lists a money-market fund, two cash-collateral lines, a currency line and
+    the RTY future, and none of those are index constituents.
+
+    Tickers are canonicalised through :func:`app.market.depth.canonical_symbol`,
+    so iShares' ``MOG A``/``BRK.B`` spellings become ``MOG-A``/``BRK-B``.
+    Quoted commas, duplicated rows, CRLF, a BOM and lowercase tickers are all
+    tolerated; an unreadable, empty or header-less file yields an empty set
+    rather than an exception, and the caller then writes no label.
+    """
+
+    label = str(index_name or "").strip()
+    if not label:
+        raise ValueError("index_name must be non-empty")
+
+    raw = _payload_bytes(content)
+    text = _payload_text(content, raw)
+    if not text.strip():
+        return set()
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=","))
+    except csv.Error as exc:
+        logger.warning("ishares holdings for %s: unreadable CSV (%s)", label, exc)
+        return set()
+
+    header_index, ticker_column, asset_column = _ishares_header(rows)
+    if header_index is None or ticker_column is None:
+        logger.warning("ishares holdings for %s: no Ticker column found", label)
+        return set()
+
+    found: set[str] = set()
+    for row in rows[header_index + 1 :]:
+        if ticker_column >= len(row):
+            continue
+        if asset_column is not None:
+            if asset_column >= len(row):
+                continue
+            if _normalize_header(row[asset_column]) != _EQUITY_ASSET_CLASS:
+                continue
+        symbol = _clean_ticker(row[ticker_column])
+        if symbol is not None:
+            found.add(symbol)
+    logger.info("ishares holdings for %s: %s tickers", label, len(found))
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -496,10 +614,14 @@ class _IndexSpec:
     kind: str
 
 
-INDEX_SPECS: tuple[_IndexSpec, ...] = tuple(
-    _IndexSpec(name=name, url=SSGA_HOLDINGS_URL.format(fund=fund), kind="xlsx")
-    for name, fund in INDEX_FILES
-) + (_IndexSpec(name="NDX", url=NDX_URL, kind="ndx"),)
+INDEX_SPECS: tuple[_IndexSpec, ...] = (
+    tuple(
+        _IndexSpec(name=name, url=SSGA_HOLDINGS_URL.format(fund=fund), kind="xlsx")
+        for name, fund in INDEX_FILES
+    )
+    + tuple(_IndexSpec(name=name, url=url, kind="csv") for name, url in CSV_INDEX_FILES)
+    + (_IndexSpec(name="NDX", url=NDX_URL, kind="ndx"),)
+)
 
 
 async def _resolve(value: Any) -> Any:
@@ -552,7 +674,7 @@ def _normalize_index_sets(raw: Any) -> dict[str, frozenset[str]]:
 class OfficialDepthSource:
     """``index_membership`` + ``optionable`` from SSGA, Nasdaq and Cboe.
 
-    Production calls need no arguments: the five index files are fetched once
+    Production calls need no arguments: the six index files are fetched once
     per process (24 h TTL, 15 min after a partial load) and Cboe is probed with
     four concurrent HEADs. Tests inject ``index_loader`` (returns
     ``{label: tickers}``) and ``optionable_checker`` (``symbol -> bool|None``),
@@ -566,6 +688,7 @@ class OfficialDepthSource:
         *,
         index_loader: Callable[[], Any] | None = None,
         optionable_checker: Callable[[str], Any] | None = None,
+        optionable: bool = True,
         client_factory: Callable[..., Any] | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
         optionable_ttl_s: float = OPTIONABLE_TTL_S,
@@ -592,6 +715,7 @@ class OfficialDepthSource:
         self.user_agent = user_agent
         self._index_loader = index_loader
         self._optionable_checker = optionable_checker
+        self._optionable_enabled = bool(optionable)
         self._client_factory = client_factory
         self._clock = clock or time.monotonic
         # Default: only a real production transport may touch the process-wide
@@ -648,7 +772,7 @@ class OfficialDepthSource:
         return sets
 
     async def _fetch_index_sets(self) -> tuple[dict[str, frozenset[str]], bool]:
-        """Fetch and parse all five official files; one failure is not fatal."""
+        """Fetch and parse all six official files; one failure is not fatal."""
 
         semaphore = asyncio.Semaphore(self.concurrency)
         found: dict[str, frozenset[str]] = {}
@@ -675,6 +799,10 @@ class OfficialDepthSource:
                             return
                         if spec.kind == "xlsx":
                             members = parse_ssga_holdings(
+                                getattr(response, "content", b"") or b"", spec.name
+                            )
+                        elif spec.kind == "csv":
+                            members = parse_ishares_holdings(
                                 getattr(response, "content", b"") or b"", spec.name
                             )
                         else:
@@ -770,7 +898,7 @@ class OfficialDepthSource:
         ordered: list[str] = []
         seen: set[str] = set()
         for raw in symbols:
-            symbol = canonical_symbol(raw)
+            symbol = _canonical_class_symbol(raw)
             if symbol and symbol not in seen:
                 seen.add(symbol)
                 ordered.append(symbol)
@@ -778,7 +906,11 @@ class OfficialDepthSource:
             return {}
 
         indices = await self._index_sets()
-        optionable = await self._optionable_values(ordered)
+        optionable = (
+            await self._optionable_values(ordered)
+            if self._optionable_enabled
+            else {}
+        )
         as_of = datetime.now(UTC)
 
         out: dict[str, DepthObservation] = {}
@@ -802,17 +934,21 @@ class OfficialDepthSource:
 
 __all__ = [
     "CBOE_OPTION_URL",
+    "CSV_INDEX_FILES",
     "DEFAULT_CONCURRENCY",
     "INDEX_FILES",
     "INDEX_RETRY_S",
     "INDEX_SPECS",
     "INDEX_TTL_S",
+    "IWM_HOLDINGS_URL",
     "NDX_URL",
     "NO_OPTIONS_STATUSES",
     "OPTIONABLE_TTL_S",
     "OfficialDepthSource",
+    "RUSSELL_2000_LABEL",
     "SSGA_HOLDINGS_URL",
     "clear_caches",
+    "parse_ishares_holdings",
     "parse_nasdaq_ndx",
     "parse_optionable_status",
     "parse_ssga_holdings",

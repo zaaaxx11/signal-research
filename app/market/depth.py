@@ -1150,7 +1150,8 @@ def build_depth_collector(
             OfficialDepthSource(
                 concurrency=int(
                     getattr(settings, "depth_official_concurrency", 2)
-                )
+                ),
+                optionable=False,
             )
         )
     sources.append(
@@ -1168,7 +1169,8 @@ def build_depth_collector(
 
         sources.append(
             RssNewsSource(
-                concurrency=int(getattr(settings, "depth_news_concurrency", 8))
+                concurrency=int(getattr(settings, "depth_news_concurrency", 8)),
+                fallback=True,
             )
         )
     return DepthCollector(

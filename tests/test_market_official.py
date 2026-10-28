@@ -20,12 +20,16 @@ from app.market import official
 from app.market.depth import DepthObservation, DepthStore
 from app.market.official import (
     INDEX_FILES,
+    INDEX_SPECS,
+    IWM_HOLDINGS_URL,
     NDX_URL,
     NO_OPTIONS_STATUSES,
     OPTIONABLE_TTL_S,
+    RUSSELL_2000_LABEL,
     SSGA_HOLDINGS_URL,
     OfficialDepthSource,
     clear_caches,
+    parse_ishares_holdings,
     parse_nasdaq_ndx,
     parse_optionable_status,
     parse_ssga_holdings,
@@ -112,6 +116,54 @@ def _xlsx_multi(sheets: list[tuple[str, list[list[Any]]]]) -> bytes:
 SPY_BYTES = _xlsx(SPY_ROWS)
 MDY_BYTES = _xlsx(MDY_ROWS)
 DIA_BYTES = _xlsx(DIA_ROWS)
+
+#: Real IWM layout: an eight-row fund preamble (name, as-of, inception, shares
+#: outstanding, then Stock/Bond/Cash/Other), a blank line, then the header. The
+#: file lists money-market, cash-collateral, currency and futures rows too, so
+#: ``Asset Class`` — not the ticker shape — decides membership.
+IWM_PREAMBLE = (
+    "iShares Russell 2000 ETF\n"
+    'Fund Holdings as of,"Oct 27, 2026"\n'
+    'Inception Date,"May 22, 2000"\n'
+    'Shares Outstanding,"269,550,000.00"\n'
+    'Stock,"-"\n'
+    'Bond,"-"\n'
+    'Cash,"-"\n'
+    'Other,"-"\n'
+    "\n"
+)
+
+IWM_HEADER = (
+    "Ticker,Name,Sector,Asset Class,Market Value,Weight (%)\n"
+)
+
+IWM_CSV = (
+    IWM_PREAMBLE
+    + IWM_HEADER
+    + '"FROG","JFROG","Information Technology","Equity","277,900,790.18","0.37"\n'
+    + '"TWST","TWIST, BIOSCIENCE","Health Care","Equity","268,309,343.95","0.35"\n'
+    + '"GKOS","GLAUKOS","Health Care","Equity","264,666,180.24","0.35"\n'
+    + '"MOG A","MOOG INC CLASS A","Industrials","Equity","256,639,775.76","0.34"\n'
+    + '"BH A","BIGLARI HOLDINGS CLASS A","Industrials","Equity","1,000,000.00","0.01"\n'
+    + '"XTSLA","BLK CSH FND TREASURY SL AGENCY","Money Market","Money Market",'
+    '"1,200,000.00","0.00"\n'
+    + '"MSFUT","CASH COLLATERAL MSFUT USD","Cash Collateral and Margins",'
+    '"Cash Collateral and Margins","1,100,000.00","0.00"\n'
+    + '"CAD","CAD CASH","Cash and/or Derivatives","Cash","-25,000.00","-0.01"\n'
+    + '"USD","USD CASH","Cash and/or Derivatives","Cash","-27,876,332.61","-0.04"\n'
+    + '"RTYZ6","RUSSELL 2000 EMINI CME DEC 26","Cash and/or Derivatives","Futures",'
+    '"167,022,925.00","0.00"\n'
+    + '"FROG","JFROG","Information Technology","Equity","277,900,790.18","0.37"\n'
+    + '"","BLANK TICKER","-","Equity","0.00","0.00"\n'
+    + '"","","","Equity","0.00","0.00"\n'
+    + '"-","-","Cash and/or Derivatives","Equity","0.00","0.00"\n'
+)
+
+IWM_BYTES = IWM_CSV.encode("utf-8")
+
+#: Every equity row above, canonicalised; the cash/collateral/currency/future
+#: rows and the duplicate ``FROG`` line are not members.
+IWM_MEMBERS = {"FROG", "TWST", "GKOS", "MOG-A", "BH-A"}
 
 
 @pytest.fixture(autouse=True)
@@ -275,6 +327,195 @@ def test_parse_scans_past_a_cover_sheet() -> None:
 
 
 # ---------------------------------------------------------------------------
+# parse_ishares_holdings (Russell 2000 / IWM)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_ishares_returns_only_equity_rows() -> None:
+    found = parse_ishares_holdings(IWM_CSV)
+
+    assert found == IWM_MEMBERS
+    # The two-page preamble's Stock/Bond/Cash/Other labels are not rows.
+    for junk in ("XTSLA", "MSFUT", "CAD", "USD", "RTYZ6", "-", "CASH"):
+        assert junk not in found
+
+
+def test_parse_ishares_accepts_bytes_and_str_identically() -> None:
+    assert parse_ishares_holdings(IWM_BYTES) == parse_ishares_holdings(IWM_CSV) == IWM_MEMBERS
+
+
+def test_parse_ishares_normalizes_space_and_dot_class_suffixes() -> None:
+    assert "MOG-A" in parse_ishares_holdings(IWM_CSV)
+    assert "BH-A" in parse_ishares_holdings(IWM_CSV)
+
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        '"BRK.B","BERKSHIRE HATHAWAY CL B","Financials","Equity"\n'
+        '"BF.B","BROWN FORMAN CL B","Consumer Staples","Equity"\n'
+        '"MOG A","MOOG INC CLASS A","Industrials","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"BRK-B", "BF-B", "MOG-A"}
+
+
+def test_parse_ishares_drops_every_non_equity_asset_class() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        + "".join(
+            f'"T{index}","ROW {index}","-","{asset_class}"\n'
+            for index, asset_class in enumerate(
+                [
+                    "Cash",
+                    "Cash Collateral and Margins",
+                    "Money Market",
+                    "Futures",
+                    "Bond",
+                    "Other",
+                    "Derivative",
+                    "",
+                ]
+            )
+        )
+        + '"KEEP","KEPT ROW","-","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"KEEP"}
+
+
+def test_parse_ishares_duplicate_rows_collapse() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        '"FROG","JFROG","Information Technology","Equity"\n'
+        '"FROG","JFROG","Information Technology","Equity"\n'
+        '"TWST","TWIST BIOSCIENCE","Health Care","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"FROG", "TWST"}
+
+
+def test_parse_ishares_handles_quoted_commas_and_embedded_quotes() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        '"TWST","TWIST, BIOSCIENCE, INC.","Health Care","Equity"\n'
+        '"ACME","ACME ""CLASS A"" HOLDINGS","Industrials","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"TWST", "ACME"}
+
+
+def test_parse_ishares_header_is_found_by_name_at_any_preamble_depth() -> None:
+    header = "Ticker,Name,Sector,Asset Class\n"
+    body = '"FROG","JFROG","Information Technology","Equity"\n'
+
+    for depth in (0, 1, 3, 8, 12):
+        preamble = "".join(f'Label {index},"value {index}"\n' for index in range(depth))
+        assert parse_ishares_holdings(preamble + header + body) == {"FROG"}, depth
+
+
+def test_parse_ishares_follows_a_renamed_or_reordered_header() -> None:
+    # Ticker last, and the asset column spelled "Asset Class" with a trailing
+    # space; the parser locates both by name.
+    text = (
+        "Name,Sector,Asset Class ,Weight (%),Ticker\n"
+        '"JFROG","Information Technology","Equity","0.37","FROG"\n'
+        '"USD CASH","Cash and/or Derivatives","Cash","-0.04","USD"\n'
+    )
+    assert parse_ishares_holdings(text) == {"FROG"}
+
+
+def test_parse_ishares_accepts_a_symbol_headed_file() -> None:
+    text = (
+        "Symbol,Name,Asset Class\n"
+        '"AAPL","APPLE INC","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"AAPL"}
+
+
+def test_parse_ishares_tolerates_crlf_and_bom() -> None:
+    crlf = IWM_CSV.replace("\n", "\r\n")
+    assert parse_ishares_holdings(crlf.encode("utf-8")) == IWM_MEMBERS
+    assert parse_ishares_holdings(b"\xef\xbb\xbf" + crlf.encode("utf-8")) == IWM_MEMBERS
+
+
+def test_parse_ishares_lowercase_tickers_are_upcased() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        '"frog","JFROG","Information Technology","Equity"\n'
+        '"mog a","MOOG INC CLASS A","Industrials","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"FROG", "MOG-A"}
+
+
+def test_parse_ishares_drops_blank_cusip_and_dash_tickers() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        '"","BLANK","-","Equity"\n'
+        '"037833100","APPLE INC","-","Equity"\n'
+        '"P5N994","PLACEHOLDER","-","Equity"\n'
+        '"12345","NUMERIC","-","Equity"\n'
+        '"CASH","CASH","-","Equity"\n'
+        '"USD","USD CASH","-","Equity"\n'
+        '"-","-","-","Equity"\n'
+        '"BAD,"BROKEN QUOTE","-","Equity"\n'
+        '"MSFT","MICROSOFT CORP","-","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"MSFT"}
+
+
+def test_parse_ishares_row_shorter_than_the_ticker_column_is_skipped() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        "FROG\n"
+        ",Name,Sector,Equity\n"
+        '"TWST","TWIST BIOSCIENCE","Health Care","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"TWST"}
+
+
+def test_parse_ishares_row_shorter_than_the_asset_column_is_skipped() -> None:
+    text = (
+        "Ticker,Name,Sector,Asset Class\n"
+        '"FROG","JFROG"\n'
+        '"TWST","TWIST BIOSCIENCE","Health Care","Equity"\n'
+    )
+    assert parse_ishares_holdings(text) == {"TWST"}
+
+
+def test_parse_ishares_preamble_without_a_header_is_empty_set() -> None:
+    assert parse_ishares_holdings(IWM_PREAMBLE) == set()
+    assert parse_ishares_holdings(IWM_PREAMBLE + "FROG,JFROG\n") == set()
+
+
+def test_parse_ishares_empty_and_invalid_payloads_are_empty_sets() -> None:
+    assert parse_ishares_holdings(b"") == set()
+    assert parse_ishares_holdings("") == set()
+    assert parse_ishares_holdings("   \n\n") == set()
+    assert parse_ishares_holdings(b"\x00\x01\x02\xff") == set()
+    assert parse_ishares_holdings("<html><body>403 Forbidden</body></html>") == set()
+    assert parse_ishares_holdings("<html>Ticker,Name,Sector,Asset Class</html>") == set()
+
+
+def test_parse_ishares_header_only_file_is_empty_set() -> None:
+    assert parse_ishares_holdings(IWM_PREAMBLE + IWM_HEADER) == set()
+
+
+def test_parse_ishares_rejects_empty_index_name() -> None:
+    with pytest.raises(ValueError):
+        parse_ishares_holdings(IWM_CSV, "   ")
+
+
+def test_parse_ishares_label_defaults_to_russell_2000() -> None:
+    assert RUSSELL_2000_LABEL == "Russell 2000"
+    assert parse_ishares_holdings(IWM_CSV, RUSSELL_2000_LABEL) == parse_ishares_holdings(IWM_CSV)
+
+
+def test_index_specs_register_russell_2000_as_a_csv() -> None:
+    spec = next(spec for spec in INDEX_SPECS if spec.name == RUSSELL_2000_LABEL)
+    assert spec.kind == "csv"
+    assert spec.url == IWM_HOLDINGS_URL
+    assert IWM_HOLDINGS_URL == (
+        "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/"
+        "latest-holdings.csv"
+    )
+
+
+# ---------------------------------------------------------------------------
 # parse_nasdaq_ndx
 # ---------------------------------------------------------------------------
 
@@ -420,7 +661,13 @@ def _xlsx_route(rows: list[list[Any]]) -> _Response:
     return _Response(200, _xlsx(rows))
 
 
-def _index_routes(*, spy: Any = None, mdy: Any = None) -> dict[str, Any]:
+def _csv_route(text: str | bytes = IWM_BYTES) -> _Response:
+    return _Response(200, text.encode("utf-8") if isinstance(text, str) else text)
+
+
+def _index_routes(
+    *, spy: Any = None, mdy: Any = None, russell: Any = None
+) -> dict[str, Any]:
     return {
         SSGA_HOLDINGS_URL.format(fund="spy"): spy or _xlsx_route(SPY_ROWS),
         SSGA_HOLDINGS_URL.format(fund="mdy"): mdy or _xlsx_route(MDY_ROWS),
@@ -428,6 +675,7 @@ def _index_routes(*, spy: Any = None, mdy: Any = None) -> dict[str, Any]:
             [["Name", "Ticker", "Weight"], ["CROCS", "CROX", 0.4]]
         ),
         SSGA_HOLDINGS_URL.format(fund="dia"): _xlsx_route(DIA_ROWS),
+        IWM_HOLDINGS_URL: russell or _csv_route(),
         NDX_URL: _Response(200, payload=NDX_PAYLOAD),
     }
 
@@ -720,9 +968,94 @@ async def test_source_fetches_official_urls_and_labels_membership() -> None:
     for _name, fund in INDEX_FILES:
         assert factory.count("GET", SSGA_HOLDINGS_URL.format(fund=fund)) == 1
     assert factory.count("GET", NDX_URL) == 1
-    assert factory.count("GET") == 5
+    assert factory.count("GET", IWM_HOLDINGS_URL) == 1
+    assert factory.count("GET") == 6
     assert factory.count("HEAD") == 3
     assert all("timeout_s" in kwargs for kwargs in factory.kwargs)
+
+
+async def test_source_labels_russell_2000_membership_from_the_ishares_csv() -> None:
+    routes = _index_routes()
+    routes.update(_cboe({"FROG": 200}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["FROG"])
+
+    assert result["FROG"].fields == {"index_membership": "Russell 2000", "optionable": "Yes"}
+    assert factory.count("GET", IWM_HOLDINGS_URL) == 1
+
+
+async def test_source_matches_a_space_spelled_class_to_the_canonical_symbol() -> None:
+    routes = _index_routes()
+    routes.update(_cboe({"MOG.A": 200}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["mog a"])
+
+    assert set(result) == {"MOG-A"}
+    assert result["MOG-A"].fields["index_membership"] == "Russell 2000"
+
+
+async def test_source_does_not_label_russell_2000_for_a_non_equity_row() -> None:
+    routes = _index_routes()
+    routes.update(_cboe({"XTSLA": 403, "USD": 403, "RTYZ6": 403}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["XTSLA", "USD", "RTYZ6"])
+
+    for symbol in ("XTSLA", "USD", "RTYZ6"):
+        assert result[symbol].fields == {"optionable": "No"}
+
+
+@pytest.mark.parametrize("status", [403, 404, 500, 502])
+async def test_source_does_not_label_russell_2000_when_ishares_fails(status: int) -> None:
+    routes = _index_routes(russell=_Response(status))
+    routes.update(_cboe({"FROG": 200}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["FROG"])
+
+    assert result["FROG"].fields == {"optionable": "Yes"}
+    assert "index_membership" not in result["FROG"].fields
+
+
+async def test_source_does_not_label_russell_2000_from_an_html_error_page() -> None:
+    routes = _index_routes(
+        russell=_Response(200, b"<html><body>Access denied</body></html>")
+    )
+    routes.update(_cboe({"FROG": 200}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["FROG"])
+
+    assert result["FROG"].fields == {"optionable": "Yes"}
+
+
+async def test_source_does_not_label_russell_2000_when_the_csv_is_empty() -> None:
+    routes = _index_routes(russell=_Response(200, IWM_PREAMBLE.encode("utf-8")))
+    routes.update(_cboe({"FROG": 200}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["FROG"])
+
+    assert "index_membership" not in result["FROG"].fields
+
+
+async def test_source_survives_a_network_exception_on_the_ishares_file() -> None:
+    routes = _index_routes(russell=ConnectionResetError("ishares reset"))
+    routes.update(_cboe({"TWST": 200}))
+    factory = _Factory(routes)
+    source = OfficialDepthSource(client_factory=factory)
+
+    result = await source.fetch_many(["TWST"])
+
+    assert result["TWST"].fields == {"optionable": "Yes"}
 
 
 async def test_source_maps_dashed_class_to_dotted_cboe_url() -> None:
@@ -839,15 +1172,15 @@ async def test_index_cache_avoids_refetching_within_the_day() -> None:
     )
 
     await source.fetch_many(["AAPL"])
-    assert factory.count("GET") == 5
+    assert factory.count("GET") == 6
 
     clock.advance(3_600)
     await source.fetch_many(["AAPL"])
-    assert factory.count("GET") == 5
+    assert factory.count("GET") == 6
 
     clock.advance(official.INDEX_TTL_S)
     await source.fetch_many(["AAPL"])
-    assert factory.count("GET") == 10
+    assert factory.count("GET") == 12
 
 
 async def test_partial_index_load_is_retried_after_fifteen_minutes() -> None:
@@ -861,15 +1194,15 @@ async def test_partial_index_load_is_retried_after_fifteen_minutes() -> None:
     )
 
     await source.fetch_many(["KBH"])
-    assert factory.count("GET") == 5
+    assert factory.count("GET") == 6
 
     clock.advance(official.INDEX_RETRY_S - 1)
     await source.fetch_many(["KBH"])
-    assert factory.count("GET") == 5
+    assert factory.count("GET") == 6
 
     clock.advance(2)
     await source.fetch_many(["KBH"])
-    assert factory.count("GET") == 10
+    assert factory.count("GET") == 12
 
 
 async def test_index_cache_is_off_for_injected_clients_by_default() -> None:
@@ -881,7 +1214,7 @@ async def test_index_cache_is_off_for_injected_clients_by_default() -> None:
     await source.fetch_many(["AAPL"])
     await source.fetch_many(["AAPL"])
 
-    assert factory.count("GET") == 10
+    assert factory.count("GET") == 12
 
 
 async def test_clear_caches_is_idempotent() -> None:

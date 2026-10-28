@@ -482,3 +482,247 @@ def test_headline_requires_an_aware_timestamp() -> None:
         feed="yahoo",
     )
     assert headline.published_at == datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------------------
+# Fallback mode: Yahoo first, Nasdaq only when Yahoo came back empty
+# ---------------------------------------------------------------------------
+
+
+async def test_fallback_yahoo_headlines_skip_the_nasdaq_request() -> None:
+    fetcher = FakeFeeds(yahoo=YAHOO_DOC, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True, clock=lambda: CLOCK)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert source.fallback is True
+    # One request for the symbol, not two: the first feed already answered.
+    assert len(fetcher.calls) == 1
+    assert "feeds.finance.yahoo.com" in fetcher.calls[0]
+    assert "s=AAPL" in fetcher.calls[0]
+    assert observation.as_of == CLOCK
+    assert observation.symbol == "AAPL"
+    assert set(observation.fields) == {"news_title", "news_url", "news_time"}
+    assert observation.fields["news_title"] == "Apple beats estimates as services grow"
+    assert (
+        observation.fields["news_url"]
+        == "https://finance.yahoo.com/news/apple-beats-estimates-123456.html"
+    )
+    # The article's own date, not CLOCK and not the fetch time.
+    assert observation.fields["news_time"] == "2026-10-27T14:05:00+00:00"
+
+
+async def test_fallback_empty_yahoo_feed_dials_nasdaq() -> None:
+    fetcher = FakeFeeds(yahoo=_rss(), nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 2
+    assert "feeds.finance.yahoo.com" in fetcher.calls[0]
+    assert "nasdaq.com" in fetcher.calls[1]
+    assert observation.fields["news_url"].startswith("https://www.nasdaq.com/")
+    assert "Magnificent" in observation.fields["news_title"]
+    assert observation.fields["news_time"] == "2026-10-28T13:30:00+00:00"
+
+
+async def test_fallback_yahoo_exception_dials_nasdaq() -> None:
+    fetcher = FakeFeeds(yahoo=RuntimeError("Yahoo answered 500"), nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 2
+    assert observation.fields["news_url"].startswith("https://www.nasdaq.com/")
+    assert observation.fields["news_time"] == "2026-10-28T13:30:00+00:00"
+
+
+async def test_fallback_malformed_yahoo_document_dials_nasdaq() -> None:
+    fetcher = FakeFeeds(yahoo=b"<not-rss", nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 2
+    assert observation.fields["news_title"] == '3 "Magnificent Seven" Stocks to Buy & Hold'
+
+
+async def test_fallback_undated_yahoo_items_do_not_count_as_an_answer() -> None:
+    # A headline with no <pubDate> is not publishable, so Yahoo is "empty" for
+    # this symbol and Nasdaq is still asked — but nothing is ever stamped with
+    # the fetch clock, so an all-undated day produces no row at all.
+    yahoo = _rss(_item("Breaking but undated", "https://finance.yahoo.com/undated", None))
+    fetcher = FakeFeeds(yahoo=yahoo, nasdaq=_rss())
+    source = RssNewsSource(fetcher=fetcher, fallback=True, clock=lambda: CLOCK)
+
+    assert await source.fetch_many(["AAPL"]) == {}
+    assert len(fetcher.calls) == 2
+
+
+async def test_fallback_linkless_yahoo_items_fall_through_to_nasdaq() -> None:
+    # Titles alone are not a headline: no openable link means Yahoo has nothing
+    # publishable, so the chain still asks Nasdaq.
+    yahoo = _rss(
+        _item("Relative link only", "www.yahoo.com/relative", CLOCK),
+        _item("Script link only", "javascript:alert(1)", CLOCK),
+    )
+    fetcher = FakeFeeds(yahoo=yahoo, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 2
+    assert observation.fields["news_url"].startswith("https://www.nasdaq.com/")
+
+
+async def test_fallback_publishes_nothing_when_both_feeds_come_back_empty() -> None:
+    fetcher = FakeFeeds(yahoo=_rss(), nasdaq=_rss())
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    assert await source.fetch_many(["AAPL"]) == {}
+    assert len(fetcher.calls) == 2
+
+
+async def test_fallback_both_feeds_failing_is_an_empty_batch_not_a_crash() -> None:
+    fetcher = FakeFeeds(yahoo=RuntimeError("boom"), nasdaq=RuntimeError("boom"))
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    assert await source.fetch_many(["AAPL", "MSFT"]) == {}
+    assert len(fetcher.calls) == 4
+
+
+async def test_fallback_default_is_off_and_keeps_the_two_feed_union() -> None:
+    fetcher = FakeFeeds(
+        yahoo=_rss(
+            _item(
+                "Apple beats estimates",
+                "https://finance.yahoo.com/story",
+                CLOCK - timedelta(hours=1),
+            )
+        ),
+        nasdaq=_rss(
+            _item(
+                "Apple Beats Estimates!",
+                "https://www.nasdaq.com/articles/story",
+                CLOCK,
+            )
+        ),
+    )
+    source = RssNewsSource(fetcher=fetcher)
+
+    assert source.fallback is False
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    # Without the flag the union still wins: both feeds are read and the newer
+    # Nasdaq copy of the same headline is the one published.
+    assert len(fetcher.calls) == 2
+    assert observation.fields["news_url"] == "https://www.nasdaq.com/articles/story"
+    assert observation.fields["news_time"] == "2026-10-28T12:00:00+00:00"
+
+
+async def test_fallback_mode_dedupes_titles_inside_the_first_feed() -> None:
+    yahoo = _rss(
+        _item(
+            "Apple  Beats Estimates!",
+            "https://finance.yahoo.com/old",
+            CLOCK - timedelta(hours=3),
+        ),
+        _item(
+            "apple beats estimates - Yahoo Finance",
+            "https://finance.yahoo.com/new",
+            CLOCK,
+        ),
+    )
+    fetcher = FakeFeeds(yahoo=yahoo, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 1
+    assert observation.fields["news_url"] == "https://finance.yahoo.com/new"
+    assert observation.fields["news_time"] == "2026-10-28T12:00:00+00:00"
+
+
+async def test_fallback_uses_only_the_configured_first_feed() -> None:
+    fetcher = FakeFeeds(yahoo=YAHOO_DOC, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, feeds=("nasdaq", "yahoo"), fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 1
+    assert "nasdaq.com" in fetcher.calls[0]
+    assert observation.fields["news_url"].startswith("https://www.nasdaq.com/")
+
+
+async def test_fallback_with_a_single_feed_never_reaches_for_a_second() -> None:
+    fetcher = FakeFeeds(yahoo=_rss(), nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, feeds=("yahoo",), fallback=True)
+
+    # Nothing to fall back to: no IndexError, and Nasdaq is never dialled.
+    assert await source.fetch_many(["AAPL"]) == {}
+    assert len(fetcher.calls) == 1
+
+
+async def test_fallback_client_http_500_on_yahoo_still_publishes_nasdaq() -> None:
+    client = FakeClient(
+        yahoo=FakeResponse(500, "<html>error</html>"),
+        nasdaq=FakeResponse(200, NASDAQ_DOC),
+    )
+    source = RssNewsSource(client=client, fallback=True)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(client.calls) == 2
+    assert "nasdaq.com" in client.calls[1]
+    assert "Magnificent" in observation.fields["news_title"]
+
+
+async def test_fallback_canonicalises_the_symbol_once() -> None:
+    fetcher = FakeFeeds(yahoo=YAHOO_DOC, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    result = await source.fetch_many([" brk.b "])
+
+    assert list(result) == ["BRK-B"]
+    assert result["BRK-B"].symbol == canonical_symbol("BRK.B")
+    assert len(fetcher.calls) == 1
+    assert "s=BRK-B" in fetcher.calls[0]
+
+
+async def test_fallback_skips_every_request_for_an_empty_symbol_list() -> None:
+    fetcher = FakeFeeds(yahoo=YAHOO_DOC, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True)
+
+    assert await source.fetch_many([]) == {}
+    assert fetcher.calls == []
+
+
+async def test_fallback_concurrency_costs_one_request_per_symbol() -> None:
+    symbols = [f"SYM{index}" for index in range(40)]
+    fetcher = FakeFeeds(yahoo=YAHOO_DOC, nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True, concurrency=4)
+
+    result = await source.fetch_many(symbols)
+
+    assert len(result) == len(symbols)
+    # 40 symbols × 2 feeds = 80 requests without the flag; the chain is 40.
+    assert len(fetcher.calls) == len(symbols)
+    assert all("feeds.finance.yahoo.com" in url for url in fetcher.calls)
+    assert sorted(url.split("s=")[1].split("&")[0] for url in fetcher.calls) == sorted(symbols)
+
+
+async def test_fallback_keeps_the_newest_of_a_hundred_item_feed_in_one_request() -> None:
+    base = datetime(2026, 10, 1, tzinfo=UTC)
+    items = [
+        _item(f"Headline {index}", f"https://example.com/{index}", base + timedelta(hours=index))
+        for index in range(100)
+    ]
+    fetcher = FakeFeeds(yahoo=_rss(*items), nasdaq=NASDAQ_DOC)
+    source = RssNewsSource(fetcher=fetcher, fallback=True, limit=3)
+
+    observation = (await source.fetch_many(["AAPL"]))["AAPL"]
+
+    assert len(fetcher.calls) == 1
+    assert observation.fields["news_title"] == "Headline 99"
+    assert observation.fields["news_time"] == "2026-10-05T03:00:00+00:00"
+    assert set(observation.fields) == {"news_title", "news_url", "news_time"}

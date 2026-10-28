@@ -4,6 +4,14 @@ The chart endpoint is the cheap path for performance/technical fields. It uses
 raw split-adjusted ``close`` (not ``adjclose``) because that is what the Finviz
 comparison reproduces; every function here is independent of the depth collector
 so the formulas can be tested from a fixture.
+
+The same body also carries ``events.dividends``, which is where
+``dividend_growth_1y/3y/5y`` come from — no extra request. Those three cells are
+an **estimator**, not Finviz parity: Finviz prints the provider's own growth
+rate, while these are computed from the cash amounts Yahoo reports, so specials
+are summed with regulars, share-count changes are invisible, and a mid-year
+history start can only truncate a calendar year (in which case the metric is
+left absent rather than guessed). See :func:`_dividend_cagr`.
 """
 
 from __future__ import annotations
@@ -131,10 +139,143 @@ def _atr(bars: Sequence[ChartBar], window: int = 14) -> float | None:
     return value
 
 
+def _epoch_day(value: Any) -> date | None:
+    """Epoch seconds → UTC calendar day; ``None`` for anything unusable."""
+
+    stamp = _number(value)
+    if stamp is None:
+        return None
+    try:
+        return datetime.fromtimestamp(stamp, UTC).date()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _dividend_payments(entry: Mapping[str, Any]) -> list[tuple[date, float]]:
+    """Cash dividends from ``events.dividends``, ascending by ex-date.
+
+    Yahoo ships the block either as a list of ``{"amount", "date"}`` items or as
+    a mapping keyed by the epoch (its live v8 shape); both are read. Only the
+    ``dividends`` block is touched — ``events.splits`` is never consulted, and
+    the per-share amounts are already split-adjusted on Yahoo's side.
+
+    Non-positive amounts are dropped (zero is not a payment and a negative
+    amount is a data error), exact duplicates are collapsed, and distinct
+    amounts on the same day are summed (a regular plus a special). A bad item
+    is skipped, never coerced into a fake payment.
+    """
+
+    events = entry.get("events")
+    if not isinstance(events, Mapping):
+        return []
+    raw = events.get("dividends")
+    if isinstance(raw, Mapping):
+        items: Sequence[Any] = [
+            {"date": key, **(value if isinstance(value, Mapping) else {})}
+            for key, value in raw.items()
+        ]
+    elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
+        items = raw
+    else:
+        return []
+
+    by_day: dict[date, float] = {}
+    seen: set[tuple[date, float]] = set()
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        amount = _number(item.get("amount"))
+        day = _epoch_day(item.get("date"))
+        if amount is None or amount <= 0 or day is None:
+            continue
+        if (day, amount) in seen:
+            continue
+        seen.add((day, amount))
+        by_day[day] = by_day.get(day, 0.0) + amount
+    return sorted(by_day.items())
+
+
+def _year_totals(payments: Sequence[tuple[date, float]]) -> dict[int, float]:
+    """Total cash paid per calendar year."""
+
+    totals: dict[int, float] = {}
+    for day, amount in payments:
+        totals[day.year] = totals.get(day.year, 0.0) + amount
+    return totals
+
+
+def _dividend_growth_1y(payments: Sequence[tuple[date, float]]) -> float | None:
+    """Last four payments vs the four before them, in percent.
+
+    Payment-count based, as the chart contract defines it: for a quarterly payer
+    those eight payments span two years, while a monthly payer's eight span eight
+    months. That is the proxy's known bias; the calendar-year 3y/5y figures below
+    do not share it.
+    """
+
+    if len(payments) < 8:
+        return None
+    current = sum(amount for _, amount in payments[-4:])
+    prior = sum(amount for _, amount in payments[-8:-4])
+    if current <= 0 or prior <= 0:
+        return None
+    value = (current / prior - 1.0) * 100.0
+    return value if math.isfinite(value) else None
+
+
+def _dividend_cagr(
+    payments: Sequence[tuple[date, float]], years: int, clock: datetime
+) -> float | None:
+    """Calendar-year dividend CAGR over ``years``, in percent.
+
+    ``(latest_year_sum / base_year_sum) ** (1 / years) - 1`` uses the last
+    **complete** calendar year, so a partial current year can neither raise nor
+    lower the latest total. Three conditions keep the number honest:
+
+    * both endpoint totals must be positive — a missing or zero year is absent,
+      not ``0%`` and not ``-100%``;
+    * at least ``years + 1`` distinct calendar years must carry payments;
+    * the history must begin before the base year starts, because a mid-year
+      start truncates that year's total and would inflate the rate.
+
+    This is a proxy for Finviz's ``Dividend Gr. 3/5Y``: totals per calendar year,
+    not the provider's per-share growth series.
+    """
+
+    totals = _year_totals(payments)
+    latest_year = clock.year - 1
+    base_year = latest_year - years
+    latest = totals.get(latest_year, 0.0)
+    base = totals.get(base_year, 0.0)
+    if latest <= 0 or base <= 0:
+        return None
+    if len([year for year in totals if year <= latest_year]) < years + 1:
+        return None
+    if payments[0][0] >= date(base_year, 1, 1):
+        return None
+    value = ((latest / base) ** (1.0 / years) - 1.0) * 100.0
+    return value if math.isfinite(value) else None
+
+
 def parse_chart_metrics(
     entry: Mapping[str, Any], *, now: datetime | None = None
 ) -> dict[str, Any]:
-    """Return canonical depth fields from one Yahoo chart response."""
+    """Return canonical depth fields from one Yahoo chart response.
+
+    Dividend growth is read from the same body's ``events.dividends``:
+
+    * ``dividend_growth_1y`` — the last four cash payments against the four
+      before them, in percent;
+    * ``dividend_growth_3y`` / ``dividend_growth_5y`` — calendar-year CAGR of
+      total cash paid, using the last complete year and the year ``n`` before
+      it.
+
+    These are **estimators**, not Finviz parity: Finviz prints the provider's
+    growth rate, while these sum the reported per-share amounts, so specials and
+    regulars are mixed, buybacks and share-count changes are invisible, and a
+    mid-year start leaves the 3y/5y cells absent. When there is not enough
+    history the key is omitted rather than filled with ``0`` or a guess.
+    """
 
     bars = _bars(entry)
     if not bars:
@@ -209,6 +350,16 @@ def parse_chart_metrics(
             out["gap"] = (current.open - previous.close) / previous.close * 100.0
         if current.open:
             out["change_from_open"] = (current.close - current.open) / current.open * 100.0
+
+    dividends = _dividend_payments(entry)
+    if dividends:
+        growth_1y = _dividend_growth_1y(dividends)
+        if growth_1y is not None:
+            out["dividend_growth_1y"] = growth_1y
+        for years in (3, 5):
+            growth = _dividend_cagr(dividends, years, clock)
+            if growth is not None:
+                out[f"dividend_growth_{years}y"] = growth
 
     return {key: value for key, value in out.items() if value is not None}
 

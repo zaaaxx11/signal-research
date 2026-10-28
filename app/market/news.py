@@ -26,6 +26,13 @@ emits only ``news_title`` / ``news_url`` / ``news_time``, taken from the newest
 item after dedupe (``DEFAULT_LIMIT`` items are considered, one is published). A
 multi-item panel belongs to ``GET /news/{symbol}``; duplicating a whole list
 into a single-cell depth store would only bloat it.
+
+Two feeds per symbol is two requests per symbol, and a full S&P 500 depth cycle
+is 4 217 symbols. ``fallback=True`` makes the feeds a chain instead of a union:
+Yahoo is asked first, Nasdaq only when Yahoo returned no usable dated headline.
+Since one cell is published, the second feed adds requests, not information, so
+the chain halves the cycle's request count and leaves the published row (three
+cells, title-key dedupe, newest-first) unchanged in shape.
 """
 
 from __future__ import annotations
@@ -351,12 +358,21 @@ def _response_body(response: Any) -> str | bytes:
 
 
 class RssNewsSource:
-    """Yahoo + Nasdaq RSS as one depth source, two feeds per symbol.
+    """Yahoo + Nasdaq RSS as one depth source.
 
     ``fetcher`` receives a URL and returns the document (sync or awaitable);
     ``client`` is an already-built async HTTP client exposing ``get``. Passing
     neither builds the provider client per cycle. Either way a failing feed is
     logged and skipped: one 500 on Yahoo must not erase Nasdaq's headline.
+
+    ``fallback`` turns the two feeds from a union into a chain: the feeds are
+    tried in ``feeds`` order (Yahoo first by default) and the first one that
+    yields a usable dated headline ends the symbol's work — the second feed is
+    only dialled when the first is empty or failed. A full S&P 500 depth cycle
+    therefore spends one request per symbol instead of two, while the published
+    row keeps the same three cells and the same title-key dedupe. The price is
+    that a Nasdaq copy of a Yahoo headline no longer gets the chance to be
+    newer, which the depth store does not care about: it keeps one cell.
     """
 
     name = "news"
@@ -371,6 +387,7 @@ class RssNewsSource:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         concurrency: int = DEFAULT_CONCURRENCY,
         feeds: Sequence[str] = FEED_NAMES,
+        fallback: bool = False,
         user_agent: str = BROWSER_USER_AGENT,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -396,6 +413,7 @@ class RssNewsSource:
         self.timeout_s = float(timeout_s)
         self.concurrency = max(1, int(concurrency))
         self.feeds = tuple(ordered)
+        self.fallback = bool(fallback)
         self.user_agent = str(user_agent or BROWSER_USER_AGENT)
         self._fetcher = fetcher
         self._client = client
@@ -425,18 +443,42 @@ class RssNewsSource:
             raise NewsFeedError("no fetcher, client or HTTP transport available")
         return _response_body(await client.get(url))
 
+    async def _feed_headlines(
+        self,
+        symbol: str,
+        feed: str,
+        url: str,
+        semaphore: asyncio.Semaphore,
+        client: Any | None,
+    ) -> list[NewsHeadline]:
+        """One feed's dated headlines; any failure is an empty list, not a raise."""
+
+        async with semaphore:
+            try:
+                document = await self._fetch(url, client)
+            except Exception as exc:  # noqa: BLE001 - one feed is not the source
+                logger.info("%s news feed failed for %s: %s", feed, symbol, exc)
+                return []
+        try:
+            return parse_rss(document, feed=feed)
+        except Exception as exc:  # noqa: BLE001 - a bad document is a failed feed
+            logger.info("%s news feed failed for %s: %s", feed, symbol, exc)
+            return []
+
     async def _one(
         self, symbol: str, semaphore: asyncio.Semaphore, client: Any | None
     ) -> DepthObservation | None:
         key = canonical_symbol(symbol)
         headlines: list[NewsHeadline] = []
         for feed, url in self.urls(key):
-            async with semaphore:
-                try:
-                    headlines.extend(parse_rss(await self._fetch(url, client), feed=feed))
-                except Exception as exc:  # noqa: BLE001 - one feed is not the source
-                    logger.info("%s news feed failed for %s: %s", feed, key, exc)
-                    continue
+            headlines.extend(
+                await self._feed_headlines(key, feed, url, semaphore, client)
+            )
+            # Fallback mode is a chain, not a fusion: the first feed that yields
+            # at least one dated headline is the whole answer, so Nasdaq is not
+            # dialled for a symbol Yahoo already covered.
+            if self.fallback and headlines:
+                break
         if not headlines:
             return None
         latest = _collapse(headlines)[: self.limit]
