@@ -728,12 +728,14 @@ class YahooDepthSource:
         timeout_s: float = 20.0,
         include_timeseries: bool = True,
         include_options: bool = False,
+        request_delay_s: float = 0.0,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.concurrency = max(1, int(concurrency))
         self.timeout_s = float(timeout_s)
         self.include_timeseries = bool(include_timeseries)
         self.include_options = bool(include_options)
+        self.request_delay_s = max(0.0, float(request_delay_s))
         self._clock = clock or (lambda: datetime.now(UTC))
         self._crumb = ""
         self._crumb_lock = asyncio.Lock()
@@ -834,6 +836,12 @@ class YahooDepthSource:
             payload = None
         return status, payload
 
+    async def _get_json_paced(self, client: Any, url: str) -> tuple[int, Any]:
+        """One paced GET; the daily full batch needs a stable arrival rate."""
+        if self.request_delay_s:
+            await asyncio.sleep(self.request_delay_s)
+        return await self._get_json(client, url)
+
     async def _optionable_for(self, client: Any, symbol: str, crumb: str) -> str | None:
         """``Yes``/``No`` from the expiry list, or ``None`` when Yahoo would not say.
 
@@ -842,11 +850,13 @@ class YahooDepthSource:
         symbol: they leave the cell absent rather than publishing a false ``No``.
         """
 
-        status, payload = await self._get_json(client, self.options_url(symbol, crumb))
+        status, payload = await self._get_json_paced(
+            client, self.options_url(symbol, crumb)
+        )
         if status in _AUTH_STATUS:
             crumb = await self._renew_crumb(client, crumb)
             if crumb:
-                status, payload = await self._get_json(
+                status, payload = await self._get_json_paced(
                     client, self.options_url(symbol, crumb)
                 )
         if status != 200:
@@ -857,13 +867,13 @@ class YahooDepthSource:
 
     async def _fields_for(self, client: Any, symbol: str) -> dict[str, Any]:
         crumb = self._crumb
-        status, payload = await self._get_json(
+        status, payload = await self._get_json_paced(
             client, self.quote_summary_url(symbol, crumb)
         )
         if status in _AUTH_STATUS:
             crumb = await self._renew_crumb(client, crumb)
             if crumb:
-                status, payload = await self._get_json(
+                status, payload = await self._get_json_paced(
                     client, self.quote_summary_url(symbol, crumb)
                 )
 
@@ -873,13 +883,13 @@ class YahooDepthSource:
             return fields
 
         if self.include_timeseries:
-            status, payload = await self._get_json(
+            status, payload = await self._get_json_paced(
                 client, self.timeseries_url(symbol, crumb)
             )
             if status in _AUTH_STATUS:
                 crumb = await self._renew_crumb(client, crumb)
                 if crumb:
-                    status, payload = await self._get_json(
+                    status, payload = await self._get_json_paced(
                         client, self.timeseries_url(symbol, crumb)
                     )
             if status == 200:

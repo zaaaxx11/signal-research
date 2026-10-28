@@ -1078,6 +1078,7 @@ def build_depth_collector(
         YahooFullDepthSource(
             concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2)),
             include_options=not bool(getattr(settings, "depth_finviz", True)),
+            request_delay_s=float(getattr(settings, "depth_yahoo_delay_s", 0.25)),
         )
     )
     if getattr(settings, "depth_chart", False):
