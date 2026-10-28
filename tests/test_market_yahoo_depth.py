@@ -22,6 +22,7 @@ from app.market.yahoo_depth import (
     SUPPORTED_FIELDS,
     TIMESERIES_TYPES,
     YahooDepthSource,
+    parse_optionable,
     parse_quote_summary,
     parse_timeseries,
 )
@@ -31,6 +32,9 @@ from tests._phase2 import MockWeb
 
 T0 = datetime(2026, 10, 28, 15, 0, tzinfo=UTC)
 EARNINGS_EPOCH = int(datetime(2026, 11, 2, tzinfo=UTC).timestamp())
+#: Two Friday expiries, as ``/v7/finance/options`` prints them (epoch seconds).
+EXPIRY_1 = int(datetime(2026, 11, 20, tzinfo=UTC).timestamp())
+EXPIRY_2 = int(datetime(2026, 12, 18, tzinfo=UTC).timestamp())
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +68,17 @@ def timeseries_body(series: Mapping[str, Any]) -> dict[str, Any]:
     return {"timeseries": {"result": blocks, "error": None}}
 
 
+def options_body(
+    expirations: Any = None,
+    *,
+    entry: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A ``/v7/finance/options`` front-chain answer (the expiry list only)."""
+
+    block = dict(entry) if entry is not None else {"expirationDates": list(expirations or [])}
+    return {"optionChain": {"result": [block], "error": None}}
+
+
 class FakeYahoo:
     """Routes ``fc.yahoo.com`` and ``query1.finance.yahoo.com``, and counts."""
 
@@ -74,8 +89,10 @@ class FakeYahoo:
         self.crumb_tokens: list[str] = ["test-crumb"]
         self.quote_handler: Any = None
         self.timeseries_handler: Any = None
+        self.options_handler: Any = None
         self.quote_requests: list[httpx2.Request] = []
         self.timeseries_requests: list[httpx2.Request] = []
+        self.options_requests: list[httpx2.Request] = []
         self.web.route("fc.yahoo.com", self._cookie)
         self.web.route("query1.finance.yahoo.com", self._api)
 
@@ -103,6 +120,12 @@ class FakeYahoo:
             if self.timeseries_handler is not None:
                 return self.timeseries_handler(symbol, request)
             return httpx2.Response(200, json=timeseries_body(sample_series()))
+        if "/finance/options/" in path:
+            self.options_requests.append(request)
+            symbol = unquote(path.rsplit("/finance/options/", 1)[1]).upper()
+            if self.options_handler is not None:
+                return self.options_handler(symbol, request)
+            return httpx2.Response(200, json=options_body([EXPIRY_1, EXPIRY_2]))
         return httpx2.Response(404, json={"error": "unrouted path"})
 
     # -- helpers -----------------------------------------------------------
@@ -117,7 +140,9 @@ class FakeYahoo:
     def crumbs_seen(self) -> list[str]:
         return [
             str(request.url.params.get("crumb") or "")
-            for request in self.quote_requests + self.timeseries_requests
+            for request in self.quote_requests
+            + self.timeseries_requests
+            + self.options_requests
         ]
 
 
@@ -666,8 +691,10 @@ async def test_supported_fields_are_a_catalog_subset() -> None:
 
 
 def test_supported_fields_is_exactly_what_a_full_payload_produces() -> None:
-    produced = set(parse_quote_summary(sample_modules("AAPL"))) | set(
-        parse_timeseries(timeseries_body(sample_series()))
+    produced = (
+        set(parse_quote_summary(sample_modules("AAPL")))
+        | set(parse_timeseries(timeseries_body(sample_series())))
+        | set(parse_optionable(options_body([EXPIRY_1, EXPIRY_2])))
     )
 
     assert produced == SUPPORTED_FIELDS
@@ -912,3 +939,230 @@ async def test_timeseries_can_be_disabled(monkeypatch: Any) -> None:
     assert fake.timeseries_requests == []
     assert "eps_past_3y" not in result["AAPL"].fields
     assert result["AAPL"].fields["market_cap"] == pytest.approx(5.04e12)
+
+
+# ---------------------------------------------------------------------------
+# optionable: one optional /v7/finance/options request
+# ---------------------------------------------------------------------------
+
+
+async def test_optionable_probe_is_off_by_default(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    install_seam(monkeypatch, fake.web)
+    source = build_source()
+
+    result = await source.fetch_many(["AAPL", "MSFT"])
+
+    assert fake.options_requests == [], "the default run must not buy the cell"
+    assert "optionable" not in result["AAPL"].fields
+    # The old budget is unchanged: one cookie, one crumb, two bodies per symbol.
+    assert fake.cookie_calls == 1 and fake.crumb_calls == 1
+    assert len(fake.quote_requests) == 2 and len(fake.timeseries_requests) == 2
+    assert fake.web.unrouted == []
+
+
+async def test_two_expiries_mean_optionable(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    assert first_value(result, "AAPL", "optionable") == "Yes"
+    assert len(fake.options_requests) == 1
+    request = fake.options_requests[0]
+    assert request.url.path == "/v7/finance/options/AAPL"
+    assert request.url.params.get("crumb") == "test-crumb"
+    # The expiry list is the answer; the dated chain is a second request this
+    # cell never needs, so no ``date`` may ride the probe.
+    assert request.url.params.get("date") is None
+    # The rest of the row is untouched by the probe.
+    assert result["AAPL"].fields["market_cap"] == pytest.approx(5.04e12)
+    # Nothing outside the catalog arrives with the new cell.
+    assert set(result["AAPL"].fields) <= CATALOG_FIELDS
+
+
+async def test_option_probe_runs_after_the_timeseries(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    await source.fetch_many(["AAPL"])
+
+    order = [
+        "options"
+        if "/finance/options/" in str(record.url)
+        else "timeseries"
+        if "/timeseries/" in str(record.url)
+        else "quoteSummary"
+        if "/quoteSummary/" in str(record.url)
+        else "auth"
+        for record in fake.web.requests
+    ]
+    assert order == ["auth", "auth", "quoteSummary", "timeseries", "options"]
+
+
+async def test_empty_expiration_list_means_not_optionable(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    fake.options_handler = lambda _symbol, _request: httpx2.Response(
+        200, json=options_body([])
+    )
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    # Yahoo answered: an empty list is a real "No", not a missing cell.
+    assert first_value(result, "AAPL", "optionable") == "No"
+
+
+def test_an_empty_chain_result_is_no_and_a_missing_one_is_absent() -> None:
+    assert parse_optionable({"optionChain": {"result": [], "error": None}}) == {
+        "optionable": "No"
+    }
+    assert parse_optionable({"optionChain": {"result": None, "error": None}}) == {}
+    assert parse_optionable({"optionChain": {"error": None}}) == {}
+    assert parse_optionable({}) == {}
+    assert parse_optionable(None) == {}
+    assert parse_optionable([]) == {}
+    # A result entry with no expiry key cannot answer either way.
+    assert parse_optionable({"optionChain": {"result": [{"quote": {}}]}}) == {}
+
+
+async def test_missing_option_chain_leaves_the_field_absent(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    fake.options_handler = lambda _symbol, _request: httpx2.Response(
+        200, json={"optionChain": {"result": None, "error": None}}
+    )
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    fields = result["AAPL"].fields
+    assert "optionable" not in fields, "no chain envelope is not a 'No'"
+    assert fields["market_cap"] == pytest.approx(5.04e12)
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_option_probe_refusals_do_not_publish_a_false_no(
+    monkeypatch: Any, status: int
+) -> None:
+    fake = FakeYahoo()
+    fake.options_handler = lambda _symbol, _request: httpx2.Response(
+        status, json={"finance": {"result": None, "error": {"code": f"HTTP {status}"}}}
+    )
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    assert "optionable" not in result["AAPL"].fields
+    # One attempt, no retry loop on a non-auth refusal.
+    assert len(fake.options_requests) == 1
+    assert fake.crumb_calls == 1
+
+
+async def test_option_probe_parses_nothing_from_an_html_challenge(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    fake.options_handler = lambda _symbol, _request: httpx2.Response(
+        200, text="<!DOCTYPE html><html><body>verify you are human</body></html>"
+    )
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    assert "optionable" not in result["AAPL"].fields
+    assert result["AAPL"].fields["market_cap"] == pytest.approx(5.04e12)
+
+
+async def test_option_probe_401_is_retried_once_with_a_fresh_crumb(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    fake.crumb_tokens = ["stale-crumb", "fresh-crumb"]
+
+    def options(_symbol: str, request: httpx2.Request) -> httpx2.Response:
+        if request.url.params.get("crumb") == "stale-crumb":
+            return httpx2.Response(
+                401,
+                json={
+                    "finance": {
+                        "result": None,
+                        "error": {"code": "Unauthorized", "description": "Invalid Crumb"},
+                    }
+                },
+            )
+        return httpx2.Response(200, json=options_body([EXPIRY_1, EXPIRY_2]))
+
+    fake.options_handler = options
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    assert first_value(result, "AAPL", "optionable") == "Yes"
+    assert fake.crumb_calls == 2, "one fresh handshake after the refusal"
+    assert len(fake.options_requests) == 2, "exactly one retry"
+    assert fake.options_requests[-1].url.params.get("crumb") == "fresh-crumb"
+    # The other two endpoints were never re-asked by the options retry.
+    assert len(fake.quote_requests) == 1
+    assert len(fake.timeseries_requests) == 1
+
+
+async def test_a_second_option_refusal_gives_up_instead_of_looping(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    fake.options_handler = lambda _symbol, _request: httpx2.Response(
+        401, json={"finance": {"result": None, "error": {"code": "Unauthorized"}}}
+    )
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    assert len(fake.options_requests) == 2
+    assert "optionable" not in result["AAPL"].fields
+    assert result["AAPL"].fields["market_cap"] == pytest.approx(5.04e12)
+
+
+async def test_no_option_probe_without_a_quote_summary_row(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    fake.quote_handler = lambda _symbol, _request: httpx2.Response(
+        200, json={"quoteSummary": {"result": None, "error": None}}
+    )
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    assert await source.fetch_many(["AAPL"]) == {}
+    assert fake.options_requests == [], "a symbol with no row has no cell to buy"
+
+
+async def test_option_probe_works_with_the_timeseries_disabled(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_timeseries=False, include_options=True)
+
+    result = await source.fetch_many(["AAPL"])
+
+    assert fake.timeseries_requests == []
+    assert first_value(result, "AAPL", "optionable") == "Yes"
+
+
+async def test_option_probe_uses_the_dash_notation(monkeypatch: Any) -> None:
+    fake = FakeYahoo()
+    install_seam(monkeypatch, fake.web)
+    source = build_source(include_options=True)
+
+    result = await source.fetch_many(["BRK.B"])
+
+    assert fake.options_requests[0].url.path == "/v7/finance/options/BRK-B"
+    assert first_value(result, "BRK-B", "optionable") == "Yes"
+
+
+def test_optionable_is_catalog_owned_and_the_only_new_cell() -> None:
+    assert {"optionable"} <= SUPPORTED_FIELDS
+    assert {"optionable"} <= EMITTED_FIELDS
+    assert {"optionable"} <= CATALOG_FIELDS
+    assert not ({"optionable"} & QUOTE_ONLY_FIELDS)
+    # The probe adds exactly one supported name, never a provider key.
+    assert SUPPORTED_FIELDS <= CATALOG_FIELDS
+    assert parse_optionable(options_body([EXPIRY_1])) == {"optionable": "Yes"}

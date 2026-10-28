@@ -1076,7 +1076,8 @@ def build_depth_collector(
 
     sources.append(
         YahooFullDepthSource(
-            concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2))
+            concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2)),
+            include_options=not bool(getattr(settings, "depth_finviz", True)),
         )
     )
     if getattr(settings, "depth_chart", False):

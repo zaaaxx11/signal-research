@@ -34,6 +34,15 @@ and the live price is quote-hub owned — a depth row must not read one.
 The output is filtered against :data:`app.market.depth_fields.CATALOG_FIELDS`
 and against :data:`app.market.depth.QUOTE_ONLY_FIELDS`, so a provider key that
 is not a catalog column can never reach the depth store.
+
+``optionable`` is the one catalog cell that neither ``quoteSummary`` nor the
+statement history can answer. It is bought with a single extra
+``/v7/finance/options`` request, and only when ``include_options=True``: the
+default stays at two body requests per symbol so an existing screener run pays
+nothing for a cell it did not ask for. The expiry *list* is the evidence, not
+the dated chain — a non-empty ``expirationDates`` is ``Yes``, an empty one is
+``No``, and a refusal, a 429 or an unparseable body leaves the cell **absent**
+instead of publishing a ``No`` that was really "nobody answered".
 """
 
 from __future__ import annotations
@@ -48,7 +57,11 @@ from typing import Any
 from app.market.depth import QUOTE_ONLY_FIELDS, DepthObservation, canonical_symbol
 from app.market.depth_fields import CATALOG_FIELDS
 from app.providers import http as provider_http
-from app.providers.adapters.yahoo import BROWSER_USER_AGENT, HOST as YAHOO_HOST
+from app.providers.adapters.yahoo import (
+    BROWSER_USER_AGENT,
+    HOST as YAHOO_HOST,
+    OPTIONS_PATH,
+)
 
 logger = logging.getLogger("mee.depth")
 
@@ -547,6 +560,55 @@ def parse_timeseries(payload: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# v7 options: the expiry list is the whole answer
+# ---------------------------------------------------------------------------
+
+
+def _option_chain_result(payload: Any) -> tuple[bool, Mapping[str, Any] | None]:
+    """``(answered, optionChain.result[0])``.
+
+    ``answered`` distinguishes "Yahoo said there is no chain" (``result: []`` —
+    a real ``No``) from "the envelope is missing" (nothing may be published).
+    """
+
+    if not isinstance(payload, Mapping):
+        return False, None
+    chain = payload.get("optionChain")
+    if not isinstance(chain, Mapping):
+        return False, None
+    result = chain.get("result")
+    if isinstance(result, Mapping):
+        return True, result
+    if isinstance(result, list):
+        if not result:
+            return True, None
+        entry = result[0]
+        return True, entry if isinstance(entry, Mapping) else None
+    return False, None
+
+
+def parse_optionable(payload: Any) -> dict[str, Any]:
+    """``{"optionable": "Yes" | "No"}``, or ``{}`` when the body cannot say.
+
+    Only the expiry list is read: a symbol with one expiry is as optionable as a
+    symbol with twenty, and fetching the dated chain would spend a second
+    request to learn nothing this cell needs.
+    """
+
+    answered, entry = _option_chain_result(payload)
+    if not answered:
+        return {}
+    if entry is None:
+        # ``optionChain.result`` is an empty list: Yahoo answered, no chain.
+        return {"optionable": "No"}
+    expiries = entry.get("expirationDates")
+    if not isinstance(expiries, list):
+        # A missing key is an absent fact, not evidence that there is no chain.
+        return {}
+    return {"optionable": "Yes" if expiries else "No"}
+
+
+# ---------------------------------------------------------------------------
 # What this source may publish
 # ---------------------------------------------------------------------------
 
@@ -626,8 +688,13 @@ _TIMESERIES_FIELDS = frozenset(
     }
 )
 
-#: Everything the two parsers can produce.
-SUPPORTED_FIELDS: frozenset[str] = _QUOTE_SUMMARY_FIELDS | _TIMESERIES_FIELDS
+#: The one cell bought by the optional ``/v7/finance/options`` probe.
+_OPTION_FIELDS = frozenset({"optionable"})
+
+#: Everything the parsers can produce.
+SUPPORTED_FIELDS: frozenset[str] = (
+    _QUOTE_SUMMARY_FIELDS | _TIMESERIES_FIELDS | _OPTION_FIELDS
+)
 
 #: What may actually be published: supported ∩ catalog − quote-hub cells. The
 #: two intersections are the contract, not a formality: a renamed feature field
@@ -660,11 +727,13 @@ class YahooDepthSource:
         concurrency: int = 2,
         timeout_s: float = 20.0,
         include_timeseries: bool = True,
+        include_options: bool = False,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.concurrency = max(1, int(concurrency))
         self.timeout_s = float(timeout_s)
         self.include_timeseries = bool(include_timeseries)
+        self.include_options = bool(include_options)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._crumb = ""
         self._crumb_lock = asyncio.Lock()
@@ -686,6 +755,13 @@ class YahooDepthSource:
             "&corsDomain=finance.yahoo.com&formatted=false"
         )
         return f"{url}&crumb={crumb}" if crumb else url
+
+    @staticmethod
+    def options_url(symbol: str, crumb: str = "") -> str:
+        """The expiry list only: no ``date=`` means Yahoo answers the front chain."""
+
+        url = f"{YAHOO_HOST}{OPTIONS_PATH.format(symbol=symbol)}"
+        return f"{url}?crumb={crumb}" if crumb else url
 
     def timeseries_url(
         self,
@@ -758,6 +834,25 @@ class YahooDepthSource:
             payload = None
         return status, payload
 
+    async def _optionable_for(self, client: Any, symbol: str, crumb: str) -> str | None:
+        """``Yes``/``No`` from the expiry list, or ``None`` when Yahoo would not say.
+
+        A 401/403 is the stale-crumb dance, retried exactly once (the same rule
+        the other two endpoints follow). 429/5xx/HTML are not evidence about the
+        symbol: they leave the cell absent rather than publishing a false ``No``.
+        """
+
+        status, payload = await self._get_json(client, self.options_url(symbol, crumb))
+        if status in _AUTH_STATUS:
+            crumb = await self._renew_crumb(client, crumb)
+            if crumb:
+                status, payload = await self._get_json(
+                    client, self.options_url(symbol, crumb)
+                )
+        if status != 200:
+            return None
+        return parse_optionable(payload).get("optionable")
+
     # -- parsing -----------------------------------------------------------
 
     async def _fields_for(self, client: Any, symbol: str) -> dict[str, Any]:
@@ -774,20 +869,28 @@ class YahooDepthSource:
 
         modules = quote_summary_result(payload) if status == 200 else None
         fields = parse_quote_summary(modules) if modules is not None else {}
-        if modules is None or not self.include_timeseries:
+        if modules is None:
             return fields
 
-        status, payload = await self._get_json(
-            client, self.timeseries_url(symbol, crumb)
-        )
-        if status in _AUTH_STATUS:
-            crumb = await self._renew_crumb(client, crumb)
-            if crumb:
-                status, payload = await self._get_json(
-                    client, self.timeseries_url(symbol, crumb)
-                )
-        if status == 200:
-            fields.update(parse_timeseries(payload))
+        if self.include_timeseries:
+            status, payload = await self._get_json(
+                client, self.timeseries_url(symbol, crumb)
+            )
+            if status in _AUTH_STATUS:
+                crumb = await self._renew_crumb(client, crumb)
+                if crumb:
+                    status, payload = await self._get_json(
+                        client, self.timeseries_url(symbol, crumb)
+                    )
+            if status == 200:
+                fields.update(parse_timeseries(payload))
+
+        if self.include_options:
+            # Third body request, after the statement history: the expiry list is
+            # the last fact this row needs, so a refused quote never pays for it.
+            optionable = await self._optionable_for(client, symbol, crumb)
+            if optionable is not None:
+                fields["optionable"] = optionable
         return fields
 
     # -- batch -------------------------------------------------------------
@@ -853,6 +956,7 @@ __all__ = [
     "TIMESERIES_PERIOD1",
     "TIMESERIES_TYPES",
     "YahooDepthSource",
+    "parse_optionable",
     "parse_quote_summary",
     "parse_timeseries",
     "quote_summary_result",
