@@ -78,6 +78,17 @@ class Settings(BaseSettings):
     depth_yahoo_concurrency: int = Field(default=2, ge=1, le=5)
     depth_yahoo_delay_s: float = Field(default=0.25, ge=0)
     depth_yahoo_symbol_timeout_s: float = Field(default=30.0, gt=0)
+    #: Keyless fast path (plan 2026-10-28_224107): SEC bulk fundamentals +
+    #: CNBC batch quote + Yahoo chart OHLC + FINRA + official index. When
+    #: ``price_keyless`` is on, no API-key provider is read or called on the
+    #: default path; Alpaca/Finnhub/Twelve/Polygon stay optional adapters.
+    price_keyless: bool = True
+    #: SEC quarterly bulk financial statement data set (``2026q3.zip``) is
+    #: the fundamental backbone instead of per-symbol ``companyfacts``.
+    depth_sec_bulk: bool = True
+    #: Yahoo full depth remains available as a fallback rung, never the sole
+    #: producer of a field group; set False to run strictly keyless-direct.
+    depth_yahoo_fallback: bool = True
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")
