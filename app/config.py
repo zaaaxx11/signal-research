@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     depth_concurrency: int = Field(default=3, ge=1, le=10)
     depth_delay_s: float = Field(default=0.1, ge=0)
     depth_yahoo_concurrency: int = Field(default=2, ge=1, le=5)
+    depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the

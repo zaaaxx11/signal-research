@@ -16,8 +16,10 @@ from app.market.depth import (
     DepthObservation,
     DepthStore,
     FinvizDepthSource,
+    SecDepthSource,
     parse_stockanalysis_statistics,
 )
+from app.market.sectors import classify_sector
 from tests._market_quote import install_seam
 from tests._phase2 import MockWeb
 
@@ -253,3 +255,58 @@ def test_yahoo_bulk_reuses_one_cookie_and_crumb(monkeypatch: Any) -> None:
     assert len(cookie_requests) == 1
     assert len(crumb_requests) == 1
     assert len(data_requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("industry", "sector"),
+    [
+        ("Electronic Computers", "Technology"),
+        ("Semiconductors & Related Devices", "Technology"),
+        ("State Commercial Banks", "Financials"),
+        ("Pharmaceutical Preparations", "Healthcare"),
+        ("Petroleum Refining", "Energy"),
+        ("Air Transportation, Scheduled", "Industrials"),
+        ("Food and Kindred Products", "Consumer Staples"),
+        ("Real Estate Investment Trusts", "Real Estate"),
+        ("Telephone Communications", "Communication Services"),
+        ("Electric Services", "Utilities"),
+    ],
+)
+def test_sic_industry_classification(industry: str, sector: str) -> None:
+    assert classify_sector(industry) == sector
+
+
+def test_sec_depth_source_reads_identity_and_classifies_sector() -> None:
+    from types import SimpleNamespace
+
+    class FakeMaster:
+        def get(self, symbol: str) -> Any:
+            if symbol != "AAPL":
+                return None
+            return SimpleNamespace(
+                symbol="AAPL",
+                name="Apple Inc.",
+                exchange="Nasdaq",
+                industry="Electronic Computers",
+                country="United States",
+                sector=None,
+                asset_class="equity",
+            )
+
+    source = SecDepthSource(snapshot_path="/definitely/missing.json")
+    source._loaded = True
+    source._dataset = SimpleNamespace(
+        security_master=FakeMaster(),
+        fetched_at="2026-10-28T00:00:00+00:00",
+    )
+    values = asyncio.run(source.fetch_many(["AAPL", "MSFT"]))
+    assert values["AAPL"].fields == {
+        "ticker": "AAPL",
+        "company": "Apple Inc.",
+        "security_type": "Stock",
+        "exchange": "Nasdaq",
+        "industry": "Electronic Computers",
+        "country": "United States",
+        "sector": "Technology",
+    }
+    assert "MSFT" not in values

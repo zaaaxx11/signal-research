@@ -28,6 +28,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.market.sectors import classify_sector
+
 logger = logging.getLogger("mee.depth")
 
 DEPTH_REFRESH_S = 86_400.0
@@ -876,6 +878,103 @@ class YahooDepthSource:
         return out
 
 
+# ---------------------------------------------------------------------------
+# SEC identity
+# ---------------------------------------------------------------------------
+
+
+class SecDepthSource:
+    """SEC identity/industry from the engine snapshot; no request per symbol.
+
+    SEC is the official identity spine: ticker, company, exchange, industry and
+    country. It does not publish a GICS sector, so ``sector`` comes from the
+    explicit SIC-description classifier in :mod:`app.market.sectors`. A snapshot
+    that is absent simply contributes no rows; it is not a network fallback.
+    """
+
+    name = "sec"
+
+    def __init__(
+        self,
+        *,
+        snapshot_path: str | Path | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        raw = snapshot_path or os.environ.get("MEE_ENGINE_SNAPSHOT") or "data/engine-snapshot.json"
+        self.snapshot_path = Path(raw).expanduser()
+        self._clock = clock or _utcnow
+        self._dataset: Any | None = None
+        self._loaded = False
+        self.load_error: str | None = None
+
+    def _load(self) -> Any | None:
+        if self._loaded:
+            return self._dataset
+        self._loaded = True
+        if not self.snapshot_path.exists():
+            self.load_error = f"snapshot not found: {self.snapshot_path}"
+            return None
+        try:
+            from app.engine.store import EngineStore
+
+            self._dataset = EngineStore(self.snapshot_path).load()
+        except Exception as exc:  # noqa: BLE001 - identity enrichment is optional
+            self.load_error = f"{type(exc).__name__}: {exc}"
+            logger.info("SEC depth snapshot failed: %s", self.load_error)
+        return self._dataset
+
+    def _as_of(self, dataset: Any) -> datetime:
+        raw = str(getattr(dataset, "fetched_at", "") or "").strip()
+        if raw:
+            try:
+                stamp = datetime.fromisoformat(raw)
+                if stamp.tzinfo is not None and stamp.utcoffset() is not None:
+                    return stamp
+            except ValueError:
+                pass
+        return self._clock()
+
+    async def fetch_many(
+        self, symbols: Sequence[str]
+    ) -> dict[str, DepthObservation]:
+        dataset = self._load()
+        if dataset is None:
+            return {}
+        master = getattr(dataset, "security_master", None)
+        if master is None:
+            return {}
+        as_of = self._as_of(dataset)
+        out: dict[str, DepthObservation] = {}
+        for raw_symbol in symbols:
+            symbol = canonical_symbol(raw_symbol)
+            record = master.get(symbol)
+            if record is None:
+                continue
+            fields: dict[str, Any] = {
+                "ticker": record.symbol,
+                "company": record.name,
+                "security_type": (
+                    "ETF" if str(record.asset_class).lower() == "etf" else "Stock"
+                ),
+            }
+            if record.exchange:
+                fields["exchange"] = record.exchange
+            if record.industry:
+                fields["industry"] = record.industry
+            if record.country:
+                fields["country"] = record.country
+            sector = record.sector or classify_sector(record.industry)
+            if sector:
+                fields["sector"] = sector
+            out[symbol] = DepthObservation(
+                symbol=symbol,
+                fields=fields,
+                as_of=as_of,
+                source=self.name,
+            )
+        return out
+
+
 def build_depth_collector(
     settings: Any,
     symbols: Sequence[str],
@@ -883,9 +982,12 @@ def build_depth_collector(
     clock: Callable[[], datetime] | None = None,
     random_source: random.Random | None = None,
 ) -> DepthCollector:
-    """Build Finviz + StockAnalysis + Yahoo; no request at construction."""
+    """Build SEC + Finviz + StockAnalysis + Yahoo; no request at construction."""
 
     sources = [
+        SecDepthSource(
+            snapshot_path=getattr(settings, "depth_sec_snapshot", None),
+        ),
         FinvizDepthSource(
             concurrency=int(getattr(settings, "depth_concurrency", 3)),
             delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
