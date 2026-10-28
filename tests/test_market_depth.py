@@ -18,6 +18,7 @@ from app.market.depth import (
     FinvizDepthSource,
     parse_stockanalysis_statistics,
 )
+from tests._market_quote import install_seam
 from tests._phase2 import MockWeb
 
 T0 = datetime(2026, 10, 27, 15, 0, tzinfo=UTC)
@@ -210,3 +211,45 @@ def test_depth_api_reads_the_store_without_source_labels() -> None:
     body = response.json()
     assert body["symbols"]["AAPL"] == {"pe": 28.0, "roe": 40.0}
     assert "source" not in json.dumps(body)
+
+
+def test_yahoo_bulk_reuses_one_cookie_and_crumb(monkeypatch: Any) -> None:
+    web = MockWeb()
+
+    def responder(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/v1/test/getcrumb"):
+            return httpx2.Response(200, text="crumb-1")
+        return httpx2.Response(
+            200,
+            json={
+                "quoteSummary": {
+                    "result": [
+                        {"price": {"regularMarketPrice": 101.0}}
+                    ]
+                }
+            },
+        )
+
+    web.route("fc.yahoo.com", lambda _request: httpx2.Response(404, text=""))
+    web.route("query1.finance.yahoo.com", responder)
+    install_seam(monkeypatch, web)
+
+    from app.providers.adapters.yahoo import YahooAdapter
+    from app.providers.base import InstrumentRef
+
+    adapter = YahooAdapter()
+    instruments = [InstrumentRef.from_symbol("AAPL"), InstrumentRef.from_symbol("MSFT")]
+    result = asyncio.run(adapter.fetch_fundamentals_many(instruments, concurrency=2))
+    assert set(result) == {"AAPL", "MSFT"}
+    cookie_requests = [r for r in web.requests if r.host == "fc.yahoo.com"]
+    crumb_requests = [
+        r for r in web.requests
+        if r.host == "query1.finance.yahoo.com" and r.url.endswith("/v1/test/getcrumb")
+    ]
+    data_requests = [
+        r for r in web.requests
+        if r.host == "query1.finance.yahoo.com" and "quoteSummary" in r.url
+    ]
+    assert len(cookie_requests) == 1
+    assert len(crumb_requests) == 1
+    assert len(data_requests) == 2

@@ -35,6 +35,7 @@ publish them) with the V8 signs of a long call.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from dataclasses import dataclass
@@ -637,9 +638,14 @@ class YahooAdapter(HttpAdapter):
         return f"{url}{separator}crumb={crumb}"
 
     async def _fetch_fundamentals(
-        self, client: Any, instrument: InstrumentRef
+        self,
+        client: Any,
+        instrument: InstrumentRef,
+        *,
+        crumb: str | None = None,
     ) -> dict[str, Any]:
-        crumb = await self._crumb(client)
+        if crumb is None:
+            crumb = await self._crumb(client)
         url = (
             f"{HOST}{QUOTE_SUMMARY_PATH.format(symbol=self._symbol(instrument))}"
             f"?modules={','.join(QUOTE_SUMMARY_MODULES)}"
@@ -660,6 +666,44 @@ class YahooAdapter(HttpAdapter):
                     client, self._with_crumb(url, crumb), Capability.FUNDAMENTALS
                 )
         return first
+
+    async def fetch_fundamentals_many(
+        self,
+        instruments: Sequence[InstrumentRef],
+        *,
+        concurrency: int = 2,
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch many fundamentals with one cookie/crumb session.
+
+        The normal ``fetch`` path opens a client and performs the cookie/crumb
+        dance for every symbol. That is fine for a single watchlist request and
+        wasteful for a 4k depth pass: three auth requests per symbol dwarf the
+        one body request that carries data. This method keeps one client (and
+        its cookie jar) and one crumb for the whole batch, refreshing only on a
+        401. It deliberately has no proxy rung; the depth collector's egress is
+        direct, and a proxy retry would invalidate the session anyway.
+        """
+
+        wanted = list(instruments)
+        if not wanted:
+            return {}
+        semaphore = asyncio.Semaphore(max(1, int(concurrency)))
+        answers: dict[str, dict[str, Any]] = {}
+        headers = self.request_headers(wanted[0])
+        async with provider_http.build_client(
+            timeout_s=self.timeout_s, headers=headers
+        ) as client:
+            crumb = await self._crumb(client)
+
+            async def one(instrument: InstrumentRef) -> None:
+                async with semaphore:
+                    raw = await self._fetch_fundamentals(
+                        client, instrument, crumb=crumb
+                    )
+                    answers[instrument.symbol] = raw
+
+            await asyncio.gather(*(one(instrument) for instrument in wanted))
+        return answers
 
     async def _fetch_options(self, client: Any, instrument: InstrumentRef) -> dict[str, Any]:
         """Expiry list first, then the dated chain (the only way to reach ~30 DTE)."""

@@ -819,46 +819,60 @@ class YahooDepthSource:
         from app.providers.base import InstrumentRef
 
         adapter = self._adapter_or_build()
-        semaphore = asyncio.Semaphore(self.concurrency)
-        out: dict[str, DepthObservation] = {}
+        instruments = [InstrumentRef.from_symbol(symbol) for symbol in symbols]
+        bulk = getattr(adapter, "fetch_fundamentals_many", None)
+        raws: dict[str, Any] = {}
+        if callable(bulk):
+            result = bulk(instruments, concurrency=self.concurrency)
+            result = await result if inspect.isawaitable(result) else result
+            raws = dict(result) if isinstance(result, Mapping) else {}
+        else:
+            # Test doubles and older adapters keep the single-symbol path.
+            semaphore = asyncio.Semaphore(self.concurrency)
 
-        async def one(symbol: str) -> None:
-            async with semaphore:
-                try:
-                    instrument = InstrumentRef.from_symbol(symbol)
-                    raw = await adapter.fetch(
+            async def one(instrument: Any) -> None:
+                async with semaphore:
+                    raws[instrument.symbol] = await adapter.fetch(
                         Capability.FUNDAMENTALS, instrument, set()
                     )
-                    verdict = adapter.verdict(raw, instrument)
-                    if not getattr(verdict, "ok", False):
-                        return
-                    observations = adapter.parse(raw, instrument)
-                    fields: dict[str, Any] = {}
-                    for observation in observations:
-                        value = observation.get("value_num")
-                        if value is None:
-                            value = observation.get("value_text")
-                        if value is None:
-                            continue
-                        field = str(observation.get("field") or "")
-                        if not field or field in QUOTE_ONLY_FIELDS:
-                            continue
-                        fields[field] = value
-                    if fields:
-                        out[canonical_symbol(symbol)] = DepthObservation(
-                            symbol=symbol,
-                            fields=fields,
-                            # Depth merge recency is *fetch* recency. Yahoo's
-                            # observation clock is the last trade, which before
-                            # the open can be hours old and must not lose a
-                            # field to a source fetched later by accident.
-                            as_of=datetime.now(UTC),
-                            source=self.name,
-                        )
-                except Exception as exc:  # noqa: BLE001 - one symbol is optional
-                    logger.info("yahoo depth failed for %s: %s", symbol, exc)
 
-        await asyncio.gather(*(one(symbol) for symbol in symbols))
+            await asyncio.gather(*(one(instrument) for instrument in instruments))
+
+        out: dict[str, DepthObservation] = {}
+        for instrument in instruments:
+            symbol = instrument.symbol
+            raw = raws.get(symbol)
+            if not isinstance(raw, Mapping):
+                continue
+            try:
+                verdict = adapter.verdict(raw, instrument)
+                if not getattr(verdict, "ok", False):
+                    continue
+                observations = adapter.parse(raw, instrument)
+                fields: dict[str, Any] = {}
+                for observation in observations:
+                    value = observation.get("value_num")
+                    if value is None:
+                        value = observation.get("value_text")
+                    if value is None:
+                        continue
+                    field = str(observation.get("field") or "")
+                    if not field or field in QUOTE_ONLY_FIELDS:
+                        continue
+                    fields[field] = value
+                if fields:
+                    out[canonical_symbol(symbol)] = DepthObservation(
+                        symbol=symbol,
+                        fields=fields,
+                        # Depth merge recency is *fetch* recency. Yahoo's
+                        # observation clock is the last trade, which before the
+                        # open can be hours old and must not lose a field to a
+                        # source fetched later by accident.
+                        as_of=datetime.now(UTC),
+                        source=self.name,
+                    )
+            except Exception as exc:  # noqa: BLE001 - one symbol is optional
+                logger.info("yahoo depth failed for %s: %s", symbol, exc)
         return out
 
 
