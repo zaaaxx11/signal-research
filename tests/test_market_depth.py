@@ -474,3 +474,350 @@ def test_depth_collector_seeds_before_first_cycle(tmp_path: Path) -> None:
     )
     assert collector._seed() == 1
     assert collector.document()["symbols"]["AAPL"]["market_cap"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Full-run reliability: a source is fetched per chunk, under its own deadline
+# ---------------------------------------------------------------------------
+
+
+class RecordingChunkSource:
+    """Fake source that records every chunk it was handed and answers at once."""
+
+    def __init__(
+        self, name: str = "record", *, values: dict[str, DepthObservation] | None = None
+    ) -> None:
+        self.name = name
+        self.values = values or {}
+        self.calls: list[tuple[str, ...]] = []
+
+    async def fetch_many(self, symbols: Sequence[str]) -> dict[str, DepthObservation]:
+        self.calls.append(tuple(symbols))
+        if self.values:
+            return {
+                symbol: self.values[symbol]
+                for symbol in symbols
+                if symbol in self.values
+            }
+        return {
+            symbol: _obs(symbol, {"pe": 10.0}, source=self.name) for symbol in symbols
+        }
+
+
+class HangingChunkSource:
+    """Fake source whose selected chunks never resolve; ``only=None`` hangs all."""
+
+    def __init__(self, name: str = "hang", *, only: set[str] | None = None) -> None:
+        self.name = name
+        self.only = only
+        self.calls: list[tuple[str, ...]] = []
+
+    async def fetch_many(self, symbols: Sequence[str]) -> dict[str, DepthObservation]:
+        self.calls.append(tuple(symbols))
+        if self.only is None or any(symbol in self.only for symbol in symbols):
+            await asyncio.Event().wait()
+        return {
+            symbol: _obs(symbol, {"pe": 1.0}, source=self.name) for symbol in symbols
+        }
+
+
+def test_full_run_is_split_into_bounded_chunks() -> None:
+    symbols = [f"S{index:04d}" for index in range(4217)]
+    source = RecordingChunkSource("bulk")
+    collector = DepthCollector(symbols=symbols, sources=[source], store_path=None)
+    result = asyncio.run(collector.refresh())
+    assert collector.source_chunk_size == 250
+    assert collector.source_timeout_s == 180.0
+    assert len(source.calls) == 17
+    assert [len(chunk) for chunk in source.calls] == [250] * 16 + [217]
+    assert tuple(symbol for chunk in source.calls for symbol in chunk) == tuple(symbols)
+    assert result.requested == 4217
+    assert result.returned == 4217
+    assert result.errors == 0
+    assert result.error is None
+
+
+def test_a_chunk_larger_than_the_run_makes_one_call() -> None:
+    source = RecordingChunkSource("bulk")
+    collector = DepthCollector(
+        symbols=["AAPL", "MSFT"],
+        sources=[source],
+        store_path=None,
+        source_chunk_size=1000,
+    )
+    result = asyncio.run(collector.refresh())
+    assert source.calls == [("AAPL", "MSFT")]
+    assert result.requested == 2
+    assert result.returned == 2
+
+
+def test_one_hung_chunk_times_out_without_stopping_the_run(tmp_path: Path) -> None:
+    symbols = [f"S{index}" for index in range(6)]
+    slow = HangingChunkSource("slow", only={"S2"})
+    good = RecordingChunkSource("good")
+    collector = DepthCollector(
+        symbols=symbols,
+        sources=[slow, good],
+        store_path=tmp_path / "depth.json",
+        source_timeout_s=0.05,
+        source_chunk_size=2,
+    )
+    result = asyncio.run(collector.refresh())
+    assert slow.calls == [("S0", "S1"), ("S2", "S3"), ("S4", "S5")]
+    assert result.requested == 6
+    assert result.errors == 1
+    assert result.error is not None
+    assert "slow" in result.error and "timeout" in result.error
+    # The timed-out chunk contributes nothing, its neighbours and the second
+    # source still do; a lower-priority source fills the missing symbols.
+    document = collector.document(symbols)["symbols"]
+    assert document["S0"]["pe"] == 1.0
+    assert document["S2"]["pe"] == 10.0
+    assert document["S4"]["pe"] == 1.0
+    assert result.returned == 6
+
+
+def test_a_source_whose_every_chunk_hangs_is_bounded_and_persisted(
+    tmp_path: Path,
+) -> None:
+    symbols = [f"S{index}" for index in range(5)]
+    dead = HangingChunkSource("dead")
+    good = RecordingChunkSource("good")
+    collector = DepthCollector(
+        symbols=symbols,
+        sources=[dead, good],
+        store_path=tmp_path / "depth.json",
+        source_timeout_s=0.03,
+        source_chunk_size=2,
+    )
+    result = asyncio.run(collector.refresh())
+    assert dead.calls == [("S0", "S1"), ("S2", "S3"), ("S4",)]
+    assert result.errors == 3
+    assert result.error is not None and result.error.count("timeout") == 3
+    assert result.returned == 5
+    assert result.seconds < 5.0, "a hanging source must not hang the cycle"
+    written = json.loads((tmp_path / "depth.json").read_text(encoding="utf-8"))
+    assert written["count"] == 5
+    assert written["missing"] == []
+
+
+def test_a_source_that_swallows_cancellation_is_still_a_timeout() -> None:
+    class Swallowing:
+        name = "swallow"
+
+        async def fetch_many(self, symbols: Sequence[str]) -> dict[str, DepthObservation]:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                # A provider must not be able to turn its own deadline into a
+                # successful, late answer.
+                return {
+                    symbol: _obs(symbol, {"pe": 0.0}, source=self.name)
+                    for symbol in symbols
+                }
+            raise AssertionError("an Event that was never set cannot return")
+
+    good = RecordingChunkSource("good")
+    collector = DepthCollector(
+        symbols=["AAPL"],
+        sources=[Swallowing(), good],
+        store_path=None,
+        source_timeout_s=0.05,
+    )
+    result = asyncio.run(collector.refresh())
+    assert result.errors == 1
+    assert result.error is not None
+    assert "swallow" in result.error and "timeout" in result.error
+    assert collector.document(["AAPL"])["symbols"]["AAPL"] == {"pe": 10.0}
+
+
+def test_a_provider_that_ignores_cancellation_cannot_hold_the_cycle(
+    monkeypatch: Any,
+) -> None:
+    import app.market.depth as depth_module
+
+    # Keep the bounded drain short in the test; production uses the constant.
+    monkeypatch.setattr(depth_module, "CHUNK_DRAIN_S", 0.05)
+
+    class Stubborn:
+        name = "stubborn"
+
+        async def fetch_many(self, symbols: Sequence[str]) -> dict[str, DepthObservation]:
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                # Deliberately ignore the deadline and keep going.
+                await asyncio.sleep(30)
+            return {
+                symbol: _obs(symbol, {"pe": 0.0}, source=self.name)
+                for symbol in symbols
+            }
+
+    good = RecordingChunkSource("good")
+    collector = DepthCollector(
+        symbols=["AAPL"],
+        sources=[Stubborn(), good],
+        store_path=None,
+        source_timeout_s=0.05,
+    )
+    result = asyncio.run(collector.refresh())
+    assert result.errors == 1
+    assert result.error is not None
+    assert "stubborn" in result.error and "timeout" in result.error
+    assert collector.document(["AAPL"])["symbols"]["AAPL"] == {"pe": 10.0}
+
+
+def test_an_exception_after_a_successful_chunk_keeps_the_first_chunk(
+    tmp_path: Path,
+) -> None:
+    class FlakyChunk:
+        name = "flaky"
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        async def fetch_many(
+            self, symbols: Sequence[str]
+        ) -> dict[str, DepthObservation]:
+            self.calls.append(tuple(symbols))
+            if "S2" in symbols:
+                raise RuntimeError("chunk exploded")
+            return {
+                symbol: _obs(symbol, {"pe": 5.0}, source=self.name)
+                for symbol in symbols
+            }
+
+    symbols = [f"S{index}" for index in range(6)]
+    flaky = FlakyChunk()
+    collector = DepthCollector(
+        symbols=symbols,
+        sources=[flaky],
+        store_path=tmp_path / "depth.json",
+        source_chunk_size=2,
+    )
+    result = asyncio.run(collector.refresh())
+    assert flaky.calls == [("S0", "S1"), ("S2", "S3"), ("S4", "S5")]
+    assert result.errors == 1
+    assert result.error is not None
+    assert "flaky" in result.error and "RuntimeError" in result.error
+    document = collector.document(symbols)["symbols"]
+    assert document["S0"]["pe"] == 5.0
+    assert document["S4"]["pe"] == 5.0
+    assert "S2" not in document and "S3" not in document
+    assert result.returned == 4
+    written = json.loads((tmp_path / "depth.json").read_text(encoding="utf-8"))
+    assert written["count"] == 4
+    assert set(written["symbols"]) == {"S0", "S1", "S4", "S5"}
+
+
+def test_chunking_keeps_source_priority_and_ignores_chunk_order() -> None:
+    symbols = ["AAPL", "MSFT", "NVDA", "AMD", "INTC"]
+    first = RecordingChunkSource(
+        "first",
+        values={
+            "AAPL": _obs("AAPL", {"pe": 30.0}, source="first"),
+            "AMD": _obs("AMD", {"pe": 31.0}, source="first"),
+        },
+    )
+    second = RecordingChunkSource(
+        "second",
+        values={
+            symbol: _obs(symbol, {"pe": 99.0}, source="second") for symbol in symbols
+        },
+    )
+    collector = DepthCollector(
+        symbols=symbols,
+        sources=[first, second],
+        store_path=None,
+        source_chunk_size=2,
+    )
+    result = asyncio.run(collector.refresh())
+    document = collector.document(symbols)["symbols"]
+    assert document["AAPL"]["pe"] == 30.0
+    assert document["AMD"]["pe"] == 31.0
+    assert document["MSFT"]["pe"] == 99.0
+    assert document["NVDA"]["pe"] == 99.0
+    assert result.returned == 5
+
+
+def test_a_failed_write_keeps_the_merged_result(tmp_path: Path) -> None:
+    collector = DepthCollector(
+        symbols=["AAPL"],
+        sources=[RecordingChunkSource("ok")],
+        store_path=tmp_path,  # a directory: the atomic replace must fail
+    )
+    result = asyncio.run(collector.refresh())
+    assert result.returned == 1
+    assert result.errors == 1
+    assert result.error is not None
+    assert "persist" in result.error
+    assert collector.document(["AAPL"])["symbols"]["AAPL"] == {"pe": 10.0}
+    assert collector.last_cycle is result
+
+
+def test_collector_rejects_bad_source_limits_and_empty_inputs() -> None:
+    source = RecordingChunkSource("ok")
+    with pytest.raises(ValueError):
+        DepthCollector(
+            symbols=["AAPL"], sources=[source], store_path=None, source_timeout_s=0
+        )
+    with pytest.raises(ValueError):
+        DepthCollector(
+            symbols=["AAPL"],
+            sources=[source],
+            store_path=None,
+            source_timeout_s=0.0,
+        )
+    with pytest.raises(ValueError):
+        DepthCollector(
+            symbols=["AAPL"], sources=[source], store_path=None, source_chunk_size=0
+        )
+    with pytest.raises(ValueError):
+        DepthCollector(symbols=[], sources=[source], store_path=None)
+    with pytest.raises(ValueError):
+        DepthCollector(symbols=["AAPL"], sources=[], store_path=None)
+
+
+def test_settings_parse_depth_source_limits(monkeypatch: Any) -> None:
+    from app.config import Settings
+
+    monkeypatch.setenv("MEE_DEPTH_SOURCE_TIMEOUT_S", "120.5")
+    monkeypatch.setenv("MEE_DEPTH_SOURCE_CHUNK_SIZE", "500")
+    settings = Settings()
+    assert settings.depth_source_timeout_s == 120.5
+    assert settings.depth_source_chunk_size == 500
+    assert Settings().depth_source_timeout_s > 0
+    assert Settings().depth_source_chunk_size >= 1
+
+
+def test_settings_reject_a_zero_depth_source_timeout(monkeypatch: Any) -> None:
+    from pydantic import ValidationError
+
+    from app.config import Settings
+
+    monkeypatch.setenv("MEE_DEPTH_SOURCE_TIMEOUT_S", "0")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_build_depth_collector_carries_the_source_limits() -> None:
+    from types import SimpleNamespace
+
+    from app.market.depth import build_depth_collector
+
+    settings = SimpleNamespace(
+        depth_finviz=False,
+        depth_chart=False,
+        depth_official=False,
+        depth_finra=False,
+        depth_sec_snapshot=None,
+        depth_concurrency=1,
+        depth_delay_s=0.0,
+        depth_yahoo_concurrency=1,
+        depth_store_path=None,
+        depth_source_timeout_s=42.0,
+        depth_source_chunk_size=7,
+    )
+    collector = build_depth_collector(settings, ["AAPL"])
+    assert collector.source_timeout_s == 42.0
+    assert collector.source_chunk_size == 7

@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")
+    #: A full run is 4,000+ symbols per source. One monolithic ``fetch_many``
+    #: makes the whole daily cycle a hostage of the slowest provider, so the
+    #: collector asks each source chunk by chunk and bounds every chunk with
+    #: ``source_timeout_s``. A chunk that overruns is recorded as a visible
+    #: error and skipped; the remaining chunks, the other sources and the
+    #: persist of whatever arrived still happen. ``source_chunk_size`` is a
+    #: request batching bound, not a universe limit.
+    depth_source_timeout_s: float = Field(default=180.0, gt=0)
+    depth_source_chunk_size: int = Field(default=250, ge=1)
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the
     #: TradingView snapshot supplies the twenty candidates and one observation,
     #: Yahoo/Nasdaq/Finviz/Google re-verify their cells (P10.1 added the last

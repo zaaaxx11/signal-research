@@ -36,6 +36,12 @@ DEPTH_REFRESH_S = 86_400.0
 DEPTH_JITTER_S = 1_800.0
 DEFAULT_STORE_PATH = Path("data/depth.json")
 
+#: After a chunk's deadline expires it is cancelled; this is how long the
+#: collector still waits for that cancellation to unwind. A provider that
+#: ignores ``CancelledError`` must not be able to hang the cycle *after* its
+#: budget already failed it.
+CHUNK_DRAIN_S = 5.0
+
 #: These belong to the quote hub; keeping them out of the depth row avoids two
 #: stores publishing different prices for the same symbol.
 QUOTE_ONLY_FIELDS = frozenset({"price", "change_pct", "volume", "prev_close"})
@@ -293,6 +299,23 @@ class DepthStore:
         return len(encoded)
 
 
+def _consume_task_result(task: asyncio.Task[Any]) -> None:
+    """Read a finished task's outcome so a discarded chunk cannot warn later."""
+
+    if task.cancelled():
+        return
+    task.exception()
+
+
+def _chunked(symbols: Sequence[str], size: int) -> list[tuple[str, ...]]:
+    """Split a run into request-sized batches; order is preserved."""
+
+    return [
+        tuple(symbols[offset : offset + size])
+        for offset in range(0, len(symbols), size)
+    ]
+
+
 class DepthCollector:
     """Collect every depth source and merge by field."""
 
@@ -305,6 +328,8 @@ class DepthCollector:
         seed_path: str | Path | None = None,
         refresh_s: float = DEPTH_REFRESH_S,
         jitter_s: float = DEPTH_JITTER_S,
+        source_timeout_s: float = 180.0,
+        source_chunk_size: int = 250,
         clock: Callable[[], datetime] | None = None,
         random_source: random.Random | None = None,
     ) -> None:
@@ -331,12 +356,20 @@ class DepthCollector:
             raise ValueError("refresh_s must be > 0")
         if jitter_s < 0:
             raise ValueError("jitter_s must be >= 0")
+        # A zero budget would turn every chunk into an instant timeout and a
+        # zero chunk would loop forever without asking anything.
+        if float(source_timeout_s) <= 0:
+            raise ValueError("source_timeout_s must be > 0")
+        if int(source_chunk_size) <= 0:
+            raise ValueError("source_chunk_size must be > 0")
         self.symbols = tuple(ordered)
         self.sources = tuple(sources)
         self.store_path = Path(store_path) if store_path is not None else None
         self.seed_path = Path(seed_path) if seed_path is not None else None
         self.refresh_s = float(refresh_s)
         self.jitter_s = float(jitter_s)
+        self.source_timeout_s = float(source_timeout_s)
+        self.source_chunk_size = int(source_chunk_size)
         self.store = DepthStore()
         self._clock = clock or _utcnow
         self._random = random_source or random.Random()
@@ -409,6 +442,52 @@ class DepthCollector:
             except TimeoutError:
                 continue
 
+    async def _call_source(
+        self, source: DepthSourceProtocol, chunk: Sequence[str]
+    ) -> Mapping[str, "DepthObservation"]:
+        fetched = source.fetch_many(chunk)
+        result = await fetched if inspect.isawaitable(fetched) else fetched
+        if not isinstance(result, Mapping):
+            raise TypeError("fetch_many did not return a mapping")
+        return result
+
+    async def _fetch_chunk(
+        self, source: DepthSourceProtocol, chunk: Sequence[str]
+    ) -> Mapping[str, "DepthObservation"]:
+        """Ask one source for one chunk, bounded by ``source_timeout_s``.
+
+        The chunk runs in its own task behind ``asyncio.shield``, so the
+        deadline cancels the *wait*, not the work: ``TimeoutError`` is raised
+        even if a provider swallows ``CancelledError`` and returns late values.
+        A late mapping is reaped and discarded, never merged. Cancelling the
+        cycle itself still propagates and cancels the chunk.
+        """
+
+        task = asyncio.ensure_future(self._call_source(source, chunk))
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(task), timeout=self.source_timeout_s
+            )
+        except TimeoutError:
+            # Cancel and reap the chunk, but only for a bounded while: a
+            # provider that ignores cancellation has already failed and must
+            # not be allowed to hold the cycle open past its deadline.
+            task.cancel()
+            done, pending = await asyncio.wait({task}, timeout=CHUNK_DRAIN_S)
+            for finished in done:
+                _consume_task_result(finished)
+            for straggler in pending:
+                straggler.add_done_callback(_consume_task_result)
+                logger.warning(
+                    "depth chunk for %s ignored cancellation after %.1fs",
+                    source.name,
+                    CHUNK_DRAIN_S,
+                )
+            raise
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+
     async def refresh(self) -> DepthCycleResult:
         started_at = self._clock()
         started = time.perf_counter()
@@ -416,24 +495,36 @@ class DepthCollector:
         messages: list[str] = []
         errors = 0
 
+        # Sources are visited in configured priority order and every source is
+        # asked chunk by chunk, sequentially. Priority is the source index
+        # alone: which chunk of a source finished first cannot promote a
+        # lower-priority value above an earlier source's field.
         for priority, source in enumerate(self.sources):
-            try:
-                fetched = source.fetch_many(self.symbols)
-                result = await fetched if inspect.isawaitable(fetched) else fetched
-                if not isinstance(result, Mapping):
-                    raise TypeError("fetch_many did not return a mapping")
-            except Exception as exc:  # noqa: BLE001 - one source is not a cycle
-                errors += 1
-                message = f"{source.name}: {type(exc).__name__}: {exc}"
-                messages.append(message)
-                self.last_error = message
-                logger.warning("depth source failed: %s", message)
-                continue
-            for symbol, observation in result.items():
-                if isinstance(observation, DepthObservation):
-                    observations.setdefault(observation.symbol, []).append(
-                        (priority, observation)
+            for chunk in _chunked(self.symbols, self.source_chunk_size):
+                try:
+                    fetched = await self._fetch_chunk(source, chunk)
+                except TimeoutError:
+                    errors += 1
+                    message = (
+                        f"{source.name}: timeout after "
+                        f"{self.source_timeout_s:g}s ({len(chunk)} symbols)"
                     )
+                    messages.append(message)
+                    self.last_error = message
+                    logger.warning("depth source chunk timed out: %s", message)
+                    continue
+                except Exception as exc:  # noqa: BLE001 - one chunk is not a cycle
+                    errors += 1
+                    message = f"{source.name}: {type(exc).__name__}: {exc}"
+                    messages.append(message)
+                    self.last_error = message
+                    logger.warning("depth source chunk failed: %s", message)
+                    continue
+                for observation in fetched.values():
+                    if isinstance(observation, DepthObservation):
+                        observations.setdefault(observation.symbol, []).append(
+                            (priority, observation)
+                        )
 
         returned = 0
         for symbol in self.symbols:
@@ -445,8 +536,20 @@ class DepthCollector:
                 matched += self.store.merge(observation, priority=priority)
             if matched:
                 returned += 1
-        if not messages:
-            self.last_error = None
+        # A partial run is still a result: a timed-out chunk must not discard
+        # the fields the other chunks and sources already delivered, and a
+        # failed write must not discard the in-memory merge either.
+        try:
+            await self.persist()
+        except Exception as exc:  # noqa: BLE001 - the next cycle retries the write
+            errors += 1
+            message = f"persist: {type(exc).__name__}: {exc}"
+            messages.append(message)
+            self.last_error = message
+            logger.warning("depth persist failed: %s", message)
+        else:
+            if not messages:
+                self.last_error = None
         result = DepthCycleResult(
             requested=len(self.symbols),
             returned=returned,
@@ -456,7 +559,6 @@ class DepthCollector:
             error="; ".join(messages)[:500] if messages else None,
         )
         self.last_cycle = result
-        await self.persist()
         return result
 
     async def persist(self) -> int:
@@ -1180,6 +1282,8 @@ def build_depth_collector(
         seed_path=getattr(settings, "depth_store_path", DEFAULT_STORE_PATH),
         refresh_s=float(getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)),
         jitter_s=float(getattr(settings, "depth_jitter_s", DEPTH_JITTER_S)),
+        source_timeout_s=float(getattr(settings, "depth_source_timeout_s", 180.0)),
+        source_chunk_size=int(getattr(settings, "depth_source_chunk_size", 250)),
         clock=clock,
         random_source=random_source,
     )
