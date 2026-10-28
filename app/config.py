@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     #: store. It is daily, opt-in, and deliberately separate from the quote
     #: hub so a slow page cannot delay a price.
     depth: bool = False
+    depth_finviz: bool = True
+    depth_chart: bool = False
     depth_refresh_s: float = Field(default=86_400.0, gt=0)
     depth_jitter_s: float = Field(default=1_800.0, ge=0)
     depth_concurrency: int = Field(default=3, ge=1, le=10)

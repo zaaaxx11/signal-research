@@ -310,3 +310,132 @@ def test_sec_depth_source_reads_identity_and_classifies_sector() -> None:
         "sector": "Technology",
     }
     assert "MSFT" not in values
+
+
+def test_settings_parses_depth_flags(monkeypatch: Any) -> None:
+    from app.config import Settings
+
+    monkeypatch.setenv("MEE_DEPTH_FINVIZ", "0")
+    monkeypatch.setenv("MEE_DEPTH_CHART", "1")
+    settings = Settings()
+    assert settings.depth_finviz is False
+    assert settings.depth_chart is True
+
+
+def test_build_depth_collector_can_exclude_finviz() -> None:
+    from types import SimpleNamespace
+
+    from app.market.depth import build_depth_collector
+
+    settings = SimpleNamespace(
+        depth_finviz=False,
+        depth_chart=False,
+        depth_sec_snapshot=None,
+        depth_concurrency=1,
+        depth_delay_s=0.0,
+        depth_yahoo_concurrency=1,
+        depth_store_path=None,
+    )
+    collector = build_depth_collector(settings, ["AAPL"])
+    assert "finviz" not in [source.name for source in collector.sources]
+
+
+def test_build_depth_collector_keeps_finviz_by_default() -> None:
+    from types import SimpleNamespace
+
+    from app.market.depth import build_depth_collector
+
+    settings = SimpleNamespace(
+        depth_sec_snapshot=None,
+        depth_concurrency=1,
+        depth_delay_s=0.0,
+        depth_yahoo_concurrency=1,
+        depth_store_path=None,
+    )
+    collector = build_depth_collector(settings, ["AAPL"])
+    assert "finviz" in [source.name for source in collector.sources]
+
+
+def _chart_payload(symbol: str = "AAPL") -> dict[str, Any]:
+    from datetime import timedelta
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    closes = [100.0] * 260
+    timestamps = [int((start + timedelta(days=i)).timestamp()) for i in range(260)]
+    return {
+        "chart": {
+            "result": [
+                {
+                    "meta": {"symbol": symbol},
+                    "timestamp": timestamps,
+                    "indicators": {
+                        "quote": [
+                            {
+                                "open": closes,
+                                "high": [101.0] * 260,
+                                "low": [99.0] * 260,
+                                "close": closes,
+                                "volume": [1000.0] * 260,
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+
+
+def test_yahoo_chart_source_emits_canonical_fields(monkeypatch: Any) -> None:
+    from app.market.depth import YahooChartDepthSource
+
+    web = MockWeb()
+    web.route(
+        "query1.finance.yahoo.com",
+        lambda request: httpx2.Response(200, json=_chart_payload()),
+    )
+    install_seam(monkeypatch, web)
+    source = YahooChartDepthSource(concurrency=1)
+    values = asyncio.run(source.fetch_many(["AAPL"]))
+    assert values["AAPL"].source == "yahoo_chart"
+    assert "sma20" in values["AAPL"].fields
+    assert "price" not in values["AAPL"].fields
+    assert "volume" not in values["AAPL"].fields
+
+
+def test_yahoo_chart_source_keeps_other_symbols_on_one_failure(
+    monkeypatch: Any,
+) -> None:
+    from app.market.depth import YahooChartDepthSource
+
+    web = MockWeb()
+    web.route(
+        "query1.finance.yahoo.com",
+        lambda request: (
+            httpx2.Response(200, json=_chart_payload())
+            if "AAPL" in str(request.url)
+            else httpx2.Response(404, json={})
+        ),
+    )
+    install_seam(monkeypatch, web)
+    values = asyncio.run(
+        YahooChartDepthSource(concurrency=1).fetch_many(["AAPL", "MISSING"])
+    )
+    assert set(values) == {"AAPL"}
+
+
+def test_build_depth_collector_adds_chart_when_enabled() -> None:
+    from types import SimpleNamespace
+
+    from app.market.depth import build_depth_collector
+
+    settings = SimpleNamespace(
+        depth_finviz=False,
+        depth_chart=True,
+        depth_sec_snapshot=None,
+        depth_concurrency=1,
+        depth_delay_s=0.0,
+        depth_yahoo_concurrency=1,
+        depth_store_path=None,
+    )
+    collector = build_depth_collector(settings, ["AAPL"])
+    assert "yahoo_chart" in [source.name for source in collector.sources]

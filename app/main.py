@@ -336,6 +336,9 @@ async def _start_depth(
         collector = build_depth_collector(settings, symbols)
         await collector.start()
         application.state.depth = collector
+        application.state.depth_sources = tuple(
+            source.name for source in collector.sources
+        )
         return collector
     except Exception as exc:  # noqa: BLE001 - optional enrichment must not kill startup
         application.state.depth_error = f"{type(exc).__name__}: {exc}"
