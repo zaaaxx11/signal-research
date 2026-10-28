@@ -729,6 +729,7 @@ class YahooDepthSource:
         include_timeseries: bool = True,
         include_options: bool = False,
         request_delay_s: float = 0.0,
+        symbol_timeout_s: float = 30.0,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.concurrency = max(1, int(concurrency))
@@ -736,6 +737,7 @@ class YahooDepthSource:
         self.include_timeseries = bool(include_timeseries)
         self.include_options = bool(include_options)
         self.request_delay_s = max(0.0, float(request_delay_s))
+        self.symbol_timeout_s = max(1.0, float(symbol_timeout_s))
         self._clock = clock or (lambda: datetime.now(UTC))
         self._crumb = ""
         self._crumb_lock = asyncio.Lock()
@@ -931,7 +933,10 @@ class YahooDepthSource:
             async def one(symbol: str) -> None:
                 async with semaphore:
                     try:
-                        fields = await self._fields_for(client, symbol)
+                        fields = await asyncio.wait_for(
+                            self._fields_for(client, symbol),
+                            timeout=self.symbol_timeout_s,
+                        )
                     except Exception as exc:  # noqa: BLE001 - one symbol is optional
                         logger.info("yahoo_full depth failed for %s: %s", symbol, exc)
                         return

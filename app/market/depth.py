@@ -1237,6 +1237,9 @@ def build_depth_collector(
             concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2)),
             include_options=not bool(getattr(settings, "depth_finviz", True)),
             request_delay_s=float(getattr(settings, "depth_yahoo_delay_s", 0.25)),
+            symbol_timeout_s=float(
+                getattr(settings, "depth_yahoo_symbol_timeout_s", 30.0)
+            ),
         )
     )
     if getattr(settings, "depth_chart", False):
