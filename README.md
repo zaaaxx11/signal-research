@@ -124,9 +124,14 @@ variables, then `MEE_DATA_DIR`, then `./data`:
 | `MEE_QUOTE_UNIVERSE` | empty | JSON list / `{"symbols":[]}` / `{"rows":[{"name":...}]}` |
 | `MEE_QUOTE_STORE_PATH` | `data/quotes.json` | atomic latest-value snapshot |
 | `MEE_QUOTE_HISTORY_DIR` | empty | optional hourly snapshots; unset = no history |
-| `MEE_DEPTH` | `0` | start the Finviz/StockAnalysis/Yahoo depth collector |
+| `MEE_DEPTH` | `0` | start the depth collector |
+| `MEE_DEPTH_FINVIZ` | `1` | fetch Finviz; set `0` for the Finviz-off stack |
+| `MEE_DEPTH_CHART` | `0` | derive performance/technical fields from Yahoo chart |
+| `MEE_DEPTH_FINRA` | `1` | fetch FINRA consolidated short interest |
+| `MEE_DEPTH_OFFICIAL` | `1` | fetch SSGA/NDX membership and Cboe optionable |
+| `MEE_DEPTH_NEWS` | `0` | fetch Yahoo/Nasdaq RSS headlines |
 | `MEE_DEPTH_SYMBOLS` | empty | depth universe when no file is set |
-| `MEE_DEPTH_UNIVERSE` | empty | JSON list / `{"symbols":[]}` / `{"rows":[{"name":...}]}` |
+| `MEE_DEPTH_UNIVERSE_PATH` | empty | JSON list / `{"symbols":[]}` / `{"rows":[{"name":...}]}` |
 | `MEE_DEPTH_STORE_PATH` | `data/depth.json` | atomic depth snapshot |
 | `MEE_DEPTH_REFRESH_S` | `86400` | daily depth cadence |
 | `MEE_DEPTH_CONCURRENCY` | `3` | per-source fetch concurrency |

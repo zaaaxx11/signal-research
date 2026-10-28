@@ -1072,21 +1072,45 @@ def build_depth_collector(
                 delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
             )
         )
-    sources.extend(
-        [
-            StockAnalysisDepthSource(
-                concurrency=int(getattr(settings, "depth_concurrency", 3)),
-                delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
-            ),
-            YahooDepthSource(
-                concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2))
-            ),
-        ]
+    from app.market.yahoo_depth import YahooDepthSource as YahooFullDepthSource
+
+    sources.append(
+        YahooFullDepthSource(
+            concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2))
+        )
     )
     if getattr(settings, "depth_chart", False):
         sources.append(
             YahooChartDepthSource(
                 concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2))
+            )
+        )
+    if getattr(settings, "depth_official", True):
+        from app.market.official import OfficialDepthSource
+
+        sources.append(
+            OfficialDepthSource(
+                concurrency=int(
+                    getattr(settings, "depth_official_concurrency", 2)
+                )
+            )
+        )
+    sources.append(
+        StockAnalysisDepthSource(
+            concurrency=int(getattr(settings, "depth_concurrency", 3)),
+            delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
+        )
+    )
+    if getattr(settings, "depth_finra", True):
+        from app.market.finra import FinraShortSource
+
+        sources.append(FinraShortSource())
+    if getattr(settings, "depth_news", False):
+        from app.market.news import RssNewsSource
+
+        sources.append(
+            RssNewsSource(
+                concurrency=int(getattr(settings, "depth_news_concurrency", 8))
             )
         )
     return DepthCollector(

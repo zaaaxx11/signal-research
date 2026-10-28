@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     depth: bool = False
     depth_finviz: bool = True
     depth_chart: bool = False
+    depth_finra: bool = True
+    depth_official: bool = True
+    depth_official_concurrency: int = Field(default=2, ge=1, le=4)
+    depth_news: bool = False
+    depth_news_concurrency: int = Field(default=8, ge=1, le=16)
     depth_refresh_s: float = Field(default=86_400.0, gt=0)
     depth_jitter_s: float = Field(default=1_800.0, ge=0)
     depth_concurrency: int = Field(default=3, ge=1, le=10)
