@@ -195,6 +195,45 @@ class DepthStore:
             changed += 1
         return changed
 
+    def seed(self, payload: Mapping[str, Any], *, source: str = "cache") -> int:
+        """Load a previous document as low-priority fallback values.
+
+        A restart must not make ``GET /market/depth`` answer 503 while the first
+        full cycle is still running. Cached values get a very high priority
+        number (lower numbers win in :meth:`merge`), so every live source
+        replaces them as soon as it has a value.
+        """
+        symbols = payload.get("symbols")
+        if not isinstance(symbols, Mapping):
+            return 0
+        raw_stamp = str(payload.get("as_of") or "").strip()
+        try:
+            stamp = datetime.fromisoformat(raw_stamp) if raw_stamp else datetime.now(UTC)
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=UTC)
+        except ValueError:
+            stamp = datetime.now(UTC)
+        loaded = 0
+        for raw_symbol, raw_fields in symbols.items():
+            if not isinstance(raw_fields, Mapping):
+                continue
+            symbol = canonical_symbol(raw_symbol)
+            if not symbol:
+                continue
+            bucket = self._symbols.setdefault(symbol, {})
+            for raw_name, value in raw_fields.items():
+                if value is None or value == "":
+                    continue
+                name = str(raw_name).strip()
+                if not name:
+                    continue
+                bucket.setdefault(
+                    name,
+                    DepthField(value=value, as_of=stamp, source=source, priority=10_000_000),
+                )
+                loaded += 1
+        return loaded
+
     def snapshot(
         self, symbols: Sequence[str] | None = None
     ) -> dict[str, dict[str, DepthField]]:
@@ -263,6 +302,7 @@ class DepthCollector:
         symbols: Sequence[str],
         sources: Sequence[DepthSourceProtocol],
         store_path: str | Path | None = DEFAULT_STORE_PATH,
+        seed_path: str | Path | None = None,
         refresh_s: float = DEPTH_REFRESH_S,
         jitter_s: float = DEPTH_JITTER_S,
         clock: Callable[[], datetime] | None = None,
@@ -294,6 +334,7 @@ class DepthCollector:
         self.symbols = tuple(ordered)
         self.sources = tuple(sources)
         self.store_path = Path(store_path) if store_path is not None else None
+        self.seed_path = Path(seed_path) if seed_path is not None else None
         self.refresh_s = float(refresh_s)
         self.jitter_s = float(jitter_s)
         self.store = DepthStore()
@@ -318,11 +359,26 @@ class DepthCollector:
     async def start(self) -> None:
         if self.started:
             return
+        self._seed()
         self.started = True
         self._stop.clear()
         self._tasks = [
             asyncio.create_task(self._loop(), name="depth-collector"),
         ]
+
+    def _seed(self) -> int:
+        """Load the previous snapshot before the first network cycle."""
+        if self.seed_path is None or not self.seed_path.exists():
+            return 0
+        try:
+            payload = json.loads(self.seed_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - stale cache is optional
+            logger.warning("depth seed failed: %s", exc)
+            return 0
+        loaded = self.store.seed(payload)
+        if loaded:
+            logger.info("depth seeded %s cached fields from %s", loaded, self.seed_path)
+        return loaded
 
     async def stop(self) -> None:
         self._stop.set()
@@ -1119,6 +1175,7 @@ def build_depth_collector(
         symbols=symbols,
         sources=sources,
         store_path=getattr(settings, "depth_store_path", DEFAULT_STORE_PATH),
+        seed_path=getattr(settings, "depth_store_path", DEFAULT_STORE_PATH),
         refresh_s=float(getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)),
         jitter_s=float(getattr(settings, "depth_jitter_s", DEPTH_JITTER_S)),
         clock=clock,

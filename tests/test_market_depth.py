@@ -439,3 +439,38 @@ def test_build_depth_collector_adds_chart_when_enabled() -> None:
     )
     collector = build_depth_collector(settings, ["AAPL"])
     assert "yahoo_chart" in [source.name for source in collector.sources]
+
+
+def test_depth_store_seed_is_low_priority_fallback() -> None:
+    store = DepthStore()
+    payload = {
+        "as_of": "2026-10-28T00:00:00+00:00",
+        "symbols": {"AAPL": {"market_cap": 1.0, "pe": 20.0}},
+    }
+    assert store.seed(payload) == 2
+    assert store.document()["symbols"]["AAPL"]["market_cap"] == 1.0
+    store.merge(_obs("AAPL", {"market_cap": 2.0}), priority=0)
+    assert store.document()["symbols"]["AAPL"]["market_cap"] == 2.0
+    # A field the live source did not supply keeps the cached value.
+    assert store.document()["symbols"]["AAPL"]["pe"] == 20.0
+
+
+def test_depth_collector_seeds_before_first_cycle(tmp_path: Path) -> None:
+    seed = tmp_path / "depth.json"
+    seed.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-10-28T00:00:00+00:00",
+                "symbols": {"AAPL": {"market_cap": 1.0}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    collector = DepthCollector(
+        symbols=["AAPL"],
+        sources=[FakeDepthSource({"AAPL": _obs("AAPL", {"market_cap": 1.0})}, "fake")],
+        store_path=None,
+        seed_path=seed,
+    )
+    assert collector._seed() == 1
+    assert collector.document()["symbols"]["AAPL"]["market_cap"] == 1.0
