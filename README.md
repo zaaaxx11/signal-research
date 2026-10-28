@@ -124,6 +124,12 @@ variables, then `MEE_DATA_DIR`, then `./data`:
 | `MEE_QUOTE_UNIVERSE` | empty | JSON list / `{"symbols":[]}` / `{"rows":[{"name":...}]}` |
 | `MEE_QUOTE_STORE_PATH` | `data/quotes.json` | atomic latest-value snapshot |
 | `MEE_QUOTE_HISTORY_DIR` | empty | optional hourly snapshots; unset = no history |
+| `MEE_DEPTH` | `0` | start the Finviz/StockAnalysis/Yahoo depth collector |
+| `MEE_DEPTH_SYMBOLS` | empty | depth universe when no file is set |
+| `MEE_DEPTH_UNIVERSE` | empty | JSON list / `{"symbols":[]}` / `{"rows":[{"name":...}]}` |
+| `MEE_DEPTH_STORE_PATH` | `data/depth.json` | atomic depth snapshot |
+| `MEE_DEPTH_REFRESH_S` | `86400` | daily depth cadence |
+| `MEE_DEPTH_CONCURRENCY` | `3` | per-source fetch concurrency |
 | `MEE_QUOTE_FREE_REFRESH_S` | `900` | free cadence (15 minutes) |
 | `MEE_QUOTE_PREMIUM_REFRESH_MIN_S` | `60` | premium cadence lower bound |
 | `MEE_QUOTE_PREMIUM_REFRESH_MAX_S` | `120` | premium cadence upper bound |
@@ -140,6 +146,20 @@ poller and its existing contract is unchanged.
 The hub is opt-in and its public-mode gate is the same fail-closed licence
 boundary as `/market/quote`; do not enable it on a public tunnel without a
 licence decision.
+
+### Depth collector
+
+`MEE_DEPTH=1` starts a daily collector that asks Finviz, StockAnalysis and
+Yahoo for every symbol, parses each source into the same field vocabulary, and
+merges **per field**: the newest observation wins, and a source does not erase
+a field another source owns. `GET /market/depth?symbols=AAPL,MSFT` reads the
+snapshot; `source` and per-field timestamps are internal. The JSON is
+`data/depth.json` by default and is written atomically once per cycle.
+
+The depth store is separate from `quotes.json`: a slow fundamentals page must
+never delay a price. Both collectors are opt-in so a bare checkout does not
+start background scraping.
+
 
 
 Docker is the reference runtime:

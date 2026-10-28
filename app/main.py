@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,6 +31,7 @@ from app.engine.license import LicensePolicy
 from app.engine.quotes import quote_fields
 from app.engine.service import EngineService
 from app.engine.store import EngineStore
+from app.market.depth import DepthCollector, build_depth_collector
 from app.market.hub import QuoteHub, build_quote_hub
 from app.market.sources import build_quote_engine
 from app.export.writer import ExportFormatError, ExportFormatPending
@@ -252,7 +253,9 @@ def _quote_universe(
         master = getattr(dataset, "security_master", None)
         symbols = getattr(master, "symbols", None)
         if callable(symbols):
-            return tuple(symbols())
+            resolved = symbols()
+            if isinstance(resolved, Iterable) and not isinstance(resolved, (str, bytes)):
+                return tuple(str(symbol) for symbol in resolved)
     return ()
 
 
@@ -276,6 +279,66 @@ async def _start_quote_hub(
         return hub
     except Exception as exc:  # noqa: BLE001 - optional enrichment must not kill startup
         application.state.quote_hub_error = f"{type(exc).__name__}: {exc}"
+        return None
+
+
+def _depth_universe(
+    settings: Settings, dataset: EngineDataset | None
+) -> tuple[str, ...]:
+    """Depth universe: its own file/env, then the quote universe, then dataset."""
+
+    path = getattr(settings, "depth_universe_path", None)
+    if path is None:
+        path = getattr(settings, "quote_universe_path", None)
+    if path:
+        raw = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+        if isinstance(raw, Mapping):
+            rows = raw.get("symbols")
+            if rows is None:
+                rows = [row.get("symbol") or row.get("name") for row in raw.get("rows", [])]
+        else:
+            rows = raw
+        items = rows if isinstance(rows, (list, tuple)) else ()
+        return tuple(
+            str(item).strip().upper()
+            for item in items
+            if str(item or "").strip()
+        )
+    configured = os.environ.get("MEE_DEPTH_SYMBOLS", "")
+    if configured.strip():
+        return tuple(
+            part.strip().upper() for part in configured.split(",") if part.strip()
+        )
+    if dataset is not None:
+        master = getattr(dataset, "security_master", None)
+        symbols = getattr(master, "symbols", None)
+        if callable(symbols):
+            resolved = symbols()
+            if isinstance(resolved, Iterable) and not isinstance(resolved, (str, bytes)):
+                return tuple(str(symbol) for symbol in resolved)
+    return ()
+
+
+async def _start_depth(
+    application: FastAPI, settings: Settings, dataset: EngineDataset | None
+) -> DepthCollector | None:
+    """Start the opt-in daily depth collector; failures stay observable."""
+
+    if not getattr(settings, "depth", False):
+        return None
+    try:
+        symbols = _depth_universe(settings, dataset)
+        if not symbols:
+            application.state.depth_error = (
+                "depth is enabled but no universe was configured"
+            )
+            return None
+        collector = build_depth_collector(settings, symbols)
+        await collector.start()
+        application.state.depth = collector
+        return collector
+    except Exception as exc:  # noqa: BLE001 - optional enrichment must not kill startup
+        application.state.depth_error = f"{type(exc).__name__}: {exc}"
         return None
 
 
@@ -330,15 +393,21 @@ async def _engine_lifespan(application: FastAPI):
     runtime = getattr(application.state, "runtime", None)
     settings = getattr(runtime, "settings", None)
     hub = None
+    depth = None
     if settings is not None:
         hub = await _start_quote_hub(application, settings, dataset)
+        depth = await _start_depth(application, settings, dataset)
     try:
         yield
     finally:
+        if depth is not None:
+            await depth.stop()
         if hub is not None:
             await hub.stop()
         if hasattr(application.state, "quote_hub"):
             application.state.quote_hub = None
+        if hasattr(application.state, "depth"):
+            application.state.depth = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -370,6 +439,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: The hub is started only when ``MEE_QUOTE_HUB=1``; routes answer 503 when
     #: it is absent rather than scraping on the request path.
     application.state.quote_hub = None
+    #: Depth is a separate opt-in daily collector (``MEE_DEPTH=1``); its JSON
+    #: store never blocks a quote request.
+    application.state.depth = None
     #: ``GET /news/{symbol}`` (P12): one service per application, so its
     #: fifteen-minute cache is a property of the process and not of a request.
     #: Built here rather than in the route for the same reason the verifiers are

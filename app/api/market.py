@@ -50,6 +50,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 
 from app.auth import ApiError
+from app.market.depth import DepthCollector
 from app.market.hub import QuoteHub
 from app.market.quote import QuoteEngine, QuoteTick
 from app.market.sources import InvalidSymbol, build_quote_engine, parse_symbol_list
@@ -72,6 +73,13 @@ def quote_hub_of(request: Request) -> QuoteHub | None:
 
     hub = getattr(request.app.state, "quote_hub", None)
     return hub if isinstance(hub, QuoteHub) else None
+
+
+def depth_collector_of(request: Request) -> DepthCollector | None:
+    """The process-owned depth collector, or ``None`` when disabled."""
+
+    collector = getattr(request.app.state, "depth", None)
+    return collector if isinstance(collector, DepthCollector) else None
 
 
 def _document(tick: QuoteTick) -> dict[str, Any]:
@@ -177,6 +185,67 @@ async def hub_quote(
     }
 
 
+@router.get("/depth")
+async def depth(
+    request: Request,
+    symbols: str | None = Query(
+        default=None,
+        description="Comma-separated provider symbols, e.g. AAPL,MSFT",
+    ),
+) -> dict[str, Any]:
+    """Read the last depth snapshot; no provider is called on this path."""
+
+    try:
+        wanted = parse_symbol_list(symbols or "")
+    except InvalidSymbol as exc:
+        raise ApiError(
+            422,
+            "invalid_symbols",
+            f"{exc} — symbols are comma-separated provider tickers (AAPL,MSFT,BRK-B)",
+        ) from exc
+    if not wanted:
+        raise ApiError(
+            422,
+            "invalid_symbols",
+            "symbols is required: pass ?symbols=AAPL,MSFT",
+        )
+    limit = request.app.state.runtime.settings.quote_max_symbols
+    if len(wanted) > limit:
+        raise ApiError(
+            422,
+            "too_many_symbols",
+            f"{len(wanted)} symbols requested after dedupe; the maximum is {limit}",
+        )
+    if _public_mode(request):
+        raise ApiError(
+            503,
+            "license_unavailable",
+            "depth sources are internal and do not permit redistribution; "
+            "this deployment is public and has no licensed depth source configured",
+        )
+    collector = depth_collector_of(request)
+    if collector is None or not collector.ready:
+        raise ApiError(
+            503,
+            "depth_unavailable",
+            "depth collector is not running or has not completed a refresh",
+        )
+    document = collector.document(wanted)
+    if not document["symbols"]:
+        raise ApiError(
+            503,
+            "depth_unavailable",
+            "depth collector has no values for the requested symbols",
+        )
+    return {
+        "as_of": document["as_of"],
+        "requested": len(wanted),
+        "returned": document["count"],
+        "symbols": document["symbols"],
+        "missing": document["missing"],
+    }
+
+
 @router.get("/quote")
 async def quote(
     request: Request,
@@ -250,4 +319,4 @@ async def quote(
     }
 
 
-__all__ = ["hub_quote", "quote", "quote_engine_of", "quote_hub_of", "router"]
+__all__ = ["depth", "depth_collector_of", "hub_quote", "quote", "quote_engine_of", "quote_hub_of", "router"]

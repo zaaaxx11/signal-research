@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     quote_universe_path: Path | None = None
     quote_store_path: Path = Path("data/quotes.json")
     quote_history_dir: Path | None = None
+    #: Depth collector: Finviz + StockAnalysis + Yahoo, one field-level JSON
+    #: store. It is daily, opt-in, and deliberately separate from the quote
+    #: hub so a slow page cannot delay a price.
+    depth: bool = False
+    depth_refresh_s: float = Field(default=86_400.0, gt=0)
+    depth_jitter_s: float = Field(default=1_800.0, ge=0)
+    depth_concurrency: int = Field(default=3, ge=1, le=10)
+    depth_delay_s: float = Field(default=0.1, ge=0)
+    depth_yahoo_concurrency: int = Field(default=2, ge=1, le=5)
+    depth_universe_path: Path | None = None
+    depth_store_path: Path = Path("data/depth.json")
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the
     #: TradingView snapshot supplies the twenty candidates and one observation,
     #: Yahoo/Nasdaq/Finviz/Google re-verify their cells (P10.1 added the last
