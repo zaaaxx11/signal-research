@@ -113,11 +113,19 @@ class DepthObservation:
         if not isinstance(self.fields, Mapping):
             raise TypeError("fields must be a mapping")
         object.__setattr__(self, "symbol", symbol)
-        object.__setattr__(
-            self,
-            "fields",
-            {canonical_field(field): value for field, value in self.fields.items()},
-        )
+        normalized: dict[str, Any] = {}
+        for field, value in self.fields.items():
+            name = canonical_field(field)
+            # Yahoo reports this one cell in percent points while Finviz and
+            # StockAnalysis report the catalog's ratio. Normalize at the source
+            # boundary; a merge must never choose between 0.17 and 16.97.
+            if self.source.strip().lower() == "yahoo" and name == "debt_to_equity":
+                try:
+                    value = float(value) / 100.0
+                except (TypeError, ValueError):
+                    continue
+            normalized[name] = value
+        object.__setattr__(self, "fields", normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,6 +404,129 @@ class DepthCollector:
 # Finviz
 # ---------------------------------------------------------------------------
 
+_FIN_NUMBER = re.compile(r"^([+-]?\d[\d,]*(?:\.\d+)?)\s*([KMBT])?%?$")
+_FIN_SUFFIX = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
+
+
+def _fin_number(text: Any) -> float | None:
+    raw = str(text or "").strip().replace("$", "").replace("%", "")
+    if not raw or raw.upper() in {"N/A", "NA", "--", "-"}:
+        return None
+    match = _FIN_NUMBER.match(raw)
+    if not match:
+        return None
+    try:
+        value = float(match.group(1).replace(",", ""))
+    except ValueError:
+        return None
+    return value * _FIN_SUFFIX.get(match.group(2) or "", 1.0)
+
+
+def _first_number(text: Any) -> float | None:
+    match = re.search(r"[+-]?\d[\d,]*(?:\.\d+)?", str(text or ""))
+    return _fin_number(match.group(0)) if match else None
+
+
+def _percent_pair(text: Any) -> tuple[float | None, float | None]:
+    values = re.findall(r"([+-]?\d[\d,]*(?:\.\d+)?)%", str(text or ""))
+    if len(values) < 2:
+        return (None, None)
+    return (float(values[0].replace(",", "")), float(values[1].replace(",", "")))
+
+
+def parse_finviz_extras(body: str) -> dict[str, Any]:
+    """Read the identity/dividend/sentiment cells the wide parser ignores.
+
+    These labels are already on the same page as the metrics. Reading them adds
+    no request; a missing or dashed cell stays absent.
+    """
+
+    from app.providers.adapters.finviz import snapshot_rows
+
+    rows = snapshot_rows(body)
+    out: dict[str, Any] = {}
+
+    text_fields = {
+        "earnings_date": ("Earnings",),
+        "dividend_ex_date": ("Dividend Ex-Date", "Ex-Div Date"),
+    }
+    for field, labels in text_fields.items():
+        for label in labels:
+            value = str(rows.get(label) or "").strip()
+            if value and value != "-":
+                out[field] = value
+                break
+
+    numeric_fields = {
+        "dividend": ("Dividend TTM",),
+        "dividend_ttm": ("Dividend TTM",),
+        "payout_ratio": ("Payout",),
+        "recommendation": ("Recom",),
+        "target_price": ("Target Price",),
+        "short_ratio": ("Short Ratio",),
+        "short_interest": ("Short Interest",),
+        "eps_surprise": ("EPS/Sales Surpr.",),
+    }
+    for field, labels in numeric_fields.items():
+        for label in labels:
+            value = _first_number(rows.get(label))
+            if value is not None:
+                out[field] = value
+                break
+
+    # EPS/Sales Surpr. is two percentages in one cell; read the second value
+    # explicitly rather than letting the first-number rule hide it.
+    surprise = rows.get("EPS/Sales Surpr.")
+    if surprise:
+        eps, revenue = _percent_pair(surprise)
+        if eps is not None:
+            out["eps_surprise"] = eps
+        if revenue is not None:
+            out["revenue_surprise"] = revenue
+
+    growth = rows.get("Dividend Gr. 3/5Y")
+    if growth:
+        three, five = _percent_pair(growth)
+        if three is not None:
+            out["dividend_growth_3y"] = three
+        if five is not None:
+            out["dividend_growth_5y"] = five
+
+    for prefix, label in (
+        ("eps_past", "EPS past 3/5Y"),
+        ("sales_past", "Sales past 3/5Y"),
+    ):
+        cell = rows.get(label)
+        if cell:
+            three, five = _percent_pair(cell)
+            if three is not None:
+                out[f"{prefix}_3y"] = three
+            if five is not None:
+                out[f"{prefix}_5y"] = five
+
+    volatility = rows.get("Volatility")
+    if volatility:
+        weekly, monthly = _percent_pair(volatility)
+        if weekly is not None:
+            out["volatility_1w"] = weekly
+        if monthly is not None:
+            out["volatility_4w"] = monthly
+
+    option_short = str(rows.get("Option/Short") or "").strip()
+    if option_short:
+        parts = [part.strip() for part in option_short.split("/", 1)]
+        if parts and parts[0]:
+            out["optionable"] = parts[0]
+        if len(parts) > 1 and parts[1]:
+            out["shortable"] = parts[1]
+
+    for field, label in (("high_52w", "52W High"), ("low_52w", "52W Low")):
+        value = _first_number(rows.get(label))
+        if value is not None:
+            out[field] = value
+
+    return {key: value for key, value in out.items() if value not in (None, "")}
+
 
 class FinvizDepthSource:
     """One Finviz stock page per symbol; existing parser, no new vocabulary."""
@@ -450,6 +581,7 @@ class FinvizDepthSource:
                     )
                     fields = parse_wide_metrics(text)
                     fields.update(parse_facts(text))
+                    fields.update(parse_finviz_extras(text))
                     fields = {
                         name: value
                         for name, value in fields.items()
@@ -510,8 +642,8 @@ _SA_LABELS: dict[str, str] = {
     "Gross Margin": "gross_margin",
     "Operating Margin": "operating_margin",
     "Profit Margin": "net_margin",
-    "EPS (Diluted)": "eps_ttm",
-    "Revenue": "revenue_ttm",
+    "EPS (Diluted)": "eps",
+    "Revenue": "sales",
     "Shares Outstanding": "shares_outstanding",
     "Shares Float": "shares_float",
     "Beta (5Y)": "beta",
@@ -691,7 +823,6 @@ class YahooDepthSource:
                         return
                     observations = adapter.parse(raw, instrument)
                     fields: dict[str, Any] = {}
-                    stamps: list[datetime] = []
                     for observation in observations:
                         value = observation.get("value_num")
                         if value is None:
@@ -702,17 +833,15 @@ class YahooDepthSource:
                         if not field or field in QUOTE_ONLY_FIELDS:
                             continue
                         fields[field] = value
-                        raw_stamp = observation.get("as_of")
-                        if raw_stamp:
-                            try:
-                                stamps.append(datetime.fromisoformat(str(raw_stamp)))
-                            except ValueError:
-                                pass
                     if fields:
                         out[canonical_symbol(symbol)] = DepthObservation(
                             symbol=symbol,
                             fields=fields,
-                            as_of=max(stamps) if stamps else datetime.now(UTC),
+                            # Depth merge recency is *fetch* recency. Yahoo's
+                            # observation clock is the last trade, which before
+                            # the open can be hours old and must not lose a
+                            # field to a source fetched later by accident.
+                            as_of=datetime.now(UTC),
                             source=self.name,
                         )
                 except Exception as exc:  # noqa: BLE001 - one symbol is optional
@@ -769,4 +898,5 @@ __all__ = [
     "build_depth_collector",
     "canonical_symbol",
     "parse_stockanalysis_statistics",
+    "parse_finviz_extras",
 ]

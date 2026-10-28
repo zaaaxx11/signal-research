@@ -137,6 +137,10 @@ def test_finviz_source_uses_the_existing_wide_parser() -> None:
                 <div class="snapshot-td-label">Employees</div><div class="snapshot-td-content">1000</div>
                 <div class="snapshot-td-label">Short Float</div><div class="snapshot-td-content">0.83%</div>
                 <div class="snapshot-td-label">Oper. Margin</div><div class="snapshot-td-content">33.17%</div>
+                <div class="snapshot-td-label">Dividend TTM</div><div class="snapshot-td-content">1.06 (0.31%)</div>
+                <div class="snapshot-td-label">EPS/Sales Surpr.</div><div class="snapshot-td-content">6.77% 0.35%</div>
+                <div class="snapshot-td-label">Volatility</div><div class="snapshot-td-content">1.75% 1.81%</div>
+                <div class="snapshot-td-label">Option/Short</div><div class="snapshot-td-content">Yes / No</div>
                 """,
             }
 
@@ -146,7 +150,26 @@ def test_finviz_source_uses_the_existing_wide_parser() -> None:
     assert values["AAPL"].fields["employees"] == 1000
     assert values["AAPL"].fields["short_float"] == 0.83
     assert values["AAPL"].fields["operating_margin"] == 33.17
+    assert values["AAPL"].fields["dividend_ttm"] == 1.06
+    assert values["AAPL"].fields["eps_surprise"] == 6.77
+    assert values["AAPL"].fields["revenue_surprise"] == 0.35
+    assert values["AAPL"].fields["volatility_1w"] == 1.75
+    assert values["AAPL"].fields["volatility_4w"] == 1.81
+    assert values["AAPL"].fields["optionable"] == "Yes"
+    assert values["AAPL"].fields["shortable"] == "No"
     assert "oper_margin" not in values["AAPL"].fields
+
+
+def test_yahoo_debt_to_equity_is_normalized_to_a_ratio() -> None:
+    value = _obs("AAPL", {"debt_to_equity": 16.97}, source="yahoo")
+    assert value.fields["debt_to_equity"] == pytest.approx(0.1697)
+
+
+def test_stockanalysis_parser_maps_revenue_to_sales() -> None:
+    values = parse_stockanalysis_statistics(
+        "<table><tr><td>Revenue</td><td>466.82B</td></tr></table>"
+    )
+    assert values == {"sales": 466.82e9}
 
 
 def test_depth_api_reads_the_store_without_source_labels() -> None:
