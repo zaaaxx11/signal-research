@@ -44,15 +44,16 @@ class FakeDepthSource:
         return {symbol: self.values[symbol] for symbol in symbols if symbol in self.values}
 
 
-def test_store_merges_by_field_and_keeps_the_newest_value() -> None:
+def test_store_merges_by_field_and_keeps_priority_stable() -> None:
     store = DepthStore()
     assert store.merge(
         _obs("AAPL", {"pe": 30.0, "employees": 100}, ts=T0), priority=0
     ) == 2
-    # A newer source changes `pe` but does not erase `employees`.
+    # A newer lower-priority source fills a missing field, but does not replace
+    # the higher-priority source's `pe`.
     store.merge(_obs("AAPL", {"pe": 28.0, "roe": 40.0}, ts=T0 + timedelta(hours=1)), priority=1)
     document = store.document(["AAPL"])
-    assert document["symbols"]["AAPL"] == {"employees": 100, "pe": 28.0, "roe": 40.0}
+    assert document["symbols"]["AAPL"] == {"employees": 100, "pe": 30.0, "roe": 40.0}
     assert "source" not in json.dumps(document["symbols"])
 
 
@@ -83,7 +84,7 @@ def test_collector_asks_every_source_and_merges_their_fields(tmp_path: Path) -> 
     assert first.calls and second.calls, "all sources are collected, not fallback"
     assert collector.store.document(["AAPL"])["symbols"]["AAPL"] == {
         "employees": 100,
-        "pe": 28.0,
+        "pe": 30.0,
         "roe": 40.0,
     }
     assert json.loads((tmp_path / "depth.json").read_text())["count"] == 1
@@ -163,6 +164,21 @@ def test_finviz_source_uses_the_existing_wide_parser() -> None:
 def test_yahoo_debt_to_equity_is_normalized_to_a_ratio() -> None:
     value = _obs("AAPL", {"debt_to_equity": 16.97}, source="yahoo")
     assert value.fields["debt_to_equity"] == pytest.approx(0.1697)
+
+
+def test_orphan_duplicates_are_dropped_and_revenue_is_aliased() -> None:
+    value = _obs(
+        "AAPL",
+        {
+            "eps_past_3_5y": "6.89% 17.91%",
+            "sales_past_3_5y": "1.81% 8.71%",
+            "option_short": "Yes / Yes",
+            "volatility": "1.75% 1.81%",
+            "revenue_ttm": 466.82e9,
+        },
+        source="finviz",
+    )
+    assert value.fields == {"sales": 466.82e9}
 
 
 def test_stockanalysis_parser_maps_revenue_to_sales() -> None:

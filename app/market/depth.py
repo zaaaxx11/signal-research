@@ -64,7 +64,15 @@ FIELD_ALIASES: dict[str, str] = {
     "perf_half_y": "perf_26w",
     "perf_year": "perf_52w",
     "eps_ttm": "eps",
+    "revenue_ttm": "sales",
 }
+
+#: Raw parser carry-overs that duplicate a canonical field already produced
+#: from the same page. They are dropped at the edge, never published beside
+#: their split/renamed counterpart.
+DROP_FIELDS = frozenset(
+    {"eps_past_3_5y", "sales_past_3_5y", "option_short", "volatility"}
+)
 
 
 def canonical_field(raw: Any) -> str:
@@ -116,6 +124,8 @@ class DepthObservation:
         normalized: dict[str, Any] = {}
         for field, value in self.fields.items():
             name = canonical_field(field)
+            if name in DROP_FIELDS:
+                continue
             # Yahoo reports this one cell in percent points while Finviz and
             # StockAnalysis report the catalog's ratio. Normalize at the source
             # boundary; a merge must never choose between 0.17 and 16.97.
@@ -166,12 +176,13 @@ class DepthStore:
                 continue
             current = bucket.get(name)
             if current is not None:
-                if observation.as_of < current.as_of:
+                # Priority is the stable tie-breaker: a daily depth row must
+                # not change its `market_cap` because the network happened to
+                # finish Yahoo after Finviz. Within one source, a newer
+                # observation still replaces an older one.
+                if priority > current.priority:
                     continue
-                if (
-                    observation.as_of == current.as_of
-                    and priority > current.priority
-                ):
+                if priority == current.priority and observation.as_of <= current.as_of:
                     continue
             bucket[name] = DepthField(
                 value=value,
