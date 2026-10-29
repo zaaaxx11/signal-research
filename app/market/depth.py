@@ -1175,6 +1175,7 @@ def build_depth_collector(
         from app.market.sec_fundamentals_depth import (
             SecFundamentalsDepthSource,
             keyless_price_reference,
+            shares_reference,
         )
 
         sources.append(
@@ -1185,6 +1186,16 @@ def build_depth_collector(
                 # the source re-resolves it once per refresh, not per chunk.
                 price=keyless_price_reference(symbols),
                 price_ttl_s=float(
+                    getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)
+                ),
+                # Multi-class filers (META, BRK.A/BRK.B, GOOGL) file
+                # ``CommonStockSharesOutstanding`` only as dimensional rows, so
+                # the consolidated count the mapper looks for does not exist and
+                # market cap — hence EV — is unpriceable. The same v7 batch that
+                # carries the price also carries ``sharesOutstanding``; it is a
+                # fallback, never an override of a filed figure.
+                shares=shares_reference(symbols),
+                shares_ttl_s=float(
                     getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)
                 ),
             )

@@ -725,3 +725,32 @@ def test_the_shares_reference_memoises_within_its_ttl(monkeypatch: Any) -> None:
     assert reference() == {"META": REFERENCE_SHARES}
     assert reference() == {"META": REFERENCE_SHARES}
     assert calls == [("META",)], "one batch per ttl window, not one per chunk"
+
+
+def test_the_collector_wires_the_shares_reference() -> None:
+    """The mapper's `shares=` fallback is inert until the collector passes it.
+
+    A multi-class filer files `CommonStockSharesOutstanding` only as
+    dimensional rows, so the consolidated count is absent and market cap — and
+    therefore EV — cannot be priced. The same v7 batch that carries the price
+    carries `sharesOutstanding`; if `build_depth_collector` forgets to hand the
+    reference over, every fix inside the mapper stays dead code and nothing
+    fails loudly. This pins the wiring itself.
+    """
+
+    from types import SimpleNamespace
+
+    from app.market.depth import build_depth_collector
+
+    settings = SimpleNamespace(depth_sec_bulk=True, depth_sec_snapshot=None)
+    collector = build_depth_collector(settings, ["META", "BRK-B"])
+
+    bulk = next(source for source in collector.sources if source.name == "sec_bulk")
+    state = bulk._references
+
+    assert state["price"]["reference"] is not None, "the price rung is the older one"
+    assert state["shares"]["reference"] is not None, (
+        "the shares fallback must reach the mapper, or EV stays empty for "
+        "every multi-class filer"
+    )
+    assert state["shares"]["ttl_s"] > 0
