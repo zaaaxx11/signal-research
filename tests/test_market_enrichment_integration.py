@@ -74,17 +74,23 @@ def enrich_stage(collector: Any) -> EnrichmentStage:
     return stages[0]
 
 
-def test_settings_flag_defaults_off() -> None:
+def test_settings_flag_defaults_on() -> None:
+    """Enrichment is part of the design, not an opt-in extra."""
+
     from app.config import Settings
 
-    assert getattr(Settings(), "depth_enrich", None) is False
+    settings = Settings()
+    assert getattr(settings, "depth_enrich", None) is True
+    assert getattr(settings, "depth_enrich_batch", None) == 500
 
 
 def test_default_source_list_carries_neither_enricher() -> None:
     """``depth_enrich`` absent means today's list, name for name and rung for rung."""
 
     collector = build_depth_collector(
-        SimpleNamespace(depth_store_path=None, depth_sec_snapshot=None),
+        SimpleNamespace(
+            depth_store_path=None, depth_sec_snapshot=None, depth_enrich=False
+        ),
         ["AAPL", "MSFT"],
     )
 

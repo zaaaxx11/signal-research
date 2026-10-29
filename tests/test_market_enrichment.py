@@ -8,6 +8,8 @@ isolation, the wiring and the merge order are checked rather than assumed.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any, Sequence
 
@@ -322,3 +324,52 @@ def test_no_batch_size_enriches_everything(tmp_path: Path) -> None:
         news_source=FakeSource("news", {}),
     )
     assert stage.batch_size is None
+
+
+# ---------------------------------------------------------------------------
+# Fallback when the enrichment egress refuses
+# ---------------------------------------------------------------------------
+
+
+def test_a_dead_cycle_does_not_advance_the_cursor(tmp_path: Path) -> None:
+    """No answer means the slice was not covered; retry it next cycle.
+
+    Advancing on an empty cycle would walk the cursor past symbols nobody
+    enriched and only come back after a full wrap.
+    """
+
+    stage = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", {}),
+        news_source=FakeSource("news", {}),
+        batch_size=2,
+        state_path=tmp_path / "cursor.json",
+    )
+    symbols = ["A", "B", "C", "D"]
+    assert _run(stage.run(symbols)) == {}
+    assert json.loads((tmp_path / "cursor.json").read_text())["cursor"] == 0
+
+    # The next cycle starts where the dead one did.
+    assert stage._take_batch(symbols) == ["A", "B"]
+
+
+def test_a_cycle_with_any_answer_advances(tmp_path: Path) -> None:
+    answered = {
+        "A": DepthObservation(
+            symbol="A",
+            fields={"pe": 1.0},
+            as_of=datetime.now(UTC),
+            source="yahoo",
+        )
+    }
+    stage = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", answered),
+        news_source=FakeSource("news", {}),
+        batch_size=2,
+        state_path=tmp_path / "cursor.json",
+    )
+    assert _run(stage.run(["A", "B", "C", "D"])) == {"A": {"pe": 1.0}}
+    assert json.loads((tmp_path / "cursor.json").read_text())["cursor"] == 2
+
+
+def _run(coro: Any) -> Any:
+    return asyncio.run(coro)

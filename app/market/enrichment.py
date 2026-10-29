@@ -221,7 +221,9 @@ class EnrichmentStage:
         if not ordered:
             return {}
 
+        slice_start: int | None = None
         if self.batch_size is not None and len(ordered) > self.batch_size:
+            slice_start = self._load_cursor() % len(ordered)
             ordered = self._take_batch(ordered)
 
         # Both sources are asked for the whole list and awaited together. The
@@ -232,6 +234,14 @@ class EnrichmentStage:
             self._collect(self.yahoo_source, ordered),
             self._collect(self.news_source, ordered),
         )
+
+        # Fallback: a cycle that answered nothing did not cover its slice, so
+        # the cursor must not skip it. Rolling back means the next cycle
+        # retries the same symbols instead of walking past them — the depth
+        # store already holds their previous values, so nothing is lost while
+        # the egress is refusing.
+        if not yahoo_observations and not news_observations and slice_start is not None:
+            self._save_cursor(slice_start)
 
         merged: dict[str, dict[str, Any]] = {}
         for symbol in ordered:

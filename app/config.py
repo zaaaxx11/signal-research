@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     #: it costs ~13 minutes at the 4,217-symbol scale and is what upgrades field
     #: coverage to 109/116. Off by default: a daily cycle publishes the keyless
     #: row first and this pass is the extra rung, never a prerequisite.
-    depth_enrich: bool = False
+    depth_enrich: bool = True
     #: Symbols per enrichment cycle. A single 4,217-symbol Yahoo pass stalls
     #: the egress (measured 0 bytes for 45 s on both direct and a residential
     #: proxy), so production rotates: this many symbols per cycle, cursor
