@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     #: coverage to 109/116. Off by default: a daily cycle publishes the keyless
     #: row first and this pass is the extra rung, never a prerequisite.
     depth_enrich: bool = False
+    #: Symbols per enrichment cycle. A single 4,217-symbol Yahoo pass stalls
+    #: the egress (measured 0 bytes for 45 s on both direct and a residential
+    #: proxy), so production rotates: this many symbols per cycle, cursor
+    #: persisted, the depth store keeps the rest. 0 keeps the crawl-everything
+    #: behaviour for small runs and tests.
+    depth_enrich_batch: int = Field(default=500, ge=0)
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")

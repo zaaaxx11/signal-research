@@ -1284,11 +1284,18 @@ def build_depth_collector(
 
             name = "enrich"
 
-            def __init__(self) -> None:
+            def __init__(
+                self,
+                *,
+                batch_size: int | None = None,
+                state_path: Any = None,
+            ) -> None:
                 super().__init__(
                     news_concurrency=int(
                         getattr(settings, "depth_news_concurrency", 8)
                     ),
+                    batch_size=batch_size,
+                    state_path=state_path,
                 )
                 #: The v7 batch quote source whose ``average_volume`` is FINRA's
                 #: ``short_ratio`` divisor.
@@ -1382,7 +1389,16 @@ def build_depth_collector(
                 if finra_source is not None:
                     finra_source.set_average_volume(dict(self._average_volume))
 
-        enrich_source = _EnrichmentDepthSource()
+        batch = int(getattr(settings, "depth_enrich_batch", 0) or 0)
+        enrich_source = _EnrichmentDepthSource(
+            batch_size=batch or None,
+            state_path=(
+                Path(str(getattr(settings, "depth_store_path", DEFAULT_STORE_PATH)))
+                .with_suffix(".enrich-cursor.json")
+                if batch
+                else None
+            ),
+        )
         if finra_source is not None:
             # Live references from the moment the collector is built: FINRA
             # resolves its divisors at fetch time, so it reads whatever the most

@@ -261,3 +261,64 @@ def test_the_default_stage_wires_the_paced_yahoo_source_and_the_news_chain() -> 
 
 def test_concurrency_is_configurable() -> None:
     assert EnrichmentStage(concurrency=9).yahoo_source.concurrency == 9
+
+
+# ---------------------------------------------------------------------------
+# Batch rotation
+# ---------------------------------------------------------------------------
+#
+# A single 4,217-symbol Yahoo pass stalls the egress; a daily rotation over
+# the universe is the shape that survives.
+
+
+def test_a_batch_takes_the_next_slice_and_wraps(tmp_path: Path) -> None:
+    stage = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", {}),
+        news_source=FakeSource("news", {}),
+        batch_size=3,
+        state_path=tmp_path / "cursor.json",
+    )
+    symbols = ["A", "B", "C", "D", "E"]
+    first = stage._take_batch(symbols)
+    second = stage._take_batch(symbols)
+    assert first == ["A", "B", "C"]
+    assert second == ["D", "E", "A"], "wraps around the end"
+
+
+def test_the_cursor_survives_a_restart(tmp_path: Path) -> None:
+    state = tmp_path / "cursor.json"
+    one = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", {}),
+        news_source=FakeSource("news", {}),
+        batch_size=2,
+        state_path=state,
+    )
+    one._take_batch(["A", "B", "C", "D"])
+
+    two = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", {}),
+        news_source=FakeSource("news", {}),
+        batch_size=2,
+        state_path=state,
+    )
+    assert two._take_batch(["A", "B", "C", "D"]) == ["C", "D"]
+
+
+def test_a_corrupt_state_file_starts_at_zero(tmp_path: Path) -> None:
+    state = tmp_path / "cursor.json"
+    state.write_text("not json")
+    stage = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", {}),
+        news_source=FakeSource("news", {}),
+        batch_size=2,
+        state_path=state,
+    )
+    assert stage._take_batch(["A", "B", "C"]) == ["A", "B"]
+
+
+def test_no_batch_size_enriches_everything(tmp_path: Path) -> None:
+    stage = EnrichmentStage(
+        yahoo_source=FakeSource("yahoo", {}),
+        news_source=FakeSource("news", {}),
+    )
+    assert stage.batch_size is None

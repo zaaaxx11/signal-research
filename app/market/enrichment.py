@@ -51,10 +51,12 @@ float shares are read out of the Yahoo observations and published as
 from __future__ import annotations
 
 import asyncio
+import json
 import inspect
 import logging
 import math
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from app.market.depth import DepthObservation, canonical_symbol
@@ -163,7 +165,18 @@ class EnrichmentStage:
         news_concurrency: int = DEFAULT_NEWS_CONCURRENCY,
         yahoo_source: YahooDepthSource | None = None,
         news_source: RssNewsSource | None = None,
+        batch_size: int | None = None,
+        state_path: Any = None,
     ) -> None:
+        #: Rotate through the universe instead of crawling all of it in one
+        #: pass. Measured: a single 4,217-symbol Yahoo pass stalls the egress
+        #: (0 bytes for 45 s) whether it rides direct or a residential proxy,
+        #: because Yahoo does not sustain thousands of quoteSummary requests
+        #: from one session. A batch turns that marathon into a daily rotation:
+        #: each cycle enriches the next slice, and the depth store keeps the
+        #: rest. ``None`` keeps the crawl-everything behaviour for small runs.
+        self.batch_size = None if batch_size is None else max(1, int(batch_size))
+        self.state_path = Path(state_path).expanduser() if state_path else None
         self.concurrency = max(1, int(concurrency))
         self.news_concurrency = max(1, int(news_concurrency))
         self.yahoo_source: Any = (
@@ -208,6 +221,9 @@ class EnrichmentStage:
         if not ordered:
             return {}
 
+        if self.batch_size is not None and len(ordered) > self.batch_size:
+            ordered = self._take_batch(ordered)
+
         # Both sources are asked for the whole list and awaited together. The
         # two hosts are independent, so the crawl costs the slower of the two
         # rather than their sum; isolation is enforced inside ``_collect``, so
@@ -233,6 +249,47 @@ class EnrichmentStage:
 
         self._shares_float = shares_float_map(yahoo_observations)
         return merged
+
+    def _take_batch(self, ordered: list[str]) -> list[str]:
+        """The next ``batch_size`` symbols, wrapping, and advance the cursor.
+
+        The cursor is persisted so a restart continues where the last cycle
+        stopped instead of re-enriching the head of the universe forever. A
+        missing or corrupt state file starts at zero rather than raising: the
+        rotation is an optimisation, not a correctness requirement.
+        """
+
+        size = len(ordered)
+        start = self._load_cursor() % size
+        batch = ordered[start : start + self.batch_size]
+        if len(batch) < self.batch_size:
+            batch += ordered[: self.batch_size - len(batch)]
+        self._save_cursor((start + self.batch_size) % size)
+        #: Reported so a caller can tell which slice this cycle covered.
+        self.last_batch = (start, len(batch))
+        return batch
+
+    def _load_cursor(self) -> int:
+        if self.state_path is None:
+            return getattr(self, "_cursor", 0)
+        try:
+            document = json.loads(self.state_path.read_text())
+        except (OSError, ValueError):
+            return 0
+        value = document.get("cursor") if isinstance(document, dict) else None
+        return value if isinstance(value, int) and value >= 0 else 0
+
+    def _save_cursor(self, value: int) -> None:
+        self._cursor = value
+        if self.state_path is None:
+            return
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            self.state_path.write_text(json.dumps({"cursor": value}))
+        except OSError:
+            # An unwritable state file costs a restart of the rotation, not
+            # the pass itself.
+            return
 
     async def _collect(
         self, source: Any, symbols: Sequence[str]

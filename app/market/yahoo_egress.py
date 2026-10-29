@@ -28,6 +28,33 @@ from app.providers import http as provider_http
 COOKIE_URL = "https://fc.yahoo.com"
 CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 
+#: RainProxy's residential bridge is the paid rung: one line ``host:port:user:pass``
+#: in ``~/.rainproxy_auth``. It is optional — without the file the rung is
+#: skipped and the free pool is tried, so the module runs on a box that never
+#: bought a proxy.
+RAINPROXY_AUTH_FILE = "~/.rainproxy_auth"
+
+
+def rainproxy_url(path: str = RAINPROXY_AUTH_FILE) -> str | None:
+    """``http://user:pass@host:port`` from the auth file, or ``None``.
+
+    The file is the operator's own, one line; a malformed line is treated as
+    absent rather than raising, because a missing paid rung is a normal state.
+    """
+
+    from pathlib import Path
+
+    try:
+        raw = Path(path).expanduser().read_text().strip()
+    except (OSError, ValueError):
+        return None
+    parts = raw.split(":")
+    if len(parts) != 4 or not all(part.strip() for part in parts):
+        return None
+    host, port, user, password = (part.strip() for part in parts)
+    return f"http://{user}:{password}@{host}:{port}"
+
+
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -62,6 +89,7 @@ class YahooEgress:
         self,
         *,
         proxies: Iterable[str] = (),
+        paid_proxies: Iterable[str] = (),
         max_attempts: int = 30,
         timeout_s: float = 20.0,
         user_agent: str = BROWSER_USER_AGENT,
@@ -71,6 +99,11 @@ class YahooEgress:
         if not timeout_s > 0:
             raise ValueError(f"timeout_s must be > 0, got {timeout_s!r}")
         self.proxies = [str(p).strip() for p in proxies if str(p).strip()]
+        #: Paid egress (RainProxy). Tried right after direct and before the
+        #: free pool: it costs bandwidth, not reliability.
+        self.paid_proxies = [
+            str(p).strip() for p in paid_proxies if str(p).strip()
+        ]
         self.max_attempts = int(max_attempts)
         self.timeout_s = float(timeout_s)
         self.user_agent = str(user_agent)
@@ -126,6 +159,11 @@ class YahooEgress:
         self.last_errors = {}
         if await self.probe(None) is not None:
             return None
+
+        # The paid rung: one reliable exit before a pool with a 10% hit rate.
+        for paid in self.paid_proxies:
+            if await self.probe(paid) is not None:
+                return paid
 
         # The previous winner first: one probe instead of a fresh walk.
         cached = type(self)._last_good

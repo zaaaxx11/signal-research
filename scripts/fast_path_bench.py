@@ -32,7 +32,7 @@ from app.market.depth import QUOTE_ONLY_FIELDS, canonical_symbol
 from app.market.finra import FinraShortSource
 from app.market.chart import YahooChartDepthSource
 from app.market.enrichment import EnrichmentStage
-from app.market.yahoo_egress import YahooEgress
+from app.market.yahoo_egress import YahooEgress, rainproxy_url
 from app.market.identity import IdentityIndex
 from app.market.yahoo_batch import YahooBatchQuoteSource
 from app.market.official import OfficialDepthSource
@@ -317,7 +317,8 @@ async def main() -> None:
             x["proxy"] for x in items
             if isinstance(x, dict) and x.get("ok") and x.get("proxy")
         ]
-    egress = YahooEgress(proxies=pool, max_attempts=8)
+    paid = [rainproxy_url()] if rainproxy_url() else []
+    egress = YahooEgress(proxies=pool, paid_proxies=paid, max_attempts=30)
     proxy = await egress.find_proxy()
     print(
         f"yahoo_egress exit={proxy or 'direct'} "

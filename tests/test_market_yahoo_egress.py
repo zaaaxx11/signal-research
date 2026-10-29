@@ -154,3 +154,48 @@ def _run(coro: Any) -> Any:
     import asyncio
 
     return asyncio.run(coro)
+
+
+def test_the_paid_rung_is_tried_before_the_free_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RainProxy costs bandwidth but not reliability; free is the fallback."""
+
+    paid = FakeExit("PaidToken1")
+    free = FakeExit("FreeToken1")
+    _install(
+        monkeypatch,
+        {
+            None: FakeExit("Too Many Requests", status=429),
+            "http://paid:80": paid,
+            "http://free:80": free,
+        },
+    )
+    egress = YahooEgress(proxies=["http://free:80"], paid_proxies=["http://paid:80"])
+    assert _run(egress.find_proxy()) == "http://paid:80"
+    assert paid.calls, "the paid exit was actually probed"
+    assert not free.calls, "the free pool was never touched"
+
+
+def test_a_dead_paid_rung_falls_to_the_free_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(
+        monkeypatch,
+        {
+            None: FakeExit("Too Many Requests", status=429),
+            "http://paid:80": FakeExit("", status=0),
+            "http://free:80": FakeExit("FreeToken1"),
+        },
+    )
+    egress = YahooEgress(proxies=["http://free:80"], paid_proxies=["http://paid:80"])
+    assert _run(egress.find_proxy()) == "http://free:80"
+
+
+def test_rainproxy_url_parses_the_auth_file(tmp_path: Path) -> None:
+    auth = tmp_path / "auth"
+    auth.write_text("resi.example:1111:user1:pass1\n")
+    assert yahoo_egress.rainproxy_url(str(auth)) == "http://user1:pass1@resi.example:1111"
+
+
+def test_rainproxy_url_is_none_when_absent_or_malformed(tmp_path: Path) -> None:
+    assert yahoo_egress.rainproxy_url(str(tmp_path / "missing")) is None
+    bad = tmp_path / "bad"
+    bad.write_text("only:three:fields\n")
+    assert yahoo_egress.rainproxy_url(str(bad)) is None
