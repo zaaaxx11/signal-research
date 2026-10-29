@@ -47,7 +47,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Body, Query, Request
 
 from app.auth import ApiError
 from app.market.depth import DepthCollector
@@ -320,3 +320,116 @@ async def quote(
 
 
 __all__ = ["depth", "depth_collector_of", "hub_quote", "quote", "quote_engine_of", "quote_hub_of", "router"]
+
+@router.post("/enrich")
+async def enrich(
+    request: Request,
+    body: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Run the per-symbol enrichment on demand — the premium trigger.
+
+    The rotation in :class:`~app.market.enrichment.EnrichmentStage` is the free
+    baseline; this endpoint is the "do it now, for these symbols" path a paid
+    tier will call. It bypasses the batch cursor and the per-cycle interval,
+    fetches exactly what was asked, merges the result into the depth store and
+    persists it, so the next ``GET /market/depth`` sees the values.
+
+    **Body** ``{"symbols": ["AAPL"], "sources": ["yahoo", "news"]}``. Both keys
+    are optional: ``symbols`` defaults to the next rotation slice, ``sources``
+    defaults to both halves.
+
+    **Access** is gated by ``settings.enrich_api_key``. When it is unset the
+    route is open (dev); when set, ``X-Enrich-Key`` must match, and the
+    mismatch is a **403** in the house envelope.
+    """
+
+    settings = request.app.state.runtime.settings
+    expected = getattr(settings, "enrich_api_key", None)
+    if expected:
+        supplied = request.headers.get("x-enrich-key", "")
+        if not supplied or supplied != expected:
+            raise ApiError(
+                403,
+                "enrich_forbidden",
+                "a valid X-Enrich-Key is required for on-demand enrichment",
+            )
+
+    sources = body.get("sources") or ["yahoo", "news"]
+    if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+        raise ApiError(422, "invalid_sources", "sources must be a list of strings")
+    unknown = set(sources) - {"yahoo", "news"}
+    if unknown:
+        raise ApiError(
+            422,
+            "invalid_sources",
+            f"unknown sources {sorted(unknown)}; expected 'yahoo' and/or 'news'",
+        )
+
+    raw_symbols = body.get("symbols")
+    limit = int(getattr(settings, "enrich_max_symbols", 50))
+    if raw_symbols is None:
+        wanted: list[str] = []
+    else:
+        if not isinstance(raw_symbols, list) or not all(
+            isinstance(item, str) for item in raw_symbols
+        ):
+            raise ApiError(422, "invalid_symbols", "symbols must be a list of strings")
+        try:
+            wanted = parse_symbol_list(",".join(raw_symbols))
+        except InvalidSymbol as exc:
+            raise ApiError(422, "invalid_symbols", str(exc)) from exc
+        if len(wanted) > limit:
+            raise ApiError(
+                422,
+                "too_many_symbols",
+                f"{len(wanted)} symbols requested; the on-demand maximum is {limit}",
+            )
+
+    collector = depth_collector_of(request)
+    if collector is None:
+        raise ApiError(
+            503,
+            "depth_unavailable",
+            "depth collector is not running, so there is nowhere to merge the result",
+        )
+
+    from app.market.enrichment import EnrichmentStage
+
+    stage = EnrichmentStage(sources=tuple(sources))
+    target = wanted or list(getattr(collector, "symbols", []) or [])
+    if not target:
+        raise ApiError(503, "depth_unavailable", "the collector carries no universe")
+    if raw_symbols is None:
+        # No explicit list: enrich the rotation's next slice rather than all of it.
+        target = stage._take_batch(target) if stage.batch_size else target
+
+    observations = await stage.run(target)
+
+    merged = 0
+    for symbol, fields in observations.items():
+        if not fields:
+            continue
+        from datetime import UTC, datetime
+
+        from app.market.depth import DepthObservation
+
+        observation = DepthObservation(
+            symbol=symbol,
+            fields=fields,
+            as_of=datetime.now(UTC),
+            source="enrich",
+        )
+        # An explicit request is the freshest evidence there is: priority 0.
+        merged += collector.store.merge(observation, priority=0)
+    if merged:
+        await collector.persist()
+
+    return {
+        "requested": len(target),
+        "enriched": len(observations),
+        "fields_merged": merged,
+        "sources": list(sources),
+        "errors": dict(getattr(stage, "last_errors", {}) or {}),
+        "tier": "premium" if expected else "open",
+    }
+

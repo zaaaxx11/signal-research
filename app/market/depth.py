@@ -1282,11 +1282,11 @@ def build_depth_collector(
             question seventeen times.
             """
 
-            name = "enrich"
-
             def __init__(
                 self,
                 *,
+                name: str = "enrich",
+                sources: tuple[str, ...] = ("yahoo", "news"),
                 batch_size: int | None = None,
                 state_path: Any = None,
                 refresh_s: float | None = None,
@@ -1297,7 +1297,9 @@ def build_depth_collector(
                     ),
                     batch_size=batch_size,
                     state_path=state_path,
+                    sources=sources,
                 )
+                self.name = name
                 #: The v7 batch quote source whose ``average_volume`` is FINRA's
                 #: ``short_ratio`` divisor.
                 self.batch_quote_source = batch_quote_source
@@ -1398,13 +1400,29 @@ def build_depth_collector(
                     finra_source.set_average_volume(dict(self._average_volume))
 
         batch = int(getattr(settings, "depth_enrich_batch", 0) or 0)
+        store_path = Path(
+            str(getattr(settings, "depth_store_path", DEFAULT_STORE_PATH))
+        )
         enrich_source = _EnrichmentDepthSource(
+            name="enrich",
+            sources=("yahoo",),
             batch_size=batch or None,
             state_path=(
-                Path(str(getattr(settings, "depth_store_path", DEFAULT_STORE_PATH)))
-                .with_suffix(".enrich-cursor.json")
-                if batch
-                else None
+                store_path.with_suffix(".enrich-cursor.json") if batch else None
+            ),
+            refresh_s=float(
+                getattr(settings, "depth_enrich_interval_s", 86_400.0)
+            ),
+        )
+        news_enrich_source = _EnrichmentDepthSource(
+            name="news_enrich",
+            sources=("news",),
+            batch_size=batch or None,
+            state_path=(
+                store_path.with_suffix(".news-cursor.json") if batch else None
+            ),
+            refresh_s=float(
+                getattr(settings, "depth_enrich_news_interval_s", 300.0)
             ),
         )
         if finra_source is not None:
@@ -1414,6 +1432,7 @@ def build_depth_collector(
             finra_source.set_average_volume(enrich_source.average_volume_map)
             finra_source.set_shares_float(lambda: enrich_source.shares_float)
         sources.append(enrich_source)
+        sources.append(news_enrich_source)
         # The crawl is minutes, not seconds: the shared per-chunk budget must be
         # wide enough for it, or the one rung this flag exists for always times
         # out. Other sources are bounded the same way, so it only ever loosens.

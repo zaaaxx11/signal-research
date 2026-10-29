@@ -67,10 +67,32 @@ def offline_settings(**overrides: Any) -> SimpleNamespace:
 
 
 def enrich_stage(collector: Any) -> EnrichmentStage:
-    """The one enrichment rung, or an ``AssertionError`` naming the gap."""
+    """The Yahoo half of the split cadence, or an ``AssertionError``."""
 
-    stages = [source for source in collector.sources if isinstance(source, EnrichmentStage)]
-    assert len(stages) == 1, f"expected one enrichment source, got {[s.name for s in collector.sources]}"
+    stages = [
+        source
+        for source in collector.sources
+        if isinstance(source, EnrichmentStage) and source.name == "enrich"
+    ]
+    assert len(stages) == 1, (
+        "expected the Yahoo enrichment rung, got "
+        f"{[s.name for s in collector.sources]}"
+    )
+    return stages[0]
+
+
+def news_stage(collector: Any) -> EnrichmentStage:
+    """The news half of the split cadence."""
+
+    stages = [
+        source
+        for source in collector.sources
+        if isinstance(source, EnrichmentStage) and source.name == "news_enrich"
+    ]
+    assert len(stages) == 1, (
+        "expected the news enrichment rung, got "
+        f"{[s.name for s in collector.sources]}"
+    )
     return stages[0]
 
 
@@ -112,10 +134,15 @@ def test_depth_enrich_appends_the_stage_after_the_existing_sources() -> None:
         "sec",
         "finra",
         "enrich",
+        "news_enrich",
     )
     stage = enrich_stage(collector)
-    assert collector.sources[-1] is stage
     assert stage.name == "enrich"
+    assert news_stage(collector).name == "news_enrich"
+    # The Yahoo half costs 33 KB per symbol and is a daily fact; the news half
+    # costs 2 KB and goes stale in an hour. Two rungs, two clocks.
+    assert stage._refresh_s == 86_400.0
+    assert news_stage(collector)._refresh_s == 300.0
 
     # The batch quote source rides along, held by the stage that consumes it.
     assert isinstance(stage.batch_quote_source, YahooBatchQuoteSource)

@@ -109,10 +109,21 @@ class Settings(BaseSettings):
     #: persisted, the depth store keeps the rest. 0 keeps the crawl-everything
     #: behaviour for small runs and tests.
     depth_enrich_batch: int = Field(default=500, ge=0)
-    #: How often the enrichment rotation advances one slice. It is NOT the
-    #: overnight depth refresh: with 500 symbols per pass and a 24 h window
-    #: the universe would take nine days. Five minutes covers it in ~45.
-    depth_enrich_interval_s: float = Field(default=300.0, gt=0)
+    #: How often the **Yahoo** half advances one slice. Analyst targets,
+    #: ownership and float are daily facts, so one pass per day is honest and
+    #: costs 136 MB; running it every five minutes would re-buy the same
+    #: number 288 times.
+    depth_enrich_interval_s: float = Field(default=86_400.0, gt=0)
+    #: How often the **news** half advances. A headline is stale in an hour
+    #: and costs 2 KB per symbol, so this stays fast.
+    depth_enrich_news_interval_s: float = Field(default=300.0, gt=0)
+    #: On-demand enrichment (`POST /market/enrich`) — the premium hook. When
+    #: set, the caller must present the same value in ``X-Enrich-Key``; unset
+    #: leaves the route open, which is what a dev box wants.
+    enrich_api_key: str | None = None
+    #: Per-request ceiling for the on-demand path. A paid trigger buys a
+    #: handful of symbols, not the universe.
+    enrich_max_symbols: int = Field(default=50, ge=1)
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")

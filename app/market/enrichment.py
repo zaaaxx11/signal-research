@@ -145,6 +145,12 @@ def shares_float_map(
     return out
 
 
+async def _empty() -> dict[str, Any]:
+    """The disabled half of a split stage answers nothing, cheaply."""
+
+    return {}
+
+
 class EnrichmentStage:
     """Run the per-symbol sources and merge their fields, Yahoo first.
 
@@ -167,7 +173,19 @@ class EnrichmentStage:
         news_source: RssNewsSource | None = None,
         batch_size: int | None = None,
         state_path: Any = None,
+        sources: Sequence[str] = ("yahoo", "news"),
     ) -> None:
+        #: Which sources this stage runs. ``("yahoo",)`` and ``("news",)`` are
+        #: the two halves of the split cadence: analyst/ownership data is a
+        #: daily fact and costs 33 KB per symbol, while a headline is stale in
+        #: an hour and costs 2 KB. One timer for both would either re-buy the
+        #: expensive half every five minutes or starve the cheap one.
+        self.sources = tuple(
+            str(name).strip() for name in sources if str(name).strip()
+        )
+        unknown = set(self.sources) - {"yahoo", "news"}
+        if unknown:
+            raise ValueError(f"unknown enrichment sources: {sorted(unknown)}")
         #: Rotate through the universe instead of crawling all of it in one
         #: pass. Measured: a single 4,217-symbol Yahoo pass stalls the egress
         #: (0 bytes for 45 s) whether it rides direct or a residential proxy,
@@ -231,8 +249,12 @@ class EnrichmentStage:
         # rather than their sum; isolation is enforced inside ``_collect``, so
         # neither can cancel or sink the other.
         yahoo_observations, news_observations = await asyncio.gather(
-            self._collect(self.yahoo_source, ordered),
-            self._collect(self.news_source, ordered),
+            self._collect(self.yahoo_source, ordered)
+            if "yahoo" in self.sources
+            else _empty(),
+            self._collect(self.news_source, ordered)
+            if "news" in self.sources
+            else _empty(),
         )
 
         # Fallback: a cycle that answered nothing did not cover its slice, so
