@@ -276,6 +276,7 @@ class YahooBatchQuoteSource:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         user_agent: str = BROWSER_USER_AGENT,
         pace_s: float = PACE_S,
+        proxy: str | None = None,
     ) -> None:
         if isinstance(batch_size, bool) or not isinstance(batch_size, int):
             raise TypeError(f"batch_size must be an int, got {batch_size!r}")
@@ -291,6 +292,10 @@ class YahooBatchQuoteSource:
         self.timeout_s = float(timeout_s)
         self.user_agent = str(user_agent)
         self.pace_s = float(pace_s)
+        #: Network exit for every request in the pass (``None`` = direct).
+        #: ``YahooEgress`` supplies one when the direct exit's crumb is
+        #: throttled, which is an IP refusal a fresh cookie cannot fix.
+        self.proxy = proxy
         #: Why a batch (or the handshake) owed nothing, for the most recent
         #: ``fetch_many`` call, keyed by the batch's first symbol (``"auth"``
         #: for the handshake). A clean pass leaves it empty.
@@ -376,7 +381,7 @@ class YahooBatchQuoteSource:
         self.last_errors = {}
         rows: dict[str, dict] = {}
         async with provider_http.build_client(
-            timeout_s=self.timeout_s, headers=self.headers()
+            timeout_s=self.timeout_s, headers=self.headers(), proxy=self.proxy
         ) as client:
             crumb = await self._authorize(client)
             if not crumb:

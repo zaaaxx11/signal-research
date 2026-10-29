@@ -32,6 +32,7 @@ from app.market.depth import QUOTE_ONLY_FIELDS, canonical_symbol
 from app.market.finra import FinraShortSource
 from app.market.chart import YahooChartDepthSource
 from app.market.enrichment import EnrichmentStage
+from app.market.yahoo_egress import YahooEgress
 from app.market.identity import IdentityIndex
 from app.market.yahoo_batch import YahooBatchQuoteSource
 from app.market.official import OfficialDepthSource
@@ -74,10 +75,12 @@ def previous_quarter(label: str, back: int = 1) -> str:
     return quarter_label(total // 4, total % 4 + 1)
 
 
-async def yahoo_batch_quotes(symbols: list[str]) -> dict[str, dict]:
+async def yahoo_batch_quotes(
+    symbols: list[str], proxy: str | None = None
+) -> dict[str, dict]:
     """Yahoo v7 batch quote via the production source (32 catalog keys)."""
 
-    source = YahooBatchQuoteSource()
+    source = YahooBatchQuoteSource(proxy=proxy)
     return await source.fetch_many(symbols)
 
 
@@ -302,8 +305,27 @@ async def main() -> None:
     )
 
     # --- Yahoo v7 batch quote (one request per 400 symbols) ----------------
+    # The crumb endpoint throttles an IP, not a cookie; find an exit that
+    # answers before spending the pass.
     t0 = time.perf_counter()
-    batch_quotes = await yahoo_batch_quotes(symbols)
+    pool = []
+    ranked = Path("/home/ubuntu/zcrapers/data/pool_ranked.json")
+    if ranked.exists():
+        raw = json.loads(ranked.read_text())
+        items = raw.get("proxies", raw) if isinstance(raw, dict) else raw
+        pool = [
+            x["proxy"] for x in items
+            if isinstance(x, dict) and x.get("ok") and x.get("proxy")
+        ]
+    egress = YahooEgress(proxies=pool, max_attempts=8)
+    proxy = await egress.find_proxy()
+    print(
+        f"yahoo_egress exit={proxy or 'direct'} "
+        f"refused={len(egress.last_errors)} wall={time.perf_counter() - t0:.1f}s",
+        flush=True,
+    )
+    t0 = time.perf_counter()
+    batch_quotes = await yahoo_batch_quotes(symbols, proxy=proxy)
     print(
         f"yahoo_batch ok={len(batch_quotes)}/{len(symbols)} "
         f"wall={time.perf_counter() - t0:.1f}s",
@@ -371,7 +393,13 @@ async def main() -> None:
     # --- Enrichment: per-symbol pass (Yahoo quoteSummary + RSS news) --------
     if "--enrich" in sys.argv:
         t0 = time.perf_counter()
-        stage = EnrichmentStage()
+        from app.market.yahoo_depth import YahooDepthSource
+
+        stage = EnrichmentStage(
+            yahoo_source=YahooDepthSource(
+                concurrency=4, request_delay_s=0.25, proxy=proxy
+            )
+        )
         enriched = await stage.run(symbols)
         enrich_added: set[str] = set()
         for sym, fields in enriched.items():

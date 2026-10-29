@@ -731,6 +731,7 @@ class YahooDepthSource:
         request_delay_s: float = 0.0,
         symbol_timeout_s: float = 30.0,
         clock: Callable[[], datetime] | None = None,
+        proxy: str | None = None,
     ) -> None:
         self.concurrency = max(1, int(concurrency))
         self.timeout_s = float(timeout_s)
@@ -739,6 +740,9 @@ class YahooDepthSource:
         self.request_delay_s = max(0.0, float(request_delay_s))
         self.symbol_timeout_s = max(1.0, float(symbol_timeout_s))
         self._clock = clock or (lambda: datetime.now(UTC))
+        #: Network exit for every request in the pass (``None`` = direct).
+        #: ``YahooEgress`` supplies one when the direct crumb is throttled.
+        self.proxy = proxy
         self._crumb = ""
         self._crumb_lock = asyncio.Lock()
 
@@ -924,7 +928,7 @@ class YahooDepthSource:
         semaphore = asyncio.Semaphore(self.concurrency)
 
         async with provider_http.build_client(
-            timeout_s=self.timeout_s, headers=self.headers()
+            timeout_s=self.timeout_s, headers=self.headers(), proxy=self.proxy
         ) as client:
             # One handshake for the whole batch: three auth requests per symbol
             # would dwarf the two body requests that carry data.
