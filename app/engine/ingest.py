@@ -72,6 +72,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -535,25 +536,48 @@ async def _issuer_facts(
     return await fetch_companyfacts(cik, client=client, cache_dir=cache_dir)
 
 
+#: How many decoded issuer documents the reader keeps at once.
+#:
+#: The memo exists so two classes of one issuer share a single read, not so the
+#: whole universe fits in RAM: a ``companyfacts`` body runs to megabytes, and
+#: holding every one of them is how a 4,217-symbol bootstrap reached 4.18 GB
+#: and was killed by the cgroup OOM killer at roughly symbol 500.
+#:
+#: Eviction is cheap by design: :func:`fetch_companyfacts` reads the on-disk
+#: cache first, so a repeat outside the window costs a file read, never a
+#: network request and never a wrong answer.
+_DOCUMENT_WINDOW = 8
+
+
 class _IssuerReader:
-    """Reads each issuer's document once per load.
+    """Reads each issuer's document once per load, within a small window.
 
     Two classes of one issuer (Berkshire's ``BRK-A``/``BRK-B``) are one CIK and
-    therefore one document. The memo also remembers a failure, so the second
+    therefore one document. The window keeps a handful of decoded bodies so that
+    pattern is a hit; anything older falls through to the cache-on-disk path.
+    The memo also remembers a failure — a string, not a payload — so the second
     class is reported with the same error instead of spending a second request
     on a document that has just failed.
     """
 
-    def __init__(self, *, client: Any, cache_dir: Path | None) -> None:
+    def __init__(
+        self,
+        *,
+        client: Any,
+        cache_dir: Path | None,
+        window: int = _DOCUMENT_WINDOW,
+    ) -> None:
         self._client = client
         self._cache_dir = cache_dir
-        self._documents: dict[str, object] = {}
+        self._window = max(1, int(window))
+        self._documents: OrderedDict[str, object] = OrderedDict()
         self._failures: dict[str, str] = {}
 
     async def read(self, cik: str) -> object:
         """The issuer's decoded document, from the memo, the cache or EDGAR."""
 
         if cik in self._documents:
+            self._documents.move_to_end(cik)
             return self._documents[cik]
         if cik in self._failures:
             raise SecIngestError(self._failures[cik])
@@ -565,6 +589,9 @@ class _IssuerReader:
             self._failures[cik] = str(exc) or type(exc).__name__
             raise
         self._documents[cik] = payload
+        self._documents.move_to_end(cik)
+        while len(self._documents) > self._window:
+            self._documents.popitem(last=False)
         return payload
 
 
