@@ -19,10 +19,15 @@ listed in :data:`DERIVED_FIELDS`.
 
 The rules
 ---------
-* **Flows come from an annual duration.** A ``qtrs=4`` row is a full year; a
-  nine-month YTD or a single quarter published as a "TTM" would be three
-  months wearing twelve months' clothes. Instants (balances, share counts)
-  come from ``qtrs=0``, newest period end first.
+* **Flows are annual, or rolled forward to a trailing twelve months.** A
+  ``qtrs=4`` row is a full year and wins outright. When the issuer's newest
+  filing is a 10-Q, the annual row lives in the *previous* quarter's dataset,
+  so the caller merges two quarters into one fact list and the TTM is
+  ``annual + year-to-date − prior-year year-to-date`` using the 10-Q's own
+  comparative. A nine-month figure never passes itself off as twelve months:
+  without the annual base or the comparative the answer is the annual alone,
+  and with neither it is absent. Instants (balances, share counts) come from
+  ``qtrs=0``, newest period end first.
 * **Recency, then restatement.** The newest ``ddate`` wins; within one period
   the later ``filed`` — joined from ``sub.txt`` — wins, so a restated
   comparative replaces the original figure. The accession is the final
@@ -48,6 +53,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
+from datetime import date
 from typing import Any
 
 #: The published fields, in catalog order. A value of ``None`` is an absent
@@ -155,6 +161,12 @@ DERIVED_FIELDS: frozenset[str] = frozenset(FIELDS) - frozenset(TAG_MAP)
 #: ``qtrs`` values this module selects on.
 _ANNUAL_QTRS = 4
 _INSTANT_QTRS = 0
+#: A year-to-date span: one to three quarters, never the annual itself.
+_YTD_QTRS = frozenset({1, 2, 3})
+#: The prior-year comparative sits 350–380 days before the current YTD end;
+#: a 53-week year and a leap February both live inside that window.
+_PRIOR_MIN_GAP_DAYS = 350
+_PRIOR_MAX_GAP_DAYS = 380
 
 
 # ---------------------------------------------------------------------------
@@ -162,33 +174,145 @@ _INSTANT_QTRS = 0
 # ---------------------------------------------------------------------------
 
 
+def _fact_key(item: Any) -> tuple[str, str, str]:
+    """Recency order: period end, then filing date, then accession."""
+
+    return (item.ddate, item.filed, item.adsh)
+
+
+def _newest(rows: list[Any], qtrs: int) -> Any:
+    """The newest row with exactly this ``qtrs`` duration, or ``None``."""
+
+    best: Any = None
+    best_key: tuple[str, str, str] | None = None
+    for item in rows:
+        if item.qtrs != qtrs:
+            continue
+        key = _fact_key(item)
+        if best_key is None or key > best_key:
+            best = item
+            best_key = key
+    return best
+
+
+def _newest_ytd(rows: list[Any]) -> Any:
+    """The newest year-to-date row: newest period end, then longest span.
+
+    A 10-Q publishes the same period end at several durations (a three-month
+    quarter and the nine-month year-to-date share ``ddate``); the longest span
+    is the one the TTM arithmetic wants, so ``qtrs`` breaks the period tie.
+    """
+
+    best: Any = None
+    best_key: tuple[str, int, str, str] | None = None
+    for item in rows:
+        if item.qtrs not in _YTD_QTRS:
+            continue
+        key = (item.ddate, item.qtrs, item.filed, item.adsh)
+        if best_key is None or key > best_key:
+            best = item
+            best_key = key
+    return best
+
+
+def _prior_year_ytd(rows: list[Any], ytd: Any) -> Any:
+    """The same tag and span one year earlier — the 10-Q's own comparative."""
+
+    best: Any = None
+    best_key: tuple[str, str, str] | None = None
+    for item in rows:
+        if item.tag != ytd.tag or item.qtrs != ytd.qtrs:
+            continue
+        gap = _days_between(item.ddate, ytd.ddate)
+        if gap is None or not _PRIOR_MIN_GAP_DAYS <= gap <= _PRIOR_MAX_GAP_DAYS:
+            continue
+        key = _fact_key(item)
+        if best_key is None or key > best_key:
+            best = item
+            best_key = key
+    return best
+
+
+def _days_between(first: str, second: str) -> int | None:
+    """``second - first`` in days; ``None`` when either date is unparseable."""
+
+    try:
+        return (date.fromisoformat(second) - date.fromisoformat(first)).days
+    except (TypeError, ValueError):
+        return None
+
+
+def _flow_value(rows: list[Any]) -> float | None:
+    """A flow field's value: the annual, or the annual rolled forward to TTM.
+
+    A ``qtrs=4`` row is a full year and wins outright. When the issuer's
+    newest filing is a 10-Q — the common case mid-year — the annual row lives
+    in the *previous* quarter's dataset, so the caller merges two quarters
+    into one fact list. The trailing twelve months are then
+
+        annual + year-to-date − prior-year year-to-date
+
+    using the 10-Q's own comparative for the prior span. If the annual base
+    or the comparative is missing the answer is the annual alone, and with
+    neither it is ``None`` — never a nine-month figure wearing twelve months'
+    clothes.
+    """
+
+    if not rows:
+        return None
+
+    newest = max(rows, key=_fact_key)
+    if newest.qtrs == _ANNUAL_QTRS:
+        return newest.value
+
+    ytd = _newest_ytd(rows)
+    annual = _newest(rows, _ANNUAL_QTRS)
+    if ytd is None:
+        return None if annual is None else annual.value
+
+    prior = _prior_year_ytd(rows, ytd)
+    if prior is None:
+        return None if annual is None else annual.value
+
+    # The base year must be the same concept as the YTD pair. A company that
+    # switched revenue tags between its 10-K and its 10-Q gets the annual
+    # alone rather than arithmetic across two different concepts.
+    same_tag = _newest([row for row in rows if row.tag == ytd.tag], _ANNUAL_QTRS)
+    if same_tag is None:
+        return None if annual is None else annual.value
+    return same_tag.value + ytd.value - prior.value
+
+
+def _instant_value(rows: list[Any]) -> float | None:
+    """The newest instant (``qtrs=0``) row's value, or ``None``."""
+
+    best = _newest(rows, _INSTANT_QTRS)
+    return None if best is None else best.value
+
+
 def _selected(facts: list[Any], name: str) -> float | None:
     """The winning value for one mapped field, or ``None``.
 
-    Candidates are the field's concepts, in the field's unit, undimensioned,
-    with the duration the field's class demands (annual for a flow, instant
-    for a balance). The winner is the newest ``ddate``; a tie is broken by the
-    later ``filed`` — the restatement rule — and then by the accession, so two
-    runs of one dataset always agree.
+    Candidates are the field's concepts, in the field's unit, undimensioned.
+    A flow field takes :func:`_flow_value` — the annual, or the annual rolled
+    forward to a trailing twelve months; an instant field takes the newest
+    balance. The winner is the newest ``ddate``; a tie is broken by the later
+    ``filed`` — the restatement rule — and then by the accession, so two runs
+    of one dataset always agree.
     """
 
     tags = TAG_MAP[name]
     uom = UOM_BY_FIELD[name]
-    annual = name in FLOW_FIELDS
-    wanted_qtrs = _ANNUAL_QTRS if annual else _INSTANT_QTRS
-
-    best: Any = None
-    best_key: tuple[str, str, str] | None = None
-    for item in facts:
-        if item.tag not in tags or item.uom != uom or item.segments:
-            continue
-        if item.qtrs != wanted_qtrs:
-            continue
-        key = (item.ddate, item.filed, item.adsh)
-        if best_key is None or key > best_key:
-            best = item
-            best_key = key
-    return None if best is None else best.value
+    rows = [
+        item
+        for item in facts
+        if item.tag in tags and item.uom == uom and not item.segments
+    ]
+    if not rows:
+        return None
+    if name in FLOW_FIELDS:
+        return _flow_value(rows)
+    return _instant_value(rows)
 
 
 def _ratio(numerator: float | None, denominator: float | None) -> float | None:

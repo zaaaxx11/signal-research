@@ -394,6 +394,34 @@ class FactIndex:
             return ()
         return self.by_cik.get(key, ())
 
+    def merge(self, other: "FactIndex") -> "FactIndex":
+        """Union two quarterly indexes into one fact list per CIK.
+
+        The TTM arithmetic in ``app.market.sec_fundamentals`` needs the annual
+        row from the quarter that carried the 10-K *and* the year-to-date pair
+        from the quarter that carried the 10-Q — two different datasets for a
+        mid-year filer. Facts are re-sorted by the same
+        :func:`_fact_sort_key` a single build uses, so a merged index is
+        indistinguishable from one built over both ZIPs at once; submissions
+        are unioned with ``other`` winning an accession collision, because the
+        later quarter's filing date is the one that matters.
+        """
+
+        submissions: dict[str, Submission] = dict(self.submissions)
+        submissions.update(other.submissions)
+
+        merged: dict[str, list[Fact]] = {}
+        for cik, facts in self.by_cik.items():
+            merged.setdefault(cik, []).extend(facts)
+        for cik, facts in other.by_cik.items():
+            merged.setdefault(cik, []).extend(facts)
+
+        by_cik = {
+            cik: tuple(sorted(facts, key=_fact_sort_key))
+            for cik, facts in sorted(merged.items())
+        }
+        return FactIndex(submissions=submissions, by_cik=by_cik)
+
     def submissions_for(self, cik: str) -> tuple[Submission, ...]:
         """One issuer's filings, in ``sub.txt`` order."""
 
@@ -779,6 +807,25 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def build_quarters(
+    paths: Iterable[Path | str], *, ciks: Iterable[str] | None = None
+) -> FactIndex:
+    """Build one index over several quarterly ZIPs, merged.
+
+    A mid-year filer's annual row lives in the quarter that carried its 10-K
+    while its year-to-date pair lives in the quarter that carried its 10-Q;
+    the TTM arithmetic needs both in one fact list. An empty ``paths`` answers
+    an empty index rather than raising, so a caller with no cached quarter yet
+    still gets a usable object.
+    """
+
+    index: FactIndex | None = None
+    for path in paths:
+        built = FactIndex.build(path, ciks=ciks)
+        index = built if index is None else index.merge(built)
+    return index if index is not None else FactIndex()
+
+
 __all__ = [
     "BulkDownloadError",
     "CACHE_SUBDIR",
@@ -790,6 +837,7 @@ __all__ = [
     "SEC_USER_AGENT",
     "SUB_FILENAME",
     "Submission",
+    "build_quarters",
     "current_quarter",
     "dataset_cache_path",
     "dataset_url",

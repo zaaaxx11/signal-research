@@ -444,3 +444,130 @@ def test_fundamentals_for_cik_does_not_leak_across_issuers(tmp_path: Path) -> No
 
     apple = fundamentals_for_cik(index, AAPL_CIK)
     assert apple["sales"] == pytest.approx(416_161_000_000)
+
+
+# ---------------------------------------------------------------------------
+# Trailing twelve months
+# ---------------------------------------------------------------------------
+#
+# A mid-year filer's 10-K is in the *previous* quarter's dataset while its
+# 10-Q is in the current one, so the caller merges two quarters into one fact
+# list. The TTM is annual + year-to-date − prior-year year-to-date, using the
+# 10-Q's own comparative for the prior span.
+
+
+def test_flow_rolls_the_annual_forward_to_a_trailing_twelve_months() -> None:
+    """annual 400 + YTD 300 − prior YTD 280 = TTM 420, not the stale 400."""
+
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(420_000_000_000)
+
+
+def test_flow_prefers_the_annual_when_it_is_the_newest_filing() -> None:
+    """A 10-K filed this quarter *is* the trailing twelve months."""
+
+    rows = [
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+        fact(REVENUE, 410_000_000_000, ddate="2026-09-26", qtrs=4, filed="2026-10-30"),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(410_000_000_000)
+
+
+def test_flow_without_an_annual_base_is_absent_not_a_nine_month_ttm() -> None:
+    """No 10-K anywhere: a nine-month figure never wears twelve months' clothes."""
+
+    rows = [
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+    ]
+    assert map_fundamentals(rows)["sales"] is None
+
+
+def test_flow_without_the_prior_year_comparative_falls_back_to_the_annual() -> None:
+    """The 10-Q carried no comparative: the annual alone, never invented."""
+
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(400_000_000_000)
+
+
+def test_flow_takes_the_longest_ytd_span_at_one_period_end() -> None:
+    """A 10-Q publishes qtrs=1 and qtrs=3 at the same ddate; the nine months win."""
+
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 100_000_000_000, ddate="2026-06-27", qtrs=1, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(420_000_000_000)
+
+
+def test_flow_ignores_a_prior_span_that_is_not_one_year_earlier() -> None:
+    """A six-month-old qtrs=3 row is not the prior-year comparative."""
+
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-12-27", qtrs=3, adsh=AAPL_Q, filed="2026-02-01"),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(400_000_000_000)
+
+
+def test_flow_requires_the_same_tag_across_the_ttm_arithmetic() -> None:
+    """Mixing a 10-K's Revenues with a 10-Q's contract-revenue tag is not a TTM."""
+
+    rows = [
+        fact("Revenues", 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+    ]
+    # The annual is a different tag, so the TTM is not built; the annual alone
+    # is still the honest answer for the field.
+    assert map_fundamentals(rows)["sales"] == pytest.approx(400_000_000_000)
+
+
+def test_ttm_derived_fields_follow_the_rolled_forward_sales() -> None:
+    """net_margin divides the TTM net income by the TTM sales, not a stale year."""
+
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+        fact("NetIncomeLoss", 100_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact("NetIncomeLoss", 80_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact("NetIncomeLoss", 70_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["sales"] == pytest.approx(420_000_000_000)
+    assert fields["net_income"] == pytest.approx(110_000_000_000)
+    assert fields["net_margin"] == pytest.approx(110_000_000_000 / 420_000_000_000)
+
+
+def test_instant_fields_are_untouched_by_the_ttm_rule() -> None:
+    """A balance is a point in time; the TTM arithmetic never touches it."""
+
+    rows = [
+        fact("Assets", 364_980_000_000, ddate="2025-09-27", qtrs=0),
+        fact("Assets", 370_000_000_000, ddate="2026-06-27", qtrs=0, adsh=AAPL_Q, filed="2026-07-31"),
+    ]
+    assert map_fundamentals(rows)["roa"] is None, "no flow to divide by"
+    selected = fundamentals_for_cik(_index_of(rows), AAPL_CIK)
+    assert selected["shares_outstanding"] is None
+
+
+def _index_of(rows: list[Fact]) -> Any:
+    """A one-issuer index over hand-built facts, for the cik entry points."""
+
+    class _Index:
+        def facts_for(self, cik: str) -> tuple[Fact, ...]:
+            return tuple(rows) if cik == AAPL_CIK else ()
+
+    return _Index()

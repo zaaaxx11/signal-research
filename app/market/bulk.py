@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from itertools import batched
 from typing import Any
 
@@ -30,6 +30,14 @@ CNBC_USER_AGENT = "Ztockz/0.1 (quote-hub; contact: mafazapratista@smkn2-solo.net
 _CNBC_STAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$"
 )
+#: CNBC also prints a bare market date, ``"2026-10-28"``, with the zone only
+#: in the companion ``last_timedate`` field.
+_CNBC_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#: …and that companion, ``"10/28/26 EDT"``: month/day/two-digit-year + zone.
+_CNBC_TIMEDATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{2})\s+([A-Z]{3})$")
+
+#: The zones CNBC names in ``last_timedate``; US market data only.
+_CNBC_ZONE_OFFSETS = {"EDT": -4, "EST": -5, "CDT": -5, "CST": -6, "PDT": -7, "PST": -8}
 
 _NA = frozenset({"", "N/A", "NA", "--", "-", "NONE", "NULL"})
 
@@ -70,19 +78,58 @@ def _non_negative(value: Any) -> float | None:
     return number if number is not None and number >= 0 else None
 
 
-def _stamp(value: Any) -> datetime | None:
-    """Read CNBC's ISO-8601 timestamp with a numeric UTC offset."""
+def _stamp(value: Any, timedate: Any = None) -> datetime | None:
+    """Read CNBC's stamp in any of the three shapes it prints.
+
+    The full ISO-8601 form carries the time of day and the offset. The bare
+    ``"2026-10-28"`` form carries only the market date, so the zone is taken
+    from the companion ``last_timedate`` (``"10/28/26 EDT"``) when it is
+    there; without either the date is read as UTC midnight, which is honest
+    about what is known — a market date, not an intraday instant.
+    """
 
     text = str(value or "").strip()
-    if not text or not _CNBC_STAMP_RE.match(text):
+    if text and _CNBC_STAMP_RE.match(text):
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        return parsed.astimezone(UTC)
+
+    if text and _CNBC_DATE_RE.match(text):
+        try:
+            day = date.fromisoformat(text)
+        except ValueError:
+            return None
+        offset = _zone_offset(timedate)
+        moment = datetime(day.year, day.month, day.day, tzinfo=UTC)
+        if offset is None:
+            return moment
+        return (moment - timedelta(hours=offset)).astimezone(UTC)
+
+    companion = _zone_offset(timedate)
+    if companion is None:
         return None
+    match = _CNBC_TIMEDATE_RE.match(str(timedate or "").strip())
+    if match is None:
+        return None
+    month, day, year = (int(part) for part in match.groups()[:3])
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        moment = datetime(2000 + year, month, day, tzinfo=UTC)
     except ValueError:
         return None
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    return (moment - timedelta(hours=companion)).astimezone(UTC)
+
+
+def _zone_offset(timedate: Any) -> int | None:
+    """The UTC offset hours CNBC's ``last_timedate`` names, or ``None``."""
+
+    match = _CNBC_TIMEDATE_RE.match(str(timedate or "").strip())
+    if match is None:
         return None
-    return parsed.astimezone(UTC)
+    return _CNBC_ZONE_OFFSETS.get(match.group(4))
 
 
 def _truth(value: Any) -> bool | None:
@@ -102,7 +149,7 @@ def parse_cnbc_quote(payload: Any) -> SourceQuote | None:
     if not isinstance(payload, Mapping):
         return None
     last = _positive(payload.get("last"))
-    stamp = _stamp(payload.get("last_time"))
+    stamp = _stamp(payload.get("last_time"), payload.get("last_timedate"))
     if last is None or stamp is None:
         return None
     return SourceQuote(

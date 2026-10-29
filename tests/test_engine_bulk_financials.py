@@ -41,6 +41,8 @@ from app.engine.bulk_financials import (
     Fact,
     FactIndex,
     Submission,
+    _fact_sort_key,
+    build_quarters,
 )
 from app.providers import http as provider_http
 
@@ -661,3 +663,120 @@ def test_the_fixture_zip_is_the_only_io(zip_path: Path) -> None:
     with zipfile.ZipFile(zip_path) as archive:
         assert set(archive.namelist()) == {"sub.txt", "num.txt"}
     assert FactIndex.build(zip_path).ciks() == (AAPL_CIK, MSFT_CIK)
+
+
+# ---------------------------------------------------------------------------
+# Merging quarters
+# ---------------------------------------------------------------------------
+#
+# A mid-year filer's annual row lives in the quarter that carried its 10-K
+# while its year-to-date pair lives in the quarter that carried its 10-Q, so
+# the TTM arithmetic reads one fact list built over both datasets.
+
+
+def _quarter_zip(
+    tmp_path: Path,
+    name: str,
+    *,
+    sub_rows: list[list[str]],
+    num_rows: list[list[str]],
+) -> Path:
+    return write_fixture_zip(tmp_path / name, sub_rows=sub_rows, num_rows=num_rows)
+
+
+def test_merge_unions_facts_from_two_quarters(tmp_path: Path) -> None:
+    """The 10-K quarter and the 10-Q quarter answer as one issuer."""
+
+    annual = _quarter_zip(
+        tmp_path,
+        "2025q4.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K", "20250927", 2025, "FY", "20251031")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 400_000_000_000)],
+    )
+    ytd = _quarter_zip(
+        tmp_path,
+        "2026q3.zip",
+        sub_rows=[sub_row(AAPL_ADSH_Q, 320193, "Apple Inc.", "10-Q", "20260630", 2026, "Q3", "20260731")],
+        num_rows=[
+            num_row(AAPL_ADSH_Q, "Revenues", "20260627", 3, "USD", 300_000_000_000),
+            num_row(AAPL_ADSH_Q, "Revenues", "20250628", 3, "USD", 280_000_000_000),
+        ],
+    )
+
+    merged = FactIndex.build(annual).merge(FactIndex.build(ytd))
+    facts = merged.facts_for(AAPL_CIK)
+    assert len(facts) == 3, "both quarters' rows land in one fact list"
+    assert {fact.qtrs for fact in facts} == {3, 4}
+    assert merged.issuer_name(AAPL_CIK) == "Apple Inc."
+
+
+def test_merge_is_indistinguishable_from_one_build_over_both_zips(tmp_path: Path) -> None:
+    """Merging then sorting equals building over a single concatenated dataset."""
+
+    first = _quarter_zip(
+        tmp_path,
+        "a.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K", "20250927", 2025, "FY", "20251031")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 400_000_000_000)],
+    )
+    second = _quarter_zip(
+        tmp_path,
+        "b.zip",
+        sub_rows=[sub_row(AAPL_ADSH_Q, 320193, "Apple Inc.", "10-Q", "20260630", 2026, "Q3", "20260731")],
+        num_rows=[num_row(AAPL_ADSH_Q, "Revenues", "20260627", 3, "USD", 300_000_000_000)],
+    )
+
+    merged = FactIndex.build(first).merge(FactIndex.build(second))
+    assert merged.facts_for(AAPL_CIK) == tuple(
+        sorted(merged.facts_for(AAPL_CIK), key=_fact_sort_key)
+    ), "the merged list is in the canonical build order"
+
+
+def test_merge_lets_the_later_quarter_win_an_accession_collision(tmp_path: Path) -> None:
+    """One accession refiled in a later quarter keeps the later filing date."""
+
+    early = _quarter_zip(
+        tmp_path,
+        "early.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K", "20250927", 2025, "FY", "20251031")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 400_000_000_000)],
+    )
+    late = _quarter_zip(
+        tmp_path,
+        "late.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K/A", "20250927", 2025, "FY", "20251201")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 401_000_000_000)],
+    )
+
+    merged = FactIndex.build(early).merge(FactIndex.build(late))
+    assert merged.submissions[AAPL_ADSH_K].filed == "2025-12-01"
+    assert merged.facts_for(AAPL_CIK)[-1].value == 401_000_000_000
+
+
+def test_build_quarters_over_two_zips(tmp_path: Path) -> None:
+    """The convenience entry point builds and merges in one call."""
+
+    annual = _quarter_zip(
+        tmp_path,
+        "2025q4.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K", "20250927", 2025, "FY", "20251031")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 400_000_000_000)],
+    )
+    ytd = _quarter_zip(
+        tmp_path,
+        "2026q3.zip",
+        sub_rows=[sub_row(AAPL_ADSH_Q, 320193, "Apple Inc.", "10-Q", "20260630", 2026, "Q3", "20260731")],
+        num_rows=[num_row(AAPL_ADSH_Q, "Revenues", "20260627", 3, "USD", 300_000_000_000)],
+    )
+
+    index = build_quarters([annual, ytd])
+    assert index.ciks() == (AAPL_CIK,)
+    assert len(index.facts_for(AAPL_CIK)) == 2
+
+
+def test_build_quarters_with_no_paths_is_an_empty_index() -> None:
+    """A caller with nothing cached yet still gets a usable object."""
+
+    index = build_quarters([])
+    assert index.ciks() == ()
+    assert index.facts_for(AAPL_CIK) == ()

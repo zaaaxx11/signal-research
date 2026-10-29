@@ -17,6 +17,7 @@ import httpx2
 
 from app.engine.bulk_financials import (
     FactIndex,
+    build_quarters,
     current_quarter,
     dataset_cache_path,
     download_dataset,
@@ -195,10 +196,21 @@ async def main() -> None:
             zip_path = dataset_cache_path(CACHE, quarter)
     if not zip_path.exists():
         await download_dataset(quarter, cache_dir=CACHE)
+    # Four quarters: the annual row lives in whichever quarter carried the
+    # 10-K, and fiscal year ends differ (Sept FY → 2025q4, Dec FY → 2026q1,
+    # June FY → the current quarter), so one prior quarter is not enough.
+    quarters = [quarter]
+    for back in range(1, 4):
+        prev = previous_quarter(quarter, back)
+        prev_path = dataset_cache_path(CACHE, prev)
+        if not prev_path.exists():
+            await download_dataset(prev, cache_dir=CACHE)
+        quarters.append(prev)
+    paths = [dataset_cache_path(CACHE, q) for q in quarters]
     wanted = {ciks[s] for s in symbols if s in ciks}
-    index = FactIndex.build(zip_path, ciks=wanted)
+    index = build_quarters(paths, ciks=wanted)
     print(
-        f"sec_bulk quarter={quarter} ciks={len(index.ciks())} "
+        f"sec_bulk quarters={'+'.join(quarters)} ciks={len(index.ciks())} "
         f"build={time.perf_counter() - t0:.1f}s",
         flush=True,
     )
