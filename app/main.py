@@ -12,6 +12,7 @@ exactly that) never share a database or an export directory.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager
@@ -413,9 +414,42 @@ async def _engine_lifespan(application: FastAPI):
             application.state.depth = None
 
 
+_LOG_CONFIGURED = False
+
+
+def _configure_logging() -> None:
+    """Give the ``mee`` logger tree a level and one handler.
+
+    Under uvicorn nothing configures this tree, so the root logger stays at
+    WARNING and every `logger.info` in the codebase is dropped. A source that
+    failed, a cycle that overran, a snapshot that no longer verified — all of it
+    was written and none of it reached the journal. The level is configurable
+    (`MEE_LOG_LEVEL`), the handler is added once, and propagation is off so a
+    root handler added later cannot print the same line twice.
+    """
+
+    global _LOG_CONFIGURED
+    if _LOG_CONFIGURED:
+        return
+
+    level_name = os.environ.get("MEE_LOG_LEVEL", "INFO").strip().upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logger = logging.getLogger("mee")
+    logger.setLevel(level)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(levelname)s %(name)s %(message)s")
+        )
+        logger.addHandler(handler)
+    logger.propagate = False
+    _LOG_CONFIGURED = True
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the ASGI application from settings (no I/O at import time)."""
 
+    _configure_logging()
     runtime = Runtime(settings or get_settings())
     application = FastAPI(
         title="Ztockz",
