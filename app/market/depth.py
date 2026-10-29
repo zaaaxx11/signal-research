@@ -1289,6 +1289,7 @@ def build_depth_collector(
                 *,
                 batch_size: int | None = None,
                 state_path: Any = None,
+                refresh_s: float | None = None,
             ) -> None:
                 super().__init__(
                     news_concurrency=int(
@@ -1301,7 +1302,14 @@ def build_depth_collector(
                 #: ``short_ratio`` divisor.
                 self.batch_quote_source = batch_quote_source
                 self._universe = universe
-                self._refresh_s = refresh_s
+                #: The rotation's own cadence, not the overnight depth refresh.
+                self._refresh_s = (
+                    refresh_s
+                    if refresh_s is not None
+                    else float(
+                        getattr(settings, "depth_enrich_interval_s", 300.0)
+                    )
+                )
                 self._clock = stage_clock
                 self._merged: dict[str, dict[str, Any]] = {}
                 self._merged_at: float | None = None

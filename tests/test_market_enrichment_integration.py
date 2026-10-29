@@ -284,3 +284,19 @@ async def test_one_pass_serves_every_chunk(
     # itself was asked for the whole universe exactly once.
     assert stage.yahoo_source.calls == [("AAA", "BBB", "CCC", "DDD")]
     assert collector.document()["symbols"]["DDD"]["pe"] == 1.0
+
+
+def test_the_rotation_has_its_own_cadence() -> None:
+    """500 symbols per 24 h would take nine days; the rung uses its own timer."""
+
+    settings = SimpleNamespace(
+        depth_store_path=None,
+        depth_sec_snapshot=None,
+        depth_enrich=True,
+        depth_enrich_batch=500,
+        depth_enrich_interval_s=300.0,
+        depth_refresh_s=86_400.0,
+    )
+    collector = build_depth_collector(settings, ["AAPL", "MSFT"])
+    enrich = next(s for s in collector.sources if s.name == "enrich")
+    assert enrich._refresh_s == 300.0, "the enrichment cadence, not the 24 h refresh"

@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     #: persisted, the depth store keeps the rest. 0 keeps the crawl-everything
     #: behaviour for small runs and tests.
     depth_enrich_batch: int = Field(default=500, ge=0)
+    #: How often the enrichment rotation advances one slice. It is NOT the
+    #: overnight depth refresh: with 500 symbols per pass and a 24 h window
+    #: the universe would take nine days. Five minutes covers it in ~45.
+    depth_enrich_interval_s: float = Field(default=300.0, gt=0)
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")
