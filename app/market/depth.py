@@ -502,6 +502,13 @@ class DepthCollector:
         # alone: which chunk of a source finished first cannot promote a
         # lower-priority value above an earlier source's field.
         for priority, source in enumerate(self.sources):
+            # A cycle is minutes long and its only completion log fires at the
+            # end, so a source that stalls or a cycle that overruns its budget
+            # is invisible until someone measures it by hand. One line per
+            # source, with its own duration, is what makes "cycle <= 60 min"
+            # an observation instead of a guess.
+            source_started = time.perf_counter()
+            source_fields = 0
             for chunk in _chunked(self.symbols, self.source_chunk_size):
                 try:
                     fetched = await self._fetch_chunk(source, chunk)
@@ -522,11 +529,20 @@ class DepthCollector:
                     self.last_error = message
                     logger.warning("depth source chunk failed: %s", message)
                     continue
+                source_fields += sum(
+                    len(observation.fields) for observation in fetched.values()
+                )
                 for observation in fetched.values():
                     if isinstance(observation, DepthObservation):
                         observations.setdefault(observation.symbol, []).append(
                             (priority, observation)
                         )
+            logger.info(
+                "depth source %s done in %.1fs (%s fields)",
+                source.name,
+                time.perf_counter() - source_started,
+                source_fields,
+            )
 
         returned = 0
         for symbol in self.symbols:

@@ -821,3 +821,27 @@ def test_build_depth_collector_carries_the_source_limits() -> None:
     collector = build_depth_collector(settings, ["AAPL"])
     assert collector.source_timeout_s == 42.0
     assert collector.source_chunk_size == 7
+
+
+def test_each_source_reports_its_own_duration(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A cycle's only completion log fires at the end.
+
+    That makes a stalled source, or a cycle that overruns its budget,
+    invisible until someone measures by hand — which is exactly why
+    "cycle <= 60 minutes" stayed unverified. One line per source, carrying its
+    name and duration, turns the gate into an observation.
+    """
+
+    import logging
+
+    collector = DepthCollector(
+        symbols=["AAA", "BBB"], sources=[RecordingChunkSource("alpha")], store_path=None
+    )
+
+    with caplog.at_level(logging.INFO, logger="mee.depth"):
+        asyncio.run(collector.refresh())
+
+    lines = [record.getMessage() for record in caplog.records]
+    assert any(line.startswith("depth source alpha done in") for line in lines), lines
