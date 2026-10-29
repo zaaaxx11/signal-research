@@ -267,7 +267,18 @@ class SecFundamentalsDepthSource:
             )
         except Exception as exc:  # noqa: BLE001 - identity enrichment is optional
             self.cik_error = f"{type(exc).__name__}: {exc}"
-            logger.info("sec bulk depth snapshot failed: %s", self.cik_error)
+            # An optional rung must not crash the cycle, but it must not vanish
+            # either: a snapshot whose digest no longer matches fails closed on
+            # every read, so this source silently returns nothing while the
+            # store keeps serving its seed. That looked like a healthy
+            # deployment with three-day-old numbers. WARNING, and name the fix.
+            logger.warning(
+                "sec bulk depth snapshot failed: %s (if the dataset is intact "
+                "but the digest is stale, run: python -m app.engine.ops reseal "
+                "--snapshot %s)",
+                self.cik_error,
+                self.snapshot_path,
+            )
         return self._ciks
 
     # -- the quarterly cache ------------------------------------------------

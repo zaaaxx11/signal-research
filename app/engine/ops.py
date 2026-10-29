@@ -964,6 +964,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    reseal = commands.add_parser(
+        "reseal", help="recompute a snapshot digest whose dataset is intact"
+    )
+    reseal.add_argument("--snapshot", required=True, help="snapshot file to re-seal")
+
     restore = commands.add_parser("restore", help="verify and restore a snapshot")
     restore.add_argument("--backup", required=True, help="backup file to restore")
     restore.add_argument("--target", required=True, help="file to write the snapshot to")
@@ -987,6 +992,75 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def reseal_snapshot(path: Path) -> dict[str, object]:
+    """Recompute the envelope digest of an intact-but-stale snapshot.
+
+    ``EngineStore.load()`` verifies ``checksum`` against ``_checksum(dataset)``.
+    A write that edited the body without going through ``save()`` leaves a
+    dataset that can never verify again, and every reader fails closed — the
+    SEC depth rungs then return nothing while the store keeps serving its seed,
+    so the deployment looks healthy and the numbers are days old.
+
+    Rebuilding the dataset here would mean a second serialiser. Instead this
+    recomputes the digest with the store's own ``_checksum`` and refuses an
+    implausible body rather than blessing it: a damaged file must still fail
+    closed, a stale digest must not.
+    """
+
+    import json
+    import os
+    import tempfile
+
+    from app.engine.store import _checksum
+
+    path = Path(path).expanduser()
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} is not JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path} does not hold a snapshot envelope")
+
+    dataset = raw.get("dataset")
+    if not isinstance(dataset, dict):
+        raise ValueError(f"{path} has no dataset object; nothing to re-seal")
+    securities = dataset.get("securities")
+    if not isinstance(securities, list) or not securities:
+        raise ValueError(
+            f"{path} has no securities rows; refusing to bless an empty dataset"
+        )
+    facts = dataset.get("facts")
+    if not isinstance(facts, dict) or not facts:
+        raise ValueError(
+            f"{path} has no facts; refusing to bless an empty dataset"
+        )
+    if not isinstance(dataset.get("fetched_at"), str) or not dataset["fetched_at"].strip():
+        raise ValueError(f"{path} has no fetched_at; refusing to re-seal")
+
+    before = raw.get("checksum")
+    raw["checksum"] = _checksum(dataset)
+
+    handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".reseal-")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            json.dump(raw, stream, ensure_ascii=False, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+    return {
+        "path": str(path),
+        "securities": len(securities),
+        "facts": len(facts),
+        "checksum_before": before,
+        "checksum_after": raw["checksum"],
+        "verified": True,
+    }
+
+
 def _run(args: argparse.Namespace) -> dict[str, object]:
     """Dispatch one parsed command to the function that owns it."""
 
@@ -1006,6 +1080,8 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
             max_age_days=args.max_age_days,
             dry_run=bool(args.dry_run),
         )
+    if args.command == "reseal":
+        return reseal_snapshot(Path(args.snapshot))
     if args.command == "backup":
         snapshot = (
             Path(args.snapshot) if args.snapshot else paths.snapshot_path()

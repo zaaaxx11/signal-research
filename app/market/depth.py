@@ -1089,7 +1089,16 @@ class SecDepthSource:
             self._dataset = EngineStore(self.snapshot_path).load()
         except Exception as exc:  # noqa: BLE001 - identity enrichment is optional
             self.load_error = f"{type(exc).__name__}: {exc}"
-            logger.info("SEC depth snapshot failed: %s", self.load_error)
+            # Failing closed is right; failing quietly is not. A stale digest
+            # makes this rung return nothing on every read while the store keeps
+            # serving its seed — a healthy-looking service with old numbers.
+            logger.warning(
+                "SEC depth snapshot failed: %s (if the dataset is intact but "
+                "the digest is stale, run: python -m app.engine.ops reseal "
+                "--snapshot %s)",
+                self.load_error,
+                self.snapshot_path,
+            )
         return self._dataset
 
     def _as_of(self, dataset: Any) -> datetime:

@@ -259,7 +259,14 @@ docker compose run --rm ops cache
 docker compose run --rm ops backup --snapshot /data/engine-snapshot.json --keep 7
 docker compose run --rm ops retention --max-age-days 30 --max-bytes 2000000000
 docker compose run --rm ops smoke --base-url http://engine:8080
+docker compose run --rm ops reseal --snapshot /data/engine-snapshot.json
 ```
+
+`ops reseal` recomputes a snapshot's digest when the dataset is intact but the
+envelope checksum is stale. `EngineStore.load()` fails closed on a mismatch —
+correct, but silent: the SEC depth rungs return nothing while the store keeps
+serving its seed, so the deployment looks healthy and the numbers are days
+old. The rungs now log that condition at WARNING and name this command.
 
 To serve a populated engine, put `engine-snapshot.json` in the volume before
 starting, or build one inside the container:
