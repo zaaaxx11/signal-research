@@ -476,3 +476,252 @@ def test_settings_expose_the_keyless_depth_flags(monkeypatch: Any) -> None:
     off = Settings()
     assert off.depth_yahoo_full is False
     assert off.depth_stockanalysis is False
+
+
+# ---------------------------------------------------------------------------
+# The share-count reference (multi-class filers)
+# ---------------------------------------------------------------------------
+#
+# A class-share filer (META, GOOGL, BRK.B) tags ``CommonStockSharesOutstanding``
+# only on a ``ClassOfStock`` axis, so the filing carries no consolidated count:
+# no shares, no market cap, no enterprise value. The Yahoo v7 batch quote
+# carries ``sharesOutstanding`` for the same symbol, so the source takes it as
+# a reference — exactly as it takes the price — and hands it to the mapper as
+# the fallback the mapper documents. A filed count always wins.
+
+META_CIK = "0001326801"
+META_K = "0001326801-25-000055"  # 10-K, filed 2026-01-30
+META_REVENUE = "RevenueFromContractWithCustomerExcludingAssessedTax"
+CLASS_A = "ClassOfStock=CommonClassA; EquityComponents=CommonStock"
+CLASS_B = "ClassOfStock=CommonClassB; EquityComponents=CommonStock"
+
+#: What the v7 batch quote reports for the same issuer.
+REFERENCE_SHARES = 2_500_000_000.0
+
+
+def _dim_num(
+    adsh: str,
+    tag: str,
+    ddate: str,
+    qtrs: object,
+    uom: str,
+    value: object,
+    segments: str,
+) -> list[str]:
+    """A ``num.txt`` row carrying a dimensional (axis) member."""
+
+    row = _num(adsh, tag, ddate, qtrs, uom, value)
+    row[6] = segments
+    return row
+
+
+def _multi_class_members() -> tuple[str, str]:
+    """``sub.txt``/``num.txt`` for one class-share filer with no total count."""
+
+    subs = [
+        _sub(META_K, 1326801, "Meta Platforms, Inc.", "10-K", "20251231", 2025, "FY", "20260130"),
+    ]
+    nums = [
+        _num(META_K, META_REVENUE, "20251231", 4, "USD", 164_501_000_000),
+        _num(META_K, "NetIncomeLoss", "20251231", 4, "USD", 62_360_000_000),
+        _num(META_K, "EarningsPerShareDiluted", "20251231", 4, "USD", 23.86),
+        _num(META_K, "LongTermDebtNoncurrent", "20251231", 0, "USD", 28_000_000_000),
+        _num(
+            META_K,
+            "CashAndCashEquivalentsAtCarryingValue",
+            "20251231",
+            0,
+            "USD",
+            30_000_000_000,
+        ),
+        # Only the two class rows: 2.2bn + 0.3bn, and neither is a total.
+        _dim_num(
+            META_K, "CommonStockSharesOutstanding", "20251231", 0, "shares",
+            2_200_000_000, CLASS_A,
+        ),
+        _dim_num(
+            META_K, "CommonStockSharesOutstanding", "20251231", 0, "shares",
+            300_000_000, CLASS_B,
+        ),
+    ]
+    sub_text = "\n".join(["\t".join(SUB_HEADER)] + ["\t".join(r) for r in subs]) + "\n"
+    num_text = "\n".join(["\t".join(NUM_HEADER)] + ["\t".join(r) for r in nums]) + "\n"
+    return sub_text, num_text
+
+
+def _write_multi_class_quarter(root: Path, quarter: str) -> Path:
+    sub_text, num_text = _multi_class_members()
+    path = root / "sec-bulk" / f"{quarter}.zip"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("sub.txt", sub_text)
+        archive.writestr("num.txt", num_text)
+    return path
+
+
+def _build_source(module: Any, **kwargs: Any) -> Any:
+    """``SecFundamentalsDepthSource(**kwargs)``, RED when ``shares=`` is absent."""
+
+    try:
+        return module.SecFundamentalsDepthSource(**kwargs)
+    except TypeError as exc:
+        if "shares" in str(exc):
+            raise AssertionError(
+                f"SecFundamentalsDepthSource does not accept shares= yet: {exc}"
+            ) from exc
+        raise
+
+
+def _reference_function(module: Any, name: str) -> Any:
+    """A module-level helper, asserted present — a missing one is RED."""
+
+    function = getattr(module, name, None)
+    assert callable(function), f"app.market.sec_fundamentals_depth.{name} is missing"
+    return function
+
+
+def test_a_multi_class_filer_is_unpriceable_without_a_share_reference(
+    tmp_path: Path,
+) -> None:
+    """The gap: class rows are dropped, so no market cap and no EV."""
+
+    module = _module()
+    _write_multi_class_quarter(tmp_path, "2026q3")
+    source = module.SecFundamentalsDepthSource(
+        cache_dir=tmp_path,
+        quarters=("2026q3",),
+        cik_by_symbol={"META": META_CIK},
+        price={"META": 500.0},
+    )
+    fields = asyncio.run(source.fetch_many(["META"]))["META"].fields
+    assert "shares_outstanding" not in fields
+    assert "market_cap" not in fields
+    assert "enterprise_value" not in fields
+    assert fields["sales"] == pytest.approx(164_501_000_000)
+
+
+def test_the_shares_reference_fills_the_multi_class_row(tmp_path: Path) -> None:
+    """The batch count prices the filer: market cap, EV and the per-share block."""
+
+    module = _module()
+    _write_multi_class_quarter(tmp_path, "2026q3")
+    source = _build_source(
+        module,
+        cache_dir=tmp_path,
+        quarters=("2026q3",),
+        cik_by_symbol={"META": META_CIK},
+        price={"META": 500.0},
+        shares={"META": REFERENCE_SHARES},
+    )
+    fields = asyncio.run(source.fetch_many(["META"]))["META"].fields
+
+    assert fields["shares_outstanding"] == pytest.approx(REFERENCE_SHARES)
+    assert fields["market_cap"] == pytest.approx(500.0 * REFERENCE_SHARES)
+    assert fields["enterprise_value"] == pytest.approx(
+        500.0 * REFERENCE_SHARES + 28_000_000_000 - 30_000_000_000
+    )
+    assert fields["ev_sales"] == pytest.approx(
+        (500.0 * REFERENCE_SHARES + 28_000_000_000 - 30_000_000_000) / 164_501_000_000
+    )
+    assert fields["pe"] == pytest.approx(500.0 / 23.86)
+
+
+def test_the_filed_share_count_wins_over_the_batch_reference(tmp_path: Path) -> None:
+    """Apple files a consolidated count; the reference must not displace it."""
+
+    module = _module()
+    _write_quarter(tmp_path, "2026q3")
+    source = _build_source(
+        module,
+        cache_dir=tmp_path,
+        quarters=("2026q3",),
+        cik_by_symbol={"AAPL": AAPL_CIK},
+        price={"AAPL": 250.0},
+        shares={"AAPL": 1_000_000.0},
+    )
+    fields = asyncio.run(source.fetch_many(["AAPL"]))["AAPL"].fields
+    assert fields["shares_outstanding"] == pytest.approx(14_800_000_000)
+    assert fields["market_cap"] == pytest.approx(250.0 * 14_800_000_000)
+
+
+def test_the_shares_reference_may_be_a_callable(tmp_path: Path) -> None:
+    module = _module()
+    _write_multi_class_quarter(tmp_path, "2026q3")
+    source = _build_source(
+        module,
+        cache_dir=tmp_path,
+        quarters=("2026q3",),
+        cik_by_symbol={"META": META_CIK},
+        price={"META": 500.0},
+        shares=lambda: {"META": REFERENCE_SHARES},
+    )
+    fields = asyncio.run(source.fetch_many(["META"]))["META"].fields
+    assert fields["market_cap"] == pytest.approx(500.0 * REFERENCE_SHARES)
+
+
+def test_a_shares_reference_that_is_not_a_count_is_ignored(tmp_path: Path) -> None:
+    """A string, a zero or a negative count is no count — and must not raise."""
+
+    module = _module()
+    _write_multi_class_quarter(tmp_path, "2026q3")
+    for reference in ({"META": "2500000000"}, {"META": 0}, {"META": -1.0}):
+        source = _build_source(
+            module,
+            cache_dir=tmp_path,
+            quarters=("2026q3",),
+            cik_by_symbol={"META": META_CIK},
+            price={"META": 500.0},
+            shares=reference,
+        )
+        fields = asyncio.run(source.fetch_many(["META"]))["META"].fields
+        assert "market_cap" not in fields, f"{reference} is not a share count"
+        assert fields["sales"] == pytest.approx(164_501_000_000), (
+            "one unusable reference must not sink the symbol's other fields"
+        )
+
+
+def test_the_shares_reference_reads_the_yahoo_v7_batch(monkeypatch: Any) -> None:
+    from tests._market_quote import install_seam, yahoo_row, yahoo_route
+    from tests._phase2 import MockWeb
+
+    module = _module()
+    fetch = _reference_function(module, "yahoo_shares_outstanding")
+    web = MockWeb()
+    row = yahoo_row("META")
+    row["sharesOutstanding"] = 2_500_000_000
+    yahoo_route(web, {"META": row})
+    install_seam(monkeypatch, web)
+
+    assert fetch(["META"]) == {"META": 2_500_000_000.0}
+
+
+def test_the_shares_reference_is_absent_when_yahoo_cannot_answer(
+    monkeypatch: Any,
+) -> None:
+    from tests._market_quote import install_seam, yahoo_route
+    from tests._phase2 import MockWeb
+
+    module = _module()
+    fetch = _reference_function(module, "yahoo_shares_outstanding")
+    web = MockWeb()
+    yahoo_route(web, {}, status=500)
+    install_seam(monkeypatch, web)
+
+    assert fetch(["META"]) == {}
+
+
+def test_the_shares_reference_memoises_within_its_ttl(monkeypatch: Any) -> None:
+    module = _module()
+    factory = _reference_function(module, "shares_reference")
+    calls: list[tuple[str, ...]] = []
+
+    def counting(symbols: Sequence[str]) -> dict[str, float]:
+        calls.append(tuple(symbols))
+        return {"META": REFERENCE_SHARES}
+
+    monkeypatch.setattr(module, "yahoo_shares_outstanding", counting)
+    reference = factory(["META"], ttl_s=60.0)
+
+    assert reference() == {"META": REFERENCE_SHARES}
+    assert reference() == {"META": REFERENCE_SHARES}
+    assert calls == [("META",)], "one batch per ttl window, not one per chunk"

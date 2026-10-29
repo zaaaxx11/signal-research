@@ -170,6 +170,7 @@ class EnrichmentStage:
         concurrency: int = DEFAULT_CONCURRENCY,
         news_concurrency: int = DEFAULT_NEWS_CONCURRENCY,
         yahoo_source: YahooDepthSource | None = None,
+        yahoo_proxy: str | None = None,
         news_source: RssNewsSource | None = None,
         batch_size: int | None = None,
         state_path: Any = None,
@@ -205,6 +206,11 @@ class EnrichmentStage:
                 include_timeseries=True,
                 include_options=False,
                 request_delay_s=YAHOO_REQUEST_DELAY_S,
+                # Direct Yahoo answers 429 after a heavy pass and the crumb
+                # request returns the literal string "Too Many Requests"; one
+                # residential endpoint turns the whole rotation from "cursor
+                # never advances" into a five-second batch.
+                proxy=yahoo_proxy,
             )
         )
         self.news_source: Any = (

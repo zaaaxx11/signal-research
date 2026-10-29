@@ -67,9 +67,19 @@ The rules
   closest to the target date. A missing anchor, or a base that is zero or
   negative, is an absent field: never a shorter window's CAGR, never a
   number a root cannot produce.
+* **A share count is filed first, referenced second.** A multi-class filer —
+  META, GOOGL, BRK.B — tags ``CommonStockSharesOutstanding`` only on a
+  ``ClassOfStock`` axis, so there is no undimensioned consolidated count and
+  the filing alone cannot say how many shares exist. The caller may therefore
+  pass ``shares``, the batch quote's own count; it fills
+  ``shares_outstanding`` — and with it the per-share columns, the market cap
+  and the enterprise value — **only when the filing has no count at all**. A
+  filed figure is never overridden, and the reference is never summed across
+  class rows: a segment is not a total.
 * **Price is the caller's.** ``market_cap`` and ``pe`` need a quote; without
   one they are absent rather than stale — and so is every valuation column
-  that stands on the market cap.
+  that stands on the market cap. A ``shares`` reference that is not a positive
+  finite number raises like a bad price: a caller bug, not a data gap.
 
 No network, no disk: the module reads :class:`~app.engine.bulk_financials.Fact`
 values somebody else streamed. Contract: ``briefs/market-engine`` keyless plan,
@@ -180,6 +190,9 @@ TAG_MAP: Mapping[str, tuple[str, ...]] = {
     ),
     "dividend": ("CommonStockDividendsPerShareDeclared",),
     "shares_outstanding": (
+        # Class-share filers (META, GOOGL, BRK.B) publish these only on a
+        # ``ClassOfStock`` axis — ``_rows_for`` drops every dimensional row, so
+        # the mapper takes the caller's reference count as the fallback.
         "CommonStockSharesOutstanding",
         "EntityCommonStockSharesOutstanding",
     ),
@@ -629,6 +642,26 @@ def _checked_price(price: float | None) -> float | None:
     return value
 
 
+def _checked_shares(shares: float | None) -> float | None:
+    """A reference share count is a positive finite number, or nothing at all.
+
+    A ``bool`` is refused as a *value* error, not a type error: ``True`` is an
+    ``int``, so it would otherwise read as one share and quietly price an
+    issuer at its quote. A string is a type error, like a string price.
+    """
+
+    if shares is None:
+        return None
+    if isinstance(shares, bool):
+        raise ValueError(f"shares must be a positive finite number, got {shares!r}")
+    if not isinstance(shares, (int, float)):
+        raise TypeError(f"shares must be a number or None, got {shares!r}")
+    value = float(shares)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"shares must be a positive finite number, got {shares!r}")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # The valuation and growth block
 # ---------------------------------------------------------------------------
@@ -697,7 +730,7 @@ def _invested_capital(
 
 
 def map_fundamentals(
-    facts: Iterable[Any], *, price: float | None = None
+    facts: Iterable[Any], *, price: float | None = None, shares: float | None = None
 ) -> dict[str, float | None]:
     """Map one issuer's streamed facts onto the catalog's fundamentals columns.
 
@@ -706,16 +739,29 @@ def map_fundamentals(
     field with no evidence is ``None``. ``price`` fills ``market_cap`` and
     ``pe``; without it both are absent, because a stale quote is worse than
     none — and so is every valuation column that stands on the market cap.
+
+    ``shares`` is an **external reference** count — the batch quote's
+    ``sharesOutstanding`` — and answers ``shares_outstanding`` only when the
+    filing has no undimensioned count of its own. A filed figure always wins:
+    a class-share filer is the case it exists for (every ``ClassOfStock`` row
+    is a segment, and a segment is not a total), never a reason to override a
+    document. A ``price`` or ``shares`` that is not a positive finite number
+    raises.
     """
 
     rows = list(facts)
     quote = _checked_price(price)
+    reference_shares = _checked_shares(shares)
     selected = {name: _selected(rows, name) for name in TAG_MAP}
 
     sales = selected["sales"]
     net_income = selected["net_income"]
     eps = selected["eps"]
-    shares = selected["shares_outstanding"]
+    # The filing's own count wins outright; the reference is only a fallback
+    # for the multipliers (META, GOOGL, BRK.B) that never file a consolidated
+    # one. Summing the class rows instead would invent a total nobody filed.
+    filed_shares = selected["shares_outstanding"]
+    share_count = filed_shares if filed_shares is not None else reference_shares
     current_assets = selected["current_assets"]
     inventory = selected["inventory"]
     total_debt = selected["total_debt"]
@@ -737,7 +783,7 @@ def map_fundamentals(
     _, eps_anchor_5y = _annual_pair(eps_rows, 5)
     _, sales_anchor_5y = _annual_pair(sales_rows, 5)
 
-    market_cap = None if quote is None or shares is None else quote * shares
+    market_cap = None if quote is None or share_count is None else quote * share_count
     enterprise_value = _enterprise_value(market_cap, total_debt, cash)
     ebitda = _ebitda(operating_income, selected["depreciation_amortization"])
     free_cash_flow = _free_cash_flow(
@@ -765,10 +811,10 @@ def map_fundamentals(
             selected["current_liabilities"],
         ),
         "debt_to_equity": _ratio(total_debt, equity),
-        "book_per_share": _ratio(equity, shares),
-        "cash_per_share": _ratio(cash, shares),
+        "book_per_share": _ratio(equity, share_count),
+        "cash_per_share": _ratio(cash, share_count),
         "dividend": dividend,
-        "shares_outstanding": shares,
+        "shares_outstanding": share_count,
         "market_cap": market_cap,
         "pe": None if quote is None or not eps else quote / eps,
         "enterprise_value": enterprise_value,
@@ -791,15 +837,16 @@ def map_fundamentals(
 
 
 def fundamentals_for_cik(
-    index: Any, cik: str, *, price: float | None = None
+    index: Any, cik: str, *, price: float | None = None, shares: float | None = None
 ) -> dict[str, float | None]:
     """The fundamentals of one CIK, read from a :class:`FactIndex`-like object.
 
     An unknown CIK has no facts, so every field is absent — the same answer a
-    filer with no usable concepts gets.
+    filer with no usable concepts gets. ``shares`` is the external share-count
+    reference :func:`map_fundamentals` documents.
     """
 
-    return map_fundamentals(index.facts_for(cik), price=price)
+    return map_fundamentals(index.facts_for(cik), price=price, shares=shares)
 
 
 def fundamentals_for_symbol(
@@ -808,18 +855,20 @@ def fundamentals_for_symbol(
     cik_by_symbol: Mapping[str, str],
     *,
     price: float | None = None,
+    shares: float | None = None,
 ) -> dict[str, float | None]:
     """The fundamentals of one symbol, resolved through a symbol → CIK map.
 
     The map is the caller's (the engine snapshot owns symbol → CIK); a symbol
-    it does not carry is absent rather than guessed at.
+    it does not carry is absent rather than guessed at. ``shares`` is the
+    external share-count reference :func:`map_fundamentals` documents.
     """
 
     key = symbol.strip().upper() if isinstance(symbol, str) else ""
     cik = cik_by_symbol.get(key) if isinstance(cik_by_symbol, Mapping) else None
     if cik is None:
         return dict.fromkeys(FIELDS)
-    return fundamentals_for_cik(index, cik, price=price)
+    return fundamentals_for_cik(index, cik, price=price, shares=shares)
 
 
 __all__ = [

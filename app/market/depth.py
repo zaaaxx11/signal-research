@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.market.chart import YahooChartDepthSource
+from app.market.yahoo_egress import rainproxy_url
 from app.market.sectors import classify_sector
 
 logger = logging.getLogger("mee.depth")
@@ -1290,6 +1291,7 @@ def build_depth_collector(
                 batch_size: int | None = None,
                 state_path: Any = None,
                 refresh_s: float | None = None,
+                yahoo_proxy: str | None = None,
             ) -> None:
                 super().__init__(
                     news_concurrency=int(
@@ -1298,6 +1300,7 @@ def build_depth_collector(
                     batch_size=batch_size,
                     state_path=state_path,
                     sources=sources,
+                    yahoo_proxy=yahoo_proxy,
                 )
                 self.name = name
                 #: The v7 batch quote source whose ``average_volume`` is FINRA's
@@ -1403,6 +1406,9 @@ def build_depth_collector(
         store_path = Path(
             str(getattr(settings, "depth_store_path", DEFAULT_STORE_PATH))
         )
+        enrich_proxy = (
+            rainproxy_url() if getattr(settings, "depth_enrich_proxy", True) else None
+        )
         enrich_source = _EnrichmentDepthSource(
             name="enrich",
             sources=("yahoo",),
@@ -1413,6 +1419,7 @@ def build_depth_collector(
             refresh_s=float(
                 getattr(settings, "depth_enrich_interval_s", 86_400.0)
             ),
+            yahoo_proxy=enrich_proxy,
         )
         news_enrich_source = _EnrichmentDepthSource(
             name="news_enrich",

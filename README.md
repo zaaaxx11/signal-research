@@ -135,6 +135,16 @@ variables, then `MEE_DATA_DIR`, then `./data`:
 | `MEE_DEPTH_STORE_PATH` | `data/depth.json` | atomic depth snapshot |
 | `MEE_DEPTH_REFRESH_S` | `86400` | daily depth cadence |
 | `MEE_DEPTH_CONCURRENCY` | `3` | per-source fetch concurrency |
+| `MEE_PRICE_KEYLESS` | `1` | default keyless stack; no keyed provider is called |
+| `MEE_DEPTH_SEC_BULK` | `1` | SEC quarterly bulk data set instead of per-symbol `companyfacts` |
+| `MEE_DEPTH_ENRICH` | `1` | append the per-symbol enrichment rung |
+| `MEE_DEPTH_ENRICH_BATCH` | `500` | symbols per enrichment cycle (`0` = whole universe) |
+| `MEE_DEPTH_ENRICH_INTERVAL_S` | `86400` | Yahoo half cadence |
+| `MEE_DEPTH_ENRICH_NEWS_INTERVAL_S` | `300` | news half cadence |
+| `MEE_ENRICH_API_KEY` | empty | required `X-Enrich-Key` for `POST /market/enrich`; unset = open |
+| `MEE_ENRICH_MAX_SYMBOLS` | `50` | per-request symbol ceiling on the on-demand path |
+| `MEE_ENRICH_RATE_LIMIT` | `10` | requests per window per caller (`0` disables) |
+| `MEE_ENRICH_RATE_WINDOW_S` | `60` | rate-limit window in seconds |
 | `MEE_QUOTE_FREE_REFRESH_S` | `900` | free cadence (15 minutes) |
 | `MEE_QUOTE_PREMIUM_REFRESH_MIN_S` | `60` | premium cadence lower bound |
 | `MEE_QUOTE_PREMIUM_REFRESH_MAX_S` | `120` | premium cadence upper bound |
@@ -164,6 +174,80 @@ snapshot; `source` and per-field timestamps are internal. The JSON is
 The depth store is separate from `quotes.json`: a slow fundamentals page must
 never delay a price. Both collectors are opt-in so a bare checkout does not
 start background scraping.
+
+### Keyless stack (default)
+
+`MEE_PRICE_KEYLESS=1` is the default: the depth path reads public sources only.
+Alpaca / Finnhub / Twelve Data / Polygon remain optional adapters — never
+called, never required, never consulted for a default run, so a missing API key
+is not a missing field.
+
+| Layer | Source | Flag | Cadence |
+|---|---|---|---|
+| Price / quote | CNBC quote webservice (batch), Nasdaq as verify/fallback; Yahoo v7 batch on the depth side | `price_keyless` | per request; 15 min via QuoteHub |
+| OHLC + technicals | Yahoo chart (`v8/finance/chart`), 1 y of daily bars | `depth_chart` (off by default) | daily |
+| Fundamentals + identity | SEC quarterly bulk financial statement data set (`2026q3.zip`, one 65 MB ZIP instead of 4,217 `companyfacts` calls) + the engine snapshot for identity | `depth_sec_bulk` | per data set (quarterly) |
+| Short interest | FINRA consolidated short interest | `depth_finra` | daily |
+| Index membership + optionable | SSGA / iShares / NDX official files, Cboe optionable list | `depth_official` | daily |
+| Headlines | Yahoo / Nasdaq RSS per symbol | `depth_news` (off), plus the enrichment news half | 300 s |
+
+**Measured coverage** on the 4,217-symbol universe against the 116-column depth
+catalog (`depth.json`):
+
+| Run | Columns filled | What it is |
+|---|---:|---|
+| Keyless fast path | **88/116** | SEC bulk + CNBC + chart + FINRA + official; no per-symbol crawl, a couple of minutes for the whole universe |
+| Fast path + enrichment | **109/116** | adds Yahoo `quoteSummary`/`fundamentals-timeseries` and one RSS feed per symbol |
+| Unavailable keyless | **7 keys** | analyst estimates, ownership detail and the options chain need a keyed provider; the fields stay empty and are reported empty, never fabricated |
+
+#### Enrichment rotation
+
+The per-symbol pass is the crawl the keyless path structurally cannot do, so it
+is a rotation, not a prerequisite: a daily cycle publishes the keyless row
+first, then the stage advances one slice and the depth store keeps the rest.
+`MEE_DEPTH_ENRICH=0` runs strictly keyless.
+
+| Setting | Default | Meaning |
+|---|---:|---|
+| `MEE_DEPTH_ENRICH` | `1` | append the enrichment rung after the keyless sources |
+| `MEE_DEPTH_ENRICH_BATCH` | `500` | symbols per cycle, cursor persisted; `0` = crawl everything |
+| `MEE_DEPTH_ENRICH_INTERVAL_S` | `86400` | how often the **Yahoo** half advances one slice — a daily fact is bought once a day, not 288 times |
+| `MEE_DEPTH_ENRICH_NEWS_INTERVAL_S` | `300` | how often the **news** half advances; a headline is stale in an hour |
+
+#### On-demand enrichment
+
+`POST /market/enrich` is the premium trigger: bypass the rotation cursor and the
+per-cycle interval, enrich exactly the symbols asked for, merge the values into
+the depth store at priority 0 and persist. Body
+`{"symbols": ["AAPL", "MSFT"], "sources": ["yahoo", "news"]}` (both keys
+optional). Access is the `X-Enrich-Key` header, compared against
+`MEE_ENRICH_API_KEY`; unset leaves the route open for a dev box, wrong or
+missing is `403 enrich_forbidden`. `MEE_ENRICH_MAX_SYMBOLS` (50) caps one
+request so a paid trigger cannot crawl the universe.
+
+```bash
+curl -sS -X POST http://localhost:8080/market/enrich \
+  -H "X-Enrich-Key: $MEE_ENRICH_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"symbols": ["AAPL", "MSFT"], "sources": ["yahoo", "news"]}'
+```
+
+Each caller also has a budget — `MEE_ENRICH_RATE_LIMIT` (10) requests per
+`MEE_ENRICH_RATE_WINDOW_S` (60) seconds, bucketed by the key when one is
+configured and by client host otherwise. It is a token bucket on `app.state`
+(one per process, thread-safe, idle callers pruned), refilled continuously, and
+a refused request is answered immediately rather than queued:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 20
+
+{"error": "enrich_rate_limited", "errorMessage": "on-demand enrichment allows 10 requests per 60s per caller; retry in 20s"}
+```
+
+`MEE_ENRICH_RATE_LIMIT=0` disables the gate explicitly, for a single-tenant box
+behind a trusted proxy. Leave the default anywhere a browser or a customer can
+reach the route: this endpoint is the one that spends Yahoo quota on demand.
 
 
 

@@ -327,3 +327,47 @@ def test_the_rotation_has_its_own_cadence() -> None:
     collector = build_depth_collector(settings, ["AAPL", "MSFT"])
     enrich = next(s for s in collector.sources if s.name == "enrich")
     assert enrich._refresh_s == 300.0, "the enrichment cadence, not the 24 h refresh"
+
+
+def test_the_yahoo_half_rides_the_egress_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Direct Yahoo 429s after a heavy pass; the rotation must be able to ride.
+
+    The cursor never advancing was the production symptom: the stage asked
+    ``query1.finance.yahoo.com`` directly, the crumb endpoint answered the
+    literal string "Too Many Requests", every symbol came back empty, and the
+    design correctly refused to advance. One proxied endpoint turns that into
+    a five-second batch, so the wiring is part of the contract, not an
+    optimisation.
+    """
+
+    from app.market import depth as depth_module
+
+    monkeypatch.setattr(
+        depth_module, "rainproxy_url", lambda *a, **k: "http://u:p@10.0.0.1:1111"
+    )
+
+    collector = build_depth_collector(
+        offline_settings(depth_enrich=True, depth_enrich_proxy=True), ["AAPL"]
+    )
+    stage = enrich_stage(collector)
+    assert stage.yahoo_source.proxy == "http://u:p@10.0.0.1:1111"
+
+
+def test_the_proxy_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.market import depth as depth_module
+
+    calls: list[int] = []
+
+    def _proxy(*_a: Any, **_k: Any) -> str:
+        calls.append(1)
+        return "http://u:p@10.0.0.1:1111"
+
+    monkeypatch.setattr(depth_module, "rainproxy_url", _proxy)
+
+    collector = build_depth_collector(
+        offline_settings(depth_enrich=True, depth_enrich_proxy=False), ["AAPL"]
+    )
+    assert enrich_stage(collector).yahoo_source.proxy is None
+    assert calls == [], "a disabled rung must not even read the auth file"

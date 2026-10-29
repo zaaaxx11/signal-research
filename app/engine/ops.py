@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import sys
+import tarfile
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -60,6 +61,12 @@ _SNAPSHOT_STAMP = "%Y%m%dT%H%M%SZ"
 _SNAPSHOT_SUFFIX = ".json"
 _SNAPSHOT_GLOB = f"{_SNAPSHOT_PREFIX}*{_SNAPSHOT_SUFFIX}"
 _SIDECAR_SUFFIX = ".sha256"
+
+#: ``--extra`` files travel in one tar.gz beside the snapshot, under the same
+#: UTC stamp. The stamp is embedded in the name, so rotation can pair an
+#: archive with its snapshot without opening either file.
+_EXTRAS_PREFIX = "engine-extras-"
+_EXTRAS_SUFFIX = ".tar.gz"
 
 #: Streaming block size for snapshot hashing/copying: large enough to keep the
 #: syscall count down, small enough that a multi-gigabyte snapshot never has to
@@ -437,11 +444,148 @@ def _atomic_path(directory: Path, name: str) -> Path:
     return Path(raw)
 
 
+class _HashingReader:
+    """A file wrapper that hashes the bytes ``tarfile`` actually reads.
+
+    Hashing the source before ``tar.add`` would describe bytes that may change
+    before they are archived; hashing here describes the archive's own payload,
+    so the digest the report prints is a digest of what was backed up.
+    """
+
+    def __init__(self, handle: Any) -> None:
+        self._handle = handle
+        self.digest = hashlib.sha256()
+        self.size = 0
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._handle.read(size)
+        if chunk:
+            self.digest.update(chunk)
+            self.size += len(chunk)
+        return chunk
+
+    def __enter__(self) -> "_HashingReader":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._handle.close()
+
+
+def _unique_arcname(name: str, used: set[str]) -> str:
+    """``name``, suffixed ``-2``, ``-3``… when two extras share a basename."""
+
+    candidate = name or "extra"
+    stem = Path(candidate).stem
+    suffix = "".join(Path(candidate).suffixes)
+    counter = 2
+    while candidate in used:
+        candidate = f"{stem}-{counter}{suffix}"
+        counter += 1
+    used.add(candidate)
+    return candidate
+
+
+def _archive_file(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
+    """Stream one file into ``tar``; return the digest and size of its bytes."""
+
+    stat = path.stat()
+    info = tarfile.TarInfo(arcname)
+    info.size = stat.st_size
+    info.mtime = int(stat.st_mtime)
+    info.mode = stat.st_mode & 0o777
+    with _HashingReader(path.open("rb")) as reader:
+        tar.addfile(info, reader)
+        if reader.size != info.size:
+            raise ValueError(f"extra file {path} changed size while being archived")
+    return reader.digest.hexdigest(), info.size
+
+
+def _archive_extra(
+    tar: tarfile.TarFile, path: Path, used: set[str]
+) -> dict[str, object]:
+    """Archive one ``--extra`` path and describe what went in.
+
+    A directory is walked in sorted order and stored under its basename, so the
+    archive listing is stable. Its ``sha256`` is the digest of the member
+    manifest (``arcname\\0digest\\0size`` per line): a file digest cannot
+    describe a tree, and inventing one from the tar bytes would change with
+    compression.
+    """
+
+    if path.is_dir():
+        base = _unique_arcname(path.name, used)
+        members = [member for member in sorted(path.rglob("*")) if member.is_file()]
+        manifest = hashlib.sha256()
+        total = 0
+        for member in members:
+            arcname = f"{base}/{member.relative_to(path).as_posix()}"
+            digest, size = _archive_file(tar, member, arcname)
+            manifest.update(f"{arcname}\0{digest}\0{size}\n".encode("utf-8"))
+            total += size
+        return {
+            "source": str(path),
+            "name": base,
+            "kind": "dir",
+            "sha256": manifest.hexdigest(),
+            "bytes": total,
+            "files": len(members),
+        }
+
+    arcname = _unique_arcname(path.name, used)
+    digest, size = _archive_file(tar, path, arcname)
+    return {
+        "source": str(path),
+        "name": arcname,
+        "kind": "file",
+        "sha256": digest,
+        "bytes": size,
+    }
+
+
+def _resolve_extras(extras: Sequence[str | Path]) -> tuple[Path, ...]:
+    """Validate every ``--extra`` path before a single byte is written.
+
+    A missing path is a refused backup: the whole point of naming a store on
+    the command line is that its absence must not produce a green run whose
+    archive is quietly incomplete.
+    """
+
+    resolved: list[Path] = []
+    for raw in extras:
+        path = Path(raw)
+        if not path.exists():
+            raise ValueError(f"extra path does not exist: {path}")
+        resolved.append(path)
+    return tuple(resolved)
+
+
+def _archive_extras(
+    extras: Sequence[Path], destination: Path, stamp: str
+) -> tuple[Path, str, int, list[dict[str, object]]]:
+    """Write ``engine-extras-<stamp>.tar.gz`` atomically; return its facts."""
+
+    name = f"{_EXTRAS_PREFIX}{stamp}{_EXTRAS_SUFFIX}"
+    target = destination / name
+    temporary = _atomic_path(destination, name)
+    items: list[dict[str, object]] = []
+    try:
+        used: set[str] = set()
+        with tarfile.open(temporary, "w:gz", compresslevel=6) as tar:
+            for path in extras:
+                items.append(_archive_extra(tar, path, used))
+        digest, size = _digest_file(temporary)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target, digest, size, items
+
+
 def backup_snapshot(
     snapshot: Path,
     dest_dir: Path,
     *,
     keep: int = 3,
+    extras: Sequence[str | Path] = (),
     now: datetime | None = None,
 ) -> dict[str, object]:
     """Copy ``snapshot`` into ``dest_dir`` under an injected-clock name.
@@ -452,6 +596,13 @@ def backup_snapshot(
     digest: a backup that cannot be verified is not a backup, and finding that
     out at restore time is too late.
 
+    ``extras`` (``--extra``, repeatable) are packed into
+    ``engine-extras-<stamp>.tar.gz`` beside that copy, under the same stamp:
+    the depth store is not restorable through :func:`restore_snapshot`, but it
+    is the state a rebuild cannot re-fetch cheaply, so it must travel with the
+    snapshot. Every extra path is validated before anything is written — a
+    missing store is a refused backup, not an archive with a hole in it.
+
     ``dest_dir`` may be a mounted off-box path; nothing here assumes a network
     or an object store.
     """
@@ -460,11 +611,13 @@ def backup_snapshot(
         raise ValueError(f"keep must be at least 1, got {keep}")
 
     source = Path(snapshot)
+    extra_paths = _resolve_extras(extras)
     destination = Path(dest_dir)
     destination.mkdir(parents=True, exist_ok=True)
 
     clock = _as_utc(now) if now is not None else datetime.now(UTC)
-    name = f"{_SNAPSHOT_PREFIX}{clock.strftime(_SNAPSHOT_STAMP)}{_SNAPSHOT_SUFFIX}"
+    stamp = clock.strftime(_SNAPSHOT_STAMP)
+    name = f"{_SNAPSHOT_PREFIX}{stamp}{_SNAPSHOT_SUFFIX}"
     target = destination / name
     sidecar = destination / f"{name}{_SIDECAR_SUFFIX}"
 
@@ -489,14 +642,27 @@ def backup_snapshot(
     finally:
         sidecar_temp.unlink(missing_ok=True)
 
-    kept, pruned = _prune_snapshots(destination, keep=keep)
-    return {
+    report: dict[str, object] = {
         "backup": str(target),
         "sha256": source_digest,
         "bytes": size,
-        "kept": kept,
-        "pruned": pruned,
+        "extras": [],
     }
+    if extra_paths:
+        archive, archive_digest, archive_bytes, items = _archive_extras(
+            extra_paths, destination, stamp
+        )
+        report["extras"] = items
+        report["extras_archive"] = {
+            "path": str(archive),
+            "sha256": archive_digest,
+            "bytes": archive_bytes,
+        }
+
+    kept, pruned = _prune_snapshots(destination, keep=keep)
+    report["kept"] = kept
+    report["pruned"] = pruned
+    return report
 
 
 def _prune_snapshots(destination: Path, *, keep: int) -> tuple[int, int]:
@@ -504,7 +670,10 @@ def _prune_snapshots(destination: Path, *, keep: int) -> tuple[int, int]:
 
     Returns ``(kept, pruned)``. The names embed a fixed-width UTC stamp, so
     sorting them by name is sorting them by time. A missing file is skipped:
-    another process pruning the same directory is not an error.
+    another process pruning the same directory is not an error. An extras
+    archive shares its snapshot's stamp, so it is pruned in the same step —
+    keeping seven snapshots and a hundred orphaned tarballs would be the same
+    disk problem in a different costume.
     """
 
     names = sorted(
@@ -519,10 +688,15 @@ def _prune_snapshots(destination: Path, *, keep: int) -> tuple[int, int]:
         except FileNotFoundError:
             continue
         pruned += 1
-        try:
-            stale.with_name(f"{stale.name}{_SIDECAR_SUFFIX}").unlink()
-        except FileNotFoundError:
-            continue
+        stamp = stale.name[len(_SNAPSHOT_PREFIX) : -len(_SNAPSHOT_SUFFIX)]
+        for sibling in (
+            f"{stale.name}{_SIDECAR_SUFFIX}",
+            f"{_EXTRAS_PREFIX}{stamp}{_EXTRAS_SUFFIX}",
+        ):
+            try:
+                (destination / sibling).unlink()
+            except FileNotFoundError:
+                continue
     return len(survivors), pruned
 
 
@@ -779,6 +953,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dest", default=None, help="directory to keep backups in (default: env/data)"
     )
     backup.add_argument("--keep", type=int, default=3, help="newest backups to keep")
+    backup.add_argument(
+        "--extra",
+        action="append",
+        default=None,
+        metavar="PATH",
+        help=(
+            "extra file or directory to archive beside the snapshot "
+            "(repeatable; e.g. the depth store)"
+        ),
+    )
 
     restore = commands.add_parser("restore", help="verify and restore a snapshot")
     restore.add_argument("--backup", required=True, help="backup file to restore")
@@ -823,11 +1007,19 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
             dry_run=bool(args.dry_run),
         )
     if args.command == "backup":
-        return backup_snapshot(
-            Path(args.snapshot) if args.snapshot else paths.snapshot_path(),
-            Path(args.dest) if args.dest else paths.backup_dir(),
-            keep=int(args.keep),
+        snapshot = (
+            Path(args.snapshot) if args.snapshot else paths.snapshot_path()
         )
+        destination = Path(args.dest) if args.dest else paths.backup_dir()
+        # ``extras`` is passed only when the operator asked for one: a caller
+        # (or a test double) that stubs ``backup_snapshot`` with the historical
+        # ``(snapshot, dest, keep)`` shape must keep working.
+        extras = [Path(item) for item in (args.extra or [])]
+        if extras:
+            return backup_snapshot(
+                snapshot, destination, keep=int(args.keep), extras=extras
+            )
+        return backup_snapshot(snapshot, destination, keep=int(args.keep))
     if args.command == "smoke":
         return asyncio.run(
             smoke_check(

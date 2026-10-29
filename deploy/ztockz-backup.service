@@ -8,5 +8,5 @@ User=ztockz
 Group=ztockz
 WorkingDirectory=/opt/ztockz
 EnvironmentFile=/etc/ztockz/engine.env
-ExecStart=/opt/ztockz/.venv/bin/python -m app.engine.ops backup --snapshot /var/lib/ztockz/engine-snapshot.json --dest /var/lib/ztockz/backups --keep 7
+ExecStart=/opt/ztockz/.venv/bin/python -m app.engine.ops backup --snapshot /var/lib/ztockz/engine-snapshot.json --extra /var/lib/ztockz/depth.json --dest /var/lib/ztockz/backups --keep 7
 Nice=10

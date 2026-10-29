@@ -10,7 +10,7 @@ facts onto the catalog's seventeen fundamentals columns, and
 :class:`SecFundamentalsDepthSource` publishes the result as
 :class:`~app.market.depth.DepthObservation` rows.
 
-Three properties are the whole design:
+Four properties are the whole design:
 
 * **Construction is free.** Four quarters of ``num.txt`` is ~3.5 GB of TSV to
   stream, so the index is built on the **first** ``fetch_many`` — inside a
@@ -26,13 +26,21 @@ Three properties are the whole design:
   and leaves both fields absent when it cannot answer. A value that is not a
   positive finite number is ignored rather than allowed to raise inside a
   chunk.
+* **A share count is filed first, referenced second.** A multi-class filer
+  (META, GOOGL, BRK.B) tags ``CommonStockSharesOutstanding`` only on a
+  ``ClassOfStock`` axis, so the filing carries no consolidated count and the
+  three price-dependent columns cannot resolve. The source takes the same
+  shape of reference for shares — the Yahoo v7 batch ``sharesOutstanding`` —
+  and the mapper uses it only when the filing has no count at all.
 
-The module also carries the two keyless reference maps the collector wires:
-:func:`keyless_price_reference` (CNBC batch quotes for ``market_cap``/``pe``)
-and :func:`average_volume_reference` (the Yahoo v7 batch 3-month average
-volume that FINRA's ``short_ratio`` divides by). They live here, next to the
-source that consumes them, because the collector's wiring function is the only
-place allowed to name them.
+The module also carries the three keyless reference maps the collector wires:
+:func:`keyless_price_reference` (CNBC batch quotes for ``market_cap``/``pe``),
+:func:`shares_reference` (the Yahoo v7 batch ``sharesOutstanding`` a
+multi-class filer never files as a consolidated count) and
+:func:`average_volume_reference` (the Yahoo v7 batch 3-month average volume
+that FINRA's ``short_ratio`` divides by). They live here, next to the source
+that consumes them, because the collector's wiring function is the only place
+allowed to name them.
 
 Contract: ``briefs/market-engine`` keyless plan, phase 3.
 """
@@ -77,15 +85,20 @@ DEFAULT_QUARTER_COUNT = 4
 #: yet (a fresh deployment, or the first days of a new quarter).
 DEFAULT_QUARTER_LOOKBACK = 8
 
-#: A quote is a positive finite number, or it is not a quote.
+#: A quote — or a share count — is a positive finite number, or it is not one.
 PriceReference = Mapping[str, Any] | Callable[[], Any] | None
 
 #: The v7 columns that answer "how many shares trade in a day on average".
 #: FINRA's ratio is documented against the 3-month figure.
 _AVERAGE_VOLUME_KEYS = ("averageDailyVolume3Month", "averageDailyVolume")
 
+#: The v7 column that answers "how many shares are outstanding". It is the
+#: fallback for class-share filers, whose XBRL count is dimensional only.
+_SHARES_OUTSTANDING_KEYS = ("sharesOutstanding",)
+
 #: Asked explicitly so the column arrives even if Yahoo honours ``fields``.
 _VOLUME_FIELDS = "symbol,regularMarketTime,averageDailyVolume3Month"
+_SHARES_FIELDS = "symbol,regularMarketTime,sharesOutstanding"
 
 #: A crumb is a short URL-safe token; anything else is a challenge page.
 _CRUMB_RE = re.compile(r"^[A-Za-z0-9._~-]{1,32}$")
@@ -123,7 +136,13 @@ def _quote(value: Any) -> float | None:
 
 
 def _price_map(raw: Any) -> dict[str, float]:
-    """``{symbol: price}`` with canonical keys and usable values only."""
+    """``{symbol: positive number}``, canonical keys, usable values only.
+
+    One validator serves both reference maps: a quote and a share count are
+    both positive finite numbers, and a string, a bool, a zero or a negative
+    is neither. Filtering here keeps a bad reference from raising inside a
+    chunk (the mapper would refuse it) and from pricing an issuer at zero.
+    """
     if not isinstance(raw, Mapping):
         return {}
     out: dict[str, float] = {}
@@ -146,13 +165,29 @@ def _cik_map(raw: Mapping[str, Any]) -> dict[str, str]:
     return out
 
 
+def _reference_state(reference: PriceReference, ttl_s: float | None) -> dict[str, Any]:
+    """One lazily resolved reference map's state: its source, ttl and cache.
+
+    The two references (``price``, ``shares``) differ only in which column they
+    fill, so they share one resolver and one state shape.
+    """
+
+    return {
+        "reference": reference,
+        "ttl_s": float(ttl_s) if ttl_s else 0.0,
+        "values": {},
+        "at": None,
+    }
+
+
 class SecFundamentalsDepthSource:
     """The seventeen fundamentals columns, read from cached SEC bulk quarters.
 
     ``snapshot_path`` (or an injected ``cik_by_symbol``) owns symbol → CIK;
     ``cache_dir`` owns the quarterly ZIPs; ``price`` owns the quote the two
-    price-dependent fields need. Every one of them is resolved lazily and
-    every one of them may be absent — the source then contributes no rows.
+    price-dependent fields need and ``shares`` the count a multi-class filer
+    never files as a total. Every one of them is resolved lazily and every one
+    of them may be absent — the source then contributes no rows.
     """
 
     name = "sec_bulk"
@@ -166,6 +201,8 @@ class SecFundamentalsDepthSource:
         cik_by_symbol: Mapping[str, Any] | None = None,
         price: PriceReference = None,
         price_ttl_s: float | None = None,
+        shares: PriceReference = None,
+        shares_ttl_s: float | None = None,
         quarter_count: int = DEFAULT_QUARTER_COUNT,
         quarter_lookback: int = DEFAULT_QUARTER_LOOKBACK,
         clock: Callable[[], datetime] | None = None,
@@ -181,16 +218,19 @@ class SecFundamentalsDepthSource:
         self.quarter_count = max(1, int(quarter_count))
         self.quarter_lookback = max(1, int(quarter_lookback))
         self._clock = clock or _utcnow
-        self._price = price
-        self._price_ttl_s = float(price_ttl_s) if price_ttl_s else 0.0
+        #: The lazily resolved reference maps, one state box per kind. ``price``
+        #: multiplies the share count; ``shares`` stands in for a count the
+        #: filing never carried as a total (META, GOOGL, BRK.B).
+        self._references: dict[str, dict[str, Any]] = {
+            "price": _reference_state(price, price_ttl_s),
+            "shares": _reference_state(shares, shares_ttl_s),
+        }
         self._injected_ciks = _cik_map(cik_by_symbol) if cik_by_symbol else None
         self._index: FactIndex | None = None
         self._build_attempted = False
         self.build_error: str | None = None
         self._ciks: dict[str, str] | None = None
         self.cik_error: str | None = None
-        self._prices: dict[str, float] = {}
-        self._prices_at: float | None = None
 
     # -- observable state ---------------------------------------------------
 
@@ -280,27 +320,42 @@ class SecFundamentalsDepthSource:
             self._index = None
         return self._index
 
-    # -- the price reference ------------------------------------------------
+    # -- the reference maps -------------------------------------------------
 
-    async def _resolve_prices(self) -> dict[str, float]:
-        """The quote map, re-resolved at most once per ``price_ttl_s``."""
+    async def _resolve(self, kind: str) -> dict[str, float]:
+        """One reference map, re-resolved at most once per its ttl.
+
+        ``kind`` is ``"price"`` or ``"shares"``. A source that fails is logged
+        and **not** memoised, so the next chunk tries again — one dead batch
+        must not silence a whole cycle's quotes.
+        """
+        state = self._references[kind]
         now = time.monotonic()
-        if self._prices_at is not None and (
-            self._price_ttl_s <= 0 or now - self._prices_at < self._price_ttl_s
+        if state["at"] is not None and (
+            state["ttl_s"] <= 0 or now - state["at"] < state["ttl_s"]
         ):
-            return self._prices
-        if self._price is None:
-            self._prices, self._prices_at = {}, now
-            return self._prices
+            return state["values"]
+        reference = state["reference"]
+        if reference is None:
+            state["values"], state["at"] = {}, now
+            return state["values"]
         try:
-            raw = self._price() if callable(self._price) else self._price
+            raw = reference() if callable(reference) else reference
             if inspect.isawaitable(raw):
                 raw = await raw
-        except Exception as exc:  # noqa: BLE001 - a quote is optional
-            logger.info("sec bulk depth price reference failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - a reference is optional
+            logger.info("sec bulk depth %s reference failed: %s", kind, exc)
             return {}  # not memoised: the next chunk tries again
-        self._prices, self._prices_at = _price_map(raw), now
-        return self._prices
+        state["values"], state["at"] = _price_map(raw), now
+        return state["values"]
+
+    async def _resolve_prices(self) -> dict[str, float]:
+        """The quote map the ``market_cap``/``pe`` columns stand on."""
+        return await self._resolve("price")
+
+    async def _resolve_shares(self) -> dict[str, float]:
+        """The reference share count multi-class filers do not file as a total."""
+        return await self._resolve("shares")
 
     # -- the protocol -------------------------------------------------------
 
@@ -318,12 +373,19 @@ class SecFundamentalsDepthSource:
         if not ciks:
             return {}
         prices = await self._resolve_prices()
+        share_counts = await self._resolve_shares()
         as_of = self._clock()
         out: dict[str, DepthObservation] = {}
         for symbol in wanted:
             try:
                 fields = fundamentals_for_symbol(
-                    index, symbol, ciks, price=prices.get(symbol)
+                    index,
+                    symbol,
+                    ciks,
+                    price=prices.get(symbol),
+                    # The filing's own count wins inside the mapper; this is
+                    # the fallback for the class-share filers that file none.
+                    shares=share_counts.get(symbol),
                 )
             except (TypeError, ValueError) as exc:  # defensive: never sink a chunk
                 logger.info("sec bulk depth failed for %s: %s", symbol, exc)
@@ -443,8 +505,15 @@ def _result_rows(payload: Any) -> list[Mapping[str, Any]]:
     return [row for row in rows if isinstance(row, Mapping)]
 
 
-def _average_volume(row: Mapping[str, Any]) -> float | None:
-    for key in _AVERAGE_VOLUME_KEYS:
+def _positive_number(row: Mapping[str, Any], keys: Sequence[str]) -> float | None:
+    """The first usable positive finite number under ``keys``, or ``None``.
+
+    Both reference columns are counts of the same kind — a volume and an
+    outstanding-share total — so a string, a bool, a zero or a negative is not
+    an answer for either.
+    """
+
+    for key in keys:
         value = row.get(key)
         if value is None or isinstance(value, bool):
             continue
@@ -457,14 +526,26 @@ def _average_volume(row: Mapping[str, Any]) -> float | None:
     return None
 
 
-async def fetch_yahoo_average_volume(
-    symbols: Sequence[str], *, timeout_s: float = 10.0
+def _average_volume(row: Mapping[str, Any]) -> float | None:
+    return _positive_number(row, _AVERAGE_VOLUME_KEYS)
+
+
+def _shares_outstanding(row: Mapping[str, Any]) -> float | None:
+    return _positive_number(row, _SHARES_OUTSTANDING_KEYS)
+
+
+async def _fetch_yahoo_numbers(
+    symbols: Sequence[str],
+    *,
+    fields: str,
+    pick: Callable[[Mapping[str, Any]], float | None],
+    timeout_s: float,
 ) -> dict[str, float]:
-    """The v7 batch 3-month average volume per symbol; ``{}`` when unavailable.
+    """The v7 batch column ``pick`` reads, per symbol; ``{}`` when unavailable.
 
     One cookie/crumb handshake, then one request per
     :data:`_YAHOO_BATCH_SIZE` symbols. A chunk that fails is skipped: the
-    ratio it would have fed is absent, never zero.
+    column it would have fed is absent, never zero.
     """
     from app.market.sources import (
         BROWSER_USER_AGENT,
@@ -495,7 +576,7 @@ async def fetch_yahoo_average_volume(
                 )
                 url = (
                     f"{YAHOO_HOST}{YAHOO_QUOTE_PATH}"
-                    f"?symbols={joined}&fields={_VOLUME_FIELDS}"
+                    f"?symbols={joined}&fields={fields}"
                 )
                 if crumb:
                     url = f"{url}&crumb={crumb}"
@@ -505,17 +586,46 @@ async def fetch_yahoo_average_volume(
                         continue
                     payload = response.json()
                 except Exception as exc:  # noqa: BLE001 - one chunk is optional
-                    logger.info("yahoo average volume chunk failed: %s", exc)
+                    logger.info("yahoo batch column chunk failed: %s", exc)
                     continue
                 for row in _result_rows(payload):
                     symbol = str(row.get("symbol") or "").strip().upper()
-                    volume = _average_volume(row)
-                    if symbol and volume is not None:
-                        out.setdefault(symbol, volume)
+                    number = pick(row)
+                    if symbol and number is not None:
+                        out.setdefault(symbol, number)
     except Exception as exc:  # noqa: BLE001 - the reference is optional
-        logger.info("yahoo average volume reference failed: %s", exc)
+        logger.info("yahoo batch column reference failed: %s", exc)
         return {}
     return out
+
+
+async def fetch_yahoo_average_volume(
+    symbols: Sequence[str], *, timeout_s: float = 10.0
+) -> dict[str, float]:
+    """The v7 batch 3-month average volume per symbol; ``{}`` when unavailable."""
+    return await _fetch_yahoo_numbers(
+        symbols,
+        fields=_VOLUME_FIELDS,
+        pick=_average_volume,
+        timeout_s=timeout_s,
+    )
+
+
+async def fetch_yahoo_shares_outstanding(
+    symbols: Sequence[str], *, timeout_s: float = 10.0
+) -> dict[str, float]:
+    """The v7 batch ``sharesOutstanding`` per symbol; ``{}`` when unavailable.
+
+    A symbol Yahoo leaves out of the response stays absent: the caller's
+    mapper then keeps the filed count it already had, or reports no market cap
+    at all. This is a fallback, never a replacement.
+    """
+    return await _fetch_yahoo_numbers(
+        symbols,
+        fields=_SHARES_FIELDS,
+        pick=_shares_outstanding,
+        timeout_s=timeout_s,
+    )
 
 
 def yahoo_average_volume(
@@ -527,6 +637,27 @@ def yahoo_average_volume(
     except Exception as exc:  # noqa: BLE001 - a missing divisor is an absent ratio
         logger.info("yahoo average volume reference failed: %s", exc)
         return {}
+
+
+def yahoo_shares_outstanding(
+    symbols: Sequence[str], *, timeout_s: float = 10.0
+) -> dict[str, float]:
+    """The synchronous face of :func:`fetch_yahoo_shares_outstanding`."""
+    try:
+        return _run_sync(
+            fetch_yahoo_shares_outstanding(symbols, timeout_s=timeout_s)
+        )
+    except Exception as exc:  # noqa: BLE001 - a missing count is an absent field
+        logger.info("yahoo shares reference failed: %s", exc)
+        return {}
+
+
+def shares_reference(
+    symbols: Sequence[str], *, ttl_s: float = 0.0
+) -> Callable[[], dict[str, float]]:
+    """The share-count fallback, as the source's callable reference."""
+    wanted = tuple(symbols)
+    return _memoized(lambda: yahoo_shares_outstanding(wanted), ttl_s)
 
 
 def average_volume_reference(
@@ -543,6 +674,9 @@ __all__ = [
     "SecFundamentalsDepthSource",
     "average_volume_reference",
     "fetch_yahoo_average_volume",
+    "fetch_yahoo_shares_outstanding",
     "keyless_price_reference",
+    "shares_reference",
     "yahoo_average_volume",
+    "yahoo_shares_outstanding",
 ]

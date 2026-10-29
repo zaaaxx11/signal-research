@@ -1229,3 +1229,158 @@ def test_a_negative_ratio_has_no_real_root() -> None:
         fact("EarningsPerShareDiluted", 6.0, ddate="2025-12-31", qtrs=4),
     ]
     assert map_fundamentals(rows)["eps_past_3y"] is None
+
+
+# ---------------------------------------------------------------------------
+# The external share-count reference (multi-class filers)
+# ---------------------------------------------------------------------------
+#
+# META, GOOGL and BRK.B file ``CommonStockSharesOutstanding`` ONLY as
+# dimensional rows — ``ClassOfStock=CommonClassA``/``CommonClassB`` with
+# ``EquityComponents=CommonStock`` — and never an undimensioned consolidated
+# count. ``_selected`` drops every dimensional row, so the filing alone cannot
+# price the issuer: no shares, no market cap, no enterprise value. The caller
+# may pass the batch quote's ``sharesOutstanding`` as a *reference*, which
+# fills the column only when the filing has nothing. A filed figure always
+# wins; a reference never overrides the document.
+
+#: The real axis/value spelling of a class-share row, as ``num.txt`` carries it.
+CLASS_A_SEGMENTS = "ClassOfStock=CommonClassA; EquityComponents=CommonStock"
+CLASS_B_SEGMENTS = "ClassOfStock=CommonClassB; EquityComponents=CommonStock"
+
+
+def _map_with_shares(
+    facts: list[Fact], *, shares: Any, price: float | None = None
+) -> dict[str, float | None]:
+    """``map_fundamentals(..., shares=...)``, failing RED when the keyword is absent.
+
+    A mapper that has not grown the parameter raises ``TypeError``; surfacing
+    that as an ``AssertionError`` keeps the RED phase about the missing
+    feature rather than about an import.
+    """
+
+    try:
+        return map_fundamentals(facts, price=price, shares=shares)
+    except TypeError as exc:
+        if "unexpected keyword argument" in str(exc):
+            raise AssertionError(
+                f"map_fundamentals does not accept shares= yet: {exc}"
+            ) from exc
+        raise
+
+
+def multi_class_facts() -> list[Fact]:
+    """A filer whose every share count is dimensional — the META/GOOGL shape."""
+
+    return [
+        fact(REVENUE, 164_501_000_000),
+        fact("NetIncomeLoss", 62_360_000_000),
+        fact("EarningsPerShareDiluted", 23.86),
+        fact("Assets", 366_020_000_000, qtrs=0),
+        fact("StockholdersEquity", 182_637_000_000, qtrs=0),
+        fact("LongTermDebtNoncurrent", 28_000_000_000, qtrs=0),
+        fact("CashAndCashEquivalentsAtCarryingValue", 30_000_000_000, qtrs=0),
+        # Two classes, both dimensional: 2.2bn + 0.3bn = the 2.5bn the quote
+        # reports. Neither row is a consolidated count, so neither may be
+        # summed into one either — the reference is the only honest source.
+        fact(
+            "CommonStockSharesOutstanding",
+            2_200_000_000,
+            qtrs=0,
+            uom="shares",
+            segments=CLASS_A_SEGMENTS,
+        ),
+        fact(
+            "CommonStockSharesOutstanding",
+            300_000_000,
+            qtrs=0,
+            uom="shares",
+            segments=CLASS_B_SEGMENTS,
+        ),
+    ]
+
+
+def test_a_multi_class_filer_cannot_price_itself_from_its_filing() -> None:
+    """The gap under repair: no consolidated count, so no market cap, no EV."""
+
+    fields = map_fundamentals(multi_class_facts(), price=500.0)
+    assert fields["shares_outstanding"] is None, (
+        "a class-share row is a segment, not the consolidated count"
+    )
+    assert fields["market_cap"] is None
+    assert fields["enterprise_value"] is None
+
+
+def test_the_share_reference_fills_market_cap_and_enterprise_value() -> None:
+    """The batch quote's count stands in when the filing has none."""
+
+    fields = _map_with_shares(multi_class_facts(), price=500.0, shares=2_500_000_000)
+    assert fields["shares_outstanding"] == pytest.approx(2_500_000_000)
+    assert fields["market_cap"] == pytest.approx(500.0 * 2_500_000_000)
+    assert fields["enterprise_value"] == pytest.approx(
+        500.0 * 2_500_000_000 + 28_000_000_000 - 30_000_000_000
+    ), "market cap plus the long-term debt line, less cash"
+    assert fields["ev_sales"] == pytest.approx(
+        (500.0 * 2_500_000_000 + 28_000_000_000 - 30_000_000_000) / 164_501_000_000
+    )
+    assert fields["book_per_share"] == pytest.approx(182_637_000_000 / 2_500_000_000)
+    assert fields["cash_per_share"] == pytest.approx(30_000_000_000 / 2_500_000_000)
+    assert fields["pe"] == pytest.approx(500.0 / 23.86)
+
+
+def test_a_filed_share_count_wins_over_the_reference() -> None:
+    """A filed figure is never overridden by the outside reference."""
+
+    fields = _map_with_shares(apple_facts(), price=250.0, shares=1_000_000.0)
+    assert fields["shares_outstanding"] == pytest.approx(14_800_000_000), (
+        "the 10-K's consolidated count, not the 1m reference"
+    )
+    assert fields["market_cap"] == pytest.approx(250.0 * 14_800_000_000)
+    assert fields["book_per_share"] == pytest.approx(73_000_000_000 / 14_800_000_000)
+
+
+def test_a_share_reference_alone_does_not_touch_a_filed_count() -> None:
+    """No price, no market cap — but the filed count is still the filed count."""
+
+    fields = _map_with_shares(apple_facts(), shares=1.0)
+    assert fields["shares_outstanding"] == pytest.approx(14_800_000_000)
+    assert fields["market_cap"] is None, "a count without a quote is not a market cap"
+
+
+@pytest.mark.parametrize("shares", [0, -5.0, float("nan"), float("inf"), True])
+def test_a_share_reference_that_is_not_a_real_count_is_refused(shares: float) -> None:
+    """A quote-less count must be a positive finite number — even when unused."""
+
+    with pytest.raises(ValueError):
+        _map_with_shares(multi_class_facts(), price=500.0, shares=shares)
+    with pytest.raises(ValueError):
+        # Apple's fixture carries a filed count: the reference is still checked.
+        _map_with_shares(apple_facts(), price=250.0, shares=shares)
+
+
+@pytest.mark.parametrize("shares", ["2500000000", object()])
+def test_a_share_reference_that_is_not_a_number_is_refused(shares: object) -> None:
+    with pytest.raises(TypeError):
+        _map_with_shares(multi_class_facts(), price=500.0, shares=shares)
+
+
+def test_the_cik_entry_points_forward_the_share_reference() -> None:
+    """``fundamentals_for_cik``/``_symbol`` take the same fallback."""
+
+    index = _index_of(multi_class_facts())
+    expected_ev = 500.0 * 2_500_000_000 + 28_000_000_000 - 30_000_000_000
+
+    for call in (
+        lambda: fundamentals_for_cik(index, AAPL_CIK, price=500.0, shares=2_500_000_000),
+        lambda: fundamentals_for_symbol(
+            index, "aapl", {"AAPL": AAPL_CIK}, price=500.0, shares=2_500_000_000
+        ),
+    ):
+        try:
+            fields = call()
+        except TypeError as exc:
+            if "unexpected keyword argument" in str(exc):
+                raise AssertionError(f"the entry point ignores shares=: {exc}") from exc
+            raise
+        assert fields["enterprise_value"] == pytest.approx(expected_ev)
+        assert fields["shares_outstanding"] == pytest.approx(2_500_000_000)

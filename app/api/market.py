@@ -44,18 +44,30 @@ without touching the route.
 
 from __future__ import annotations
 
+import logging
+import math
+import statistics
+import threading
 import time
-from typing import Any
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Callable
+from weakref import WeakKeyDictionary
 
 from fastapi import APIRouter, Body, Query, Request
+from fastapi.responses import JSONResponse
 
 from app.auth import ApiError
-from app.market.depth import DepthCollector
+from app.market.depth import DepthCollector, DepthStore
+from app.market.depth_fields import CATALOG_FIELDS
 from app.market.hub import QuoteHub
 from app.market.quote import QuoteEngine, QuoteTick
 from app.market.sources import InvalidSymbol, build_quote_engine, parse_symbol_list
 
 router = APIRouter(prefix="/market", tags=["market"])
+
+logger = logging.getLogger("mee.market.depth")
 
 
 def quote_engine_of(request: Request) -> QuoteEngine:
@@ -80,6 +92,254 @@ def depth_collector_of(request: Request) -> DepthCollector | None:
 
     collector = getattr(request.app.state, "depth", None)
     return collector if isinstance(collector, DepthCollector) else None
+
+
+#: The last cycle this process warned about, per collector. Weak keys: a
+#: replaced collector must not keep its entry (or a recycled ``id``) alive.
+_warned_cycles: "WeakKeyDictionary[Any, str]" = WeakKeyDictionary()
+
+
+def depth_stats(store: DepthStore) -> dict[str, Any]:
+    """Coverage of one depth store, computed from memory alone.
+
+    ``fields_filled`` counts distinct **catalog** keys that hold at least one
+    value: a name outside ``app.market.depth_fields`` is not a catalog column,
+    so counting it as coverage would overstate how much of the product's
+    vocabulary is answerable. Per-symbol counts describe the same catalog
+    cells, which is why ``min``/``max``/``median`` and the ``by_source``
+    subtraction all refer to the same population.
+
+    ``as_of`` is the newest cell clock in the store — the data's age, not the
+    request's — and is ``None`` for an empty store. Nothing here touches a
+    provider, a file or the event loop's clock.
+
+    The counting is set algebra where possible: key-set intersections are
+    C-level, so the cost is one copy of the symbol maps plus one pass over the
+    cells for source attribution and the newest stamp. On the production store
+    (4,217 symbols × ~90 cells) that is roughly 0.1–0.2 s, against a 13-minute
+    daily crawl.
+    """
+
+    catalog = CATALOG_FIELDS
+    rows = store.snapshot()
+    fieldsets = list(rows.values())
+    counts = [len(fields.keys() & catalog) for fields in fieldsets]
+    filled = (
+        set().union(*(fields.keys() for fields in fieldsets)) & catalog
+        if fieldsets
+        else set()
+    )
+
+    by_source: Counter[str] = Counter()
+    newest: datetime | None = None
+    for fields in fieldsets:
+        for name, field in fields.items():
+            if name not in catalog:
+                continue
+            source = field.source
+            if source:
+                by_source[source] += 1
+            stamp = field.as_of
+            if newest is None or stamp > newest:
+                newest = stamp
+
+    return {
+        "as_of": newest.isoformat() if newest is not None else None,
+        "symbols": len(rows),
+        "fields_filled": len(filled),
+        "median_fields_per_symbol": statistics.median(counts) if counts else 0,
+        "min_fields": min(counts) if counts else 0,
+        "max_fields": max(counts) if counts else 0,
+        "by_source": dict(sorted(by_source.items())),
+    }
+
+
+def _coverage_floor(request: Request) -> int:
+    """``settings.depth_coverage_floor``, with the product default as fallback."""
+
+    runtime = getattr(request.app.state, "runtime", None)
+    settings = getattr(runtime, "settings", None)
+    raw = getattr(settings, "depth_coverage_floor", 60)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 60
+
+
+def _warn_if_degraded(
+    request: Request, collector: Any, document: dict[str, Any]
+) -> None:
+    """One WARNING per degraded cycle, never one per scrape.
+
+    The cycle is identified by ``collector.last_cycle.started_at``: the same
+    store read twice inside one cycle is the same night, while tomorrow's bad
+    cycle is a new line. A store seeded before the first cycle has no stamp and
+    is logged once under ``no-cycle``.
+    """
+
+    floor = _coverage_floor(request)
+    filled = int(document["fields_filled"])
+    if filled >= floor:
+        return
+    cycle = getattr(collector, "last_cycle", None)
+    started = getattr(cycle, "started_at", None)
+    marker = started.isoformat() if isinstance(started, datetime) else "no-cycle"
+    if _warned_cycles.get(collector) == marker:
+        return
+    _warned_cycles[collector] = marker
+    logger.warning(
+        "depth coverage degraded: fields_filled=%d below floor=%d "
+        "(symbols=%d, cycle=%s)",
+        filled,
+        floor,
+        document["symbols"],
+        marker,
+    )
+
+
+@dataclass
+class _Bucket:
+    """One caller's token bucket: fractional tokens left, and its last touch."""
+
+    tokens: float
+    last: float
+
+
+class CallerRateLimiter:
+    """A per-caller token bucket: ``limit`` requests per ``window_s`` seconds.
+
+    One instance per process, on ``app.state.enrich_limiter``. ``check`` is
+    synchronous and never awaits, so a plain lock makes it safe from the event
+    loop and from a threadpool worker alike. The bucket map is pruned lazily:
+    a caller idle for a whole window has refilled to the limit, so its state
+    carries no information and is dropped — memory follows live traffic, not
+    uptime.
+
+    Over budget is answered, never queued: the route turns the refusal into a
+    429 with ``Retry-After``. A *paid* caller that is told "come back in 40 s"
+    is a working product; one that is silently made to wait holds a socket.
+    """
+
+    def __init__(
+        self,
+        *,
+        limit: float,
+        window_s: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        if window_s <= 0:
+            raise ValueError("window_s must be positive")
+        self.limit = float(limit)
+        self.window_s = float(window_s)
+        #: Tokens per second; one request costs one token.
+        self.rate = self.limit / self.window_s
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._buckets: dict[str, _Bucket] = {}
+        self._last_prune = clock()
+
+    def __len__(self) -> int:
+        """How many callers are currently tracked (bounded by pruning)."""
+
+        with self._lock:
+            return len(self._buckets)
+
+    def check(self, caller: str) -> tuple[bool, float]:
+        """Take one request from ``caller``'s bucket.
+
+        Returns ``(True, 0.0)`` inside the budget, else ``(False, wait_s)``
+        where ``wait_s`` is the time until one whole token exists again.
+        """
+
+        now = self._clock()
+        with self._lock:
+            bucket = self._buckets.get(caller)
+            if bucket is None:
+                bucket = _Bucket(tokens=self.limit, last=now)
+                self._buckets[caller] = bucket
+            else:
+                elapsed = max(0.0, now - bucket.last)
+                bucket.tokens = min(self.limit, bucket.tokens + elapsed * self.rate)
+                bucket.last = now
+            self._prune(now)
+            if bucket.tokens >= 1.0:
+                bucket.tokens -= 1.0
+                return True, 0.0
+            return False, (1.0 - bucket.tokens) / self.rate
+
+    def _prune(self, now: float) -> None:
+        """Drop callers idle for a full window; at most one sweep per window."""
+
+        if now - self._last_prune < self.window_s:
+            return
+        self._last_prune = now
+        idle = [
+            name
+            for name, bucket in self._buckets.items()
+            if now - bucket.last >= self.window_s
+        ]
+        for name in idle:
+            del self._buckets[name]
+
+
+def enrich_limiter_of(request: Request) -> CallerRateLimiter | None:
+    """The process-owned per-caller bucket, rebuilt only when config changes.
+
+    ``None`` means the gate is explicitly off (``enrich_rate_limit <= 0``).
+    Like ``quote_engine_of``, a test (or an operator with a different policy)
+    can replace ``app.state.enrich_limiter`` — with an injectable clock — without
+    touching the route.
+    """
+
+    settings = request.app.state.runtime.settings
+    limit = float(getattr(settings, "enrich_rate_limit", 10.0))
+    window_s = float(getattr(settings, "enrich_rate_window_s", 60.0))
+    if limit <= 0:
+        return None
+    limiter = getattr(request.app.state, "enrich_limiter", None)
+    if (
+        isinstance(limiter, CallerRateLimiter)
+        and limiter.limit == limit
+        and limiter.window_s == window_s
+    ):
+        return limiter
+    limiter = CallerRateLimiter(limit=limit, window_s=window_s)
+    request.app.state.enrich_limiter = limiter
+    return limiter
+
+
+def enrich_caller(request: Request, settings: Any) -> str:
+    """Who a request is billed to: the key when one is configured, else host.
+
+    A configured key is the paid identity — every caller presenting it shares
+    that key's budget, which is exactly the unit a subscription sells. Without
+    a key the route is a dev/open surface and the client host is the only
+    identity there is (behind a reverse proxy, configure the key).
+    """
+
+    if getattr(settings, "enrich_api_key", None):
+        return request.headers.get("x-enrich-key", "") or "anonymous"
+    client = getattr(request, "client", None)
+    return getattr(client, "host", None) or "unknown"
+
+
+def _rate_limited(limiter: CallerRateLimiter, retry_after_s: float) -> JSONResponse:
+    """The 429: house envelope plus the one header a client should honour."""
+
+    seconds = max(1, math.ceil(retry_after_s))
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "enrich_rate_limited",
+            "errorMessage": (
+                f"on-demand enrichment allows {limiter.limit:g} requests per "
+                f"{limiter.window_s:g}s per caller; retry in {seconds}s"
+            ),
+        },
+        headers={"Retry-After": str(seconds)},
+    )
 
 
 def _document(tick: QuoteTick) -> dict[str, Any]:
@@ -246,6 +506,34 @@ async def depth(
     }
 
 
+@router.get("/depth/stats")
+async def depth_stats_route(request: Request) -> dict[str, Any]:
+    """Coverage of the depth store: counts and clocks, never a value.
+
+    Read-only and provider-free: the document is assembled from the collector's
+    in-memory store, so a monitoring scrape costs one pass over the symbols and
+    cannot trigger a crawl. A collector that is absent or has not filled its
+    store is ``503 depth_unavailable`` — "no coverage data yet" must not look
+    like a store of zeros.
+
+    A cycle that leaves fewer than ``depth_coverage_floor`` catalog fields
+    filled is logged once at WARNING, with the cycle's own start stamp as the
+    identity, so journalctl shows one line per bad night rather than one per
+    scrape.
+    """
+
+    collector = depth_collector_of(request)
+    if collector is None or not collector.ready:
+        raise ApiError(
+            503,
+            "depth_unavailable",
+            "depth collector is not running or has not completed a refresh",
+        )
+    document = depth_stats(collector.store)
+    _warn_if_degraded(request, collector, document)
+    return document
+
+
 @router.get("/quote")
 async def quote(
     request: Request,
@@ -319,13 +607,27 @@ async def quote(
     }
 
 
-__all__ = ["depth", "depth_collector_of", "hub_quote", "quote", "quote_engine_of", "quote_hub_of", "router"]
+__all__ = [
+    "CallerRateLimiter",
+    "depth",
+    "depth_collector_of",
+    "depth_stats",
+    "depth_stats_route",
+    "enrich",
+    "enrich_caller",
+    "enrich_limiter_of",
+    "hub_quote",
+    "quote",
+    "quote_engine_of",
+    "quote_hub_of",
+    "router",
+]
 
 @router.post("/enrich")
 async def enrich(
     request: Request,
     body: dict[str, Any] = Body(...),
-) -> dict[str, Any]:
+) -> Any:
     """Run the per-symbol enrichment on demand — the premium trigger.
 
     The rotation in :class:`~app.market.enrichment.EnrichmentStage` is the free
@@ -341,6 +643,11 @@ async def enrich(
     **Access** is gated by ``settings.enrich_api_key``. When it is unset the
     route is open (dev); when set, ``X-Enrich-Key`` must match, and the
     mismatch is a **403** in the house envelope.
+
+    **Budget** is ``enrich_rate_limit`` requests per ``enrich_rate_window_s``
+    per caller (the key when configured, else the client host). Over budget is
+    a **429** ``enrich_rate_limited`` with ``Retry-After`` — cheap, and checked
+    *after* the key so a caller probing with wrong keys cannot exhaust itself.
     """
 
     settings = request.app.state.runtime.settings
@@ -353,6 +660,12 @@ async def enrich(
                 "enrich_forbidden",
                 "a valid X-Enrich-Key is required for on-demand enrichment",
             )
+
+    limiter = enrich_limiter_of(request)
+    if limiter is not None:
+        allowed, retry_after = limiter.check(enrich_caller(request, settings))
+        if not allowed:
+            return _rate_limited(limiter, retry_after)
 
     sources = body.get("sources") or ["yahoo", "news"]
     if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):

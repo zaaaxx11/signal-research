@@ -117,6 +117,10 @@ class Settings(BaseSettings):
     #: How often the **news** half advances. A headline is stale in an hour
     #: and costs 2 KB per symbol, so this stays fast.
     depth_enrich_news_interval_s: float = Field(default=300.0, gt=0)
+    #: Ride the paid residential endpoint for the enrichment rotation. Direct
+    #: Yahoo 429s after a heavy pass and the rotation then never advances its
+    #: cursor; without the auth file this rung is simply skipped.
+    depth_enrich_proxy: bool = True
     #: On-demand enrichment (`POST /market/enrich`) — the premium hook. When
     #: set, the caller must present the same value in ``X-Enrich-Key``; unset
     #: leaves the route open, which is what a dev box wants.
@@ -124,6 +128,13 @@ class Settings(BaseSettings):
     #: Per-request ceiling for the on-demand path. A paid trigger buys a
     #: handful of symbols, not the universe.
     enrich_max_symbols: int = Field(default=50, ge=1)
+    #: Per-caller budget for the on-demand path: ``enrich_rate_limit`` requests
+    #: per ``enrich_rate_window_s`` seconds, bucketed by ``X-Enrich-Key`` when
+    #: ``enrich_api_key`` is set and by client host otherwise. Over budget is a
+    #: 429 carrying ``Retry-After``. ``0`` disables the gate explicitly (a
+    #: single-tenant box behind a trusted proxy); an unset value is the default.
+    enrich_rate_limit: float = Field(default=10.0, ge=0.0)
+    enrich_rate_window_s: float = Field(default=60.0, gt=0.0)
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")
@@ -136,6 +147,11 @@ class Settings(BaseSettings):
     #: request batching bound, not a universe limit.
     depth_source_timeout_s: float = Field(default=180.0, gt=0)
     depth_source_chunk_size: int = Field(default=250, ge=1)
+    #: Coverage floor for the depth store: when a cycle leaves fewer distinct
+    #: catalog fields filled than this, ``GET /market/depth/stats`` logs one
+    #: WARNING per degraded cycle so a bad night is visible in journalctl
+    #: instead of waiting for someone to open the store by hand.
+    depth_coverage_floor: int = Field(default=60, ge=0)
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the
     #: TradingView snapshot supplies the twenty candidates and one observation,
     #: Yahoo/Nasdaq/Finviz/Google re-verify their cells (P10.1 added the last
