@@ -992,3 +992,66 @@ def test_ev_sales_is_absent_without_a_top_line() -> None:
     fields = map_fundamentals(rows, price=100.0)
     assert fields["enterprise_value"] == pytest.approx(505_000_000_000)
     assert fields["ev_sales"] is None, "an enterprise value with no sales is not a zero"
+
+
+# ---------------------------------------------------------------------------
+# Debt vocabulary: the lease-inclusive spellings
+# ---------------------------------------------------------------------------
+#
+# AVGO files LongTermDebtAndCapitalLeaseObligations, TSLA the finance-lease
+# pair, and neither reaches the LongTermDebt/LongTermDebtNoncurrent pair the
+# map carried — so enterprise_value and debt_to_equity were absent for them.
+
+
+def test_capital_lease_debt_spelling_fills_total_debt() -> None:
+    rows = [
+        fact("LongTermDebtAndCapitalLeaseObligations", 12_000_000_000, qtrs=0),
+        fact("StockholdersEquity", 70_000_000_000, qtrs=0),
+        fact("CashAndCashEquivalentsAtCarryingValue", 15_000_000_000, qtrs=0),
+        fact("CommonStockSharesOutstanding", 1_000_000_000, qtrs=0, uom="shares"),
+    ]
+    fields = map_fundamentals(rows, price=100.0)
+    assert fields["debt_to_equity"] == pytest.approx(12_000_000_000 / 70_000_000_000)
+    assert fields["enterprise_value"] == pytest.approx(
+        100_000_000_000 + 12_000_000_000 - 15_000_000_000
+    )
+
+
+def test_finance_lease_debt_spelling_fills_total_debt() -> None:
+    rows = [
+        fact("LongTermDebtAndFinanceLeasesNoncurrent", 5_000_000_000, qtrs=0),
+        fact("StockholdersEquity", 30_000_000_000, qtrs=0),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["debt_to_equity"] == pytest.approx(5_000_000_000 / 30_000_000_000)
+
+
+def test_the_long_term_pair_still_wins_over_the_lease_spellings() -> None:
+    """A filer with both keeps the plain long-term debt figure."""
+
+    rows = [
+        fact("LongTermDebtNoncurrent", 8_000_000_000, qtrs=0),
+        fact("LongTermDebtAndCapitalLeaseObligations", 9_500_000_000, qtrs=0),
+        fact("StockholdersEquity", 40_000_000_000, qtrs=0),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["debt_to_equity"] == pytest.approx(8_000_000_000 / 40_000_000_000)
+
+
+def test_the_disposal_group_cash_spelling_fills_cash() -> None:
+    """TSLA files the disposal-group spelling; the plain tags miss it."""
+
+    rows = [
+        fact(
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
+            20_000_000_000,
+            qtrs=0,
+        ),
+        fact("LongTermDebtAndFinanceLeasesNoncurrent", 5_000_000_000, qtrs=0),
+        fact("CommonStockSharesOutstanding", 1_000_000_000, qtrs=0, uom="shares"),
+    ]
+    fields = map_fundamentals(rows, price=100.0)
+    assert fields["cash_per_share"] == pytest.approx(20.0)
+    assert fields["enterprise_value"] == pytest.approx(
+        100_000_000_000 + 5_000_000_000 - 20_000_000_000
+    )

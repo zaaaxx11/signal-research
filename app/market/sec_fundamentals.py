@@ -147,8 +147,22 @@ TAG_MAP: Mapping[str, tuple[str, ...]] = {
     "cash_and_equivalents": (
         "CashAndCashEquivalentsAtCarryingValue",
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        # The disposal-group spellings TSLA and other restructurers file.
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
+        "CashAndCashEquivalentsAtCarryingValueIncludingDisposalGroupAndDiscontinuedOperations",
     ),
-    "total_debt": ("LongTermDebt", "LongTermDebtNoncurrent"),
+    "total_debt": (
+        "LongTermDebt",
+        "LongTermDebtNoncurrent",
+        # The lease-inclusive spellings: AVGO files the capital-lease pair,
+        # TSLA the finance-lease pair, and neither reaches the plain tags.
+        "LongTermDebtAndCapitalLeaseObligations",
+        "LongTermDebtAndCapitalLeaseObligationsCurrent",
+        "LongTermDebtAndFinanceLeasesNoncurrent",
+        "LongTermDebtAndFinanceLeasesCurrent",
+        # Last resort: the combined long- and short-term figure.
+        "DebtLongtermAndShorttermCombinedAmount",
+    ),
     "dividend": ("CommonStockDividendsPerShareDeclared",),
     "shares_outstanding": (
         "CommonStockSharesOutstanding",
