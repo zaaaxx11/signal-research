@@ -31,6 +31,7 @@ from app.engine.bulk_financials import (
 from app.market.depth import QUOTE_ONLY_FIELDS, canonical_symbol
 from app.market.finra import FinraShortSource
 from app.market.chart import YahooChartDepthSource
+from app.market.enrichment import EnrichmentStage
 from app.market.identity import IdentityIndex
 from app.market.yahoo_batch import YahooBatchQuoteSource
 from app.market.official import OfficialDepthSource
@@ -252,9 +253,9 @@ async def main() -> None:
             zip_path = dataset_cache_path(CACHE, quarter)
     if not zip_path.exists():
         await download_dataset(quarter, cache_dir=CACHE)
-    # Four quarters: the annual row lives in whichever quarter carried the
-    # 10-K, and fiscal year ends differ (Sept FY → 2025q4, Dec FY → 2026q1,
-    # June FY → the current quarter), so one prior quarter is not enough.
+    # Six quarters: the four that carry every fiscal year end's 10-K, plus
+    # 2024q1 and 2021q1 whose 10-K comparatives hold the FY-3 and FY-5
+    # anchors the growth CAGRs need.
     quarters = [quarter]
     for back in range(1, 4):
         prev = previous_quarter(quarter, back)
@@ -262,6 +263,11 @@ async def main() -> None:
         if not prev_path.exists():
             await download_dataset(prev, cache_dir=CACHE)
         quarters.append(prev)
+    for extra in ("2024q1", "2021q1"):
+        extra_path = dataset_cache_path(CACHE, extra)
+        if not extra_path.exists():
+            await download_dataset(extra, cache_dir=CACHE)
+        quarters.append(extra)
     paths = [dataset_cache_path(CACHE, q) for q in quarters]
     wanted = {ciks[s] for s in symbols if s in ciks}
     index = build_quarters(paths, ciks=wanted)
@@ -358,6 +364,26 @@ async def main() -> None:
         f"added={added_report} errors={errors}",
         flush=True,
     )
+
+    # --- Enrichment: per-symbol pass (Yahoo quoteSummary + RSS news) --------
+    if "--enrich" in sys.argv:
+        t0 = time.perf_counter()
+        stage = EnrichmentStage()
+        enriched = await stage.run(symbols)
+        enrich_added: set[str] = set()
+        for sym, fields in enriched.items():
+            row = merged.setdefault(sym, {})
+            for key, value in fields.items():
+                if value is None or row.get(key) is not None:
+                    continue
+                row[key] = value
+                enrich_added.add(key)
+        print(
+            f"enrichment ok={len(enriched)}/{len(symbols)} "
+            f"wall={time.perf_counter() - t0:.1f}s "
+            f"added={sorted(enrich_added)} errors={stage.last_errors}",
+            flush=True,
+        )
 
     # --- Coverage: after ----------------------------------------------------
     after = coverage_of(merged, names)

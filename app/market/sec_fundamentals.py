@@ -537,7 +537,13 @@ def _cagr(base: float | None, newest: float | None, years: int) -> float | None:
 
     if base is None or newest is None or base <= 0:
         return None
-    value = (newest / base) ** (1.0 / years) - 1.0
+    ratio = newest / base
+    # A negative ratio has no real nth root: a company that lost money in the
+    # base year and earned in the newest has no compound growth rate, only a
+    # sign change. Python would answer a complex number, which is not a field.
+    if ratio < 0:
+        return None
+    value = ratio ** (1.0 / years) - 1.0
     return None if not math.isfinite(value) else value * 100.0
 
 

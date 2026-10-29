@@ -1218,3 +1218,14 @@ def test_the_growth_block_leaves_the_ttm_fields_untouched() -> None:
     assert fields["eps_yoy_ttm"] == pytest.approx((8.50 / 7.70 - 1) * 100)
     for name in GROWTH_FIELDS:
         assert fields[name] is None, "the merged quarters carry no FY-3 or FY-5 annual"
+
+
+def test_a_negative_ratio_has_no_real_root() -> None:
+    """A loss in the base year and a profit in the newest is a sign change,
+    not a compound growth rate — Python would answer a complex number."""
+
+    rows = [
+        fact("EarningsPerShareDiluted", -2.0, ddate="2022-12-31", qtrs=4),
+        fact("EarningsPerShareDiluted", 6.0, ddate="2025-12-31", qtrs=4),
+    ]
+    assert map_fundamentals(rows)["eps_past_3y"] is None
