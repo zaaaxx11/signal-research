@@ -646,7 +646,7 @@ Setiap nama indeks yang ada di universe berlabel. Yang tidak berlabel adalah
 [x] optionable >=95%       (4.197/4.217 = 99,5%)
 [x] store <=12 MB          (9,0 MB)
 [x] no Finviz HTTP saat MEE_DEPTH_FINVIZ=0
-[x] cycle <=60 menit       (diukur dari log progres per sumber)
+[x] cycle <=60 menit       → 809 s (13,5 menit), requested 4217 · returned 4217 · errors 0
 [x] setiap sumber melaporkan durasinya sendiri (log INFO mee.depth)
 ```
 
@@ -654,6 +654,23 @@ Kriteria terakhir ditutup dengan log progres per sumber, bukan dengan menebak
 durasi: `depth source <name> done in <seconds>s (<fields> fields)` muncul di
 `journalctl -u ztockz` setiap siklus, jadi "cycle <= 60 menit" bisa dibaca
 langsung dari log alih-alih diukur manual.
+
+**Siklus terukur (2026-10-29 23:50 UTC, produksi, Finviz-off):**
+
+| Sumber | Durasi | Field |
+|---|---:|---:|
+| sec (identitas) | 2,1 s | 29.300 |
+| sec_bulk (XBRL) | 270,2 s | 78.323 |
+| yahoo_chart | 315,1 s | 106.000 |
+| official (indeks) | 3,6 s | 2.735 |
+| finra | 6,8 s | 4.205 |
+| enrich (Yahoo, 500 simbol) | 175,4 s | 25.131 |
+| news_enrich (500 simbol) | 35,0 s | 1.350 |
+| **total** | **809,4 s (13,5 menit)** | |
+
+`requested=4217 · returned=4217 · errors=0`. Dua sumber tersisa menyumbang 60%
+waktu: `yahoo_chart` (per-simbol, 4.217 request) dan `sec_bulk` (build indeks
+6 kuartal). Keduanya kandidat pertama kalau siklus perlu dipercepat.
 
 ### Task 5.3: Acceptance gate (asli, disimpan untuk riwayat)
 
