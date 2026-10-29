@@ -59,6 +59,11 @@ AAPL_K24 = "0000320193-24-000099"  # 10-K, filed 2024-11-01
 AAPL_Q24 = "0000320193-24-000101"  # 10-Q, filed 2024-08-01
 AAPL_Q2 = "0000320193-26-000010"  # 10-Q, filed 2026-05-01
 AAPL_Q2R = "0000320193-26-000031"  # the restated Q2, filed 2026-08-14
+AAPL_K26 = "0000320193-26-000090"  # 10-K, filed 2026-10-30
+AAPL_K23 = "0000320193-23-000077"  # 10-K, filed 2023-11-02
+AAPL_K22 = "0000320193-22-000082"  # 10-K, filed 2022-10-28
+AAPL_K21 = "0000320193-21-000090"  # 10-K, filed 2021-10-29
+AAPL_K20 = "0000320193-20-000096"  # 10-K, filed 2020-10-30
 MSFT_ADSH = "0000789019-26-000045"
 
 
@@ -166,6 +171,10 @@ def test_fields_are_exactly_the_catalog_columns() -> None:
         "eps_yoy_ttm",
         "sales_yoy_ttm",
         "payout_ratio",
+        "eps_past_3y",
+        "sales_past_3y",
+        "eps_past_5y",
+        "sales_past_5y",
     )
 
 
@@ -177,7 +186,7 @@ def test_every_published_field_is_either_mapped_or_derived() -> None:
         "eps",
         "dividend",
         "shares_outstanding",
-    }, "the other twenty-three fields are arithmetic on mapped inputs"
+    }, "the other twenty-seven fields are arithmetic on mapped inputs"
 
 
 def test_the_tag_map_is_well_formed() -> None:
@@ -789,7 +798,9 @@ def ttm_facts() -> list[Fact]:
 
 def test_the_block_is_published_and_derived() -> None:
     _published(*BLOCK_FIELDS)
-    assert FIELDS[-len(BLOCK_FIELDS) :] == BLOCK_FIELDS, "the block closes the catalog order"
+    head = FIELDS[: -len(GROWTH_FIELDS)]
+    assert head[-len(BLOCK_FIELDS) :] == BLOCK_FIELDS, "the block keeps its catalog order"
+    assert FIELDS[-len(GROWTH_FIELDS) :] == GROWTH_FIELDS, "the growth block closes the catalog order"
     for name in BLOCK_FIELDS:
         assert name in DERIVED_FIELDS, f"{name} is arithmetic, not a reported concept"
         assert name not in TAG_MAP, f"{name} must not answer itself from one tag"
@@ -1055,3 +1066,155 @@ def test_the_disposal_group_cash_spelling_fills_cash() -> None:
     assert fields["enterprise_value"] == pytest.approx(
         100_000_000_000 + 5_000_000_000 - 20_000_000_000
     )
+
+
+# ---------------------------------------------------------------------------
+# Long-horizon growth: the multi-year CAGR block
+# ---------------------------------------------------------------------------
+#
+# A 3- or 5-year compound annual growth rate wants the newest annual
+# (``qtrs=4``) row and the annual whose period end sits ~3 / ~5 years
+# earlier. The bulk dataset only carries four quarters at a time, so the
+# caller merges the extra cached quarters (2024q1, 2021q1) into one fact
+# list. Two 10-Ks can carry the same fiscal year — the newest as the
+# current year, the next one as a comparative — so the annual rows are
+# deduplicated by period end before any window is taken; a raw sort
+# double-counts the restated figure.
+
+
+#: The four long-horizon growth columns, in catalog order.
+GROWTH_FIELDS = (
+    "eps_past_3y",
+    "sales_past_3y",
+    "eps_past_5y",
+    "sales_past_5y",
+)
+
+
+def _published_growth(*names: str) -> None:
+    """Every name the growth block publishes; RED until the mapper carries it."""
+
+    for name in names:
+        assert name in FIELDS, f"{name} is not a published field yet"
+
+
+def annual_facts() -> list[Fact]:
+    """Five fiscal years of annual rows: FY2020 … FY2025, late-September ends.
+
+    Sales grow from 150bn to 400bn; EPS from 4.00 to 8.00. Both the 3-year
+    anchor (FY2022) and the 5-year anchor (FY2020) are on file.
+    """
+
+    return [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 380_000_000_000, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact(REVENUE, 300_000_000_000, ddate="2023-09-30", qtrs=4, adsh=AAPL_K23, filed="2023-11-02"),
+        fact(REVENUE, 240_000_000_000, ddate="2022-09-24", qtrs=4, adsh=AAPL_K22, filed="2022-10-28"),
+        fact(REVENUE, 190_000_000_000, ddate="2021-09-25", qtrs=4, adsh=AAPL_K21, filed="2021-10-29"),
+        fact(REVENUE, 150_000_000_000, ddate="2020-09-26", qtrs=4, adsh=AAPL_K20, filed="2020-10-30"),
+        fact("EarningsPerShareDiluted", 8.00, ddate="2025-09-27", qtrs=4),
+        fact("EarningsPerShareDiluted", 7.00, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact("EarningsPerShareDiluted", 6.00, ddate="2023-09-30", qtrs=4, adsh=AAPL_K23, filed="2023-11-02"),
+        fact("EarningsPerShareDiluted", 5.00, ddate="2022-09-24", qtrs=4, adsh=AAPL_K22, filed="2022-10-28"),
+        fact("EarningsPerShareDiluted", 4.50, ddate="2021-09-25", qtrs=4, adsh=AAPL_K21, filed="2021-10-29"),
+        fact("EarningsPerShareDiluted", 4.00, ddate="2020-09-26", qtrs=4, adsh=AAPL_K20, filed="2020-10-30"),
+    ]
+
+
+def test_the_growth_block_is_published_and_derived() -> None:
+    _published_growth(*GROWTH_FIELDS)
+    assert FIELDS[-len(GROWTH_FIELDS) :] == GROWTH_FIELDS, "the block closes the catalog order"
+    for name in GROWTH_FIELDS:
+        assert name in DERIVED_FIELDS, f"{name} is arithmetic, not a reported concept"
+        assert name not in TAG_MAP, f"{name} must not answer itself from one tag"
+
+
+def test_the_three_year_cagr_compares_the_fy_minus_three_annual_to_the_newest() -> None:
+    """Sales 400bn against the FY2022 annual of 240bn: (400/240)^(1/3) − 1."""
+
+    _published_growth("sales_past_3y", "eps_past_3y")
+    fields = map_fundamentals(annual_facts())
+    assert fields["sales_past_3y"] == pytest.approx(((400_000_000_000 / 240_000_000_000) ** (1 / 3) - 1) * 100)
+    assert fields["eps_past_3y"] == pytest.approx(((8.00 / 5.00) ** (1 / 3) - 1) * 100)
+
+
+def test_the_five_year_cagr_compares_the_fy_minus_five_annual_to_the_newest() -> None:
+    """Sales 400bn against the FY2020 annual of 150bn: (400/150)^(1/5) − 1."""
+
+    _published_growth("sales_past_5y", "eps_past_5y")
+    fields = map_fundamentals(annual_facts())
+    assert fields["sales_past_5y"] == pytest.approx(((400_000_000_000 / 150_000_000_000) ** (1 / 5) - 1) * 100)
+    assert fields["eps_past_5y"] == pytest.approx(((8.00 / 4.00) ** (1 / 5) - 1) * 100)
+
+
+def test_a_restated_annual_is_one_period_not_two() -> None:
+    """Two 10-Ks carry FY2025 — the newest as the current year, the next as a
+    comparative. The period end dedupes to one row, the later filing wins, and
+    the CAGR reads 410 (the restatement), not 810 (the double-count)."""
+
+    _published_growth("sales_past_3y")
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4, adsh=AAPL_K, filed="2025-10-31"),
+        fact(REVENUE, 410_000_000_000, ddate="2025-09-27", qtrs=4, adsh=AAPL_K26, filed="2026-10-30"),
+        fact(REVENUE, 240_000_000_000, ddate="2022-09-24", qtrs=4, adsh=AAPL_K22, filed="2022-10-28"),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["sales"] == pytest.approx(410_000_000_000), "the later-filed restatement wins"
+    assert fields["sales_past_3y"] == pytest.approx(((410_000_000_000 / 240_000_000_000) ** (1 / 3) - 1) * 100), (
+        "one FY2025 value, not the two rows summed"
+    )
+
+
+def test_the_three_year_cagr_is_absent_without_the_fy_minus_three_anchor() -> None:
+    _published_growth("sales_past_3y", "eps_past_3y")
+    rows = [row for row in annual_facts() if row.ddate != "2022-09-24"]
+    fields = map_fundamentals(rows)
+    assert fields["sales"] == pytest.approx(400_000_000_000), "the newest annual is intact"
+    assert fields["sales_past_3y"] is None, "no FY2022 annual, no 3-year CAGR — never a shorter window"
+    assert fields["eps_past_3y"] is None
+
+
+def test_the_five_year_cagr_is_absent_without_the_fy_minus_five_anchor() -> None:
+    _published_growth("sales_past_5y", "eps_past_5y")
+    rows = [row for row in annual_facts() if row.ddate != "2020-09-26"]
+    fields = map_fundamentals(rows)
+    assert fields["sales_past_5y"] is None, "no FY2020 annual, no 5-year CAGR"
+    assert fields["eps_past_5y"] is None
+    assert fields["sales_past_3y"] == pytest.approx(((400_000_000_000 / 240_000_000_000) ** (1 / 3) - 1) * 100), (
+        "the 3-year window is untouched by the missing 5-year anchor"
+    )
+
+
+def test_a_zero_or_negative_base_year_makes_the_cagr_absent() -> None:
+    """A CAGR from zero or a loss is not a number; the field is absent."""
+
+    _published_growth("sales_past_5y", "eps_past_3y")
+    rows = [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 0.0, ddate="2020-09-26", qtrs=4, adsh=AAPL_K20, filed="2020-10-30"),
+        fact("EarningsPerShareDiluted", 8.00, ddate="2025-09-27", qtrs=4),
+        fact("EarningsPerShareDiluted", -5.00, ddate="2022-09-24", qtrs=4, adsh=AAPL_K22, filed="2022-10-28"),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["sales_past_5y"] is None, "a zero base is no growth rate"
+    assert fields["eps_past_3y"] is None, "a negative base is no growth rate"
+
+
+def test_the_growth_block_is_absent_with_a_single_annual() -> None:
+    _published_growth(*GROWTH_FIELDS)
+    fields = map_fundamentals([fact(REVENUE, 400_000_000_000)])
+    for name in GROWTH_FIELDS:
+        assert fields[name] is None, f"{name} needs an anchor year on file"
+
+
+def test_the_growth_block_leaves_the_ttm_fields_untouched() -> None:
+    """The long-horizon CAGR reads annual rows only; the TTM pair is unchanged."""
+
+    _published_growth(*GROWTH_FIELDS)
+    fields = map_fundamentals(ttm_facts())
+    assert fields["sales"] == pytest.approx(420_000_000_000)
+    assert fields["eps"] == pytest.approx(8.50)
+    assert fields["sales_yoy_ttm"] == pytest.approx((420_000_000_000 / 390_000_000_000 - 1) * 100)
+    assert fields["eps_yoy_ttm"] == pytest.approx((8.50 / 7.70 - 1) * 100)
+    for name in GROWTH_FIELDS:
+        assert fields[name] is None, "the merged quarters carry no FY-3 or FY-5 annual"

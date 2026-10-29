@@ -9,9 +9,11 @@ The vocabulary
 --------------
 :data:`FIELDS` is the published set — the fifteen fundamentals columns the
 catalog already carries (``sales`` … ``shares_outstanding``), the two
-price-dependent ones (``market_cap``, ``pe``) and the eleven valuation and
+price-dependent ones (``market_cap``, ``pe``), the eleven valuation and
 growth columns the enrichment probe measured as computable from four cached
-quarters (``enterprise_value`` … ``payout_ratio``). :data:`TAG_MAP` maps each
+quarters (``enterprise_value`` … ``payout_ratio``) and the four long-horizon
+growth columns that need two extra quarters of annual history on file
+(``eps_past_3y`` … ``sales_past_5y``). :data:`TAG_MAP` maps each
 field to the SEC XBRL concepts that may answer it, primary first, using the
 same concept groups the engine's ``companyfacts`` slice uses, so a bulk value
 and a ``companyfacts`` value for one symbol are the same number from the same
@@ -56,6 +58,15 @@ The rules
   twelve months that ended a year earlier, the second built by the same
   roll-forward over the rows that end at least a year before the newest
   period. One period on file is no growth at all.
+* **Multi-year growth is a CAGR over annual anchors.** ``eps_past_3y`` and
+  its siblings compound the newest annual value against the annual whose
+  period end sits three (or five) years earlier. The annual rows are
+  deduplicated by period end first — two 10-Ks carry the same fiscal year,
+  the newest as the current year and the next one as a comparative, and a
+  raw sort double-counts it — and the anchor is the deduplicated annual
+  closest to the target date. A missing anchor, or a base that is zero or
+  negative, is an absent field: never a shorter window's CAGR, never a
+  number a root cannot produce.
 * **Price is the caller's.** ``market_cap`` and ``pe`` need a quote; without
   one they are absent rather than stale — and so is every valuation column
   that stands on the market cap.
@@ -69,7 +80,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 #: The published fields, in catalog order. A value of ``None`` is an absent
@@ -103,6 +114,10 @@ FIELDS: tuple[str, ...] = (
     "eps_yoy_ttm",
     "sales_yoy_ttm",
     "payout_ratio",
+    "eps_past_3y",
+    "sales_past_3y",
+    "eps_past_5y",
+    "sales_past_5y",
 )
 
 #: Ztockz field → SEC XBRL concepts that may answer it, primary first.
@@ -245,6 +260,13 @@ _YTD_QTRS = frozenset({1, 2, 3})
 #: a 53-week year and a leap February both live inside that window.
 _PRIOR_MIN_GAP_DAYS = 350
 _PRIOR_MAX_GAP_DAYS = 380
+#: A multi-year CAGR anchor sits three or five years before the newest
+#: annual. A 52/53-week fiscal calendar drifts a few days a year, so the
+#: anchor is the deduplicated annual whose period end is closest to the
+#: target date and within this many days of it — far tighter than the
+#: ~350-day gap between adjacent fiscal years, so a neighbouring year never
+#: passes for the anchor.
+_ANCHOR_MAX_GAP_DAYS = 45
 #: The statutory rate ROIC falls back to when the filing carries no tax line
 #: (a loss-maker, an REIT, a partnership). The effective rate is the filing's
 #: own tax over pre-tax income whenever both are on file.
@@ -348,6 +370,24 @@ def _days_between(first: str, second: str) -> int | None:
         return (date.fromisoformat(second) - date.fromisoformat(first)).days
     except (TypeError, ValueError):
         return None
+
+
+def _years_back(end: str, years: int) -> str | None:
+    """``end`` minus ``years`` as an ISO date; ``None`` when unparseable.
+
+    A 29 February period end has no anniversary three or five years back,
+    so the day-count approximation stands in — it lands within a couple of
+    days of the fiscal year's real end, far inside the anchor window.
+    """
+
+    try:
+        anchor = date.fromisoformat(end)
+    except (TypeError, ValueError):
+        return None
+    try:
+        return anchor.replace(year=anchor.year - years).isoformat()
+    except ValueError:
+        return (anchor - timedelta(days=365 * years)).isoformat()
 
 
 def _flow_value(rows: list[Any]) -> float | None:
@@ -484,6 +524,62 @@ def _quarterly_pair(rows: list[Any]) -> tuple[float, float] | None:
         return None
     ordered = sorted(by_period.values(), key=_fact_key, reverse=True)
     return ordered[0].value, ordered[1].value
+
+
+def _cagr(base: float | None, newest: float | None, years: int) -> float | None:
+    """The compound annual growth rate from ``base`` to ``newest``, in percent.
+
+    A missing half, or a base that is zero or negative, is no growth rate:
+    the root of a negative ratio is not a real number and a zero base
+    divides by nothing. The answer is ``None`` — never a shorter window's
+    figure standing in for the one that was asked for.
+    """
+
+    if base is None or newest is None or base <= 0:
+        return None
+    value = (newest / base) ** (1.0 / years) - 1.0
+    return None if not math.isfinite(value) else value * 100.0
+
+
+def _annual_pair(rows: list[Any], years: int) -> tuple[float | None, float | None]:
+    """The newest annual value, and the annual ``years`` before it.
+
+    Two 10-Ks carry the same fiscal year — the newest filing reports it as
+    the current year, the next one as a comparative — so the annual rows
+    collapse by period end before any window is taken, the recency rule
+    (newest ``ddate``, then later ``filed``, then accession) choosing the
+    survivor. The anchor is the deduplicated annual whose period end is
+    closest to the newest one minus ``years``; a period outside the
+    :data:`_ANCHOR_MAX_GAP_DAYS` window is a different fiscal year, not the
+    anchor, and its absence leaves the pair half empty.
+    """
+
+    by_period: dict[str, Any] = {}
+    for item in rows:
+        if item.qtrs != _ANNUAL_QTRS:
+            continue
+        current = by_period.get(item.ddate)
+        if current is None or _fact_key(item) > _fact_key(current):
+            by_period[item.ddate] = item
+    if not by_period:
+        return None, None
+
+    newest_item = max(by_period.values(), key=_fact_key)
+    target = _years_back(newest_item.ddate, years)
+    if target is None:
+        return newest_item.value, None
+
+    anchor: Any = None
+    anchor_gap = _ANCHOR_MAX_GAP_DAYS + 1
+    for item in by_period.values():
+        gap = _days_between(item.ddate, target)
+        if gap is None:
+            continue
+        distance = abs(gap)
+        if distance <= _ANCHOR_MAX_GAP_DAYS and distance < anchor_gap:
+            anchor = item
+            anchor_gap = distance
+    return newest_item.value, None if anchor is None else anchor.value
 
 
 def _ratio(numerator: float | None, denominator: float | None) -> float | None:
@@ -628,6 +724,12 @@ def map_fundamentals(
     sales_rows = _rows_for(rows, "sales")
     eps_now, eps_before = _ttm_pair(eps_rows)
     sales_now, sales_before = _ttm_pair(sales_rows)
+    # The long-horizon CAGRs read annual rows only: the newest annual and
+    # the deduplicated annual three (or five) years before it.
+    eps_newest, eps_anchor_3y = _annual_pair(eps_rows, 3)
+    sales_newest, sales_anchor_3y = _annual_pair(sales_rows, 3)
+    _, eps_anchor_5y = _annual_pair(eps_rows, 5)
+    _, sales_anchor_5y = _annual_pair(sales_rows, 5)
 
     market_cap = None if quote is None or shares is None else quote * shares
     enterprise_value = _enterprise_value(market_cap, total_debt, cash)
@@ -674,6 +776,10 @@ def map_fundamentals(
         "eps_yoy_ttm": _change((eps_now, eps_before)),
         "sales_yoy_ttm": _change((sales_now, sales_before)),
         "payout_ratio": _pct(_ratio(dividend, eps)),
+        "eps_past_3y": _cagr(eps_anchor_3y, eps_newest, 3),
+        "sales_past_3y": _cagr(sales_anchor_3y, sales_newest, 3),
+        "eps_past_5y": _cagr(eps_anchor_5y, eps_newest, 5),
+        "sales_past_5y": _cagr(sales_anchor_5y, sales_newest, 5),
     }
     return {name: computed[name] for name in FIELDS}
 
