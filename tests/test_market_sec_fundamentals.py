@@ -18,6 +18,11 @@ the whole contract, so every rule here is about not inventing a number:
 * **Derived fields are arithmetic on selected facts only.** A missing input or
   a zero denominator makes the ratio absent — ``current_ratio`` for an issuer
   with no current liabilities is not ``inf``.
+* **The valuation and growth block is arithmetic on the rest.** Enterprise
+  value is market cap plus the long-term debt line, less cash; EV/EBITDA and
+  P/FCF are the documented approximations; ROIC taxes EBIT at the filing's
+  own effective rate, or 21% when the tax line is absent; a Q/Q or YoY figure
+  needs two periods on file, and one period is no growth at all.
 
 The fixture is the same two-issuer ZIP ``test_engine_bulk_financials`` builds
 (Apple with a restatement, a dimensional row and a wrong-unit row; Microsoft
@@ -35,9 +40,11 @@ import pytest
 
 from app.engine.bulk_financials import Fact, FactIndex
 from app.market.sec_fundamentals import (
+    DERIVED_FIELDS,
     FIELDS,
     FLOW_FIELDS,
     INSTANT_FIELDS,
+    MUST_NOT_MAP,
     TAG_MAP,
     UOM_BY_FIELD,
     fundamentals_for_cik,
@@ -48,6 +55,10 @@ from app.market.sec_fundamentals import (
 AAPL_CIK = "0000320193"
 AAPL_K = "0000320193-25-000079"  # 10-K, filed 2025-10-31
 AAPL_Q = "0000320193-26-000020"  # 10-Q, filed 2026-07-31
+AAPL_K24 = "0000320193-24-000099"  # 10-K, filed 2024-11-01
+AAPL_Q24 = "0000320193-24-000101"  # 10-Q, filed 2024-08-01
+AAPL_Q2 = "0000320193-26-000010"  # 10-Q, filed 2026-05-01
+AAPL_Q2R = "0000320193-26-000031"  # the restated Q2, filed 2026-08-14
 MSFT_ADSH = "0000789019-26-000045"
 
 
@@ -80,6 +91,16 @@ def fact(
 
 
 REVENUE = "RevenueFromContractWithCustomerExcludingAssessedTax"
+
+#: The cash-flow, amortization and tax concepts the valuation and growth
+#: block derives from. None is a published field; each is an input.
+OCF = "NetCashProvidedByUsedInOperatingActivities"
+CAPEX = "PaymentsToAcquirePropertyPlantAndEquipment"
+DA = "DepreciationDepletionAndAmortization"
+TAX = "IncomeTaxExpenseBenefit"
+PRETAX = (
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+)
 
 
 def apple_facts() -> list[Fact]:
@@ -134,6 +155,17 @@ def test_fields_are_exactly_the_catalog_columns() -> None:
         "shares_outstanding",
         "market_cap",
         "pe",
+        "enterprise_value",
+        "ev_sales",
+        "ev_ebitda",
+        "pfcf",
+        "roic",
+        "lt_debt_to_equity",
+        "eps_qoq",
+        "sales_qoq",
+        "eps_yoy_ttm",
+        "sales_yoy_ttm",
+        "payout_ratio",
     )
 
 
@@ -145,7 +177,7 @@ def test_every_published_field_is_either_mapped_or_derived() -> None:
         "eps",
         "dividend",
         "shares_outstanding",
-    }, "the other twelve fields are arithmetic on mapped inputs"
+    }, "the other twenty-three fields are arithmetic on mapped inputs"
 
 
 def test_the_tag_map_is_well_formed() -> None:
@@ -649,8 +681,6 @@ def test_the_primary_concept_still_wins_over_the_extensions() -> None:
 def test_must_not_map_documents_the_component_concepts() -> None:
     """The probe's must-not-add list is pinned in code, not just prose."""
 
-    from app.market.sec_fundamentals import MUST_NOT_MAP
-
     for tag in (
         "InterestIncomeExpenseNet",
         "InterestIncomeOperating",
@@ -668,3 +698,297 @@ def test_net_income_needs_no_extension() -> None:
     """The probe found no candidate that fixes a mapped CIK for net income."""
 
     assert TAG_MAP["net_income"] == ("NetIncomeLoss", "ProfitLoss")
+
+
+# ---------------------------------------------------------------------------
+# The valuation and growth block
+# ---------------------------------------------------------------------------
+#
+# The enrichment probe measured these eleven columns as computable from the
+# four cached SEC quarters: enterprise value at 98/100 universe symbols down
+# to payout ratio at 50/100. Each is arithmetic on facts the mapper already
+# selects, plus five new input concepts — operating cash flow, capital
+# expenditure, depreciation and amortization, income tax and pre-tax income.
+
+
+#: The eleven new published columns, in catalog order.
+BLOCK_FIELDS = (
+    "enterprise_value",
+    "ev_sales",
+    "ev_ebitda",
+    "pfcf",
+    "roic",
+    "lt_debt_to_equity",
+    "eps_qoq",
+    "sales_qoq",
+    "eps_yoy_ttm",
+    "sales_yoy_ttm",
+    "payout_ratio",
+)
+
+
+def _published(*names: str) -> None:
+    """Every name the block publishes; RED until the mapper carries it."""
+
+    for name in names:
+        assert name in FIELDS, f"{name} is not a published field yet"
+
+
+def deep_facts() -> list[Fact]:
+    """One issuer carrying every input the valuation and growth block needs.
+
+    The annual flows of two 10-Ks (the newest twelve months and the earlier
+    window), two distinct quarters (the Q/Q pair), the instant balances, the
+    share count and the declared dividend.
+    """
+
+    return [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 380_000_000_000, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact(REVENUE, 95_000_000_000, ddate="2026-03-28", qtrs=1, adsh=AAPL_Q2, filed="2026-05-01"),
+        fact(REVENUE, 105_000_000_000, ddate="2026-06-27", qtrs=1, adsh=AAPL_Q, filed="2026-07-31"),
+        fact("EarningsPerShareDiluted", 8.00, ddate="2025-09-27", qtrs=4),
+        fact("EarningsPerShareDiluted", 7.00, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact("EarningsPerShareDiluted", 2.00, ddate="2026-03-28", qtrs=1, adsh=AAPL_Q2, filed="2026-05-01"),
+        fact("EarningsPerShareDiluted", 2.20, ddate="2026-06-27", qtrs=1, adsh=AAPL_Q, filed="2026-07-31"),
+        fact("OperatingIncomeLoss", 120_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(OCF, 110_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(CAPEX, 10_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(DA, 20_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(TAX, 15_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(PRETAX, 60_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact("StockholdersEquity", 90_000_000_000, ddate="2026-06-27", qtrs=0),
+        fact("LongTermDebtNoncurrent", 30_000_000_000, ddate="2026-06-27", qtrs=0),
+        fact("CashAndCashEquivalentsAtCarryingValue", 25_000_000_000, ddate="2026-06-27", qtrs=0),
+        fact("CommonStockSharesOutstanding", 5_000_000_000, ddate="2026-06-27", qtrs=0, uom="shares"),
+        fact("CommonStockDividendsPerShareDeclared", 2.00, ddate="2025-09-27", qtrs=4),
+    ]
+
+
+def ttm_facts() -> list[Fact]:
+    """A mid-year filer: two annuals and both nine-month year-to-date pairs.
+
+    The caller merges the 10-K quarter with the 10-Q quarter, so the newest
+    twelve months are 400 + 300 − 280 = 420 and the earlier twelve are
+    380 + 280 − 270 = 390.
+    """
+
+    return [
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+        fact(REVENUE, 380_000_000_000, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact(REVENUE, 270_000_000_000, ddate="2024-06-29", qtrs=3, adsh=AAPL_Q24, filed="2024-08-01"),
+        fact("EarningsPerShareDiluted", 8.00, ddate="2025-09-27", qtrs=4),
+        fact("EarningsPerShareDiluted", 6.00, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact("EarningsPerShareDiluted", 5.50, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+        fact("EarningsPerShareDiluted", 7.00, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact("EarningsPerShareDiluted", 4.80, ddate="2024-06-29", qtrs=3, adsh=AAPL_Q24, filed="2024-08-01"),
+    ]
+
+
+def test_the_block_is_published_and_derived() -> None:
+    _published(*BLOCK_FIELDS)
+    assert FIELDS[-len(BLOCK_FIELDS) :] == BLOCK_FIELDS, "the block closes the catalog order"
+    for name in BLOCK_FIELDS:
+        assert name in DERIVED_FIELDS, f"{name} is arithmetic, not a reported concept"
+        assert name not in TAG_MAP, f"{name} must not answer itself from one tag"
+
+
+def test_the_new_input_concepts_are_mapped_as_flows() -> None:
+    expected = {
+        "operating_cash_flow": (OCF,),
+        "capex": (CAPEX,),
+        "depreciation_amortization": (DA,),
+        "income_tax": (TAX,),
+        "pretax_income": (PRETAX,),
+    }
+    for name, tags in expected.items():
+        assert TAG_MAP.get(name) == tags, f"{name} is not mapped yet"
+        assert name in FLOW_FIELDS, f"{name} is a duration, not an instant"
+        assert name not in INSTANT_FIELDS
+        assert UOM_BY_FIELD.get(name) == "USD"
+
+
+def test_pretax_income_is_mapped_but_never_as_sales() -> None:
+    """The probe's must-not-add verdict stays pinned; the concept still answers ROIC."""
+
+    assert TAG_MAP.get("pretax_income") == (PRETAX,)
+    assert PRETAX in MUST_NOT_MAP, "pre-tax income is not a top line"
+    assert PRETAX not in TAG_MAP["sales"]
+    assert PRETAX not in TAG_MAP["net_income"]
+
+
+def test_the_deep_fixture_fills_the_whole_block() -> None:
+    _published(*BLOCK_FIELDS)
+    fields = map_fundamentals(deep_facts(), price=100.0)
+
+    assert fields["market_cap"] == pytest.approx(500_000_000_000)
+    assert fields["enterprise_value"] == pytest.approx(505_000_000_000)
+    assert fields["ev_sales"] == pytest.approx(505_000_000_000 / 400_000_000_000)
+    assert fields["ev_ebitda"] == pytest.approx(505_000_000_000 / 140_000_000_000)
+    assert fields["pfcf"] == pytest.approx(5.0)
+    assert fields["roic"] == pytest.approx(90_000_000_000 / 95_000_000_000 * 100)
+    assert fields["lt_debt_to_equity"] == pytest.approx(30_000_000_000 / 90_000_000_000)
+    assert fields["eps_qoq"] == pytest.approx(10.0)
+    assert fields["sales_qoq"] == pytest.approx((105_000_000_000 / 95_000_000_000 - 1) * 100)
+    assert fields["eps_yoy_ttm"] == pytest.approx((8.0 / 7.0 - 1) * 100)
+    assert fields["sales_yoy_ttm"] == pytest.approx((400_000_000_000 / 380_000_000_000 - 1) * 100)
+    assert fields["payout_ratio"] == pytest.approx(25.0)
+
+
+def test_the_valuation_block_is_absent_without_a_price() -> None:
+    _published("enterprise_value", "ev_sales", "ev_ebitda", "pfcf")
+    fields = map_fundamentals(deep_facts())
+    for name in ("enterprise_value", "ev_sales", "ev_ebitda", "pfcf"):
+        assert fields[name] is None, f"{name} stands on the market cap"
+    assert fields["roic"] == pytest.approx(90_000_000_000 / 95_000_000_000 * 100), (
+        "a balance-sheet ratio needs no quote"
+    )
+
+
+def test_ev_ebitda_is_absent_without_the_amortization_line() -> None:
+    _published("ev_ebitda")
+    rows = [row for row in deep_facts() if row.tag != DA]
+    fields = map_fundamentals(rows, price=100.0)
+    assert fields["enterprise_value"] == pytest.approx(505_000_000_000)
+    assert fields["ev_ebitda"] is None, "EBITDA without the D&A line is half a denominator"
+
+
+def test_pfcf_is_absent_without_the_capex_line() -> None:
+    _published("pfcf")
+    rows = [row for row in deep_facts() if row.tag != CAPEX]
+    fields = map_fundamentals(rows, price=100.0)
+    assert fields["pfcf"] is None, "free cash flow needs both halves"
+
+
+def test_roic_uses_the_filings_own_tax_rate() -> None:
+    _published("roic")
+    fields = map_fundamentals(deep_facts())
+    # 15 / 60 = 25%, so NOPAT is 90 on an invested capital of 30 + 90 − 25.
+    assert fields["roic"] == pytest.approx(90_000_000_000 / 95_000_000_000 * 100)
+
+
+def test_roic_falls_back_to_the_statutory_rate() -> None:
+    _published("roic")
+    rows = [row for row in deep_facts() if row.tag not in (TAX, PRETAX)]
+    fields = map_fundamentals(rows)
+    # No tax line: 21%, so NOPAT is 94.8 on the same invested capital.
+    assert fields["roic"] == pytest.approx(94_800_000_000 / 95_000_000_000 * 100)
+
+
+def test_roic_is_absent_without_an_operating_income() -> None:
+    _published("roic")
+    rows = [row for row in deep_facts() if row.tag != "OperatingIncomeLoss"]
+    fields = map_fundamentals(rows)
+    assert fields["roic"] is None, "no EBIT, no return on invested capital"
+    assert fields["ev_ebitda"] is None
+
+
+def test_qoq_growth_compares_the_two_newest_quarters() -> None:
+    _published("eps_qoq", "sales_qoq")
+    fields = map_fundamentals(deep_facts())
+    assert fields["eps_qoq"] == pytest.approx(10.0)
+    assert fields["sales_qoq"] == pytest.approx((105_000_000_000 / 95_000_000_000 - 1) * 100)
+
+
+def test_qoq_growth_is_absent_with_one_quarter() -> None:
+    _published("eps_qoq", "sales_qoq")
+    rows = [row for row in deep_facts() if row.ddate != "2026-03-28"]
+    fields = map_fundamentals(rows)
+    assert fields["eps_qoq"] is None, "one quarter is no growth at all"
+    assert fields["sales_qoq"] is None
+
+
+def test_a_restated_quarter_is_one_period_not_two() -> None:
+    _published("eps_qoq")
+    rows = deep_facts() + [
+        fact("EarningsPerShareDiluted", 2.25, ddate="2026-06-27", qtrs=1, adsh=AAPL_Q2R, filed="2026-08-14"),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["eps_qoq"] == pytest.approx((2.25 / 2.00 - 1) * 100), (
+        "the later-filed restatement of the newest quarter wins"
+    )
+
+
+def test_yoy_ttm_compares_the_two_trailing_twelve_months() -> None:
+    _published("eps_yoy_ttm", "sales_yoy_ttm")
+    fields = map_fundamentals(ttm_facts())
+    assert fields["sales"] == pytest.approx(420_000_000_000)
+    assert fields["eps"] == pytest.approx(8.50)
+    assert fields["sales_yoy_ttm"] == pytest.approx((420_000_000_000 / 390_000_000_000 - 1) * 100)
+    assert fields["eps_yoy_ttm"] == pytest.approx((8.50 / 7.70 - 1) * 100)
+
+
+def test_yoy_ttm_is_absent_without_the_earlier_window() -> None:
+    _published("eps_yoy_ttm", "sales_yoy_ttm")
+    # Drop the FY2024 annual and its own nine-month comparative: the earlier
+    # window has no base year left to roll forward from.
+    rows = [row for row in ttm_facts() if row.ddate >= "2025-01-01"]
+    fields = map_fundamentals(rows)
+    assert fields["sales"] == pytest.approx(420_000_000_000), "the newest window is intact"
+    assert fields["sales_yoy_ttm"] is None, "the earlier twelve months are not on file"
+    assert fields["eps_yoy_ttm"] is None
+
+
+def test_yoy_ttm_of_a_ten_k_filer_is_the_previous_annual() -> None:
+    """The newest filing is the 10-K, so both windows are annual rows."""
+
+    _published("sales_yoy_ttm")
+    rows = [
+        fact(REVENUE, 410_000_000_000, ddate="2026-09-26", qtrs=4, adsh=AAPL_K, filed="2026-10-30"),
+        fact(REVENUE, 400_000_000_000, ddate="2025-09-27", qtrs=4),
+        fact(REVENUE, 300_000_000_000, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 280_000_000_000, ddate="2025-06-28", qtrs=3, adsh=AAPL_Q, filed="2025-08-01"),
+        fact(REVENUE, 380_000_000_000, ddate="2024-09-28", qtrs=4, adsh=AAPL_K24, filed="2024-11-01"),
+        fact(REVENUE, 270_000_000_000, ddate="2024-06-29", qtrs=3, adsh=AAPL_Q24, filed="2024-08-01"),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["sales"] == pytest.approx(410_000_000_000)
+    assert fields["sales_yoy_ttm"] == pytest.approx((410_000_000_000 / 400_000_000_000 - 1) * 100), (
+        "the current year's nine-month rows sit inside the newest window and must not leak into the earlier one"
+    )
+
+
+def test_payout_ratio_is_the_annual_dividend_over_the_annual_eps() -> None:
+    _published("payout_ratio")
+    fields = map_fundamentals(deep_facts())
+    assert fields["payout_ratio"] == pytest.approx(25.0)
+
+
+def test_payout_ratio_is_absent_without_the_dividend() -> None:
+    _published("payout_ratio")
+    rows = [row for row in deep_facts() if row.tag != "CommonStockDividendsPerShareDeclared"]
+    fields = map_fundamentals(rows)
+    assert fields["payout_ratio"] is None, "a non-payer is absent, not a zero payout"
+
+
+def test_payout_ratio_is_absent_without_an_eps() -> None:
+    _published("payout_ratio")
+    rows = [row for row in deep_facts() if row.tag != "EarningsPerShareDiluted"]
+    fields = map_fundamentals(rows)
+    assert fields["payout_ratio"] is None, "a loss-maker's payout is not a number"
+
+
+def test_a_missing_input_is_never_a_zero() -> None:
+    _published(*BLOCK_FIELDS)
+    # A quote and a top line, and nothing else: every column that needs a
+    # second input is absent, never zero.
+    fields = map_fundamentals(
+        [
+            fact(REVENUE, 400_000_000_000),
+            fact("CommonStockSharesOutstanding", 5_000_000_000, qtrs=0, uom="shares"),
+        ],
+        price=100.0,
+    )
+    assert fields["market_cap"] == pytest.approx(500_000_000_000)
+    for name in BLOCK_FIELDS:
+        assert fields[name] is None, f"{name} has no evidence and must not be invented"
+
+
+def test_ev_sales_is_absent_without_a_top_line() -> None:
+    _published("ev_sales")
+    rows = [row for row in deep_facts() if row.tag != REVENUE]
+    fields = map_fundamentals(rows, price=100.0)
+    assert fields["enterprise_value"] == pytest.approx(505_000_000_000)
+    assert fields["ev_sales"] is None, "an enterprise value with no sales is not a zero"

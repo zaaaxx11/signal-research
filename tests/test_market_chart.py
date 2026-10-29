@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
+import httpx2
 import pytest
 
-from app.market.chart import parse_chart_metrics
+from app.market.chart import ChartBar, parse_chart_metrics
 from app.market.depth import QUOTE_ONLY_FIELDS
+from tests._market_quote import install_seam
+from tests._phase2 import MockWeb
 
 
 def _entry(
@@ -366,4 +371,249 @@ def test_dividend_mapping_keyed_by_epoch_is_read() -> None:
     mapping = {str(row["date"]): {"amount": row["amount"]} for row in rows}
     values = parse_chart_metrics(_with_dividends(mapping), now=NOW)
     assert values["dividend_growth_1y"] == pytest.approx(10.0)
+
+
+# -- the wide window (the ten keys the narrow path drops) ---------------------
+
+#: The ten performance/dividend-growth cells a ``range=1y`` body cannot reach:
+#: the multi-year anchors, the 50-day extremes and the dividend events.
+WIDE_KEYS = (
+    "perf_ytd",
+    "perf_3y",
+    "perf_5y",
+    "perf_10y",
+    "high_50d",
+    "low_50d",
+    "dividend_growth_1y",
+    "dividend_growth_3y",
+    "dividend_growth_5y",
+)
+
+CHART_BASE = "https://query1.finance.yahoo.com"
+
+
+def _params(url: str) -> dict[str, list[str]]:
+    return parse_qs(urlparse(url).query)
+
+
+def _chart_source() -> type:
+    """The chart source under test.
+
+    A missing class is a RED failure with a readable message about the
+    contract, not a bare ImportError that says nothing about what is wrong.
+    """
+    try:
+        from app.market.chart import YahooChartDepthSource
+    except ImportError as exc:  # pragma: no cover - RED path
+        raise NotImplementedError(
+            "app.market.chart.YahooChartDepthSource is missing: the wide-window "
+            f"chart source must live beside parse_chart_metrics ({exc})"
+        ) from exc
+    return YahooChartDepthSource
+
+
+def _candlestick() -> Any:
+    """The candlestick classifier under test (same RED contract as above)."""
+    try:
+        from app.market.chart import candlestick_pattern
+    except ImportError as exc:  # pragma: no cover - RED path
+        raise NotImplementedError(
+            "app.market.chart.candlestick_pattern is missing: the deterministic "
+            f"doji/hammer/engulfing classifier ({exc})"
+        ) from exc
+    return candlestick_pattern
+
+
+def _window_entry(start: date, end: date, *, last_close: float = 110.0) -> dict[str, Any]:
+    """Daily bars from ``start`` to ``end``; every close is 100 but the last."""
+    closes = [100.0] * ((end - start).days + 1)
+    closes[-1] = last_close
+    return _entry(closes, start=start)
+
+
+def test_wide_window_url_carries_period1_eleven_years_back() -> None:
+    url = _chart_source().url("AAPL", CHART_BASE, now=NOW)
+    params = _params(url)
+    assert params["interval"] == ["1d"]
+    assert params["events"] == ["div,split"]
+    assert "range" not in params, "the wide request is period-based, not range-based"
+    start = datetime.fromtimestamp(int(params["period1"][0]), UTC)
+    # Eleven years back, not ten: the extra year is what keeps the ten-year
+    # anchor inside the returned bars.
+    assert start == datetime(2015, 10, 28, tzinfo=UTC)
+    assert int(params["period2"][0]) == int(NOW.timestamp())
+
+
+def test_narrow_window_url_is_the_legacy_range_1y_request() -> None:
+    url = _chart_source().url("AAPL", CHART_BASE, wide=False, now=NOW)
+    params = _params(url)
+    assert params["range"] == ["1y"]
+    assert "period1" not in params
+    assert params["interval"] == ["1d"]
+
+
+def test_chart_source_defaults_to_the_wide_window() -> None:
+    source = _chart_source()()
+    assert source.wide is True
+    assert "period1" in _params(source.url("AAPL", CHART_BASE, now=NOW))
+
+
+def test_chart_source_fills_the_ten_keys_over_the_wide_window(
+    monkeypatch: Any,
+) -> None:
+    today = datetime.now(UTC).date()
+    year = datetime.now(UTC).year
+    entry = _window_entry(today - timedelta(days=11 * 365 + 4), today - timedelta(days=1))
+    entry["events"] = {"dividends": _scheduled(year - 7, year - 1, 1.0 / 1.1, growth=0.10)}
+
+    web = MockWeb()
+    web.route(
+        "query1.finance.yahoo.com",
+        lambda _request: httpx2.Response(
+            200, json={"chart": {"result": [entry], "error": None}}
+        ),
+    )
+    install_seam(monkeypatch, web)
+    values = asyncio.run(_chart_source()(concurrency=1).fetch_many(["AAPL"]))
+
+    assert values["AAPL"].source == "yahoo_chart"
+    fields = values["AAPL"].fields
+    assert set(WIDE_KEYS) <= set(fields)
+    assert fields["perf_10y"] == pytest.approx(10.0)
+    assert fields["dividend_growth_5y"] == pytest.approx(10.0, rel=1e-6)
+    # The chart window's low is never an all-time low.
+    assert "all_time_low" not in fields
+    assert "all_time_high" not in fields
+
+    params = _params(web.requests[0].url)
+    assert "range" not in params
+    period1 = datetime.fromtimestamp(int(params["period1"][0]), UTC).date()
+    assert abs((period1 - (today - timedelta(days=11 * 365 + 3))).days) <= 2
+
+
+def test_parse_chart_metrics_fills_the_ten_keys_a_narrow_window_drops() -> None:
+    entry = _window_entry(date(2015, 10, 28), date(2026, 10, 27))
+    entry["events"] = {"dividends": _scheduled(2019, 2025, 1.0 / 1.1, growth=0.10)}
+    values = parse_chart_metrics(entry, now=NOW)
+    assert set(WIDE_KEYS) <= set(values)
+    assert values["perf_ytd"] == pytest.approx(10.0)
+    assert values["perf_3y"] == pytest.approx(10.0)
+    assert values["perf_5y"] == pytest.approx(10.0)
+    assert values["perf_10y"] == pytest.approx(10.0)
+    assert values["high_50d"] == pytest.approx(111.0)
+    assert values["low_50d"] == pytest.approx(99.0)
+    for field in ("dividend_growth_1y", "dividend_growth_3y", "dividend_growth_5y"):
+        assert values[field] == pytest.approx(10.0, rel=1e-6)
+
+
+def test_perf_10y_is_filled_when_the_window_reaches_the_anchor() -> None:
+    # NOW - 120 months is 2016-10-28. A window that starts on or before that
+    # date anchors; the eleven-year request starts 2015-10-28, a year early.
+    wide = parse_chart_metrics(
+        _window_entry(date(2015, 10, 28), date(2016, 12, 30)), now=NOW
+    )
+    assert wide["perf_10y"] == pytest.approx(10.0)
+
+
+def test_perf_10y_is_absent_when_the_window_starts_after_the_anchor() -> None:
+    # The range=10y miss, reproduced: the first bar lands one day past the
+    # ten-year anchor, so no bar can anchor the return and the key is absent
+    # rather than guessed.
+    narrow = parse_chart_metrics(
+        _window_entry(date(2016, 10, 29), date(2017, 12, 30)), now=NOW
+    )
+    assert "perf_10y" not in narrow
+    # The parser is fine; only the ten-year anchor is unreachable.
+    assert narrow["perf_1w"] == pytest.approx(10.0)
+
+
+def test_chart_window_low_is_not_published_as_all_time_low() -> None:
+    # A split-adjusted history starts at the split price (MSFT's window low is
+    # 47.02 against Yahoo's 0.0885 all-time low), so the chart module claims
+    # neither all-time extreme.
+    values = parse_chart_metrics(
+        _window_entry(date(2015, 10, 28), date(2026, 10, 27)), now=NOW
+    )
+    assert "all_time_low" not in values
+    assert "all_time_high" not in values
+    assert values["low_52w"] == pytest.approx(99.0)
+
+
+# -- candlestick_pattern (a heuristic label, not a reported fact) -------------
+
+
+def _bar(day: date, open_: float, high: float, low: float, close: float) -> ChartBar:
+    return ChartBar(day=day, open=open_, high=high, low=low, close=close, volume=1000.0)
+
+
+def test_candlestick_labels_a_doji() -> None:
+    bars = [_bar(date(2026, 10, 26), 100.0, 101.0, 99.0, 100.1)]
+    assert _candlestick()(bars) == "doji"
+
+
+def test_candlestick_labels_a_hammer() -> None:
+    bars = [_bar(date(2026, 10, 26), 100.0, 101.2, 97.0, 101.0)]
+    assert _candlestick()(bars) == "hammer"
+
+
+def test_candlestick_labels_a_bullish_engulfing() -> None:
+    bars = [
+        _bar(date(2026, 10, 25), 101.0, 101.5, 98.5, 99.0),
+        _bar(date(2026, 10, 26), 98.5, 102.0, 98.0, 101.5),
+    ]
+    assert _candlestick()(bars) == "engulfing"
+
+
+def test_candlestick_labels_a_bearish_engulfing() -> None:
+    bars = [
+        _bar(date(2026, 10, 25), 99.0, 101.5, 98.5, 101.0),
+        _bar(date(2026, 10, 26), 101.5, 102.0, 98.0, 98.5),
+    ]
+    assert _candlestick()(bars) == "engulfing"
+
+
+def test_candlestick_labels_nothing_on_a_plain_bar() -> None:
+    bars = [
+        _bar(date(2026, 10, 25), 100.0, 101.5, 98.5, 100.5),
+        _bar(date(2026, 10, 26), 100.0, 102.0, 99.5, 101.0),
+    ]
+    assert _candlestick()(bars) is None
+
+
+def test_candlestick_rules_are_applied_in_a_fixed_order() -> None:
+    # A zero-body bar with a long lower shadow reads as a doji first.
+    assert _candlestick()([_bar(date(2026, 10, 26), 100.0, 100.2, 97.0, 100.05)]) == "doji"
+    # A hammer whose body also engulfs the prior bar is still a hammer.
+    hammer_first = [
+        _bar(date(2026, 10, 25), 102.0, 102.5, 100.0, 100.0),
+        _bar(date(2026, 10, 26), 99.5, 103.0, 93.0, 102.5),
+    ]
+    assert _candlestick()(hammer_first) == "hammer"
+
+
+def test_candlestick_needs_bars_and_a_nonzero_range() -> None:
+    assert _candlestick()([]) is None
+    flat = [_bar(date(2026, 10, 26), 100.0, 100.0, 100.0, 100.0)]
+    assert _candlestick()(flat) is None
+
+
+def test_parse_chart_metrics_labels_the_last_bar() -> None:
+    # _entry defaults open == close, so the last bar is a zero-body doji.
+    values = parse_chart_metrics(_entry([100.0] * 400), now=NOW)
+    assert values.get("candlestick_pattern") == "doji"
+    assert "candlestick_pattern" not in QUOTE_ONLY_FIELDS
+
+
+def test_parse_chart_metrics_leaves_the_label_absent_without_a_pattern() -> None:
+    closes = [100.0] * 400
+    closes[-1] = 110.0
+    opens = [100.0] * 400
+    opens[-1] = 108.0
+    highs = [101.0] * 400
+    highs[-1] = 111.0
+    lows = [99.0] * 400
+    lows[-1] = 107.0
+    entry = _entry(closes, opens=opens, highs=highs, lows=lows)
+    values = parse_chart_metrics(entry, now=NOW)
+    assert "candlestick_pattern" not in values
 

@@ -28,6 +28,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.market.chart import YahooChartDepthSource
 from app.market.sectors import classify_sector
 
 logger = logging.getLogger("mee.depth")
@@ -1040,76 +1041,9 @@ class YahooDepthSource:
 # Yahoo chart (performance/technical)
 # ---------------------------------------------------------------------------
 
-
-class YahooChartDepthSource:
-    """One 10-year daily chart per symbol; no crumb and no cookie."""
-
-    name = "yahoo_chart"
-
-    def __init__(
-        self,
-        *,
-        concurrency: int = 2,
-        timeout_s: float = 20.0,
-        base_url: str = "https://query1.finance.yahoo.com",
-    ) -> None:
-        self.concurrency = max(1, int(concurrency))
-        self.timeout_s = float(timeout_s)
-        self.base_url = base_url.rstrip("/")
-
-    @staticmethod
-    def url(symbol: str, base_url: str) -> str:
-        return (
-            f"{base_url}/v8/finance/chart/{symbol}"
-            "?interval=1d&range=10y&includePrePost=false&events=div%2Csplit"
-        )
-
-    async def fetch_many(
-        self, symbols: Sequence[str]
-    ) -> dict[str, DepthObservation]:
-        from app.market.chart import parse_chart_metrics
-        from app.providers import http as provider_http
-        from app.providers.adapters.yahoo import BROWSER_USER_AGENT
-
-        semaphore = asyncio.Semaphore(self.concurrency)
-        out: dict[str, DepthObservation] = {}
-        headers = {"user-agent": BROWSER_USER_AGENT, "accept": "application/json"}
-
-        async with provider_http.build_client(
-            timeout_s=self.timeout_s, headers=headers
-        ) as client:
-
-            async def one(raw_symbol: str) -> None:
-                symbol = canonical_symbol(raw_symbol)
-                async with semaphore:
-                    try:
-                        response = await client.get(
-                            self.url(symbol, self.base_url)
-                        )
-                        if int(getattr(response, "status_code", 0)) != 200:
-                            return
-                        payload = response.json()
-                        result = (payload.get("chart") or {}).get("result") or []
-                        if not result:
-                            return
-                        fields = parse_chart_metrics(result[0])
-                        fields = {
-                            key: value
-                            for key, value in fields.items()
-                            if key not in QUOTE_ONLY_FIELDS and value is not None
-                        }
-                        if fields:
-                            out[symbol] = DepthObservation(
-                                symbol=symbol,
-                                fields=fields,
-                                as_of=datetime.now(UTC),
-                                source=self.name,
-                            )
-                    except Exception as exc:  # noqa: BLE001 - one symbol optional
-                        logger.info("yahoo chart failed for %s: %s", symbol, exc)
-
-            await asyncio.gather(*(one(symbol) for symbol in symbols))
-        return out
+# The source itself lives in :mod:`app.market.chart`, beside the parser it
+# feeds and the window it requests; it is re-exported here because the
+# collector and its tests import it from this module.
 
 
 # ---------------------------------------------------------------------------

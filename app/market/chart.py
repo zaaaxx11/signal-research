@@ -1,25 +1,44 @@
-"""Chart metrics: pure formulas, no network.
+"""Chart metrics: pure formulas, plus the Yahoo chart source that feeds them.
 
 The chart endpoint is the cheap path for performance/technical fields. It uses
 raw split-adjusted ``close`` (not ``adjclose``) because that is what the Finviz
-comparison reproduces; every function here is independent of the depth collector
-so the formulas can be tested from a fixture.
+comparison reproduces; every function here is independent of the depth
+collector so the formulas can be tested from a fixture.
 
 The same body also carries ``events.dividends``, which is where
-``dividend_growth_1y/3y/5y`` come from — no extra request. Those three cells are
-an **estimator**, not Finviz parity: Finviz prints the provider's own growth
+``dividend_growth_1y/3y/5y`` come from — no extra request. Those three cells
+are an **estimator**, not Finviz parity: Finviz prints the provider's own growth
 rate, while these are computed from the cash amounts Yahoo reports, so specials
 are summed with regulars, share-count changes are invisible, and a mid-year
 history start can only truncate a calendar year (in which case the metric is
 left absent rather than guessed). See :func:`_dividend_cagr`.
+
+:class:`YahooChartDepthSource` requests that body over a **wide window** —
+``period1`` eleven years back, not ``range=1y`` — and parses it with
+:func:`parse_chart_metrics`, which is what fills ``perf_ytd``, ``perf_3y``,
+``perf_5y``, ``perf_10y``, ``high_50d``, ``low_50d`` and the three dividend
+growth cells from one response. ``wide=False`` keeps the legacy ``range=1y``
+request for tests and back-compat; that narrow body cannot reach the
+multi-year anchors. :func:`candlestick_pattern` adds the one label no provider
+reports: a deterministic doji/hammer/engulfing heuristic over the last bars,
+published as ``candlestick_pattern`` and documented as a heuristic wherever it
+is consumed.
+
+The chart window's low is **not** ``all_time_low``: a split-adjusted history
+starts at the split price (MSFT's window low is 47.02 against Yahoo's 0.0885
+all-time low), so neither all-time extreme is claimed from this module.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Mapping, Sequence
+
+logger = logging.getLogger("mee.chart")
 
 
 @dataclass(frozen=True)
@@ -83,6 +102,27 @@ def _shift_months(moment: date, months: int) -> date:
     return date(year, month, min(moment.day, days))
 
 
+#: How far back the default chart request reaches. Eleven years, not ten: a
+#: ten-year anchor must land *inside* the returned bars, and a window that
+#: starts exactly ten years back begins one bar late often enough that
+#: ``perf_10y`` measured 0/38 filled, while the eleven-year start filled 9/10.
+WIDE_WINDOW_YEARS = 11
+
+
+def wide_window(now: datetime) -> tuple[int, int]:
+    """``(period1, period2)`` epoch seconds for the default wide window.
+
+    ``period1`` is midnight UTC on the calendar day :data:`WIDE_WINDOW_YEARS`
+    before ``now``; ``period2`` is ``now`` itself. A naive ``now`` is read as
+    UTC. The extra year over ten is deliberate slack for the anchor, not a
+    request for more history than the metrics use.
+    """
+    moment = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+    start = _shift_months(moment.date(), -12 * WIDE_WINDOW_YEARS)
+    period1 = int(datetime.combine(start, datetime.min.time(), tzinfo=UTC).timestamp())
+    return period1, int(moment.timestamp())
+
+
 def _anchor(bars: Sequence[ChartBar], target: date) -> ChartBar | None:
     for bar in reversed(bars):
         if bar.day <= target:
@@ -137,6 +177,56 @@ def _atr(bars: Sequence[ChartBar], window: int = 14) -> float | None:
     for item in ranges[window:]:
         value = (value * (window - 1) + item) / window
     return value
+
+
+#: Body as a share of the bar's high-low range at or below which the bar reads
+#: as a doji. A zero body (open == close) always qualifies.
+_DOJI_BODY_SHARE = 0.1
+
+
+def candlestick_pattern(bars: Sequence[ChartBar]) -> str | None:
+    """Classify the last one to three bars: ``doji``, ``hammer`` or ``engulfing``.
+
+    This is a **heuristic label**, not a reported fact: no provider publishes
+    it and the catalog carries it as a proxy. The rules are deterministic and
+    applied in a fixed order, so the same bars always produce the same label:
+
+    1. ``doji`` — the last bar's body is at most a tenth of its high-low
+       range (indecision printed as a sliver);
+    2. ``hammer`` — the last bar's lower shadow is at least twice its body
+       and its upper shadow no larger than that body (a small body at the top
+       of a long wick);
+    3. ``engulfing`` — the last bar's body swallows the prior bar's body in
+       the opposite direction, bullish or bearish; the label does not
+       distinguish the two.
+
+    ``None`` when no rule fires, and also for a single bar with no range at
+    all (``high == low``), where every ratio above would divide by zero.
+    """
+    if not bars:
+        return None
+    last = bars[-1]
+    span = last.high - last.low
+    if span <= 0:
+        return None
+    body = abs(last.close - last.open)
+    upper = last.high - max(last.open, last.close)
+    lower = min(last.open, last.close) - last.low
+    if body <= _DOJI_BODY_SHARE * span:
+        return "doji"
+    if lower >= 2.0 * body and upper <= body:
+        return "hammer"
+    if len(bars) >= 2:
+        previous = bars[-2]
+        previous_body = abs(previous.close - previous.open)
+        bullish = last.close > last.open and previous.close < previous.open
+        bearish = last.close < last.open and previous.close > previous.open
+        if previous_body > 0 and (
+            (bullish and last.open <= previous.close and last.close >= previous.open)
+            or (bearish and last.open >= previous.close and last.close <= previous.open)
+        ):
+            return "engulfing"
+    return None
 
 
 def _epoch_day(value: Any) -> date | None:
@@ -262,6 +352,12 @@ def parse_chart_metrics(
 ) -> dict[str, Any]:
     """Return canonical depth fields from one Yahoo chart response.
 
+    The multi-year cells (``perf_ytd`` through ``perf_10y``) are only as wide
+    as the body: a ``range=1y`` response cannot reach a three-year anchor, and
+    a window that starts after the ten-year anchor leaves ``perf_10y`` absent
+    rather than guessed. :class:`YahooChartDepthSource` therefore requests the
+    wide window by default; see :func:`wide_window`.
+
     Dividend growth is read from the same body's ``events.dividends``:
 
     * ``dividend_growth_1y`` — the last four cash payments against the four
@@ -275,6 +371,10 @@ def parse_chart_metrics(
     regulars are mixed, buybacks and share-count changes are invisible, and a
     mid-year start leaves the 3y/5y cells absent. When there is not enough
     history the key is omitted rather than filled with ``0`` or a guess.
+
+    ``candlestick_pattern`` is the one label no provider reports: a
+    deterministic doji/hammer/engulfing heuristic over the last bars, absent
+    when no rule fires. See :func:`candlestick_pattern`.
     """
 
     bars = _bars(entry)
@@ -351,6 +451,12 @@ def parse_chart_metrics(
         if current.open:
             out["change_from_open"] = (current.close - current.open) / current.open * 100.0
 
+    # A heuristic label over the last bars, not a provider cell: see
+    # :func:`candlestick_pattern`. Absent when no rule fires.
+    pattern = candlestick_pattern(bars)
+    if pattern is not None:
+        out["candlestick_pattern"] = pattern
+
     dividends = _dividend_payments(entry)
     if dividends:
         growth_1y = _dividend_growth_1y(dividends)
@@ -364,4 +470,124 @@ def parse_chart_metrics(
     return {key: value for key, value in out.items() if value is not None}
 
 
-__all__ = ["ChartBar", "parse_chart_metrics"]
+# ---------------------------------------------------------------------------
+# Yahoo chart source (performance/technical)
+# ---------------------------------------------------------------------------
+
+
+class YahooChartDepthSource:
+    """One wide-window daily chart per symbol; no crumb and no cookie.
+
+    The default request is ``period1 = now - 11 years`` parsed with
+    :func:`parse_chart_metrics`, which is what fills ``perf_ytd``,
+    ``perf_3y``, ``perf_5y``, ``perf_10y``, ``high_50d``, ``low_50d`` and
+    ``dividend_growth_1y/3y/5y`` from a single body. The eleven-year start
+    (not ten) is what keeps the ten-year anchor inside the window; see
+    :func:`wide_window`.
+
+    ``wide=False`` restores the legacy ``range=1y`` request for tests and
+    back-compat. That narrow body cannot reach the multi-year anchors, so it
+    fills the short-window technicals only — which is exactly why the fast
+    path dropped those ten keys before the wide window became the default.
+    """
+
+    name = "yahoo_chart"
+
+    def __init__(
+        self,
+        *,
+        concurrency: int = 2,
+        timeout_s: float = 20.0,
+        base_url: str = "https://query1.finance.yahoo.com",
+        wide: bool = True,
+    ) -> None:
+        self.concurrency = max(1, int(concurrency))
+        self.timeout_s = float(timeout_s)
+        self.base_url = base_url.rstrip("/")
+        self.wide = bool(wide)
+
+    @staticmethod
+    def url(
+        symbol: str,
+        base_url: str,
+        *,
+        wide: bool = True,
+        now: datetime | None = None,
+    ) -> str:
+        """The chart URL for one symbol.
+
+        ``wide`` picks the window: ``period1``/``period2`` spanning eleven
+        years back from ``now`` (the default), or the legacy ``range=1y``.
+        ``now`` is injectable so a test can pin the window; production lets
+        it default to the current instant.
+        """
+        if wide:
+            period1, period2 = wide_window(now or datetime.now(UTC))
+            window = f"period1={period1}&period2={period2}"
+        else:
+            window = "range=1y"
+        return (
+            f"{base_url}/v8/finance/chart/{symbol}"
+            f"?interval=1d&{window}&includePrePost=false&events=div%2Csplit"
+        )
+
+    async def fetch_many(
+        self, symbols: Sequence[str]
+    ) -> dict[str, Any]:
+        from app.market.depth import (
+            QUOTE_ONLY_FIELDS,
+            DepthObservation,
+            canonical_symbol,
+        )
+        from app.providers import http as provider_http
+        from app.providers.adapters.yahoo import BROWSER_USER_AGENT
+
+        semaphore = asyncio.Semaphore(self.concurrency)
+        out: dict[str, Any] = {}
+        headers = {"user-agent": BROWSER_USER_AGENT, "accept": "application/json"}
+
+        async with provider_http.build_client(
+            timeout_s=self.timeout_s, headers=headers
+        ) as client:
+
+            async def one(raw_symbol: str) -> None:
+                symbol = canonical_symbol(raw_symbol)
+                async with semaphore:
+                    try:
+                        response = await client.get(
+                            self.url(symbol, self.base_url, wide=self.wide)
+                        )
+                        if int(getattr(response, "status_code", 0)) != 200:
+                            return
+                        payload = response.json()
+                        result = (payload.get("chart") or {}).get("result") or []
+                        if not result:
+                            return
+                        fields = parse_chart_metrics(result[0])
+                        fields = {
+                            key: value
+                            for key, value in fields.items()
+                            if key not in QUOTE_ONLY_FIELDS and value is not None
+                        }
+                        if fields:
+                            out[symbol] = DepthObservation(
+                                symbol=symbol,
+                                fields=fields,
+                                as_of=datetime.now(UTC),
+                                source=self.name,
+                            )
+                    except Exception as exc:  # noqa: BLE001 - one symbol optional
+                        logger.info("yahoo chart failed for %s: %s", symbol, exc)
+
+            await asyncio.gather(*(one(symbol) for symbol in symbols))
+        return out
+
+
+__all__ = [
+    "ChartBar",
+    "WIDE_WINDOW_YEARS",
+    "YahooChartDepthSource",
+    "candlestick_pattern",
+    "parse_chart_metrics",
+    "wide_window",
+]
