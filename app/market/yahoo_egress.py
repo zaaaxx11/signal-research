@@ -53,11 +53,16 @@ class YahooEgress:
     free pool has hundreds of dead entries and a full walk would cost minutes.
     """
 
+    #: The last proxy whose handshake succeeded. A free pool's live set is
+    #: small (measured 3 of 30), so a re-search pays for itself: the winner
+    #: from the previous pass is almost always still the winner.
+    _last_good: str | None = None
+
     def __init__(
         self,
         *,
         proxies: Iterable[str] = (),
-        max_attempts: int = 8,
+        max_attempts: int = 30,
         timeout_s: float = 20.0,
         user_agent: str = BROWSER_USER_AGENT,
     ) -> None:
@@ -122,12 +127,18 @@ class YahooEgress:
         if await self.probe(None) is not None:
             return None
 
+        # The previous winner first: one probe instead of a fresh walk.
+        cached = type(self)._last_good
+        if cached and cached in self.proxies and await self.probe(cached) is not None:
+            return cached
+
         candidates = self.proxies[: self.max_attempts]
         if not candidates:
             return None
         results = await asyncio.gather(*(self.probe(p) for p in candidates))
         for proxy, token in zip(candidates, results):
             if token is not None:
+                type(self)._last_good = proxy
                 return proxy
         return None
 
