@@ -571,3 +571,100 @@ def _index_of(rows: list[Fact]) -> Any:
             return tuple(rows) if cik == AAPL_CIK else ()
 
     return _Index()
+
+
+# ---------------------------------------------------------------------------
+# The tag extensions the coverage probe recommended
+# ---------------------------------------------------------------------------
+#
+# research/sec-tag-coverage.md ranked every revenue-like concept observed
+# across 500 universe CIKs. These are the five that answer a *total* top line
+# for filers the original three concepts miss; the probe's must-not-add list
+# is pinned by MUST_NOT_MAP.
+
+
+def test_bank_net_revenue_fills_sales() -> None:
+    """JPM's top line is RevenuesNetOfInterestExpense, not Revenues."""
+
+    rows = [
+        fact("RevenuesNetOfInterestExpense", 182_447_000_000, ddate="2025-12-31", qtrs=4),
+        fact("NetIncomeLoss", 57_048_000_000, ddate="2025-12-31", qtrs=4),
+    ]
+    fields = map_fundamentals(rows)
+    assert fields["sales"] == pytest.approx(182_447_000_000)
+    assert fields["net_income"] == pytest.approx(57_048_000_000)
+
+
+def test_including_assessed_tax_revenue_fills_sales() -> None:
+    """CRWD/TJX/VLO file only the including-assessed-tax sibling."""
+
+    rows = [
+        fact(
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
+            60_372_000_000,
+            ddate="2026-01-31",
+            qtrs=4,
+        ),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(60_372_000_000)
+
+
+def test_utility_total_operating_revenue_fills_sales() -> None:
+    """NEE/DUK/SRE file RegulatedAndUnregulatedOperatingRevenue."""
+
+    rows = [
+        fact("RegulatedAndUnregulatedOperatingRevenue", 28_100_000_000, ddate="2025-12-31", qtrs=4),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(28_100_000_000)
+
+
+def test_ifrs_revenue_fills_sales_under_the_ifrs_taxonomy() -> None:
+    """GFS is a 20-F filer; its Revenue row is tagged ifrs/2025."""
+
+    rows = [
+        fact("Revenue", 7_400_000_000, ddate="2025-12-31", qtrs=4, version="ifrs/2025"),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(7_400_000_000)
+
+
+def test_a_company_extension_named_revenue_does_not_fill_sales() -> None:
+    """2,272 private extensions carry revenue-like names; none may win."""
+
+    rows = [
+        fact("Revenue", 7_400_000_000, ddate="2025-12-31", qtrs=4, version="gfs/2025"),
+    ]
+    assert map_fundamentals(rows)["sales"] is None
+
+
+def test_the_primary_concept_still_wins_over_the_extensions() -> None:
+    """A us-gaap filer with both concepts keeps the excluding-assessed-tax one."""
+
+    rows = [
+        fact(REVENUE, 100_000_000_000, ddate="2025-12-31", qtrs=4),
+        fact("RevenueFromContractWithCustomerIncludingAssessedTax", 108_000_000_000, ddate="2025-12-31", qtrs=4),
+    ]
+    assert map_fundamentals(rows)["sales"] == pytest.approx(100_000_000_000)
+
+
+def test_must_not_map_documents_the_component_concepts() -> None:
+    """The probe's must-not-add list is pinned in code, not just prose."""
+
+    from app.market.sec_fundamentals import MUST_NOT_MAP
+
+    for tag in (
+        "InterestIncomeExpenseNet",
+        "InterestIncomeOperating",
+        "NoninterestIncome",
+        "PremiumsEarnedNet",
+        "CostOfRevenue",
+        "ComprehensiveIncomeNetOfTax",
+    ):
+        assert tag in MUST_NOT_MAP, f"{tag} must stay unmapped"
+        assert tag not in TAG_MAP["sales"]
+        assert tag not in TAG_MAP["net_income"]
+
+
+def test_net_income_needs_no_extension() -> None:
+    """The probe found no candidate that fixes a mapped CIK for net income."""
+
+    assert TAG_MAP["net_income"] == ("NetIncomeLoss", "ProfitLoss")

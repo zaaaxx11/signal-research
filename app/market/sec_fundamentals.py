@@ -90,6 +90,20 @@ TAG_MAP: Mapping[str, tuple[str, ...]] = {
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "Revenues",
         "SalesRevenueNet",
+        # The including-assessed-tax sibling is these filers' only total
+        # revenue concept (CRWD, TJX, VLO — 16 CIKs on the merged quarters).
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        # Banks report their top line net of interest expense (JPM, MS, GS —
+        # 8 CIKs); the gross interest lines are deliberately absent, see
+        # ``MUST_NOT_MAP``.
+        "RevenuesNetOfInterestExpense",
+        # Utilities' total operating revenue (NEE, DUK, SRE — 6 CIKs).
+        "RegulatedAndUnregulatedOperatingRevenue",
+        # IFRS concepts filed by 20-F filers (GFS, AU — 1 CIK each). Guarded
+        # on the taxonomy by ``IFRS_ONLY_TAGS`` so a company-specific
+        # extension named ``Revenue`` cannot win a lookup.
+        "Revenue",
+        "RevenueFromContractsWithCustomers",
     ),
     "net_income": ("NetIncomeLoss", "ProfitLoss"),
     "eps": ("EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"),
@@ -167,6 +181,32 @@ _YTD_QTRS = frozenset({1, 2, 3})
 #: a 53-week year and a leap February both live inside that window.
 _PRIOR_MIN_GAP_DAYS = 350
 _PRIOR_MAX_GAP_DAYS = 380
+#: Concepts that are only valid under the IFRS taxonomy. The bulk dataset's
+#: ``version`` column carries the taxonomy (``ifrs/2025`` against
+#: ``us-gaap/2026``), and thousands of company-specific extensions carry
+#: revenue-like names — a bare ``Revenue`` entry would let a private
+#: extension win a lookup, so these two are guarded on the taxonomy.
+IFRS_ONLY_TAGS: frozenset[str] = frozenset(
+    {"Revenue", "RevenueFromContractsWithCustomers"}
+)
+
+#: Concepts that look like a top line but are a component, a cost line or a
+#: different statement's figure. Documented so a later "coverage" pass does
+#: not add them: each would fill ``sales`` with a partial number.
+#: ``research/sec-tag-coverage.md`` carries the evidence per tag.
+MUST_NOT_MAP: Mapping[str, str] = {
+    "InterestIncomeExpenseNet": "net interest income — one component of a bank's net revenue",
+    "InterestAndDividendIncomeOperating": "gross bank interest and dividend income, before interest expense",
+    "InterestIncomeOperating": "gross bank interest income; exceeds JPM's net revenue",
+    "NoninterestIncome": "bank non-interest component",
+    "PremiumsEarnedNet": "insurance premiums only; an insurer's revenue also carries investment income",
+    "RegulatedOperatingRevenue": "utility component, not the total",
+    "CostOfRevenue": "a cost line, not revenue",
+    "CostOfSales": "a cost line (the IFRS spelling)",
+    "ComprehensiveIncomeNetOfTax": "includes other comprehensive income, which net income excludes",
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": "pre-tax income",
+    "NetIncomeLossAvailableToCommonStockholdersBasic": "after preferred dividends — a per-share denominator",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -303,11 +343,19 @@ def _selected(facts: list[Any], name: str) -> float | None:
 
     tags = TAG_MAP[name]
     uom = UOM_BY_FIELD[name]
-    rows = [
-        item
-        for item in facts
-        if item.tag in tags and item.uom == uom and not item.segments
-    ]
+    rows: list[Any] = []
+    for item in facts:
+        if item.tag not in tags or item.uom != uom or item.segments:
+            continue
+        # An IFRS-only concept is honoured under the IFRS taxonomy alone: a
+        # company-specific extension named ``Revenue`` is not the IFRS
+        # concept, and letting it win would be a private tag answering a
+        # public field.
+        if item.tag in IFRS_ONLY_TAGS and not str(
+            getattr(item, "version", "") or ""
+        ).startswith("ifrs/"):
+            continue
+        rows.append(item)
     if not rows:
         return None
     if name in FLOW_FIELDS:
@@ -428,7 +476,9 @@ __all__ = [
     "DERIVED_FIELDS",
     "FIELDS",
     "FLOW_FIELDS",
+    "IFRS_ONLY_TAGS",
     "INSTANT_FIELDS",
+    "MUST_NOT_MAP",
     "TAG_MAP",
     "UOM_BY_FIELD",
     "fundamentals_for_cik",
