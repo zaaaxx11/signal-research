@@ -780,3 +780,49 @@ def test_build_quarters_with_no_paths_is_an_empty_index() -> None:
     index = build_quarters([])
     assert index.ciks() == ()
     assert index.facts_for(AAPL_CIK) == ()
+
+
+# ---------------------------------------------------------------------------
+# Concept filter
+# ---------------------------------------------------------------------------
+#
+# The six-quarter universe index is ~3.9 GB when it carries every filed
+# concept and gets the worker cgroup OOM-killed; the mapper reads ~30.
+
+
+def test_build_keeps_only_the_requested_tags(tmp_path: Path) -> None:
+    zip_path = write_fixture_zip(tmp_path / "q.zip")
+    full = FactIndex.build(zip_path)
+    filtered = FactIndex.build(zip_path, tags={"Revenues"})
+
+    assert filtered.facts_for(AAPL_CIK), "the kept concept survives"
+    assert all(fact.tag == "Revenues" for fact in filtered.facts_for(AAPL_CIK))
+    assert len(filtered.facts_for(AAPL_CIK)) < len(full.facts_for(AAPL_CIK))
+
+
+def test_build_without_a_tag_filter_keeps_everything(tmp_path: Path) -> None:
+    zip_path = write_fixture_zip(tmp_path / "q.zip")
+    assert FactIndex.build(zip_path, tags=None).facts_for(AAPL_CIK) == (
+        FactIndex.build(zip_path).facts_for(AAPL_CIK)
+    )
+
+
+def test_build_quarters_forwards_the_tag_filter(tmp_path: Path) -> None:
+    zip_path = write_fixture_zip(tmp_path / "q.zip")
+    index = build_quarters([zip_path], tags={"NetIncomeLoss"})
+    assert index.facts_for(AAPL_CIK)
+    assert all(fact.tag == "NetIncomeLoss" for fact in index.facts_for(AAPL_CIK))
+
+
+def test_a_filtered_index_answers_the_same_mapped_values(tmp_path: Path) -> None:
+    """The filter is a memory optimisation, never a different answer."""
+
+    from app.market.sec_fundamentals import TAG_MAP, fundamentals_for_cik
+
+    zip_path = write_fixture_zip(tmp_path / "q.zip")
+    needed = {tag for group in TAG_MAP.values() for tag in group}
+    full = fundamentals_for_cik(FactIndex.build(zip_path), AAPL_CIK, price=250.0)
+    filtered = fundamentals_for_cik(
+        FactIndex.build(zip_path, tags=needed), AAPL_CIK, price=250.0
+    )
+    assert filtered == full

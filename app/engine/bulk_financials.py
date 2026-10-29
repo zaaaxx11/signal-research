@@ -349,7 +349,13 @@ class FactIndex:
     by_cik: Mapping[str, tuple[Fact, ...]] = field(default_factory=dict)
 
     @classmethod
-    def build(cls, zip_path: Path | str, *, ciks: Iterable[str] | None = None) -> FactIndex:
+    def build(
+        cls,
+        zip_path: Path | str,
+        *,
+        ciks: Iterable[str] | None = None,
+        tags: Iterable[str] | None = None,
+    ) -> FactIndex:
         """Stream ``sub.txt`` then ``num.txt`` into a CIK-keyed index.
 
         Two passes, because the join runs that way: ``sub.txt`` is small
@@ -358,9 +364,17 @@ class FactIndex:
         accession belongs to a wanted CIK. ``ciks=None`` keeps every filer —
         the fixture and small-extract mode, not the 30k-filer production
         mode.
+
+        ``tags`` restricts the kept rows to a concept set. A full six-quarter
+        index for the 4,217-symbol universe is ~3.9 GB and gets the worker
+        cgroup OOM-killed; the mapper needs only the ~30 concepts in
+        ``TAG_MAP``, so filtering at build time cuts the index by orders of
+        magnitude without changing an answer. ``tags=None`` keeps every
+        concept — the fixture/analysis mode.
         """
 
         wanted = None if ciks is None else {normalize_cik(cik) for cik in ciks}
+        allowed = None if tags is None else frozenset(str(tag) for tag in tags)
 
         submissions: dict[str, Submission] = {}
         accession_cik: dict[str, str] = {}
@@ -372,6 +386,8 @@ class FactIndex:
 
         buckets: dict[str, list[Fact]] = {}
         for fact in iter_facts(zip_path):
+            if allowed is not None and fact.tag not in allowed:
+                continue
             cik = accession_cik.get(fact.adsh)
             if cik is None:
                 continue
@@ -808,7 +824,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def build_quarters(
-    paths: Iterable[Path | str], *, ciks: Iterable[str] | None = None
+    paths: Iterable[Path | str],
+    *,
+    ciks: Iterable[str] | None = None,
+    tags: Iterable[str] | None = None,
 ) -> FactIndex:
     """Build one index over several quarterly ZIPs, merged.
 
@@ -817,11 +836,15 @@ def build_quarters(
     the TTM arithmetic needs both in one fact list. An empty ``paths`` answers
     an empty index rather than raising, so a caller with no cached quarter yet
     still gets a usable object.
+
+    ``tags`` is passed to every build: the six-quarter universe index only
+    fits in the worker's memory when it carries the mapper's ~30 concepts
+    instead of every filed concept.
     """
 
     index: FactIndex | None = None
     for path in paths:
-        built = FactIndex.build(path, ciks=ciks)
+        built = FactIndex.build(path, ciks=ciks, tags=tags)
         index = built if index is None else index.merge(built)
     return index if index is not None else FactIndex()
 

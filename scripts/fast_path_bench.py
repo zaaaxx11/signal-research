@@ -40,7 +40,7 @@ from app.market.price import (
     NasdaqPriceSource,
     PriceRegistry,
 )
-from app.market.sec_fundamentals import fundamentals_for_symbol
+from app.market.sec_fundamentals import TAG_MAP, fundamentals_for_symbol
 
 UNIVERSE = Path("/home/ubuntu/briefs/market-engine/research/probes-1000/universe.json")
 SNAPSHOT = Path("/home/ubuntu/ztockz-data/engine-snapshot.json")
@@ -270,7 +270,10 @@ async def main() -> None:
         quarters.append(extra)
     paths = [dataset_cache_path(CACHE, q) for q in quarters]
     wanted = {ciks[s] for s in symbols if s in ciks}
-    index = build_quarters(paths, ciks=wanted)
+    # Only the concepts the mapper reads: a six-quarter full index is ~3.9 GB
+    # and the worker cgroup kills it.
+    needed = frozenset(tag for group in TAG_MAP.values() for tag in group)
+    index = build_quarters(paths, ciks=wanted, tags=needed)
     print(
         f"sec_bulk quarters={'+'.join(quarters)} ciks={len(index.ciks())} "
         f"build={time.perf_counter() - t0:.1f}s",
