@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     #: Yahoo full depth remains available as a fallback rung, never the sole
     #: producer of a field group; set False to run strictly keyless-direct.
     depth_yahoo_fallback: bool = True
+    #: The two per-symbol web rungs of the default path: Yahoo quoteSummary +
+    #: timeseries (one handshake plus two requests per symbol) and the
+    #: StockAnalysis statistics page. A keyless-fast run sets both ``False``
+    #: and keeps SEC bulk + CNBC + chart + FINRA + official, which answer the
+    #: same catalog without a per-symbol crawl.
+    depth_yahoo_full: bool = True
+    depth_stockanalysis: bool = True
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")

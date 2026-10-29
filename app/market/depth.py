@@ -1216,13 +1216,44 @@ def build_depth_collector(
     clock: Callable[[], datetime] | None = None,
     random_source: random.Random | None = None,
 ) -> DepthCollector:
-    """Build SEC + Finviz + StockAnalysis + Yahoo; no request at construction."""
+    """Build the configured depth sources; no request at construction.
+
+    Every rung is flag-gated, so a deployment names its sources exactly. The
+    default path is SEC identity + SEC bulk fundamentals + Finviz + Yahoo full
+    + official + StockAnalysis + FINRA; the keyless-fast path is the same list
+    with ``depth_yahoo_full=False`` and ``depth_stockanalysis=False`` (plus
+    ``depth_finviz=False`` for a strictly no-page run), which leaves the
+    cached-quarter fundamentals, the CNBC quote batch, the chart OHLC, FINRA
+    and the official index — no per-symbol crawl and no credential.
+
+    The FINRA source carries the Yahoo v7 batch average volume as its
+    ``short_ratio`` divisor; when that reference cannot answer, the ratio
+    stays absent rather than becoming a zero.
+    """
 
     sources: list[DepthSourceProtocol] = [
         SecDepthSource(
             snapshot_path=getattr(settings, "depth_sec_snapshot", None),
         ),
     ]
+    if getattr(settings, "depth_sec_bulk", True):
+        from app.market.sec_fundamentals_depth import (
+            SecFundamentalsDepthSource,
+            keyless_price_reference,
+        )
+
+        sources.append(
+            SecFundamentalsDepthSource(
+                snapshot_path=getattr(settings, "depth_sec_snapshot", None),
+                cache_dir=getattr(settings, "depth_sec_bulk_cache_dir", None),
+                # One quote batch per depth cycle feeds ``market_cap``/``pe``;
+                # the source re-resolves it once per refresh, not per chunk.
+                price=keyless_price_reference(symbols),
+                price_ttl_s=float(
+                    getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)
+                ),
+            )
+        )
     if getattr(settings, "depth_finviz", True):
         sources.append(
             FinvizDepthSource(
@@ -1230,18 +1261,19 @@ def build_depth_collector(
                 delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
             )
         )
-    from app.market.yahoo_depth import YahooDepthSource as YahooFullDepthSource
+    if getattr(settings, "depth_yahoo_full", True):
+        from app.market.yahoo_depth import YahooDepthSource as YahooFullDepthSource
 
-    sources.append(
-        YahooFullDepthSource(
-            concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2)),
-            include_options=not bool(getattr(settings, "depth_finviz", True)),
-            request_delay_s=float(getattr(settings, "depth_yahoo_delay_s", 0.25)),
-            symbol_timeout_s=float(
-                getattr(settings, "depth_yahoo_symbol_timeout_s", 30.0)
-            ),
+        sources.append(
+            YahooFullDepthSource(
+                concurrency=int(getattr(settings, "depth_yahoo_concurrency", 2)),
+                include_options=not bool(getattr(settings, "depth_finviz", True)),
+                request_delay_s=float(getattr(settings, "depth_yahoo_delay_s", 0.25)),
+                symbol_timeout_s=float(
+                    getattr(settings, "depth_yahoo_symbol_timeout_s", 30.0)
+                ),
+            )
         )
-    )
     if getattr(settings, "depth_chart", False):
         sources.append(
             YahooChartDepthSource(
@@ -1259,16 +1291,27 @@ def build_depth_collector(
                 optionable=False,
             )
         )
-    sources.append(
-        StockAnalysisDepthSource(
-            concurrency=int(getattr(settings, "depth_concurrency", 3)),
-            delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
+    if getattr(settings, "depth_stockanalysis", True):
+        sources.append(
+            StockAnalysisDepthSource(
+                concurrency=int(getattr(settings, "depth_concurrency", 3)),
+                delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
+            )
         )
-    )
     if getattr(settings, "depth_finra", True):
         from app.market.finra import FinraShortSource
+        from app.market.sec_fundamentals_depth import average_volume_reference
 
-        sources.append(FinraShortSource())
+        sources.append(
+            FinraShortSource(
+                average_volume=average_volume_reference(
+                    symbols,
+                    ttl_s=float(
+                        getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)
+                    ),
+                )
+            )
+        )
     if getattr(settings, "depth_news", False):
         from app.market.news import RssNewsSource
 

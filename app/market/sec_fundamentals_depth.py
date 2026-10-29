@@ -1,0 +1,548 @@
+"""SEC bulk fundamentals as a depth source: the keyless fast path's backbone.
+
+A keyless run has no per-symbol fundamentals provider. It does have EDGAR's
+**financial statement data sets**: one ZIP per quarter holding every filer's
+tagged numbers, cached on disk. This module is the depth adapter over that
+cache — :func:`app.engine.bulk_financials.build_quarters` streams the ZIPs into
+a :class:`~app.engine.bulk_financials.FactIndex`,
+:func:`app.market.sec_fundamentals.fundamentals_for_symbol` maps one issuer's
+facts onto the catalog's seventeen fundamentals columns, and
+:class:`SecFundamentalsDepthSource` publishes the result as
+:class:`~app.market.depth.DepthObservation` rows.
+
+Three properties are the whole design:
+
+* **Construction is free.** Four quarters of ``num.txt`` is ~3.5 GB of TSV to
+  stream, so the index is built on the **first** ``fetch_many`` — inside a
+  worker thread, so the collector's event loop (and its chunk deadlines) stay
+  alive — and then reused for every later chunk. Building it here would make
+  ``build_depth_collector`` block for minutes.
+* **A missing cache is silence, not an exception.** No cached quarter, no
+  snapshot, no CIK map: the source contributes no rows and the cycle keeps
+  every other source. Nothing here downloads; the cache is somebody else's
+  contract (the engine's snapshot job).
+* **Price is the caller's.** ``market_cap`` and ``pe`` need a quote, so the
+  source takes a price reference — a mapping or a (sync or async) callable —
+  and leaves both fields absent when it cannot answer. A value that is not a
+  positive finite number is ignored rather than allowed to raise inside a
+  chunk.
+
+The module also carries the two keyless reference maps the collector wires:
+:func:`keyless_price_reference` (CNBC batch quotes for ``market_cap``/``pe``)
+and :func:`average_volume_reference` (the Yahoo v7 batch 3-month average
+volume that FINRA's ``short_ratio`` divides by). They live here, next to the
+source that consumes them, because the collector's wiring function is the only
+place allowed to name them.
+
+Contract: ``briefs/market-engine`` keyless plan, phase 3.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import logging
+import math
+import os
+import re
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
+from itertools import batched
+from pathlib import Path
+from typing import Any
+
+from app.engine.bulk_financials import (
+    FactIndex,
+    build_quarters,
+    current_quarter,
+    dataset_cache_path,
+    parse_quarter,
+    quarter_label,
+)
+from app.market.depth import DepthObservation, canonical_symbol
+from app.market.sec_fundamentals import fundamentals_for_symbol
+
+logger = logging.getLogger("mee.depth.sec_bulk")
+
+#: How many cached quarters the default discovery keeps. A mid-year filer's
+#: annual row lives in the quarter that carried its 10-K while its
+#: year-to-date pair lives in the quarter that carried its 10-Q, so one
+#: quarter is never enough for the TTM arithmetic; four covers a 10-K plus
+#: three 10-Qs.
+DEFAULT_QUARTER_COUNT = 4
+
+#: How far back the discovery walks when the newest quarters are not cached
+#: yet (a fresh deployment, or the first days of a new quarter).
+DEFAULT_QUARTER_LOOKBACK = 8
+
+#: A quote is a positive finite number, or it is not a quote.
+PriceReference = Mapping[str, Any] | Callable[[], Any] | None
+
+#: The v7 columns that answer "how many shares trade in a day on average".
+#: FINRA's ratio is documented against the 3-month figure.
+_AVERAGE_VOLUME_KEYS = ("averageDailyVolume3Month", "averageDailyVolume")
+
+#: Asked explicitly so the column arrives even if Yahoo honours ``fields``.
+_VOLUME_FIELDS = "symbol,regularMarketTime,averageDailyVolume3Month"
+
+#: A crumb is a short URL-safe token; anything else is a challenge page.
+_CRUMB_RE = re.compile(r"^[A-Za-z0-9._~-]{1,32}$")
+
+#: Characters that are legal in a provider symbol but must be escaped in a
+#: query string (the same two :mod:`app.market.sources` escapes).
+_QUERY_ESCAPES = {"^": "%5E", "=": "%3D"}
+
+#: One v7 batch request answers at most this many symbols (verified live).
+_YAHOO_BATCH_SIZE = 400
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _recent_quarters(count: int, lookback: int) -> tuple[str, ...]:
+    """The ``lookback`` newest dataset labels, current quarter first."""
+    year, number = parse_quarter(current_quarter())
+    index = year * 4 + (number - 1)
+    labels: list[str] = []
+    for step in range(max(int(lookback), int(count))):
+        y, q = divmod(index - step, 4)
+        labels.append(quarter_label(y, q + 1))
+    return tuple(labels)
+
+
+def _quote(value: Any) -> float | None:
+    """A usable price, or ``None``. A string, a bool or a non-positive number
+    is not a quote and must not reach the mapper (it would raise)."""
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _price_map(raw: Any) -> dict[str, float]:
+    """``{symbol: price}`` with canonical keys and usable values only."""
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, float] = {}
+    for key, value in raw.items():
+        symbol = canonical_symbol(key)
+        number = _quote(value)
+        if symbol and number is not None:
+            out.setdefault(symbol, number)
+    return out
+
+
+def _cik_map(raw: Mapping[str, Any]) -> dict[str, str]:
+    """``{canonical symbol: CIK}``; a row without either half is dropped."""
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        symbol = canonical_symbol(key)
+        cik = str(value or "").strip()
+        if symbol and cik:
+            out.setdefault(symbol, cik)
+    return out
+
+
+class SecFundamentalsDepthSource:
+    """The seventeen fundamentals columns, read from cached SEC bulk quarters.
+
+    ``snapshot_path`` (or an injected ``cik_by_symbol``) owns symbol → CIK;
+    ``cache_dir`` owns the quarterly ZIPs; ``price`` owns the quote the two
+    price-dependent fields need. Every one of them is resolved lazily and
+    every one of them may be absent — the source then contributes no rows.
+    """
+
+    name = "sec_bulk"
+
+    def __init__(
+        self,
+        *,
+        snapshot_path: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        quarters: Sequence[str] | None = None,
+        cik_by_symbol: Mapping[str, Any] | None = None,
+        price: PriceReference = None,
+        price_ttl_s: float | None = None,
+        quarter_count: int = DEFAULT_QUARTER_COUNT,
+        quarter_lookback: int = DEFAULT_QUARTER_LOOKBACK,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        raw = (
+            snapshot_path
+            or os.environ.get("MEE_ENGINE_SNAPSHOT")
+            or "data/engine-snapshot.json"
+        )
+        self.snapshot_path = Path(raw).expanduser()
+        self.cache_dir = Path(cache_dir).expanduser() if cache_dir is not None else None
+        self.quarters = tuple(str(item) for item in quarters) if quarters else None
+        self.quarter_count = max(1, int(quarter_count))
+        self.quarter_lookback = max(1, int(quarter_lookback))
+        self._clock = clock or _utcnow
+        self._price = price
+        self._price_ttl_s = float(price_ttl_s) if price_ttl_s else 0.0
+        self._injected_ciks = _cik_map(cik_by_symbol) if cik_by_symbol else None
+        self._index: FactIndex | None = None
+        self._build_attempted = False
+        self.build_error: str | None = None
+        self._ciks: dict[str, str] | None = None
+        self.cik_error: str | None = None
+        self._prices: dict[str, float] = {}
+        self._prices_at: float | None = None
+
+    # -- observable state ---------------------------------------------------
+
+    @property
+    def fact_index(self) -> FactIndex | None:
+        """The merged index, or ``None`` until the first fetch builds it."""
+        return self._index
+
+    # -- the CIK map --------------------------------------------------------
+
+    def _resolve_ciks(self) -> dict[str, str]:
+        """Symbol → CIK: the injected map, else the engine snapshot's master."""
+        if self._ciks is not None:
+            return self._ciks
+        self._ciks = {}
+        if self._injected_ciks is not None:
+            self._ciks = dict(self._injected_ciks)
+            return self._ciks
+        if not self.snapshot_path.exists():
+            self.cik_error = f"snapshot not found: {self.snapshot_path}"
+            return self._ciks
+        try:
+            from app.engine.store import EngineStore
+
+            dataset = EngineStore(self.snapshot_path).load()
+            master = getattr(dataset, "security_master", None)
+            records = master.records() if master is not None else ()
+            self._ciks = _cik_map(
+                {
+                    record.symbol: record.cik
+                    for record in records
+                    if getattr(record, "cik", None)
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - identity enrichment is optional
+            self.cik_error = f"{type(exc).__name__}: {exc}"
+            logger.info("sec bulk depth snapshot failed: %s", self.cik_error)
+        return self._ciks
+
+    # -- the quarterly cache ------------------------------------------------
+
+    def _cached_quarters(self) -> tuple[str, ...]:
+        """The configured (or discovered) quarters that actually have a ZIP."""
+        candidates = self.quarters or _recent_quarters(
+            self.quarter_count, self.quarter_lookback
+        )
+        found: list[str] = []
+        for quarter in candidates:
+            try:
+                path = dataset_cache_path(self.cache_dir, quarter)
+            except ValueError:  # a malformed label is not a cached quarter
+                continue
+            if path.is_file():
+                found.append(quarter)
+        return tuple(found)
+
+    async def _ensure_index(self) -> FactIndex | None:
+        """Build the index once, on a worker thread, or explain why not."""
+        if self._build_attempted:
+            return self._index
+        self._build_attempted = True
+        ciks = self._resolve_ciks()
+        if not ciks:
+            self.build_error = self.cik_error or "no symbol → CIK map is available"
+            return None
+        quarters = self._cached_quarters()
+        if not quarters:
+            root = self.cache_dir if self.cache_dir is not None else "the engine cache"
+            self.build_error = f"no cached SEC bulk quarter under {root}"
+            logger.info(
+                "sec bulk depth found no cached quarter under %s (walked %s)",
+                root,
+                self.quarters or _recent_quarters(self.quarter_count, self.quarter_lookback),
+            )
+            return None
+        paths = [dataset_cache_path(self.cache_dir, quarter) for quarter in quarters]
+        wanted = sorted(set(ciks.values()))
+        try:
+            # The stream is minutes of CPU/IO; a worker thread keeps the
+            # collector's loop (and its chunk deadlines) alive meanwhile.
+            self._index = await asyncio.to_thread(
+                build_quarters, paths, ciks=wanted
+            )
+        except Exception as exc:  # noqa: BLE001 - a broken cache is no rows
+            self.build_error = f"{type(exc).__name__}: {exc}"
+            logger.info("sec bulk depth index failed: %s", self.build_error)
+            self._index = None
+        return self._index
+
+    # -- the price reference ------------------------------------------------
+
+    async def _resolve_prices(self) -> dict[str, float]:
+        """The quote map, re-resolved at most once per ``price_ttl_s``."""
+        now = time.monotonic()
+        if self._prices_at is not None and (
+            self._price_ttl_s <= 0 or now - self._prices_at < self._price_ttl_s
+        ):
+            return self._prices
+        if self._price is None:
+            self._prices, self._prices_at = {}, now
+            return self._prices
+        try:
+            raw = self._price() if callable(self._price) else self._price
+            if inspect.isawaitable(raw):
+                raw = await raw
+        except Exception as exc:  # noqa: BLE001 - a quote is optional
+            logger.info("sec bulk depth price reference failed: %s", exc)
+            return {}  # not memoised: the next chunk tries again
+        self._prices, self._prices_at = _price_map(raw), now
+        return self._prices
+
+    # -- the protocol -------------------------------------------------------
+
+    async def fetch_many(
+        self, symbols: Sequence[str]
+    ) -> dict[str, DepthObservation]:
+        wanted = [canonical_symbol(symbol) for symbol in symbols]
+        wanted = [symbol for symbol in wanted if symbol]
+        if not wanted:
+            return {}
+        index = await self._ensure_index()
+        if index is None:
+            return {}
+        ciks = self._resolve_ciks()
+        if not ciks:
+            return {}
+        prices = await self._resolve_prices()
+        as_of = self._clock()
+        out: dict[str, DepthObservation] = {}
+        for symbol in wanted:
+            try:
+                fields = fundamentals_for_symbol(
+                    index, symbol, ciks, price=prices.get(symbol)
+                )
+            except (TypeError, ValueError) as exc:  # defensive: never sink a chunk
+                logger.info("sec bulk depth failed for %s: %s", symbol, exc)
+                continue
+            present = {
+                name: value for name, value in fields.items() if value is not None
+            }
+            if present:
+                out[symbol] = DepthObservation(
+                    symbol=symbol,
+                    fields=present,
+                    as_of=as_of,
+                    source=self.name,
+                )
+        return out
+
+
+# ---------------------------------------------------------------------------
+# The keyless reference maps the collector wires
+# ---------------------------------------------------------------------------
+
+
+def _memoized(fetch: Callable[[], Any], ttl_s: float) -> Callable[[], Any]:
+    """Call the **synchronous** ``fetch`` at most once per ``ttl_s`` window.
+
+    The collector asks a source chunk by chunk; a reference map that covers
+    the whole universe must not be re-fetched once per chunk. Only ever wrap
+    a plain function here — memoising a coroutine would hand the same spent
+    awaitable to the second caller.
+    """
+    state: dict[str, Any] = {"at": None, "value": None}
+
+    def cached() -> Any:
+        now = time.monotonic()
+        if state["at"] is not None and (ttl_s <= 0 or now - state["at"] < ttl_s):
+            return state["value"]
+        value = fetch()
+        state["at"], state["value"] = now, value
+        return value
+
+    return cached
+
+
+def keyless_price_reference(symbols: Sequence[str]) -> Callable[[], Any]:
+    """CNBC-batch prices for ``market_cap``/``pe``; no key, no per-symbol call.
+
+    The registry is built on the first call (never at construction). How
+    often the map is refreshed is the *source's* ``price_ttl_s``, so one
+    depth cycle pays one batch for the whole cycle instead of one per chunk.
+    """
+    wanted = tuple(symbols)
+    registry: dict[str, Any] = {}
+
+    async def reference() -> dict[str, float]:
+        from app.market.price import CnbcPriceSource, NasdaqPriceSource, PriceRegistry
+
+        if "registry" not in registry:
+            registry["registry"] = PriceRegistry(
+                primary=CnbcPriceSource(), fallback=NasdaqPriceSource()
+            )
+        quotes = await registry["registry"].quotes(wanted)
+        return {
+            symbol: quote.last for symbol, quote in quotes.items() if quote is not None
+        }
+
+    return reference
+
+
+def _run_sync(coroutine: Any) -> dict[str, float]:
+    """Run ``coroutine`` to completion on a private loop in a worker thread.
+
+    The FINRA source asks for its reference map **synchronously**, from inside
+    the collector's own event loop, where ``asyncio.run`` would refuse. A
+    worker thread owns a fresh loop, so the batch still goes through the one
+    HTTP seam (and the mock transport in tests) without touching a socket.
+    """
+    box: dict[str, Any] = {}
+
+    def runner() -> None:
+        try:
+            box["value"] = asyncio.run(coroutine)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            box["error"] = exc
+
+    thread = threading.Thread(target=runner, name="sec-depth-yahoo-volume")
+    try:
+        thread.start()
+    except BaseException:
+        coroutine.close()  # a never-awaited coroutine is a warning, and warnings are errors
+        raise
+    thread.join()
+    if "error" in box:
+        raise box["error"]
+    value = box.get("value")
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+async def _yahoo_crumb(client: Any) -> str:
+    """Warm the cookie jar, then exchange it for a crumb (``""`` on refusal)."""
+    from app.market.sources import YAHOO_COOKIE_URL, YAHOO_CRUMB_PATH, YAHOO_HOST
+
+    try:
+        await client.get(YAHOO_COOKIE_URL)
+        response = await client.get(f"{YAHOO_HOST}{YAHOO_CRUMB_PATH}")
+        token = str(getattr(response, "text", "") or "").strip()
+    except Exception as exc:  # noqa: BLE001 - warm-up must not become the error
+        logger.info("yahoo average volume handshake failed: %s", exc)
+        return ""
+    return token if _CRUMB_RE.match(token) else ""
+
+
+def _result_rows(payload: Any) -> list[Mapping[str, Any]]:
+    envelope = payload.get("quoteResponse") if isinstance(payload, Mapping) else None
+    rows = envelope.get("result") if isinstance(envelope, Mapping) else None
+    if not isinstance(rows, (list, tuple)):
+        return []
+    return [row for row in rows if isinstance(row, Mapping)]
+
+
+def _average_volume(row: Mapping[str, Any]) -> float | None:
+    for key in _AVERAGE_VOLUME_KEYS:
+        value = row.get(key)
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number) and number > 0:
+            return number
+    return None
+
+
+async def fetch_yahoo_average_volume(
+    symbols: Sequence[str], *, timeout_s: float = 10.0
+) -> dict[str, float]:
+    """The v7 batch 3-month average volume per symbol; ``{}`` when unavailable.
+
+    One cookie/crumb handshake, then one request per
+    :data:`_YAHOO_BATCH_SIZE` symbols. A chunk that fails is skipped: the
+    ratio it would have fed is absent, never zero.
+    """
+    from app.market.sources import (
+        BROWSER_USER_AGENT,
+        YAHOO_HOST,
+        YAHOO_QUOTE_PATH,
+        clean_symbols,
+    )
+    from app.providers import http as provider_http
+
+    wanted = clean_symbols(symbols)
+    if not wanted:
+        return {}
+    headers = {
+        "user-agent": BROWSER_USER_AGENT,
+        "accept": "application/json,text/plain,*/*",
+        "accept-language": "en-US,en;q=0.9",
+    }
+    out: dict[str, float] = {}
+    try:
+        async with provider_http.build_client(
+            timeout_s=timeout_s, headers=headers
+        ) as client:
+            crumb = await _yahoo_crumb(client)
+            for chunk in batched(wanted, _YAHOO_BATCH_SIZE):
+                joined = ",".join(
+                    "".join(_QUERY_ESCAPES.get(character, character) for character in symbol)
+                    for symbol in chunk
+                )
+                url = (
+                    f"{YAHOO_HOST}{YAHOO_QUOTE_PATH}"
+                    f"?symbols={joined}&fields={_VOLUME_FIELDS}"
+                )
+                if crumb:
+                    url = f"{url}&crumb={crumb}"
+                try:
+                    response = await client.get(url)
+                    if int(getattr(response, "status_code", 0) or 0) != 200:
+                        continue
+                    payload = response.json()
+                except Exception as exc:  # noqa: BLE001 - one chunk is optional
+                    logger.info("yahoo average volume chunk failed: %s", exc)
+                    continue
+                for row in _result_rows(payload):
+                    symbol = str(row.get("symbol") or "").strip().upper()
+                    volume = _average_volume(row)
+                    if symbol and volume is not None:
+                        out.setdefault(symbol, volume)
+    except Exception as exc:  # noqa: BLE001 - the reference is optional
+        logger.info("yahoo average volume reference failed: %s", exc)
+        return {}
+    return out
+
+
+def yahoo_average_volume(
+    symbols: Sequence[str], *, timeout_s: float = 10.0
+) -> dict[str, float]:
+    """The synchronous face of :func:`fetch_yahoo_average_volume`."""
+    try:
+        return _run_sync(fetch_yahoo_average_volume(symbols, timeout_s=timeout_s))
+    except Exception as exc:  # noqa: BLE001 - a missing divisor is an absent ratio
+        logger.info("yahoo average volume reference failed: %s", exc)
+        return {}
+
+
+def average_volume_reference(
+    symbols: Sequence[str], *, ttl_s: float = 0.0
+) -> Callable[[], dict[str, float]]:
+    """The FINRA ``short_ratio`` divisor, as the source's callable reference."""
+    wanted = tuple(symbols)
+    return _memoized(lambda: yahoo_average_volume(wanted), ttl_s)
+
+
+__all__ = [
+    "DEFAULT_QUARTER_COUNT",
+    "DEFAULT_QUARTER_LOOKBACK",
+    "SecFundamentalsDepthSource",
+    "average_volume_reference",
+    "fetch_yahoo_average_volume",
+    "keyless_price_reference",
+    "yahoo_average_volume",
+]
