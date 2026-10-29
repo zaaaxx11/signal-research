@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     #: same catalog without a per-symbol crawl.
     depth_yahoo_full: bool = True
     depth_stockanalysis: bool = True
+    #: The per-symbol enrichment pass appended after the keyless rungs: Yahoo
+    #: ``quoteSummary``/``fundamentals-timeseries`` plus one RSS headline feed
+    #: per symbol. It is the crawl the keyless path structurally cannot do, so
+    #: it costs ~13 minutes at the 4,217-symbol scale and is what upgrades field
+    #: coverage to 109/116. Off by default: a daily cycle publishes the keyless
+    #: row first and this pass is the extra rung, never a prerequisite.
+    depth_enrich: bool = False
     depth_sec_snapshot: Path | None = None
     depth_universe_path: Path | None = None
     depth_store_path: Path = Path("data/depth.json")

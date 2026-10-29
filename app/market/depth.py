@@ -1232,20 +1232,20 @@ def build_depth_collector(
                 delay_s=float(getattr(settings, "depth_delay_s", 0.1)),
             )
         )
+    finra_source: Any | None = None
     if getattr(settings, "depth_finra", True):
         from app.market.finra import FinraShortSource
         from app.market.sec_fundamentals_depth import average_volume_reference
 
-        sources.append(
-            FinraShortSource(
-                average_volume=average_volume_reference(
-                    symbols,
-                    ttl_s=float(
-                        getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)
-                    ),
-                )
+        finra_source = FinraShortSource(
+            average_volume=average_volume_reference(
+                symbols,
+                ttl_s=float(
+                    getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)
+                ),
             )
         )
+        sources.append(finra_source)
     if getattr(settings, "depth_news", False):
         from app.market.news import RssNewsSource
 
@@ -1255,6 +1255,145 @@ def build_depth_collector(
                 fallback=True,
             )
         )
+    source_timeout_s = float(getattr(settings, "depth_source_timeout_s", 180.0))
+    if getattr(settings, "depth_enrich", False):
+        from app.market.enrichment import EnrichmentStage
+        from app.market.yahoo_batch import YahooBatchQuoteSource
+
+        universe = tuple(
+            symbol
+            for symbol in (canonical_symbol(raw) for raw in symbols)
+            if symbol
+        )
+        refresh_s = float(getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S))
+        batch_quote_source = YahooBatchQuoteSource()
+        stage_clock = clock or _utcnow
+
+        class _EnrichmentDepthSource(EnrichmentStage):
+            """The per-symbol pass, shaped like one more depth source.
+
+            :class:`EnrichmentStage` answers ``{symbol: fields}`` and carries
+            neither ``name`` nor ``fetch_many``, so the collector — which asks
+            every source chunk by chunk — cannot consume it directly. This rung
+            adapts it: the thirteen-minute crawl runs **once per refresh
+            window** over the whole universe and each ``source_chunk_size``
+            chunk is answered from that merged map. Running the crawl per chunk
+            would cost seventeen passes for one cycle and answer the same
+            question seventeen times.
+            """
+
+            name = "enrich"
+
+            def __init__(self) -> None:
+                super().__init__(
+                    news_concurrency=int(
+                        getattr(settings, "depth_news_concurrency", 8)
+                    ),
+                )
+                #: The v7 batch quote source whose ``average_volume`` is FINRA's
+                #: ``short_ratio`` divisor.
+                self.batch_quote_source = batch_quote_source
+                self._universe = universe
+                self._refresh_s = refresh_s
+                self._clock = stage_clock
+                self._merged: dict[str, dict[str, Any]] = {}
+                self._merged_at: float | None = None
+                self._average_volume: dict[str, float] = {}
+                self._pass_lock = asyncio.Lock()
+
+            def average_volume_map(self) -> dict[str, float]:
+                """The batch quote's ``average_volume``, as last answered."""
+
+                return dict(self._average_volume)
+
+            async def fetch_many(
+                self, symbols: Sequence[str]
+            ) -> dict[str, DepthObservation]:
+                merged = await self._full_pass()
+                wanted = {
+                    symbol
+                    for symbol in (canonical_symbol(raw) for raw in symbols)
+                    if symbol
+                }
+                stamp = self._clock()
+                return {
+                    symbol: DepthObservation(
+                        symbol=symbol,
+                        fields=dict(fields),
+                        as_of=stamp,
+                        source=self.name,
+                    )
+                    for symbol, fields in merged.items()
+                    if symbol in wanted
+                }
+
+            async def _full_pass(self) -> dict[str, dict[str, Any]]:
+                if (
+                    self._merged_at is not None
+                    and time.monotonic() - self._merged_at < self._refresh_s
+                ):
+                    return self._merged
+                async with self._pass_lock:
+                    # Re-checked under the lock: a concurrent chunk must join
+                    # the pass that is already running, never start a second.
+                    if (
+                        self._merged_at is not None
+                        and time.monotonic() - self._merged_at < self._refresh_s
+                    ):
+                        return self._merged
+                    self._absorb(
+                        await self.batch_quote_source.fetch_many(self._universe)
+                    )
+                    merged = await self.run(self._universe)
+                    floats = self.shares_float
+                    if finra_source is not None and floats:
+                        # The pass's own divisor, pushed as a concrete map: this
+                        # is what turns FINRA's absent short_float into a ratio.
+                        finra_source.set_shares_float(dict(floats))
+                    self._merged = merged
+                    self._merged_at = time.monotonic()
+                    return merged
+
+            def _absorb(self, rows: Mapping[str, Any]) -> None:
+                """Push the batch quote's ``average_volume`` into FINRA's divisor.
+
+                Only a finite, positive number qualifies: ``None``, ``"n/a"``,
+                ``True`` and ``NaN`` are absent facts, and FINRA's own ``> 0``
+                guard stays the single place a non-positive volume is rejected.
+                """
+
+                volumes: dict[str, float] = {}
+                for raw_symbol, row in dict(rows or {}).items():
+                    if not isinstance(row, Mapping):
+                        continue
+                    symbol = canonical_symbol(raw_symbol)
+                    value = row.get("average_volume")
+                    if not symbol or isinstance(value, bool):
+                        continue
+                    try:
+                        volume = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(volume) and volume > 0:
+                        volumes[symbol] = volume
+                if not volumes:
+                    return
+                self._average_volume.update(volumes)
+                if finra_source is not None:
+                    finra_source.set_average_volume(dict(self._average_volume))
+
+        enrich_source = _EnrichmentDepthSource()
+        if finra_source is not None:
+            # Live references from the moment the collector is built: FINRA
+            # resolves its divisors at fetch time, so it reads whatever the most
+            # recent pass answered rather than an empty map frozen at build.
+            finra_source.set_average_volume(enrich_source.average_volume_map)
+            finra_source.set_shares_float(lambda: enrich_source.shares_float)
+        sources.append(enrich_source)
+        # The crawl is minutes, not seconds: the shared per-chunk budget must be
+        # wide enough for it, or the one rung this flag exists for always times
+        # out. Other sources are bounded the same way, so it only ever loosens.
+        source_timeout_s = max(source_timeout_s, 1_800.0)
     return DepthCollector(
         symbols=symbols,
         sources=sources,
@@ -1262,7 +1401,7 @@ def build_depth_collector(
         seed_path=getattr(settings, "depth_store_path", DEFAULT_STORE_PATH),
         refresh_s=float(getattr(settings, "depth_refresh_s", DEPTH_REFRESH_S)),
         jitter_s=float(getattr(settings, "depth_jitter_s", DEPTH_JITTER_S)),
-        source_timeout_s=float(getattr(settings, "depth_source_timeout_s", 180.0)),
+        source_timeout_s=source_timeout_s,
         source_chunk_size=int(getattr(settings, "depth_source_chunk_size", 250)),
         clock=clock,
         random_source=random_source,
