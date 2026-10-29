@@ -320,8 +320,13 @@ async def main() -> None:
     paid = [rainproxy_url()] if rainproxy_url() else []
     egress = YahooEgress(proxies=pool, paid_proxies=paid, max_attempts=30)
     proxy = await egress.find_proxy()
+    # Never print credentials: a proxy URL carries user:pass and the log is
+    # a plain file.
+    label = "direct"
+    if proxy:
+        label = proxy.rsplit("@", 1)[-1] if "@" in proxy else proxy
     print(
-        f"yahoo_egress exit={proxy or 'direct'} "
+        f"yahoo_egress exit={label} "
         f"refused={len(egress.last_errors)} wall={time.perf_counter() - t0:.1f}s",
         flush=True,
     )
