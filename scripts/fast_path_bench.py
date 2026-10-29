@@ -30,7 +30,9 @@ from app.engine.bulk_financials import (
 )
 from app.market.depth import QUOTE_ONLY_FIELDS, canonical_symbol
 from app.market.finra import FinraShortSource
-from app.market.history import compute_technicals, parse_bars
+from app.market.chart import YahooChartDepthSource
+from app.market.identity import IdentityIndex
+from app.market.yahoo_batch import YahooBatchQuoteSource
 from app.market.official import OfficialDepthSource
 from app.market.price import (
     CnbcPriceSource,
@@ -57,31 +59,11 @@ def cik_map() -> dict[str, str]:
 
 
 async def yahoo_bars(symbols: list[str], conc: int = 16) -> dict[str, dict]:
-    """Yahoo chart OHLC -> technicals, one request per symbol, parallel."""
-    out: dict[str, dict] = {}
-    async with httpx2.AsyncClient(
-        headers={"user-agent": UA}, timeout=20, follow_redirects=True
-    ) as client:
-        sem = asyncio.Semaphore(conc)
+    """Yahoo wide-window chart -> depth fields, via the production source."""
 
-        async def one(sym: str) -> None:
-            async with sem:
-                try:
-                    r = await client.get(
-                        f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
-                        "?interval=1d&range=1y"
-                    )
-                    if r.status_code != 200:
-                        return
-                    bars = parse_bars(r.json())
-                    tech = compute_technicals(bars)
-                    if tech:
-                        out[sym] = tech
-                except Exception:
-                    return
-
-        await asyncio.gather(*(one(s) for s in symbols))
-    return out
+    source = YahooChartDepthSource(concurrency=conc)
+    observations = await source.fetch_many(symbols)
+    return {sym: dict(obs.fields) for sym, obs in observations.items()}
 
 
 def previous_quarter(label: str, back: int = 1) -> str:
@@ -91,97 +73,11 @@ def previous_quarter(label: str, back: int = 1) -> str:
     return quarter_label(total // 4, total % 4 + 1)
 
 
-#: Yahoo v7 batch quote → catalog key. One request answers 100–400 symbols,
-#: which is what makes the fast path fast without an API key.
-YAHOO_BATCH_MAP = {
-    "marketCap": "market_cap",
-    "trailingPE": "pe",
-    "forwardPE": "forward_pe",
-    "priceToBook": "pb",
-    "epsTrailingTwelveMonths": "eps",
-    "epsForward": "eps_next_y",
-    "epsCurrentYear": "eps_this_y",
-    "dividendRate": "dividend",
-    "dividendYield": "dividend_yield",
-    "trailingAnnualDividendRate": "dividend_ttm",
-    "bookValue": "book_per_share",
-    "sharesOutstanding": "shares_outstanding",
-    "averageDailyVolume3Month": "average_volume",
-    "fiftyTwoWeekHigh": "high_52w",
-    "fiftyTwoWeekLow": "low_52w",
-    "fiftyTwoWeekRange": "week_52_range",
-    "fiftyTwoWeekChangePercent": "perf_52w",
-    "averageAnalystRating": "recommendation",
-    "regularMarketPrice": "price",
-    "regularMarketChange": "change",
-    "regularMarketChangePercent": "change_pct",
-    "regularMarketVolume": "volume",
-    "regularMarketPreviousClose": "prev_close",
-    "regularMarketOpen": "open",
-    "regularMarketDayHigh": "high",
-    "regularMarketDayLow": "low",
-    "longName": "company",
-}
+async def yahoo_batch_quotes(symbols: list[str]) -> dict[str, dict]:
+    """Yahoo v7 batch quote via the production source (32 catalog keys)."""
 
-
-async def yahoo_batch_quotes(symbols: list[str], batch: int = 400) -> dict[str, dict]:
-    """Yahoo v7 quote, batched: one request per ``batch`` symbols."""
-    out: dict[str, dict] = {}
-    async with httpx2.AsyncClient(
-        headers={"user-agent": UA}, timeout=30, follow_redirects=True
-    ) as client:
-        await client.get("https://fc.yahoo.com")
-        crumb = (
-            await client.get("https://query1.finance.yahoo.com/v1/test/getcrumb")
-        ).text.strip()
-        groups = [symbols[i : i + batch] for i in range(0, len(symbols), batch)]
-        sem = asyncio.Semaphore(3)
-
-        async def one(group: list[str]) -> None:
-            async with sem:
-                try:
-                    r = await client.get(
-                        "https://query1.finance.yahoo.com/v7/finance/quote"
-                        f"?symbols={','.join(group)}&crumb={crumb}"
-                    )
-                    if r.status_code != 200:
-                        return
-                    for q in r.json()["quoteResponse"]["result"]:
-                        sym = str(q.get("symbol", "")).upper()
-                        if not sym:
-                            continue
-                        row = {
-                            key: q[src]
-                            for src, key in YAHOO_BATCH_MAP.items()
-                            if q.get(src) is not None
-                        }
-                        # sma50/sma200 as percent distance, matching chart.py
-                        close = q.get("regularMarketPrice")
-                        for src, key in (
-                            ("fiftyDayAverage", "sma50"),
-                            ("twoHundredDayAverage", "sma200"),
-                        ):
-                            avg = q.get(src)
-                            if close and avg:
-                                row[key] = (close - avg) / avg * 100.0
-                        # relative volume against the 3-month average
-                        vol, avg_vol = (
-                            q.get("regularMarketVolume"),
-                            q.get("averageDailyVolume3Month"),
-                        )
-                        if vol and avg_vol:
-                            row["relative_volume"] = vol / avg_vol
-                        out[sym] = row
-                except Exception:
-                    return
-
-        await asyncio.gather(*(one(g) for g in groups))
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Keyless depth sources: FINRA short interest + official index membership
-# ---------------------------------------------------------------------------
+    source = YahooBatchQuoteSource()
+    return await source.fetch_many(symbols)
 
 
 def merge_observation_fields(
@@ -406,6 +302,7 @@ async def main() -> None:
     )
 
     # --- Merge -------------------------------------------------------------
+    identity = IdentityIndex(universe_path=UNIVERSE, snapshot_path=SNAPSHOT)
     merged: dict[str, dict] = {}
     for sym in symbols:
         row: dict = {}
@@ -424,6 +321,11 @@ async def main() -> None:
             row["volume"] = q.volume
         if sym in techs:
             row.update(techs[sym])
+        # Identity last: the universe/snapshot join is the authority for
+        # sector/industry/country, so it wins over any provider's spelling.
+        row.update(
+            {k: v for k, v in identity.fields_for(sym).items() if v is not None}
+        )
         merged[sym] = row
 
     # --- Coverage: before the keyless depth sources ------------------------
