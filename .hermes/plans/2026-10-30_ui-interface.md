@@ -33,7 +33,10 @@ copy-in), `@tanstack/react-table@9.3.1`, `nuqs` (URL state), Playwright (E2E).
 | D6 | Never horizontal scroll in a view | Widths must sum to the container; the 116-column surface becomes an explicit "All columns" destination, not a default |
 | D7 | Detail panel is **docked**, not an overlay | Docking shrinks the table so the solver re-runs; an overlay hides the comparison context that makes a screener useful |
 | D8 | Dark is the default; light is a token set, not a second layout | Every colour pair is gated at ≥4.5:1 against the real row background |
-| D9 | Build at `/app`, keep `/` on the old UI until parity | Rollback is a route change, not a revert |
+| D9 | Build at `/app`, keep `/` on the old UI until parity | Rollback is a route change, not a revert — **operator's choice, 2026-10-30** |
+| D10 | Keep the TradingView logos | Operator's choice; the logo column is part of the identity lane and the fetch already exists |
+| D11 | Light theme deferred until after cutover | Dark-only ships first; the token file is built so a light set is a second block, not a second layout |
+| D12 | Views are **redesigned from the catalogue's own categories**, not inherited from Finviz tabs | Operator's choice: "desain ulang". §6.1 |
 
 ## 1. Facts this plan is built on (measured, not assumed)
 
@@ -232,17 +235,41 @@ existing behaviour changes for a client that does not ask for it.
 
 ## 6. Phase 4 — views and the column model
 
-### 6.1 Views (all names must be catalogue keys)
+### 6.1 The nine views (designed from the catalogue, 100 % mapped)
 
-| View | Columns | Source |
-|---|---|---|
-| today | 10 | session + technical |
-| valuation | 12 | valuation |
-| financial | 12 (of 37) | financial |
-| technical | 12 (of 27) | technical |
-| ownership | 10 | ownership |
-| performance | 9 | performance |
-| all | 116 | explicit destination, `min-width: 2200px`, scrollbar visible |
+Derived from the catalogue's own `category` field (`app/engine/data/finviz_columns_116.json`),
+grouped by the job a person is doing — not by Finviz's tab order. Verified by script: all 116 keys
+appear exactly once, zero unassigned, zero unknown.
+
+| View | Cols | Job it answers | Columns |
+|---|---|---|---|
+| **today** | 11 | What is moving right now? | price, change, change_from_open, gap, prev_close, open, high, low, volume, average_volume, relative_volume |
+| **value** | 13 | Is it cheap? | market_cap, enterprise_value, pe, forward_pe, peg, ps, pb, pc, pfcf, ev_ebitda, ev_sales, target_price, recommendation |
+| **quality** | 12 | Is the business good? | roa, roe, roic, current_ratio, quick_ratio, lt_debt_to_equity, debt_to_equity, book_per_share, cash_per_share, gross_margin, operating_margin, net_margin |
+| **growth** | 12 | Is it growing? | eps, net_income, sales, eps_next_q, eps_this_y, eps_next_y, eps_past_3y, eps_past_5y, eps_qoq, sales_qoq, eps_yoy_ttm, sales_yoy_ttm |
+| **momentum** | 10 | How has it performed? | perf_1w, perf_4w, perf_13w, perf_26w, perf_52w, perf_ytd, perf_3y, perf_5y, perf_10y, rsi |
+| **trend** | 12 | Where is it relative to its own history? | sma20, sma50, sma200, high_50d, low_50d, high_52w, low_52w, atr, beta, volatility_1w, volatility_4w, all_time_high |
+| **ownership** | 10 | Who owns it, and who is short? | shares_outstanding, shares_float, float_pct, insider_own, insider_trans, inst_own, inst_trans, short_float, short_ratio, short_interest |
+| **income** | 8 | What does it pay? | dividend, dividend_yield, dividend_ttm, payout_ratio, dividend_ex_date, dividend_growth_1y, dividend_growth_3y, dividend_growth_5y |
+| **profile** | 12 | What is it? | company, sector, industry, security_type, country, exchange, index_membership, optionable, shortable, employees, earnings_date, ipo_date |
+| **all** | 116 | Explicit destination only | every key, `min-width: 2200px`, scrollbar visible |
+
+**Sixteen keys are detail-panel only, by design** — they are prose, URLs, meta, or duplicates:
+
+```
+growth    eps_next_5y, sales_past_3y, sales_past_5y, eps_surprise, revenue_surprise
+trend     all_time_low, candlestick_pattern, week_52_range
+news      news_url, news_title, news_time, daily_digest
+profile   website
+identity  ticker            (the pinned lane, not a column you pick)
+meta      sort_order, row_type   (transport plumbing, never rendered)
+```
+
+**Why these nine and not Finviz's six:** Finviz's tabs bundle 37 financial columns into one
+tab that no one scans at 100 rows. Splitting `financial` into `quality` (ratios), `growth`
+(income statement deltas) and `income` (dividends) means every view is ≤13 columns and answers one
+question. `today` replaces `overview`, whose only unique key was `index_membership` — now in
+`profile` with the rest of identity.
 
 ### 6.2 Phantom names → catalogue keys (from the audit)
 
@@ -257,8 +284,9 @@ sales_past_3_5y→sales_past_5y · volatility→volatility_1w+volatility_4w
 week52_high→high_52w · week52_low→low_52w   (both LOSSY: price → % distance must be explicit)
 ```
 
-- **Gate:** a test asserts every view's columns are unique, resolvable, and that
-  the six views cover ≥110 catalogue keys.
+- **Gate:** a script asserts every one of the 116 keys appears exactly once
+  across §6.1's nine views plus the detail-only list — zero unassigned, zero unknown,
+  zero duplicates. The same script runs in CI.
 
 ## 7. Phase 5 — detail panel
 
@@ -302,15 +330,14 @@ week52_high→high_52w · week52_low→low_52w   (both LOSSY: price → % distan
 | Container-fit widths have no upstream | own the solver; test it at three breakpoints |
 | 100 rows × 116 columns is not a grid, it is a spreadsheet | "All columns" stays a destination behind a click |
 
-## 11. Open questions for the operator
+## 11. Operator answers (locked 2026-10-30)
 
-1. **Cutover style:** build at `/app` and swap `/` after parity (recommended), or
-   replace in place and accept downtime during the build?
-2. **View set:** keep the six named views with `overview` renamed to `today`, or
-   design a different set now that we know the catalogue?
-3. **Light theme:** ship it in Phase 1 or defer (dark only) until after cutover?
-4. **Logo source:** keep the existing `GET /screens?source=tradingview` logos, or
-   drop logos for text-only identity (faster, no third-party dependency)?
+| Question | Answer | Consequence in this plan |
+|---|---|---|
+| Cutover style | Build at `/app`, swap `/` after parity | D9; `/legacy` stays for one release |
+| View set | Redesign | D12; nine views in §6.1, all 116 keys mapped |
+| Light theme | Defer until after cutover | D11; dark tokens ship now, light is a second block later |
+| Logos | Keep | D10; identity lane keeps the logo strip, `GET /screens?source=tradingview` unchanged |
 
 ## 12. Effort
 
