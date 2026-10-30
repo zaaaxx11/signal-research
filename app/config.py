@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -152,6 +152,35 @@ class Settings(BaseSettings):
     #: WARNING per degraded cycle so a bad night is visible in journalctl
     #: instead of waiting for someone to open the store by hand.
     depth_coverage_floor: int = Field(default=60, ge=0)
+    #: The screener's view of the depth store (2026-10-29 depth-screener plan,
+    #: Phase 2). ``screen_depth`` is the one switch: ``false`` means the
+    #: selection path reads no depth file at all — every row keeps exactly the
+    #: columns the engine already carries. ``screen_depth_store_path`` is the
+    #: read-side override; ``None`` means "the store the collector writes"
+    #: (``depth_store_path``, ``data/depth.json`` when nothing is set), so a
+    #: deployment that already exports ``MEE_DEPTH_STORE_PATH`` needs no second
+    #: variable and cannot point the reader at a different file than the writer.
+    #: Declared ``str`` because it is a read-side handle only, and it carries an
+    #: explicit alias: the ``MEE_`` prefix would otherwise name it
+    #: ``MEE_SCREEN_DEPTH_STORE_PATH`` while the documented variable is
+    #: ``MEE_SCREEN_DEPTH_STORE`` (both spellings are accepted; a typo'd variable
+    #: would otherwise be ignored in silence).
+    screen_depth: bool = Field(
+        default=True,
+        description="Overlay depth-store columns onto /screens rows.",
+    )
+    screen_depth_store_path: str | None = Field(
+        default=None,
+        description=(
+            "Depth store the screener reads; null means the collector's store "
+            "(depth_store_path)."
+        ),
+        validation_alias=AliasChoices(
+            "MEE_SCREEN_DEPTH_STORE",
+            "MEE_SCREEN_DEPTH_STORE_PATH",
+            "screen_depth_store_path",
+        ),
+    )
     #: ``GET /screens`` (P10) is a multi-source consensus by default: the
     #: TradingView snapshot supplies the twenty candidates and one observation,
     #: Yahoo/Nasdaq/Finviz/Google re-verify their cells (P10.1 added the last

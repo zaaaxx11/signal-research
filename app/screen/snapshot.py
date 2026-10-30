@@ -36,6 +36,8 @@ from app.screen import rank as ranking
 from app.screen import universe as universes
 from app.screen.repository import SqliteScreenRepository
 from app.screen.scanner import FULL_SCAN_ROWS, ScanBlocked, ScanError, fetch_scan
+from app.screen.depth_overlay import overlay
+from app.screen.depth_source import current_depth
 
 #: The display window: five minutes (user revision of PLAN §4).
 SNAPSHOT_TTL_S = 300
@@ -127,6 +129,13 @@ async def refresh_screen(
     # page's partial count. Observed live: 65k rows in ~7 s for Global.
     page = await fetch_scan(region, limit=FULL_SCAN_ROWS)
     universe = universes.build_universe(page.rows, region=region)
+    # Depth lands on the *normalised* rows, not on the provider rows:
+    # `build_universe` rebuilds each row from its own key set and would drop a
+    # merged field on the floor. Merging here keeps the filter vocabulary and
+    # the returned row reading the same value.
+    depth = current_depth()
+    if depth.symbols:
+        universe = overlay(universe, depth.symbols, default_ticker_key="symbol")
     ranked = ranking.rank_rows(universe, sort)
     displayed = ranking.top_rows(ranked, DISPLAY_ROWS)
 
