@@ -187,6 +187,35 @@ existing behaviour changes for a client that does not ask for it.
 - **Gate:** one test per row; `research/ui-surface-audit.md` §contract-bugs
   referenced in each test docstring.
 
+
+### Phase 0 — what the adversarial review found (2026-10-30)
+
+The first Phase 0 build passed 4,249 tests and still shipped a critical defect. The review
+(`research/phase0-adversarial.md`) found 13 issues; the lesson is recorded here because it will
+recur in every phase:
+
+```
+F1  critical  views name catalogue keys, the row builder was keyed by legacy names
+              → 62 of 100 view columns rendered null ("income" 8/8, "profile" 12/12)
+F2  high      `columns` read names verbatim → view= and columns= returned different numbers
+F3  high      ETag revision tracked only the depth store → 304 with a changed body
+F4  high      fill_wide rewrote the row after projection → 118 KB for 100 rows × 1 column
+F5  medium    three alias tables had already drifted (perf_1w ok, perf_4w 422)
+F6  medium    average_volume read a 10-day window while the catalogue says 30-day
+F7  medium    schema still advertised the old 82-key filter vocabulary
+F9  medium    the 60 KB panel budget applied only to `columns`, not to `view`
+F10 medium    breadth retried a failed scan on every request during an outage
+F11 low       limit: 4.0 / 1e9 were 422 instead of clamped
+F12 low       discovery errors used a different envelope from the rest of the API
+F13 low       the universe cache bound its loader at construction, contradicting its docstring
+```
+
+**Why the suite missed all of it:** every test asserted the shape of a response, not the value
+behind it. A null column and a correct column have the same shape.
+
+**Rule for later phases:** a phase gate must include at least one assertion on *values from the
+real store* (a known symbol's known number), not only on structure.
+
 ## 3. Phase 1 — app shell and tokens
 
 - **Files:** `web/` (new): `package.json`, `vite.config.ts`, `index.html`,
