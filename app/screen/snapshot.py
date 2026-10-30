@@ -36,7 +36,7 @@ from app.screen import rank as ranking
 from app.screen import universe as universes
 from app.screen.repository import SqliteScreenRepository
 from app.screen.scanner import FULL_SCAN_ROWS, ScanBlocked, ScanError, fetch_scan
-from app.screen.depth_overlay import overlay
+from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth
 
 #: The display window: five minutes (user revision of PLAN §4).
@@ -135,7 +135,7 @@ async def refresh_screen(
     # the returned row reading the same value.
     depth = current_depth()
     if depth.symbols:
-        universe = overlay(universe, depth.symbols, default_ticker_key="symbol")
+        universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
     ranked = ranking.rank_rows(universe, sort)
     displayed = ranking.top_rows(ranked, DISPLAY_ROWS)
 

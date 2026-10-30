@@ -52,7 +52,7 @@ from app.screen.symbols import provider_symbol
 from app.screen.scanner import FULL_SCAN_ROWS, fetch_all, fetch_scan
 from app.screen.views import VIEW_NAMES
 from app.sources.graph import GRAPH_VERSION
-from app.screen.depth_overlay import overlay
+from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth
 
 #: Rows the deep engine may enrich. Never the whole universe.
@@ -452,7 +452,7 @@ async def export_bundle(
     universe = universes.build_universe(page.rows, region=region)
     depth = current_depth()
     if depth.symbols:
-        universe = overlay(universe, depth.symbols, default_ticker_key="symbol")
+        universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
     ranked = ranking.rank_rows(universe, sort)
     light = [_light_row(row, as_of=as_of, source=source) for row in ranked]
 

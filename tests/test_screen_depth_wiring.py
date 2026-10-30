@@ -186,3 +186,36 @@ def test_the_flag_off_reads_no_file(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(screen_depth=False)
     assert depth_source.resolve_store_path(settings) is None
     assert depth_source.load_depth(depth_source.resolve_store_path(settings)).symbols == {}
+
+
+def test_an_alias_lands_under_the_screen_name() -> None:
+    """The two vocabularies spell the same measurement differently.
+
+    The depth store speaks the catalog (``pe``); the screener filters on
+    ``pe_ttm``. Without the alias the store is full and the filter still
+    answers nothing.
+    """
+
+    from app.screen.depth_overlay import SCREEN_ALIASES, overlay
+
+    merged = overlay(
+        [{"symbol": "AAPL"}],
+        {"AAPL": {"pe": 21.3, "rsi": 55.0}},
+        default_ticker_key="symbol",
+        aliases=SCREEN_ALIASES,
+    )
+    assert merged[0]["pe"] == 21.3
+    assert merged[0]["pe_ttm"] == 21.3
+    assert merged[0]["rsi_14"] == 55.0
+
+
+def test_an_alias_never_overwrites_a_present_value() -> None:
+    from app.screen.depth_overlay import SCREEN_ALIASES, overlay
+
+    merged = overlay(
+        [{"symbol": "AAPL", "pe_ttm": 19.0}],
+        {"AAPL": {"pe": 21.3}},
+        default_ticker_key="symbol",
+        aliases=SCREEN_ALIASES,
+    )
+    assert merged[0]["pe_ttm"] == 19.0

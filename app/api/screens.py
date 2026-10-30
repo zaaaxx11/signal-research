@@ -78,7 +78,7 @@ from app.screen.export import (
     export_bundle,
 )
 from app.screen.facts import enrich_rows as enrich_facts
-from app.screen.depth_overlay import overlay
+from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth
 from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
@@ -327,7 +327,7 @@ async def select(request: Request) -> dict[str, Any]:
     # (forward P/E, short float, insider own) still wins over it below.
     depth = current_depth()
     if depth.symbols:
-        universe = overlay(universe, depth.symbols, default_ticker_key="symbol")
+        universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
 
     universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
 

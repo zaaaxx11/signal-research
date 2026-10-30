@@ -49,11 +49,45 @@ the only import, and it is a frozen lookup table built at process start.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 from app.engine.catalog import CATALOG
 
 __all__ = ["overlay"]
+
+#: depth key -> screen filter field, for measurements the two vocabularies spell
+#: differently. The depth store speaks the catalog (``pe``, ``rsi``, ``beta``);
+#: ``/screens/select`` filters on its own names (``pe_ttm``, ``rsi_14``,
+#: ``beta_1y``). Without this table the cell lands under a name the filter never
+#: reads — the store is full and the screen still answers nothing.
+#:
+#: Only measurements with the same definition are mapped. ``average_volume`` is
+#: not aliased to ``avg_volume_30d`` because the windows differ, and the
+#: forward-estimate fields are left alone because "next quarter" in one
+#: vocabulary is not "next quarter" in the other.
+SCREEN_ALIASES: Mapping[str, str] = MappingProxyType(
+    {
+        "pe": "pe_ttm",
+        "forward_pe": "pe_forward",
+        "market_cap": "market_cap_usd",
+        "operating_margin": "oper_margin",
+        "net_margin": "profit_margin",
+        "pc": "price_to_cash",
+        "ev_sales": "ev_to_sales",
+        "shares_float": "float_shares",
+        "beta": "beta_1y",
+        "rsi": "rsi_14",
+        "atr": "atr_14",
+        "average_volume": "avg_volume_10d",
+        "perf_1w": "ret_1w",
+        "perf_ytd": "ret_ytd",
+        "perf_3y": "ret_3y",
+        "perf_5y": "ret_5y",
+        "perf_10y": "ret_10y",
+        "ipo_date": "listing_date",
+    }
+)
 
 
 def _spellings(symbol: str) -> tuple[str, ...]:
@@ -117,6 +151,7 @@ def overlay(
     depth: Mapping[str, Mapping[str, Any]],
     *,
     default_ticker_key: str = "ticker",
+    aliases: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return one new dict per row: the row's own cells plus the store's gaps.
 
@@ -142,5 +177,11 @@ def overlay(
                 value = entry[key]
                 if value is not None:
                     merged[key] = value
+            for source_key, screen_key in (aliases or {}).items():
+                if screen_key in merged or source_key not in entry:
+                    continue
+                value = entry[source_key]
+                if value is not None:
+                    merged[screen_key] = value
         merged_rows.append(merged)
     return merged_rows
