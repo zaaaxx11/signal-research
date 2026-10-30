@@ -27,7 +27,20 @@ tabel SQLite mati    quotes 0 · instruments 0 · observations 0
 | 6 — registry bug | 🔄 P1 dikerjakan | env guard + tabel SQLite |
 | 7 — canary harian | ⏳ | menunggu 1, 3 |
 
-**Suite:** 3.915 ×3 (dari 3.758). Commit `f724f07`, `cd20407`.
+**Suite:** 3.915 ×3 (dari 3.758). Commit `f724f07`, `cd20407`, `bbd9d9e`, `0148c34` (push).
+
+**Urutan yang diputuskan operator (2026-10-30):**
+
+```text
+Phase 6  →  Phase 2  →  Phase 7  →  done
+```
+
+Phase 2 (alerting) dikerjakan **tepat setelah** Phase 6, dan harus **sink-agnostic**:
+mesin keputusan yang menghasilkan event, plus antarmuka sink. Platform (Telegram,
+email, webhook, Slack) dipasang belakangan — yang penting kodenya ada dulu.
+
+UI **tidak** disentuh sampai engine matang. Yang jalan sekarang hanya riset
+read-only atas Finviz (`research/finviz-ui.md`), bukan implementasi.
 
 **Temuan yang muncul saat pengerjaan** (bukan dari rencana awal):
 
