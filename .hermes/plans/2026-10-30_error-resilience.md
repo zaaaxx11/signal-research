@@ -15,6 +15,37 @@ tabel SQLite mati    quotes 0 · instruments 0 · observations 0
 
 ---
 
+## Status (2026-10-30)
+
+| Phase | Status | Bukti |
+|---|---|---|
+| 1 — `/health` | ✅ | 5 check, 200/503, nol network, 23–32 ms (prime saat startup: 2,47 s → 0,25 s) |
+| 2 — alerting | ⏳ | mesin keputusan belum dibuat; destinasi ditunda operator |
+| 3 — ledger per rung | ✅ | `depth.health.json` + key `sources` di `/market/depth/stats` |
+| 4 — audit silent catch | ✅ | 104 broad handler dipindai, 11 dipin + allowlist, test AST |
+| 5 — kontrak upstream | ✅ | 3/3 ditegakkan: `HoldingsFormatError`, `missing_quarters`, `CrumbRefused` |
+| 6 — registry bug | 🔄 P1 dikerjakan | env guard + tabel SQLite |
+| 7 — canary harian | ⏳ | menunggu 1, 3 |
+
+**Suite:** 3.915 ×3 (dari 3.758). Commit `f724f07`, `cd20407`.
+
+**Temuan yang muncul saat pengerjaan** (bukan dari rencana awal):
+
+```text
+app/api/health.py mengimpor urllib.parse → melanggar aturan import-direction
+yahoo_batch.py tidak punya logger sama sekali → NameError
+allowlist audit bergeser baris setelah suntingan
+```
+
+**Batas yang diterima dan dicatat** (bukan bug yang disembunyikan):
+
+```text
+/health bisa "ok" bila proses menyajikan dataset lama sementara file di disk lebih baru
+cursor macet tapi parseable tidak terdeteksi (dua cadence, satu ambang salah)
+audit tidak melihat contextlib.suppress atau exception yang di-alias
+ledger: consecutive_errors sengaja tidak di-reset saat restart
+```
+
 ## 1. Tiga prinsip
 
 **1. Fail loud, bukan fail quiet.**
