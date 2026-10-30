@@ -31,6 +31,10 @@ why, and the symbols nobody answered simply stay absent from the result.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger("mee.market.yahoo_batch")
+
 import asyncio
 import math
 import re
@@ -40,6 +44,7 @@ from itertools import batched
 from typing import Any
 
 from app.market.depth import canonical_symbol
+from app.market.sources import CrumbRefused, describe_crumb_refusal
 from app.market.sources import BROWSER_USER_AGENT, QuoteSourceError, clean_symbols
 from app.providers import http as provider_http
 
@@ -333,7 +338,10 @@ class YahooBatchQuoteSource:
         status = int(getattr(response, "status_code", 0) or 0)
         token = str(getattr(response, "text", "") or "").strip()
         if status != 200 or not _CRUMB_RE.match(token):
-            return ""
+            raise CrumbRefused(
+                "yahoo crumb endpoint refused the handshake: "
+                + describe_crumb_refusal(token if status == 200 else f"HTTP {status}")
+            )
         return token
 
     async def _fetch_batch(
@@ -383,7 +391,11 @@ class YahooBatchQuoteSource:
         async with provider_http.build_client(
             timeout_s=self.timeout_s, headers=self.headers(), proxy=self.proxy
         ) as client:
-            crumb = await self._authorize(client)
+            try:
+                crumb = await self._authorize(client)
+            except CrumbRefused as exc:
+                logger.warning("yahoo batch running unauthenticated: %s", exc)
+                crumb = ""
             if not crumb:
                 # v7 answers 401 to an anonymous client: without a token every
                 # batch request is a guaranteed authwall, so none is spent.

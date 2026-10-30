@@ -391,6 +391,17 @@ def _clean_ticker(value: Any) -> str | None:
     return symbol or None
 
 
+class HoldingsFormatError(ValueError):
+    """A holdings file whose shape contradicts its own header.
+
+    An empty set means "this index published nothing"; this error means "the
+    file is not what the header promises". A caller may treat them the same for
+    availability, but a monitor must not: one is a publication gap, the other is
+    a parser that lost the column. Raised only when a header was found and data
+    rows exist, so a genuinely empty workbook still answers ``set()``.
+    """
+
+
 def parse_ssga_holdings(content: bytes | str, index_name: str) -> set[str]:
     """Tickers held by an SSGA fund file, labelled ``index_name``.
 
@@ -422,12 +433,24 @@ def parse_ssga_holdings(content: bytes | str, index_name: str) -> set[str]:
         if header_index is None or ticker_column is None:
             continue
         found: set[str] = set()
-        for row in rows[header_index + 1 :]:
+        data_rows = rows[header_index + 1 :]
+        for row in data_rows:
             if ticker_column >= len(row):
                 continue
             symbol = _clean_ticker(row[ticker_column])
             if symbol is not None:
                 found.add(symbol)
+        if not found and data_rows:
+            # The header named a ticker column and the file has rows under it,
+            # yet not one cell parses as a symbol. Almost always a column that
+            # drifted one to the right. Returning ``set()`` here would be
+            # published as "this index has no members" — a silent, plausible
+            # wrong answer for every index-filtered screen.
+            raise HoldingsFormatError(
+                f"ssga holdings for {label}: header names ticker column "
+                f"{ticker_column} but none of {len(data_rows)} data rows parses "
+                f"as a ticker (columns shifted?)"
+            )
         logger.info("ssga holdings for %s: %s tickers", label, len(found))
         return found
 

@@ -62,6 +62,7 @@ from app.api.cache import cache_headers, etag_for, not_modified
 from app.auth import ApiError
 from app.market.depth import DepthCollector, DepthStore
 from app.market.depth_fields import CATALOG_FIELDS
+from app.market.health_ledger import HealthLedger
 from app.market.hub import QuoteHub
 from app.market.quote import QuoteEngine, QuoteTick
 from app.market.sources import InvalidSymbol, build_quote_engine, parse_symbol_list
@@ -100,7 +101,9 @@ def depth_collector_of(request: Request) -> DepthCollector | None:
 _warned_cycles: "WeakKeyDictionary[Any, str]" = WeakKeyDictionary()
 
 
-def depth_stats(store: DepthStore) -> dict[str, Any]:
+def depth_stats(
+    store: DepthStore, health: HealthLedger | None = None
+) -> dict[str, Any]:
     """Coverage of one depth store, computed from memory alone.
 
     ``fields_filled`` counts distinct **catalog** keys that hold at least one
@@ -119,6 +122,12 @@ def depth_stats(store: DepthStore) -> dict[str, Any]:
     cells for source attribution and the newest stamp. On the production store
     (4,217 symbols × ~90 cells) that is roughly 0.1–0.2 s, against a 13-minute
     daily crawl.
+
+    ``sources`` is the per-rung health ledger: which source succeeded, when it
+    last did, and how many cycles in a row it has failed. It is additive — every
+    other key keeps its meaning and its value — and it is the only part of this
+    document that describes the collector rather than the data. Without it,
+    coverage says "how much we know" but never "who stopped telling us".
     """
 
     catalog = CATALOG_FIELDS
@@ -152,6 +161,10 @@ def depth_stats(store: DepthStore) -> dict[str, Any]:
         "min_fields": min(counts) if counts else 0,
         "max_fields": max(counts) if counts else 0,
         "by_source": dict(sorted(by_source.items())),
+        # Which rung is sick, not just how much is filled. A collector built
+        # without a ledger (``store_path=None``) still answers the key, empty:
+        # a scraper must not have to probe for its existence.
+        "sources": health.summary() if health is not None else {},
     }
 
 
@@ -555,7 +568,7 @@ async def depth_stats_route(request: Request) -> dict[str, Any]:
             "depth_unavailable",
             "depth collector is not running or has not completed a refresh",
         )
-    document = depth_stats(collector.store)
+    document = depth_stats(collector.store, collector.health)
     _warn_if_degraded(request, collector, document)
     return document
 

@@ -110,6 +110,9 @@ def test_stats_document_shape_and_numbers() -> None:
         "min_fields": 2,
         "max_fields": 3,
         "by_source": {"finviz": 3, "yahoo": 2},
+        # Phase 3's additive key: this collector was built with no store path,
+        # so it has no ledger. The seven keys above are unchanged.
+        "sources": {},
     }
 
 

@@ -229,6 +229,10 @@ class SecFundamentalsDepthSource:
         self._index: FactIndex | None = None
         self._build_attempted = False
         self.build_error: str | None = None
+        #: Quarters the configuration named that had no cached ZIP. A subset of
+        #: the requested window is a smaller answer, not an error — so it is
+        #: reported here instead of failing the cycle.
+        self.missing_quarters: tuple[str, ...] = ()
         self._ciks: dict[str, str] | None = None
         self.cik_error: str | None = None
 
@@ -284,11 +288,18 @@ class SecFundamentalsDepthSource:
     # -- the quarterly cache ------------------------------------------------
 
     def _cached_quarters(self) -> tuple[str, ...]:
-        """The configured (or discovered) quarters that actually have a ZIP."""
+        """The configured (or discovered) quarters that actually have a ZIP.
+
+        Records the requested-but-absent ones in :attr:`missing_quarters`,
+        because a hole in the middle is the dangerous case: the index builds
+        from the quarters it found, serves a shorter window, and looks healthy.
+        A growth CAGR from a gapped window is subtly wrong rather than missing.
+        """
         candidates = self.quarters or _recent_quarters(
             self.quarter_count, self.quarter_lookback
         )
         found: list[str] = []
+        missing: list[str] = []
         for quarter in candidates:
             try:
                 path = dataset_cache_path(self.cache_dir, quarter)
@@ -296,6 +307,16 @@ class SecFundamentalsDepthSource:
                 continue
             if path.is_file():
                 found.append(quarter)
+            else:
+                missing.append(str(quarter))
+        self.missing_quarters = tuple(missing)
+        if missing and found:
+            logger.warning(
+                "sec bulk depth is missing cached quarter(s) %s; the index is "
+                "built from %s and any window spanning the hole is unreliable",
+                ", ".join(missing),
+                ", ".join(found),
+            )
         return tuple(found)
 
     async def _ensure_index(self) -> FactIndex | None:

@@ -219,6 +219,63 @@ class Settings(BaseSettings):
     proxy_pool: Path | None = None
     proxy_attempts: int = Field(default=3, ge=1, le=10)
     proxy_direct_cooldown_s: float = Field(default=600.0, ge=0.0)
+    #: ``GET /health`` (plan 2026-10-30_error-resilience §3). The route answers
+    #: for the **deployment**, not for the uvicorn process, so every path it
+    #: reads and every budget it compares against is declared here instead of
+    #: being hardcoded: a box that moves its data directory must not have to
+    #: patch the probe.
+    #:
+    #: ``health_depth_store_path`` defaults to ``None``, meaning "the store the
+    #: collector writes" (``depth_store_path``). The two cursor files are derived
+    #: from that same path with the collector's own ``with_suffix`` spelling, so
+    #: a reader cannot be pointed at a different store than the writer's.
+    health_depth_store_path: Path | None = Field(default=None)
+    #: A depth store is daily, so ``/health`` allows ``depth_refresh_s`` plus
+    #: this much slack before calling it stale. Two hours covers a slow cycle
+    #: (measured 40-90 min at the 4,217-symbol scale) while still catching a
+    #: missed night on the next poll instead of the next audit.
+    health_depth_budget_slack_s: float = Field(default=7_200.0, ge=0.0)
+    #: The engine snapshot. ``None`` reads ``MEE_ENGINE_SNAPSHOT`` — the very
+    #: variable ``create_app``'s lifespan loads — so a deployment that already
+    #: exports it needs no second variable and the probe cannot end up verifying
+    #: a different file than the process serves. The field name is listed too so
+    #: ``Settings(health_snapshot_path=...)`` keeps working (tests rely on it).
+    health_snapshot_path: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MEE_HEALTH_SNAPSHOT_PATH",
+            "MEE_ENGINE_SNAPSHOT",
+            "health_snapshot_path",
+        ),
+    )
+    #: Snapshot age budget: two daily cycles. Rebuilding a snapshot is expensive
+    #: (a full EDGAR pass) and not every deployment needs a nightly one, but
+    #: three days of silence is an engine that has stopped refreshing.
+    health_snapshot_budget_s: float = Field(default=172_800.0, gt=0.0)
+    #: Filesystem the disk check measures. ``None`` means the depth store's
+    #: directory — the volume the crawl grows, and the one an ENOSPC stops first.
+    health_data_dir: Path | None = Field(default=None)
+    #: Free space below this is ``degraded``: the process still serves, but the
+    #: next snapshot (24 MB) or depth write (11 MB) is the one that fails. 2 GiB
+    #: leaves room for both plus the engine cache.
+    health_min_free_gb: float = Field(default=2.0, ge=0.0)
+    #: The screen database (``screens``/``screen_rows``). ``None`` means the
+    #: process database (``db_path``).
+    health_screen_db_path: Path | None = Field(default=None)
+    #: A locked database must not hold the probe: SQLite waits this long for the
+    #: writer and then the check reports ``unreadable``; the route still answers.
+    #: Kept short because ``/health`` is polled by a load balancer.
+    health_screen_db_timeout_s: float = Field(default=0.5, gt=0.0)
+    #: ``GET /health/deep`` (never called by a load balancer) probes three
+    #: upstreams. ``health_probe_timeout_s`` bounds each probe on its own and
+    #: ``health_deep_budget_s`` bounds the whole route, so one upstream that
+    #: accepts the connection and then says nothing cannot make an operator wait
+    #: past ten seconds. The symbol and filer are the smallest request each
+    #: source accepts, not a market sample.
+    health_probe_timeout_s: float = Field(default=3.0, gt=0.0)
+    health_deep_budget_s: float = Field(default=10.0, gt=0.0)
+    health_deep_symbol: str = Field(default="AAPL", min_length=1)
+    health_deep_cik: str = Field(default="0000320193", min_length=10, max_length=10)
 
 
 def get_settings() -> Settings:

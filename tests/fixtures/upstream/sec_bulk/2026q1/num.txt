@@ -1,0 +1,2 @@
+adsh	tag	version	ddate	qtrs	uom	segments	coreg	value	footnote
+0000320193-25-000079	RevenueFromContractWithCustomerExcludingAssessedTax	us-gaap/2026	20250927	4	USD			416161000000	

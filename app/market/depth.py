@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.market.chart import YahooChartDepthSource
+from app.market.health_ledger import HealthLedger
 from app.market.yahoo_egress import rainproxy_url
 from app.market.sectors import classify_sector
 
@@ -331,7 +332,12 @@ def _chunked(symbols: Sequence[str], size: int) -> list[tuple[str, ...]]:
 
 
 class DepthCollector:
-    """Collect every depth source and merge by field."""
+    """Collect every depth source and merge by field.
+
+    Each source's last outcome is also recorded in a :class:`HealthLedger` beside
+    the store: the log line a cycle emits is for a human watching it, the ledger
+    is for the person who asks the next morning which rung stopped answering.
+    """
 
     def __init__(
         self,
@@ -380,6 +386,12 @@ class DepthCollector:
         self.sources = tuple(sources)
         self.store_path = Path(store_path) if store_path is not None else None
         self.seed_path = Path(seed_path) if seed_path is not None else None
+        # Per-source health is derived from the store path, the same way the
+        # enrichment cursors are: one path to configure, one place to look.
+        # Entries for rungs that are no longer configured are dropped here so a
+        # disabled source cannot be reported as permanently sick.
+        self.health = HealthLedger.beside_store(self.store_path)
+        self.health.retain(names)
         self.refresh_s = float(refresh_s)
         self.jitter_s = float(jitter_s)
         self.source_timeout_s = float(source_timeout_s)
@@ -521,24 +533,33 @@ class DepthCollector:
             # an observation instead of a guess.
             source_started = time.perf_counter()
             source_fields = 0
+            # The first failure is what identifies the sickness; later chunks
+            # are counted so a wholly dead rung is not mistaken for one bad
+            # batch. A source is healthy only if *every* chunk answered.
+            source_error: str | None = None
+            source_failures = 0
             for chunk in _chunked(self.symbols, self.source_chunk_size):
                 try:
                     fetched = await self._fetch_chunk(source, chunk)
                 except TimeoutError:
                     errors += 1
+                    source_failures += 1
                     message = (
                         f"{source.name}: timeout after "
                         f"{self.source_timeout_s:g}s ({len(chunk)} symbols)"
                     )
                     messages.append(message)
                     self.last_error = message
+                    source_error = source_error or message
                     logger.warning("depth source chunk timed out: %s", message)
                     continue
                 except Exception as exc:  # noqa: BLE001 - one chunk is not a cycle
                     errors += 1
+                    source_failures += 1
                     message = f"{source.name}: {type(exc).__name__}: {exc}"
                     messages.append(message)
                     self.last_error = message
+                    source_error = source_error or message
                     logger.warning("depth source chunk failed: %s", message)
                     continue
                 source_fields += sum(
@@ -549,12 +570,31 @@ class DepthCollector:
                         observations.setdefault(observation.symbol, []).append(
                             (priority, observation)
                         )
+            source_seconds = time.perf_counter() - source_started
+            # The ledger is the machine-readable form of the line below: a log
+            # fires once and is gone, while this is what `/market/depth/stats`
+            # answers tomorrow morning. Recording cannot fail the cycle — the
+            # ledger's own write is best effort.
+            if source_error is None:
+                self.health.record_ok(
+                    source.name, duration_s=source_seconds, fields=source_fields
+                )
+            else:
+                detail = source_error
+                if source_failures > 1:
+                    detail = f"{detail} (+{source_failures - 1} more chunk failures)"
+                self.health.record_error(source.name, error=detail)
             logger.info(
                 "depth source %s done in %.1fs (%s fields)",
                 source.name,
-                time.perf_counter() - source_started,
+                source_seconds,
                 source_fields,
             )
+
+        # One write per cycle: the file is for the next process and for whoever
+        # reads it between cycles, so writing per source would only triple the
+        # I/O for the same answer.
+        self.health.persist()
 
         returned = 0
         for symbol in self.symbols:

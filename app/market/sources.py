@@ -106,6 +106,33 @@ class QuoteSourceError(RuntimeError):
         self.status = status
 
 
+
+def describe_crumb_refusal(body: str) -> str:
+    """A short, safe description of what the crumb endpoint answered.
+
+    The body is quoted because the whole point is that it is prose, not a
+    token; it is trimmed so a consent page cannot flood a log line.
+    """
+
+    text = " ".join(str(body or "").split())[:80]
+    lowered = text.lower()
+    if "too many requests" in lowered or "rate limit" in lowered or "throttl" in lowered:
+        return f"throttled ('{text}')"
+    if not text:
+        return "empty body"
+    return f"not a token ('{text}')"
+
+
+class CrumbRefused(QuoteSourceError):
+    """Yahoo's crumb endpoint answered without a token.
+
+    The 2026-10 incident: a throttled ``getcrumb`` answers ``200`` with the
+    literal body ``Too Many Requests``. Every parser rejected it (so the string
+    never reached a query), but none said why — the batch looked like "no
+    cookie" instead of "this IP is throttled", and the next retry was spent on
+    the same wall. Named, so a caller can tell refusal from absence.
+    """
+
 class InvalidSymbol(ValueError):
     """A request named something that is not a provider symbol."""
 
@@ -350,12 +377,20 @@ class YahooQuoteSource:
                 f"yahoo crumb warm-up failed: {type(exc).__name__}: {exc}"
             ) from exc
         token = str(getattr(response, "text", "") or "").strip()
-        return token if _CRUMB_RE.match(token) else ""
+        if _CRUMB_RE.match(token):
+            return token
+        raise CrumbRefused(
+            f"yahoo crumb endpoint refused the handshake: {describe_crumb_refusal(token)}"
+        )
 
     async def _authorize(self, client: Any) -> str:
         """Run the handshake and remember ``(cookies, crumb)`` for the next poll."""
 
-        crumb = await self._crumb(client)
+        try:
+            crumb = await self._crumb(client)
+        except CrumbRefused as exc:
+            logger.warning("yahoo quote source running unauthenticated: %s", exc)
+            crumb = ""
         if crumb:
             self._auth = (dict(client.cookies), crumb)
         return crumb

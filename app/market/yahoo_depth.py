@@ -47,6 +47,8 @@ instead of publishing a ``No`` that was really "nobody answered".
 
 from __future__ import annotations
 
+from app.market.sources import CrumbRefused, describe_crumb_refusal
+
 import asyncio
 import logging
 import math
@@ -801,15 +803,25 @@ class YahooDepthSource:
             response = await client.get(f"{YAHOO_HOST}{CRUMB_PATH}")
         except Exception:  # noqa: BLE001 - auth warm-up must not fail the batch
             return ""
-        if int(getattr(response, "status_code", 0) or 0) != 200:
-            return ""
+        status = int(getattr(response, "status_code", 0) or 0)
         token = str(getattr(response, "text", "") or "").strip()
+        if status != 200:
+            raise CrumbRefused(
+                "yahoo crumb endpoint refused the handshake: "
+                + describe_crumb_refusal(f"HTTP {status}")
+            )
         if not token or len(token) > 32:
-            return ""
+            raise CrumbRefused(
+                "yahoo crumb endpoint refused the handshake: "
+                + describe_crumb_refusal(token)
+            )
         # A crumb is a short URL-safe token; an HTML challenge page is not one and
         # must never be pasted into a query string.
         if not all(character.isalnum() or character in "._-~" for character in token):
-            return ""
+            raise CrumbRefused(
+                "yahoo crumb endpoint refused the handshake: "
+                + describe_crumb_refusal(token)
+            )
         return token
 
     async def _login(self, client: Any) -> str:
@@ -819,7 +831,13 @@ class YahooDepthSource:
             await client.get(COOKIE_URL)
         except Exception as exc:  # noqa: BLE001 - the data request reports 401 itself
             logger.debug("yahoo_full cookie warm-up failed: %s", exc)
-        return await self._crumb_token(client)
+        try:
+            return await self._crumb_token(client)
+        except CrumbRefused as exc:
+            # Named, logged, and still non-fatal: the batch proceeds
+            # unauthenticated exactly as before, but the journal now says why.
+            logger.warning("yahoo depth running unauthenticated: %s", exc)
+            return ""
 
     async def _renew_crumb(self, client: Any, stale: str) -> str:
         """A fresh token, unless another task already replaced ``stale``."""

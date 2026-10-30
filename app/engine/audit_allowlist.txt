@@ -1,0 +1,23 @@
+# Silent broad handlers accepted by the error-resilience plan (§6, Phase 4).
+#
+# One entry per line:  path:lineno:reason
+# The path is relative to the repository root. A line whose (path, lineno) no
+# longer matches a live handler is a STALE entry and fails
+# tests/test_engine_audit.py::test_allowlist_has_no_stale_entries — the reason
+# is documentation, the location is the key.
+#
+# "PENDING" marks an entry that is accepted only because the fix belongs to a
+# different owner (a parser/API change outside this file's scope). Everything
+# else is genuinely optional telemetry whose absence the caller already reports.
+#
+app/api/engine.py:728:accepted: a quote outage must not fail the screen; the endpoint returns two empty maps and its empty-state contract (not a swallowed exception) carries the absence to the client
+app/engine/ingest.py:693:PENDING: enrichment is optional next to the fact fetch, but a wholesale failure of the enrichment step is exactly the "rung went dark" incident from §1 of the plan; this needs a warning plus a health-ledger counter
+app/enrich/orchestrator.py:104:accepted: an unknown provider name is a caller typo, not a runtime failure; the job spec resolves to None and the job's own schema validation reports the missing provider
+app/market/depth.py:938:accepted: an HTML statistics page that will not feed is zero rows for one symbol, and the depth collector records the symbol's coverage per cycle; the alternative (raising) would sink a whole chunk
+app/market/yahoo_batch.py:331:accepted: the cookie/crumb warm-up is auth plumbing, not the quote pass; a transport failure there is followed by an unauthenticated request whose 401 is reported as a per-symbol error by the caller
+app/market/yahoo_depth.py:804:accepted: same as yahoo_batch.py:331 — the crumb exchange reports its own refusals (non-200, non-token body) and the data requests downstream answer 401, which is where the batch's failure is recorded
+app/market/yahoo_depth.py:859:accepted: a non-JSON body is a consent/challenge page, not data; the caller turns the absent payload into zero rows and the 401/429 status is already reported by the request layer
+app/providers/adapters/finviz.py:248:accepted: a broken quote page is "no rows" for one symbol; the adapter's caller records the symbol as a failed source with the transport verdict
+app/providers/adapters/finviz.py:629:accepted: the Jina reader is a documented fallback rung; when it raises, the primary transport's own verdict is the one the ladder records for that source
+app/providers/adapters/yahoo.py:618:accepted: cookie/crumb warm-up retried twice inside a loop; the loop's own exit is an empty crumb, and the quoteSummary request that follows reports 401/403 as a per-symbol capability failure
+app/providers/ladder.py:302:accepted: a rung predicate that raises must not stop the walk; the ladder records the rung as inapplicable and the remaining rungs still run, so the symbol is not silently dropped from the screen
