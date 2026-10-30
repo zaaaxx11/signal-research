@@ -297,6 +297,42 @@ class Settings(BaseSettings):
     #: instead of never. Five is the large-cap universe's noise budget: a whole
     #: source dropping out costs dozens, a single unavailable cell costs one.
     alert_field_drop_threshold: int = Field(default=5, ge=1)
+    #: The daily canary (``python -m app.ops.canary``). It is installed beside
+    #: the alert engine but owns its own memory: the drift baseline
+    #: (``canary_state_path``) is a projection of yesterday's measurements, and
+    #: the alert memory (``canary_alert_state_path``) is the engine's usual
+    #: key -> last-said document. Two files, not one, because a drift baseline
+    #: is not an alert record and merging the shapes would make either one
+    #: unreadable to its own reader.
+    #:
+    #: ``canary_min_securities`` proves the snapshot is a universe, not a stub:
+    #: production carries thousands (SEC company_tickers), so a thousand is a
+    #: floor no healthy build can fall under and no empty file can claim.
+    #: ``canary_min_median_fields`` is the per-symbol coverage floor: a keyless
+    #: cycle fills roughly sixty catalog columns, and forty still passes with a
+    #: whole source missing while failing on a store that parsed to nothing.
+    #: ``canary_field_drop_threshold`` mirrors ``alert_field_drop_threshold``:
+    #: five fields is the large-cap universe's night-to-night noise budget.
+    #: ``canary_timeout_s`` bounds one upstream call and ``canary_budget_s``
+    #: bounds the network time of the whole run, so two hanging providers cannot
+    #: hold the timer past the next one.
+    canary_report_path: Path = Path("data/canary.report.json")
+    canary_state_path: Path = Path("data/canary.state.json")
+    canary_alert_state_path: Path = Path("data/canary.alerts.state.json")
+    canary_sink_spec: str = "file:data/canary.alerts.jsonl"
+    canary_symbols: int = Field(default=20, ge=1)
+    canary_min_securities: int = Field(default=1_000, ge=1)
+    canary_min_median_fields: int = Field(default=40, ge=0)
+    canary_field_drop_threshold: int = Field(default=5, ge=1)
+    canary_timeout_s: float = Field(default=10.0, gt=0)
+    canary_budget_s: float = Field(default=60.0, gt=0)
+    #: The five symbols the quote check asks CNBC for. It is a *probe*, not a
+    #: universe: five liquid names that every US quote backend answers, so a
+    #: zero-price answer is an upstream failure rather than a delisting. A
+    #: deployment that trades elsewhere can point it at its own list; the check
+    #: needs five and pads from this default, which is why an empty value still
+    #: cannot make the check pass by asking nothing.
+    canary_quote_symbols: str = "AAPL,MSFT,NVDA,AMZN,GOOGL"
 
 
 def get_settings() -> Settings:

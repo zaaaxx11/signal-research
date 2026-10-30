@@ -20,14 +20,15 @@ tabel SQLite mati    quotes 0 · instruments 0 · observations 0
 | Phase | Status | Bukti |
 |---|---|---|
 | 1 — `/health` | ✅ | 5 check, 200/503, nol network, 23–32 ms (prime saat startup: 2,47 s → 0,25 s) |
-| 2 — alerting | ⏳ | mesin keputusan belum dibuat; destinasi ditunda operator |
+| 2 — alerting | ✅ | `app/ops/alerting.py` + `sinks.py` + CLI; platform ditunda by design |
 | 3 — ledger per rung | ✅ | `depth.health.json` + key `sources` di `/market/depth/stats` |
 | 4 — audit silent catch | ✅ | 104 broad handler dipindai, 11 dipin + allowlist, test AST |
 | 5 — kontrak upstream | ✅ | 3/3 ditegakkan: `HoldingsFormatError`, `missing_quarters`, `CrumbRefused` |
-| 6 — registry bug | 🔄 P1 dikerjakan | env guard + tabel SQLite |
-| 7 — canary harian | ⏳ | menunggu 1, 3 |
+| 6 — registry bug | ✅ | env guard 13 nama + registry 14 tabel |
+| 7 — canary harian | ✅ | 7 check end-to-end, drift, unit 04:15 UTC |
 
-**Suite:** 3.915 ×3 (dari 3.758). Commit `f724f07`, `cd20407`, `bbd9d9e`, `0148c34` (push).
+**Suite:** 4.075 ×3 (dari 3.758). Commit `f724f07`, `cd20407`, `bbd9d9e`, `0148c34`,
+`3f68ea7` (Phase 6), `8d4925a` (Phase 2), Phase 7 menyusul.
 
 **Urutan yang diputuskan operator (2026-10-30):**
 

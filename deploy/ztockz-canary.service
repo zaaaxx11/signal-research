@@ -1,0 +1,20 @@
+[Unit]
+Description=Ztockz daily data-path canary (real quotes, store coverage, drift)
+# Differs from ztockz-retention/backup on purpose: the canary's whole job is an
+# outbound call, so the network *stack* being up is not enough — egress must be
+# configured, or the first run of every boot reports a false red.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ztockz
+Group=ztockz
+WorkingDirectory=/opt/ztockz
+EnvironmentFile=/etc/ztockz/engine.env
+ExecStart=/opt/ztockz/.venv/bin/python -m app.ops.canary --symbols 20 --report /var/lib/ztockz/canary.report.json --state /var/lib/ztockz/canary.state.json --alert-state /var/lib/ztockz/canary.alerts.state.json --sink file:/var/lib/ztockz/canary.alerts.jsonl
+Nice=10
+# The exit code is the finding, not a crashed job worth retrying. A restart
+# loop would re-hit CNBC and Yahoo every few seconds and bury the one line that
+# names the broken rung; the next daily timer is the retry.
+Restart=no

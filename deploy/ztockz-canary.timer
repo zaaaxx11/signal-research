@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily Ztockz data-path canary
+
+[Timer]
+# 04:15 UTC is after the 03:30 retention and 03:45 backup pair, so the canary
+# measures a settled box rather than one whose cache is being rewritten.
+# No RandomizedDelaySec: a fixed minute is what makes day-to-day drift
+# comparable, and the probe is two requests, not a crawl.
+OnCalendar=*-*-* 04:15:00 UTC
+Persistent=true
+Unit=ztockz-canary.service
+
+[Install]
+WantedBy=timers.target
