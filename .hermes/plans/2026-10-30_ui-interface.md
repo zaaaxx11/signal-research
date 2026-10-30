@@ -359,3 +359,28 @@ Phase 7  parity + QA + cutover   2 days
 - `research/shadcn-inventory.md` — 558 entries surveyed, shortlist, licences, risks
 - `research/ui-surface-audit.md` — our UI, API contract, phantom names, payload numbers
 - `research/finviz-ui-raw/` — derived measurements (raw third-party assets are not committed)
+
+## 14. Operating protocol — automatic, per phase
+
+The operator's standing instruction (2026-10-30): **run each phase to completion without
+asking, but never trust the builder.**
+
+For every phase, in order, with no prompt needed:
+
+1. **Mechanical audit** — `git status` ownership check (did the builder touch files it does
+   not own?), diffstat, targeted tests.
+2. **Acceptance probes** — start a throwaway instance on `127.0.0.1:8098` with
+   `MEE_DEPTH=0 MEE_QUOTE_HUB=0` so production is untouched, and verify each measurable
+   gate from the phase against real data. Numbers or it did not happen.
+3. **Adversarial review** — a dedicated subagent whose only job is to break the diff:
+   wrong results, silent ignores, cache/ETag lies, injection, DoS, and tests that pass for
+   the wrong reason. It writes `research/phase<N>-adversarial.md` and never fixes anything.
+4. **Fix** — every critical/high finding is fixed before anything is committed; medium
+   findings are fixed or explicitly recorded in the plan with a reason.
+5. **Gate** — the full suite three times, consecutively green.
+6. **Commit and push** — one commit per phase, message naming the phase.
+7. **Next phase** — immediately, without asking.
+
+A phase that cannot pass its own gate is reported as blocked with the failing evidence, never
+as done.
+
