@@ -1,0 +1,394 @@
+{
+ "111": {
+  "n_cols": 9,
+  "sum_base_px": 965,
+  "sum_growth_coeff": 1.0,
+  "breakpoint_px": [
+   1066
+  ],
+  "widths": {
+   "company": {
+    "base": 262,
+    "coef": 0.271503
+   },
+   "sector": {
+    "base": 129,
+    "coef": 0.133679
+   },
+   "industry": {
+    "base": 189,
+    "coef": 0.195855
+   },
+   "country": {
+    "base": 57,
+    "coef": 0.059067
+   },
+   "marketCap": {
+    "base": 71,
+    "coef": 0.073575
+   },
+   "PE": {
+    "base": 55,
+    "coef": 0.056995
+   },
+   "price": {
+    "base": 55,
+    "coef": 0.056995
+   },
+   "change": {
+    "base": 64,
+    "coef": 0.066321
+   },
+   "volume": {
+    "base": 83,
+    "coef": 0.08601
+   }
+  }
+ },
+ "121": {
+  "n_cols": 16,
+  "sum_base_px": 971,
+  "sum_growth_coeff": 1.000001,
+  "breakpoint_px": [
+   1072
+  ],
+  "widths": {
+   "marketCap": {
+    "base": 71,
+    "coef": 0.07312
+   },
+   "PE": {
+    "base": 55,
+    "coef": 0.056643
+   },
+   "forwardPE": {
+    "base": 60,
+    "coef": 0.061792
+   },
+   "PEG": {
+    "base": 39,
+    "coef": 0.040165
+   },
+   "PS": {
+    "base": 47,
+    "coef": 0.048404
+   },
+   "PB": {
+    "base": 47,
+    "coef": 0.048404
+   },
+   "PC": {
+    "base": 55,
+    "coef": 0.056643
+   },
+   "PFCF": {
+    "base": 55,
+    "coef": 0.056643
+   },
+   "epsYoY": {
+    "base": 72,
+    "coef": 0.07415
+   },
+   "epsYoY1": {
+    "base": 67,
+    "coef": 0.069001
+   },
+   "eps5Years": {
+    "base": 64,
+    "coef": 0.065911
+   },
+   "estLTGrowth": {
+    "base": 67,
+    "coef": 0.069001
+   },
+   "sales5Years": {
+    "base": 70,
+    "coef": 0.072091
+   },
+   "price": {
+    "base": 55,
+    "coef": 0.056643
+   },
+   "change": {
+    "base": 64,
+    "coef": 0.065911
+   },
+   "volume": {
+    "base": 83,
+    "coef": 0.085479
+   }
+  }
+ },
+ "131": {
+  "n_cols": 13,
+  "sum_base_px": 859,
+  "sum_growth_coeff": 1.0,
+  "breakpoint_px": [
+   960
+  ],
+  "widths": {
+   "marketCap": {
+    "base": 71,
+    "coef": 0.082654
+   },
+   "sharesOutstanding2": {
+    "base": 65,
+    "coef": 0.075669
+   },
+   "sharesFloat": {
+    "base": 65,
+    "coef": 0.075669
+   },
+   "insiderOwn": {
+    "base": 67,
+    "coef": 0.077998
+   },
+   "insiderTrans": {
+    "base": 73,
+    "coef": 0.084983
+   },
+   "instOwn": {
+    "base": 67,
+    "coef": 0.077998
+   },
+   "instTrans": {
+    "base": 70,
+    "coef": 0.08149
+   },
+   "shortInterestShare": {
+    "base": 62,
+    "coef": 0.072177
+   },
+   "shortInterestRatio": {
+    "base": 54,
+    "coef": 0.062864
+   },
+   "averageVolume": {
+    "base": 63,
+    "coef": 0.073341
+   },
+   "price": {
+    "base": 55,
+    "coef": 0.064028
+   },
+   "change": {
+    "base": 64,
+    "coef": 0.074505
+   },
+   "volume": {
+    "base": 83,
+    "coef": 0.096624
+   }
+  }
+ },
+ "141": {
+  "n_cols": 16,
+  "sum_base_px": 1028,
+  "sum_growth_coeff": 1.000001,
+  "breakpoint_px": [
+   1129
+  ],
+  "widths": {
+   "perf1w": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "perf4w": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "perf13w": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "perf26w": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "perfYtd": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "perf52w": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "perf3y": {
+    "base": 67,
+    "coef": 0.065175
+   },
+   "perf5y": {
+    "base": 67,
+    "coef": 0.065175
+   },
+   "perf10y": {
+    "base": 75,
+    "coef": 0.072957
+   },
+   "volatility1w": {
+    "base": 59,
+    "coef": 0.057393
+   },
+   "volatility4w": {
+    "base": 59,
+    "coef": 0.057393
+   },
+   "averageVolume": {
+    "base": 63,
+    "coef": 0.061284
+   },
+   "relativeVolume": {
+    "base": 52,
+    "coef": 0.050584
+   },
+   "price": {
+    "base": 55,
+    "coef": 0.053502
+   },
+   "change": {
+    "base": 64,
+    "coef": 0.062257
+   },
+   "volume": {
+    "base": 83,
+    "coef": 0.080739
+   }
+  }
+ },
+ "161": {
+  "n_cols": 16,
+  "sum_base_px": 1016,
+  "sum_growth_coeff": 1.0,
+  "breakpoint_px": [
+   1117
+  ],
+  "widths": {
+   "marketCap": {
+    "base": 71,
+    "coef": 0.069882
+   },
+   "dividendYield": {
+    "base": 51,
+    "coef": 0.050197
+   },
+   "roa": {
+    "base": 64,
+    "coef": 0.062992
+   },
+   "roe": {
+    "base": 72,
+    "coef": 0.070866
+   },
+   "roi": {
+    "base": 72,
+    "coef": 0.070866
+   },
+   "curRatio": {
+    "base": 48,
+    "coef": 0.047244
+   },
+   "quickRatio": {
+    "base": 56,
+    "coef": 0.055118
+   },
+   "ltdebtEq": {
+    "base": 54,
+    "coef": 0.05315
+   },
+   "debtEq": {
+    "base": 59,
+    "coef": 0.058071
+   },
+   "grossMargin": {
+    "base": 59,
+    "coef": 0.058071
+   },
+   "operMargin": {
+    "base": 72,
+    "coef": 0.070866
+   },
+   "netMargin": {
+    "base": 72,
+    "coef": 0.070866
+   },
+   "earningsDate": {
+    "base": 64,
+    "coef": 0.062992
+   },
+   "price": {
+    "base": 55,
+    "coef": 0.054134
+   },
+   "change": {
+    "base": 64,
+    "coef": 0.062992
+   },
+   "volume": {
+    "base": 83,
+    "coef": 0.081693
+   }
+  }
+ },
+ "171": {
+  "n_cols": 13,
+  "sum_base_px": 778,
+  "sum_growth_coeff": 0.999998,
+  "breakpoint_px": [
+   879
+  ],
+  "widths": {
+   "beta": {
+    "base": 44,
+    "coef": 0.056555
+   },
+   "averageTrueRange": {
+    "base": 39,
+    "coef": 0.050129
+   },
+   "sma20": {
+    "base": 64,
+    "coef": 0.082262
+   },
+   "sma50": {
+    "base": 64,
+    "coef": 0.082262
+   },
+   "sma200": {
+    "base": 64,
+    "coef": 0.082262
+   },
+   "high52w": {
+    "base": 64,
+    "coef": 0.082262
+   },
+   "low52w": {
+    "base": 67,
+    "coef": 0.086118
+   },
+   "rsi": {
+    "base": 47,
+    "coef": 0.060411
+   },
+   "price": {
+    "base": 55,
+    "coef": 0.070694
+   },
+   "change": {
+    "base": 64,
+    "coef": 0.082262
+   },
+   "changeopen": {
+    "base": 67,
+    "coef": 0.086118
+   },
+   "gap": {
+    "base": 56,
+    "coef": 0.071979
+   },
+   "volume": {
+    "base": 83,
+    "coef": 0.106684
+   }
+  }
+ }
+}

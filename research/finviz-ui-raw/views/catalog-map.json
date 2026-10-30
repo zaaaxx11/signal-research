@@ -1,0 +1,1162 @@
+[
+ {
+  "n": 1,
+  "key": "ticker",
+  "label": "Ticker",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 2,
+  "key": "company",
+  "label": "Company",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 3,
+  "key": "sector",
+  "label": "Sector",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 4,
+  "key": "industry",
+  "label": "Industry",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 5,
+  "key": "security_type",
+  "label": "Security Type",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "overview classification (Stock/ETF/ADRC)"
+ },
+ {
+  "n": 6,
+  "key": "country",
+  "label": "Country",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 7,
+  "key": "exchange",
+  "label": "Exchange",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 8,
+  "key": "index_membership",
+  "label": "Index",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": ""
+ },
+ {
+  "n": 9,
+  "key": "optionable",
+  "label": "Optionable",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "overview classification (3-char Y/N, cheap)"
+ },
+ {
+  "n": 10,
+  "key": "shortable",
+  "label": "Shortable",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "overview classification (3-char Y/N, cheap)"
+ },
+ {
+  "n": 11,
+  "key": "employees",
+  "label": "Employees",
+  "unit": "count",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "overview profile cell"
+ },
+ {
+  "n": 12,
+  "key": "website",
+  "label": "Website",
+  "unit": "text",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "detail pane only \u2014 a URL is not scannable in a 60-70px cell"
+ },
+ {
+  "n": 13,
+  "key": "earnings_date",
+  "label": "Earnings",
+  "unit": "date",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "overview event cell"
+ },
+ {
+  "n": 14,
+  "key": "ipo_date",
+  "label": "IPO Date",
+  "unit": "date",
+  "category": "identification-classification",
+  "our_view": "overview",
+  "finviz_tab": "Overview (v=111)",
+  "note": "overview event cell"
+ },
+ {
+  "n": 15,
+  "key": "market_cap",
+  "label": "Market Cap",
+  "unit": "USD",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 16,
+  "key": "enterprise_value",
+  "label": "Enterprise Value",
+  "unit": "USD",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 17,
+  "key": "pe",
+  "label": "P/E",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 18,
+  "key": "forward_pe",
+  "label": "Forward P/E",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 19,
+  "key": "peg",
+  "label": "PEG",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 20,
+  "key": "ps",
+  "label": "P/S",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 21,
+  "key": "pb",
+  "label": "P/B",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 22,
+  "key": "pc",
+  "label": "P/C",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 23,
+  "key": "pfcf",
+  "label": "P/FCF",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 24,
+  "key": "ev_ebitda",
+  "label": "EV/EBITDA",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 25,
+  "key": "ev_sales",
+  "label": "EV/Sales",
+  "unit": "ratio",
+  "category": "valuation",
+  "our_view": "valuation",
+  "finviz_tab": "Valuation (v=121)",
+  "note": ""
+ },
+ {
+  "n": 26,
+  "key": "eps",
+  "label": "EPS",
+  "unit": "USD",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 27,
+  "key": "net_income",
+  "label": "Income",
+  "unit": "USD",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 28,
+  "key": "sales",
+  "label": "Sales",
+  "unit": "USD",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 29,
+  "key": "eps_next_q",
+  "label": "EPS next Q",
+  "unit": "USD",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 30,
+  "key": "eps_this_y",
+  "label": "EPS This Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 31,
+  "key": "eps_next_y",
+  "label": "EPS Next Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 32,
+  "key": "eps_past_3y",
+  "label": "EPS Past 3Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 33,
+  "key": "eps_past_5y",
+  "label": "EPS Past 5Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 34,
+  "key": "eps_next_5y",
+  "label": "EPS Next 5Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 35,
+  "key": "sales_past_3y",
+  "label": "Sales Past 3Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 36,
+  "key": "sales_past_5y",
+  "label": "Sales Past 5Y",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 37,
+  "key": "eps_qoq",
+  "label": "EPS Q/Q",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 38,
+  "key": "sales_qoq",
+  "label": "Sales Q/Q",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 39,
+  "key": "eps_yoy_ttm",
+  "label": "EPS YoY TTM",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 40,
+  "key": "sales_yoy_ttm",
+  "label": "Sales YoY TTM",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 41,
+  "key": "eps_surprise",
+  "label": "EPS Surprise",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 42,
+  "key": "revenue_surprise",
+  "label": "Revenue Surprise",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 43,
+  "key": "gross_margin",
+  "label": "Gross M",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 44,
+  "key": "operating_margin",
+  "label": "Oper M",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 45,
+  "key": "net_margin",
+  "label": "Profit M",
+  "unit": "pct",
+  "category": "income-statements-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 46,
+  "key": "roa",
+  "label": "ROA",
+  "unit": "pct",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 47,
+  "key": "roe",
+  "label": "ROE",
+  "unit": "pct",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 48,
+  "key": "roic",
+  "label": "ROIC",
+  "unit": "pct",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 49,
+  "key": "current_ratio",
+  "label": "Curr R",
+  "unit": "ratio",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 50,
+  "key": "quick_ratio",
+  "label": "Quick R",
+  "unit": "ratio",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 51,
+  "key": "lt_debt_to_equity",
+  "label": "LTDebt/Eq",
+  "unit": "ratio",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 52,
+  "key": "debt_to_equity",
+  "label": "Debt/Eq",
+  "unit": "ratio",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 53,
+  "key": "book_per_share",
+  "label": "Book/sh",
+  "unit": "USD",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 54,
+  "key": "cash_per_share",
+  "label": "Cash/sh",
+  "unit": "USD",
+  "category": "balance-sheet-ratios",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 55,
+  "key": "dividend",
+  "label": "Dividend",
+  "unit": "USD",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 56,
+  "key": "dividend_yield",
+  "label": "Dividend Yield",
+  "unit": "pct",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 57,
+  "key": "dividend_ttm",
+  "label": "Dividend TTM",
+  "unit": "USD",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 58,
+  "key": "payout_ratio",
+  "label": "Payout Ratio",
+  "unit": "pct",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 59,
+  "key": "dividend_ex_date",
+  "label": "Dividend Ex Date",
+  "unit": "date",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 60,
+  "key": "dividend_growth_1y",
+  "label": "Dividend Gr. 1Y",
+  "unit": "pct",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 61,
+  "key": "dividend_growth_3y",
+  "label": "Dividend Gr. 3Y",
+  "unit": "pct",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 62,
+  "key": "dividend_growth_5y",
+  "label": "Dividend Gr. 5Y",
+  "unit": "pct",
+  "category": "dividend",
+  "our_view": "financial",
+  "finviz_tab": "Financial (v=161)",
+  "note": ""
+ },
+ {
+  "n": 63,
+  "key": "shares_outstanding",
+  "label": "Outstanding",
+  "unit": "shares",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 64,
+  "key": "shares_float",
+  "label": "Float",
+  "unit": "shares",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 65,
+  "key": "float_pct",
+  "label": "Float %",
+  "unit": "pct",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 66,
+  "key": "insider_own",
+  "label": "Insider Own",
+  "unit": "pct",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 67,
+  "key": "insider_trans",
+  "label": "Insider Trans",
+  "unit": "pct",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 68,
+  "key": "inst_own",
+  "label": "Inst Own",
+  "unit": "pct",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 69,
+  "key": "inst_trans",
+  "label": "Inst Trans",
+  "unit": "pct",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 70,
+  "key": "short_float",
+  "label": "Short Float",
+  "unit": "pct",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 71,
+  "key": "short_ratio",
+  "label": "Short Ratio",
+  "unit": "ratio",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 72,
+  "key": "short_interest",
+  "label": "Short Interest",
+  "unit": "shares",
+  "category": "ownership",
+  "our_view": "ownership",
+  "finviz_tab": "Ownership (v=131)",
+  "note": ""
+ },
+ {
+  "n": 73,
+  "key": "perf_1w",
+  "label": "Perf Week",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 74,
+  "key": "perf_4w",
+  "label": "Perf Month",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 75,
+  "key": "perf_13w",
+  "label": "Perf Quart",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 76,
+  "key": "perf_26w",
+  "label": "Perf Half",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 77,
+  "key": "perf_52w",
+  "label": "Perf Year",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 78,
+  "key": "perf_ytd",
+  "label": "Perf YTD",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 79,
+  "key": "perf_3y",
+  "label": "Perf 3Y",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 80,
+  "key": "perf_5y",
+  "label": "Perf 5Y",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 81,
+  "key": "perf_10y",
+  "label": "Perf 10Y",
+  "unit": "pct",
+  "category": "performance",
+  "our_view": "performance",
+  "finviz_tab": "Performance (v=141)",
+  "note": ""
+ },
+ {
+  "n": 82,
+  "key": "beta",
+  "label": "Beta",
+  "unit": "ratio",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 83,
+  "key": "atr",
+  "label": "ATR",
+  "unit": "USD",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 84,
+  "key": "volatility_1w",
+  "label": "Volatility W",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 85,
+  "key": "volatility_4w",
+  "label": "Volatility M",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 86,
+  "key": "sma20",
+  "label": "SMA20",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 87,
+  "key": "sma50",
+  "label": "SMA50",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 88,
+  "key": "sma200",
+  "label": "SMA200",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 89,
+  "key": "high_50d",
+  "label": "50D High",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 90,
+  "key": "low_50d",
+  "label": "50D Low",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 91,
+  "key": "high_52w",
+  "label": "52W High",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 92,
+  "key": "low_52w",
+  "label": "52W Low",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 93,
+  "key": "rsi",
+  "label": "RSI",
+  "unit": "ratio",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 94,
+  "key": "all_time_high",
+  "label": "All-Time High",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 95,
+  "key": "all_time_low",
+  "label": "All-Time Low",
+  "unit": "pct",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": ""
+ },
+ {
+  "n": 96,
+  "key": "change_from_open",
+  "label": "Change from Open %",
+  "unit": "pct",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical (session block) \u2014 also a natural overview cell"
+ },
+ {
+  "n": 97,
+  "key": "gap",
+  "label": "Gap",
+  "unit": "pct",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical (session block)"
+ },
+ {
+  "n": 98,
+  "key": "recommendation",
+  "label": "Recom",
+  "unit": "ratio",
+  "category": "sentiment-analyst-data",
+  "our_view": "valuation",
+  "finviz_tab": "none \u2014 no Analyst tab in either product",
+  "note": "valuation by convention (1-5 consensus score); Finviz files it under analyst"
+ },
+ {
+  "n": 99,
+  "key": "target_price",
+  "label": "Target Price",
+  "unit": "USD",
+  "category": "sentiment-analyst-data",
+  "our_view": "valuation",
+  "finviz_tab": "none \u2014 no Analyst tab in either product",
+  "note": "valuation (a forward price judgement, not a statement fact)"
+ },
+ {
+  "n": 100,
+  "key": "news_url",
+  "label": "News URL",
+  "unit": "text",
+  "category": "news",
+  "our_view": null,
+  "finviz_tab": "News (v=321)",
+  "note": "no home \u2014 Finviz gives news its own tab (v=321); a URL cannot be a cell"
+ },
+ {
+  "n": 101,
+  "key": "news_title",
+  "label": "News Title",
+  "unit": "text",
+  "category": "news",
+  "our_view": null,
+  "finviz_tab": "News (v=321)",
+  "note": "no home \u2014 long prose, belongs in a detail panel"
+ },
+ {
+  "n": 102,
+  "key": "news_time",
+  "label": "News Time",
+  "unit": "text",
+  "category": "news",
+  "our_view": null,
+  "finviz_tab": "News (v=321)",
+  "note": "no home \u2014 its only meaning is attached to a title we do not render"
+ },
+ {
+  "n": 103,
+  "key": "daily_digest",
+  "label": "Daily Digest",
+  "unit": "text",
+  "category": "news",
+  "our_view": null,
+  "finviz_tab": "News (v=321)",
+  "note": "no home \u2014 a paragraph, not a cell"
+ },
+ {
+  "n": 104,
+  "key": "prev_close",
+  "label": "Prev Close",
+  "unit": "USD",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block"
+ },
+ {
+  "n": 105,
+  "key": "price",
+  "label": "Price",
+  "unit": "USD",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical as the session block, and the first overview column"
+ },
+ {
+  "n": 106,
+  "key": "change",
+  "label": "Change %",
+  "unit": "pct",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block, duplicated in overview"
+ },
+ {
+  "n": 107,
+  "key": "volume",
+  "label": "Volume",
+  "unit": "shares",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block, duplicated in overview"
+ },
+ {
+  "n": 108,
+  "key": "average_volume",
+  "label": "Avg Volume",
+  "unit": "shares",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block"
+ },
+ {
+  "n": 109,
+  "key": "relative_volume",
+  "label": "Rel Volume",
+  "unit": "ratio",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block"
+ },
+ {
+  "n": 110,
+  "key": "open",
+  "label": "Open",
+  "unit": "USD",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block"
+ },
+ {
+  "n": 111,
+  "key": "high",
+  "label": "High",
+  "unit": "USD",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block"
+ },
+ {
+  "n": 112,
+  "key": "low",
+  "label": "Low",
+  "unit": "USD",
+  "category": "intraday",
+  "our_view": "technical",
+  "finviz_tab": "Overview / Technical",
+  "note": "technical session block"
+ },
+ {
+  "n": 113,
+  "key": "candlestick_pattern",
+  "label": "Candlestick",
+  "unit": "unknown",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": "technical, but it is a numeric pattern code with no legend in the grid"
+ },
+ {
+  "n": 114,
+  "key": "week_52_range",
+  "label": "52W Range",
+  "unit": "unknown",
+  "category": "technical-indicators",
+  "our_view": "technical",
+  "finviz_tab": "Technical (v=171)",
+  "note": "technical, but duplicates high_52w/low_52w; the value is an object, not a scalar"
+ },
+ {
+  "n": 115,
+  "key": "sort_order",
+  "label": "Sort Order",
+  "unit": "count",
+  "category": "meta",
+  "our_view": null,
+  "finviz_tab": "not a user view",
+  "note": "no home \u2014 transport plumbing, not a fact about the company"
+ },
+ {
+  "n": 116,
+  "key": "row_type",
+  "label": "Row Type",
+  "unit": "text",
+  "category": "meta",
+  "our_view": null,
+  "finviz_tab": "not a user view",
+  "note": "no home \u2014 transport plumbing, not a fact about the company"
+ }
+]

@@ -1,0 +1,133 @@
+{
+ "captured_at_utc": "2026-10-30T16:10Z",
+ "fetched": {
+  "screener": "https://finviz.com/screener.ashx?v=111",
+  "maps": "https://finviz.com/map"
+ },
+ "weights_bytes": {
+  "html": 277838,
+  "css": 595724,
+  "js": 2944976,
+  "images": 181906,
+  "fonts": 95896,
+  "total": 4096340
+ },
+ "request_counts": {
+  "js": 48,
+  "css": 2,
+  "img": 21,
+  "font": 2,
+  "html": 1,
+  "total": 74
+ },
+ "ad_tracker_bytes": 45004,
+ "logos": {
+  "requests": 20,
+  "bytes_total": 136902,
+  "http404": 4,
+  "bytes_wasted_on_404_html": 108600,
+  "bytes_of_real_svg": 28302
+ },
+ "table": {
+  "row_height_px": 20,
+  "header_height_px": 24,
+  "font_size_px": 12,
+  "line_height_px": 20,
+  "cell_padding_x_px": 4,
+  "cell_border_px": 1,
+  "left_lane_px": 101,
+  "row_col_px": 31,
+  "ticker_col_px": 70,
+  "rows_per_page": 20,
+  "row_body_height_px": 400,
+  "module_height_px": 492
+ },
+ "page": {
+  "container_min_px": 1009,
+  "container_max_px": 1425,
+  "container_padding_px": 20,
+  "content_min_px": 969,
+  "content_max_px": 1385,
+  "viewport_meta": "width=1024"
+ },
+ "third_party_and_tracking_bytes": {
+  "quantserve_pixel": 45004,
+  "cloudflare_insights_beacon": 0,
+  "google_one_tap_js": 6886,
+  "first_party_pageview_js": 4771,
+  "subtotal": 56661
+ },
+ "js_breakdown": {
+  "first_party_chunks": 47,
+  "external_beacon": 1,
+  "bytes_first_party": 2944976
+ },
+ "wcag_contrast": {
+  "light_positive_on_white": 5.0,
+  "light_negative_on_white": 5.03,
+  "light_positive_on_zebra": 4.52,
+  "light_negative_on_zebra": 4.54,
+  "dark_positive_on_bg": 6.39,
+  "dark_negative_on_bg": 6.37,
+  "muted_on_white": 5.01,
+  "heatmap_white_on_30cc5a": 2.12,
+  "heatmap_white_on_f63538": 3.83,
+  "heatmap_white_on_414554": 9.53,
+  "colorblind_blue_306dca_on_white": 5.04
+ },
+ "filters": {
+  "distinct": 83,
+  "by_tab": {
+   "descriptive": 23,
+   "fundamental": 37,
+   "technical": 20,
+   "news": 2,
+   "etf": 1
+  },
+  "by_uitype": {
+   "floatRangeSelect": 52,
+   "modalSelect": 16,
+   "select": 13,
+   "tickersInput": 2
+  },
+  "grid_cols": 5,
+  "min_row_px": 30,
+  "rows_when_all": 17,
+  "height_when_all_px": 510,
+  "apply_button": false
+ },
+ "tabs": {
+  "count": 15,
+  "grid_views": {
+   "111": 11,
+   "121": 18,
+   "131": 15,
+   "141": 18,
+   "151": 11,
+   "161": 18,
+   "171": 15
+  },
+  "non_grid": [
+   "211 Charts",
+   "311 Basic",
+   "321 News",
+   "341 Snapshot",
+   "351 TA",
+   "411 Tickers",
+   "611 Stats",
+   "711 Maps"
+  ]
+ },
+ "our_side": {
+  "DISPLAY_ROWS": 20,
+  "row_height_px": 51,
+  "metric_font_px": 11,
+  "th_font_px": 9,
+  "catalog_keys": 116,
+  "catalog_keys_referenced_by_views": 48,
+  "view_names_not_in_catalog": 23,
+  "overview_unique_keys": [
+   "index"
+  ]
+ }
+}
