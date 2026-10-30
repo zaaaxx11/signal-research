@@ -242,7 +242,7 @@ async def test_the_document_is_one_row_per_stock_with_no_per_source_columns(
     assert document["selection_source"] == SELECTION_SOURCE
     assert document["degraded"] is False
     assert document["returned"] == ROWS and len(document["rows"]) == ROWS
-    assert document["total"] == 23, "the universe count belongs to the snapshot"
+    assert document["matched"] == 23, "the match count belongs to the snapshot"
 
     for row in document["rows"]:
         missing = ROW_KEYS - set(row)
@@ -582,7 +582,7 @@ async def test_total_verifier_failure_falls_back_to_the_raw_snapshot(
     assert "yahoo" in document["verification_error"]
     assert "nasdaq" in document["verification_error"]
     assert document["screen_id"] == screen["id"]
-    assert document["total"] == 23 and document["returned"] == ROWS
+    assert document["matched"] == 23 and document["returned"] == ROWS
     assert "source_summary" not in document["rows"][0], (
         "the fallback is the raw snapshot: no consensus summary exists"
     )

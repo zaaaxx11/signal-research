@@ -91,10 +91,19 @@ def display_row(row: Mapping[str, Any], *, as_of: str) -> dict[str, Any]:
 
 
 def snapshot_document(snapshot: Snapshot) -> dict[str, Any]:
-    """The ``GET /screens`` body. No ``next_cursor``: there is no page 2."""
+    """The ``GET /screens`` body. No ``next_cursor``: there is no page 2.
+
+    ``matched`` is the count of rows this route's question matched, and
+    ``universe_total`` is the universe it ran over. Browse applies no filter of
+    its own beyond the display's floor and subtype gate, so the two are equal
+    here — but they are separate names because ``/screens/select`` reports them
+    separately, and one word ("total", "Universe") for two different numbers is
+    how a 3,896-row display gets read as the size of the stock market.
+    """
 
     screen = snapshot.screen
     rows = [display_row(row, as_of=snapshot.as_of) for row in snapshot.rows]
+    matched = int(screen.get("total_count") or 0)
     return {
         "screen_id": snapshot.screen_id,
         "region": screen["region"],
@@ -104,7 +113,8 @@ def snapshot_document(snapshot: Snapshot) -> dict[str, Any]:
         "refreshed_at": screen.get("created_at") or snapshot.as_of,
         "next_refresh_at": screen.get("expires_at"),
         "stale": snapshot.stale,
-        "total": int(screen.get("total_count") or 0),
+        "matched": matched,
+        "universe_total": matched,
         "returned": len(rows),
         "rows": rows,
     }

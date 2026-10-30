@@ -256,7 +256,7 @@ async def test_etf_browse_serves_the_top_twenty_with_total_6123(
         page = await harness.create_screen(region="us_etf", sort="market_cap")
 
     assert page["region"] == "us_etf"
-    assert page["total"] == ETF_UNIVERSE_TOTAL
+    assert page["matched"] == ETF_UNIVERSE_TOTAL
     assert page["returned"] == S.DISPLAY_ROWS
     assert [row["symbol"] for row in page["rows"]] == TOP20
     assert page["rows"][0]["market_cap_usd"] == 650_000_000_000
@@ -279,7 +279,7 @@ async def test_the_stock_tab_still_excludes_every_etf(
         page = await harness.create_screen(region="us", sort="market_cap")
 
     symbols = {row["symbol"] for row in page["rows"]}
-    assert page["total"] == S.US_TOTAL == 23, (
+    assert page["matched"] == S.US_TOTAL == 23, (
         "the stock universe is unchanged by the new tab, got "
         f"total={page['total']}"
     )

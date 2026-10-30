@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import health, market, markets, news, providers, requests, screens
+from app.api import discovery, health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
@@ -507,6 +507,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(requests.router)
     application.include_router(providers.router)
     mount_router(application, screens.router)
+    mount_router(application, discovery.router)
     mount_router(application, news.router)
     mount_router(application, sources_router)
     mount_router(application, engine_api.router)

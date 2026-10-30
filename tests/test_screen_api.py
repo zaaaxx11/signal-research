@@ -36,9 +36,16 @@ async def test_browse_returns_exactly_twenty_rows_of_the_us_tab(
     assert page["sort"] == "market_cap"
     assert page["screen_id"], "a browse response must name the snapshot it came from"
     S.parse_dt(page["as_of"])
-    assert page["total"] == S.US_TOTAL, (
-        f"total is the universe after filter+dedupe ({S.US_TOTAL}), not the raw "
-        f"provider count ({S.US_RAW}); got {page['total']!r}"
+    assert page["matched"] == S.US_TOTAL, (
+        f"matched is the universe after filter+dedupe ({S.US_TOTAL}), not the raw "
+        f"provider count ({S.US_RAW}); got {page['matched']!r}"
+    )
+    assert page["universe_total"] == S.US_TOTAL, (
+        "browse applies no filter of its own, so its universe is what it matched"
+    )
+    assert "total" not in page, (
+        "the ambiguous name is gone: /screens/select uses `total` for a query "
+        "over the whole market, so browse speaks `matched`"
     )
     assert page["returned"] == S.DISPLAY_ROWS
     assert len(page["rows"]) == S.DISPLAY_ROWS, (
@@ -69,7 +76,7 @@ async def test_a_limit_above_the_display_size_does_not_widen_the_page(
         f"23-row table (got {len(page['rows'])})"
     )
     assert page["returned"] == S.DISPLAY_ROWS
-    assert page["total"] == S.US_TOTAL
+    assert page["matched"] == S.US_TOTAL
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +132,7 @@ async def test_a_read_after_three_hundred_seconds_refreshes_the_snapshot(
         f"{S.provider_requests(harness.web)} requests in total"
     )
     assert S.parse_dt(refreshed["as_of"]) >= S.parse_dt(first["as_of"])
-    assert refreshed["total"] == S.US_TOTAL
+    assert refreshed["matched"] == S.US_TOTAL
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +186,7 @@ async def test_global_tab_serves_ex_us_issuers_only(
         page = await harness.create_screen(region="global")
 
     assert page["region"] == "global"
-    assert page["total"] == S.GLOBAL_TOTAL
+    assert page["matched"] == S.GLOBAL_TOTAL
     assert len(page["rows"]) == S.DISPLAY_ROWS
     symbols = {row["symbol"] for row in page["rows"]}
     assert "NVDA" not in symbols and "ASML" not in symbols, (

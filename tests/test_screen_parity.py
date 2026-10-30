@@ -638,7 +638,9 @@ async def test_a_criteria_selection_runs_over_five_thousand_parity_rows(
     assert filtered["universe_total"] == BIG_UNIVERSE
     # 5.0 + (i % 40) <= 10 holds for six of every forty rows.
     assert filtered["total"] == BIG_UNIVERSE // 40 * 6 == 786
-    assert filtered["returned"] == S.DISPLAY_ROWS
+    assert filtered["returned"] == 100, (
+        "786 rows match and the panel serves 100 of them in one call"
+    )
     assert filtered["filters"][0]["field"] == "pe_ttm"
 
     body = seen[0]

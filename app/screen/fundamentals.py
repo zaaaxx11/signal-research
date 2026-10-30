@@ -388,6 +388,13 @@ def apply_view_fill(
     Kept separate from :func:`apply_fundamentals` on purpose: the five filter
     cells are a contract, while these extras only fill the All-columns display.
     The caller's rows and snapshots are never mutated.
+
+    **A computed cell never erases a measured one.** ``enterprise_value``,
+    ``cash_per_share`` and ``book_per_share`` are recomputed here from the
+    snapshot, but the row may already carry them from the depth store (which
+    measured them directly). Overwriting a value with the ``None`` of a partial
+    snapshot is how the audit found three of those cells permanently null: the
+    arithmetic had no inputs, so it erased the number that did.
     """
 
     filled: list[dict[str, Any]] = []
@@ -401,7 +408,12 @@ def apply_view_fill(
             joined[name] = current if value is None else value
         display = derive_view_cells(joined, snapshot)
         for name in ("enterprise_value", "book_per_share", "cash_per_share", "prev_close", "eps_next_y_growth"):
-            joined[name] = display.get(name)
+            value = display.get(name)
+            current = joined.get(name)
+            # Fill a gap, never clobber: the snapshot's arithmetic is a second
+            # opinion, and a missing input is not an argument against the
+            # measurement the row already holds.
+            joined[name] = current if value is None else value
         filled.append(joined)
     return filled
 

@@ -20,8 +20,9 @@ expression deterministik"):
   (``mega``, ``u5``) is refused too — the option vocabulary is not interpreted,
   except on the three option-driven keys, where the token *is* the request and
   :mod:`app.screen.choice_filters` compiles it;
-* ``limit`` cannot widen the page: it is clamped to 20, and ``total`` counts every
-  post-filter match rather than the rows that fit;
+* ``limit`` cannot widen the page past the panel: it is clamped to
+  ``PANEL_LIMIT = 100``, and ``total`` counts every post-filter match rather than
+  the rows that fit;
 * same rows + same request = same document, twice, without touching the input;
 * the request schema served by the route, the schema constant and
   ``schemas/stock_selection_request_v1.json`` are one document.
@@ -57,7 +58,7 @@ from app.screen.filters import FIELDS, FILTER_CATALOG, OPERATORS
 from app.screen.fundamentals import FUNDAMENTALS_FILTER_KEYS
 from app.screen.rank import SORTS
 from app.screen.selection import (
-    DISPLAY_LIMIT,
+    PANEL_LIMIT,
     MODES,
     SELECTION_REQUEST_SCHEMA,
     SOURCES,
@@ -93,7 +94,7 @@ def fixture_payload() -> dict[str, Any]:
 def criteria(
     *filters: dict[str, Any],
     sort: str = "market_cap",
-    limit: int = DISPLAY_LIMIT,
+    limit: int = PANEL_LIMIT,
     region: str = "us",
 ) -> dict[str, Any]:
     block: dict[str, Any] = {"filters": list(filters), "sort": sort, "limit": limit}
@@ -329,7 +330,7 @@ def test_the_fixture_parses_into_a_criteria_request() -> None:
     assert request.is_criteria and not request.is_symbols
     assert request.region == "us"
     assert request.sort == "market_cap"
-    assert request.limit == DISPLAY_LIMIT
+    assert request.limit == 20, "the fixture pins its own page size"
     assert [criterion.field for criterion in request.filters] == [
         "market_cap_usd",
         "sector",
@@ -346,7 +347,7 @@ def test_an_absent_filter_list_is_the_identity() -> None:
     request = parse_selection({"mode": "criteria", "region": "us", "criteria": {}})
     assert request.filters == ()
     assert request.sort == "market_cap"
-    assert request.limit == DISPLAY_LIMIT
+    assert request.limit == PANEL_LIMIT
 
 
 @pytest.mark.parametrize(
@@ -418,9 +419,10 @@ def test_a_limit_that_is_not_a_positive_integer_is_rejected(limit: Any) -> None:
     assert "limit" in str(caught.value)
 
 
-def test_a_limit_above_the_display_window_is_clamped_at_parse_time() -> None:
-    assert parse_selection(criteria(limit=100)).limit == DISPLAY_LIMIT
-    assert parse_selection(criteria(limit=DISPLAY_LIMIT)).limit == DISPLAY_LIMIT
+def test_a_limit_above_the_panel_is_clamped_at_parse_time() -> None:
+    assert parse_selection(criteria(limit=PANEL_LIMIT)).limit == PANEL_LIMIT
+    assert parse_selection(criteria(limit=PANEL_LIMIT + 1)).limit == PANEL_LIMIT
+    assert parse_selection(criteria(limit=5_000)).limit == PANEL_LIMIT
     assert parse_selection(criteria(limit=1)).limit == 1
 
 
@@ -442,7 +444,7 @@ def test_a_symbols_selection_parses_and_keeps_request_order() -> None:
     assert request.source == "tradingview"
     assert request.snapshot_id and request.snapshot_id.startswith("scr_")
     assert request.filters == () and request.sort is None and request.region is None
-    assert request.limit == DISPLAY_LIMIT, "a ticker list is capped like any display"
+    assert request.limit == PANEL_LIMIT, "a ticker list is capped like any panel"
 
 
 def test_symbols_mode_refuses_the_query_knobs() -> None:
@@ -593,7 +595,7 @@ def test_criteria_returns_the_matches_and_the_post_filter_total() -> None:
     assert document["source"] == "tradingview"
     assert document["snapshot_id"] is None
     assert document["sort"] == "market_cap"
-    assert document["limit"] == DISPLAY_LIMIT
+    assert document["limit"] == 20, "the fixture pins its own page size"
     assert document["universe_total"] == US_UNIVERSE_TOTAL
     assert document["total"] == 7, "the post-filter total counts every match, not the page"
     assert document["returned"] == 7
@@ -615,22 +617,27 @@ def test_the_page_is_cut_after_the_total_is_counted() -> None:
     assert document["limit"] == 2
 
 
-def test_a_large_limit_cannot_widen_the_page_past_twenty() -> None:
-    document = run(criteria(limit=100))
+def test_a_large_limit_cannot_widen_the_page_past_the_panel() -> None:
+    document = run(criteria(limit=PANEL_LIMIT * 5))
 
-    assert document["limit"] == DISPLAY_LIMIT, (
-        "limit is clamped: the display window is 20 rows, and the envelope must "
-        f"report the applied value, got {document['limit']}"
+    assert document["limit"] == PANEL_LIMIT, (
+        "limit is clamped: a panel is 100 rows, and the envelope must report "
+        f"the applied value, got {document['limit']}"
     )
-    assert document["returned"] == DISPLAY_LIMIT
+    assert document["returned"] == US_UNIVERSE_TOTAL, (
+        "the fixture's universe (23) is smaller than the panel, so the whole "
+        "universe fits in one page"
+    )
     assert document["total"] == US_UNIVERSE_TOTAL
-    assert document["rows"][-1]["rank"] == DISPLAY_LIMIT
+    assert document["rows"][-1]["rank"] == US_UNIVERSE_TOTAL
 
 
 def test_no_filter_is_the_identity_on_the_universe() -> None:
     document = run(criteria(limit=23))
     assert document["universe_total"] == document["total"] == US_UNIVERSE_TOTAL
-    assert document["returned"] == DISPLAY_LIMIT
+    assert document["returned"] == US_UNIVERSE_TOTAL, (
+        "23 rows fit inside one 100-row panel: no page is cut away"
+    )
 
 
 def test_a_market_cap_threshold_selects_the_expected_issuers() -> None:
@@ -733,7 +740,7 @@ def test_symbols_resolve_in_request_order_and_name_the_missing_ones() -> None:
     assert document["mode"] == "symbols"
     assert document["snapshot_id"] == snapshot
     assert document["sort"] is None
-    assert document["limit"] == DISPLAY_LIMIT
+    assert document["limit"] == PANEL_LIMIT
     assert symbols_of(document) == ["CRM", "AAPL"], "request order, not universe order"
     assert document["missing"] == ["NOPE"], "an unknown ticker is named, never an empty row"
     assert document["total"] == 2 and document["returned"] == 2
@@ -752,7 +759,9 @@ def test_a_symbol_list_longer_than_the_window_is_capped_but_counted() -> None:
         },
         snapshot_id="scr_any",
     )
-    assert document["returned"] == DISPLAY_LIMIT
+    assert document["returned"] == US_UNIVERSE_TOTAL, (
+        "a ticker list is capped at the panel, and the fixture's 23 tickers fit"
+    )
     assert document["total"] == US_UNIVERSE_TOTAL
     assert document["missing"] == []
 
@@ -795,7 +804,7 @@ def test_the_universe_is_not_the_display_table() -> None:
     """A 20-row display is not a universe: the total has to see all 23."""
 
     rows = universe()
-    assert len(rows) == US_UNIVERSE_TOTAL > DISPLAY_LIMIT
+    assert len(rows) == US_UNIVERSE_TOTAL <= PANEL_LIMIT
     document = run(criteria(), rows=rows)
     assert document["universe_total"] == 23 and document["total"] == 23
 
@@ -870,9 +879,9 @@ def test_the_schema_vocabularies_are_the_code_vocabularies() -> None:
     assert properties["region"]["enum"] == list(REGIONS)
     assert properties["criteria"]["properties"]["sort"]["enum"] == list(SORTS)
     assert properties["criteria"]["properties"]["limit"]["minimum"] == 1
-    assert properties["criteria"]["properties"]["limit"]["default"] == DISPLAY_LIMIT
+    assert properties["criteria"]["properties"]["limit"]["default"] == PANEL_LIMIT
     assert "maximum" not in properties["criteria"]["properties"]["limit"], (
-        "a limit above 20 is clamped, not rejected, so the schema must not forbid it"
+        "a limit above 100 is clamped, not rejected, so the schema must not forbid it"
     )
     assert properties["symbols"]["uniqueItems"] is True
     assert properties["source"]["enum"] == list(SOURCES)
@@ -942,8 +951,9 @@ def test_the_schema_is_versioned_and_self_describing() -> None:
     assert SELECTION_REQUEST_SCHEMA["required"] == ["mode"]
 
 
-def test_the_display_limit_is_the_browse_window() -> None:
-    assert DISPLAY_LIMIT == DISPLAY_ROWS == 20
-    assert selection_module.DISPLAY_LIMIT == 20, (
-        "the selection page and the browse page must be the same window"
+def test_the_panel_limit_and_the_browse_window_are_two_constants() -> None:
+    assert selection_module.PANEL_LIMIT == 100, "the interface's panel is 100 rows"
+    assert selection_module.DISPLAY_LIMIT == DISPLAY_ROWS == 20, (
+        "the browse display is still the top 20 of one snapshot; the panel is a "
+        "different window and has its own constant so the two cannot drift"
     )

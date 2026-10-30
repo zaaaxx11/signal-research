@@ -47,6 +47,9 @@ ENVELOPE_KEYS = {
     "missing",
     "rows",
     "columns",
+    # The panel budget report (F9): bytes shipped, whether the body was
+    # truncated, which fields went and how many rows were cut from the tail.
+    "budget",
 }
 
 
@@ -201,7 +204,10 @@ async def test_all_columns_view_returns_the_whole_metric_table(
     expected = {"rank", "symbol", "name", "as_of", "logo"} | set(V.ALL_COLUMNS)
     for row in body["rows"]:
         assert set(row) == expected
-    assert len(V.ALL_COLUMNS) == 71
+    # `all` is the whole catalogue now (116 keys), not the old 71-metric quote
+    # vocabulary: the depth store fills 106 of the 116, so a 71-key "all" was
+    # hiding 45 columns the engine already carries.
+    assert len(V.ALL_COLUMNS) == 116
 
 
 def test_a_view_row_is_not_the_light_row() -> None:
@@ -245,7 +251,7 @@ def test_a_view_row_is_not_the_light_row() -> None:
         ("valuation", {"pe": 25.5, "pb": 8.5, "peg": 1.4, "ev_ebitda": 15.2}),
         ("ownership", {"shares_outstanding": 1_000_000_000, "shares_float": 800_000_000}),
         ("performance", {"perf_week": 1.2, "perf_ytd": 12.5, "perf_5y": 80.0}),
-        ("financial", {"roe": 18.0, "roa": 9.0, "debt_to_equity": 0.55, "eps_next_y": 7.75}),
+        ("financial", {"roe": 18.0, "roa": 9.0, "debt_to_equity": 0.55, "oper_margin": 28.0}),
         ("technical", {"sma20": 100.5, "beta": 1.1, "rsi_14": 55.0, "price": 50.0}),
     ],
 )
@@ -479,9 +485,17 @@ async def test_symbols_mode_can_ask_for_a_view(
 
 
 def test_view_fields_only_name_columns_a_row_or_a_view_has() -> None:
-    from app.screen.universe import PARITY_FIELDS
+    """Every view target is a column the row layer really carries.
+
+    ``VIEW_FIELDS`` is a projection of :mod:`app.screen.columns` now, so the
+    universe it must stay inside is that module's row-column table (parity
+    copies, derived cells, the two joins, the display fill, the light row and the
+    catalogue keys the depth overlay copies) rather than four of those tables
+    named one by one — which is how the projection used to miss 62 columns.
+    """
+
+    from app.screen import columns as column_map
 
     declared = set().union(*(set(columns) for columns in V.VIEW_COLUMNS.values()))
     assert set(VIEW_FIELDS) <= declared
-    light = {"price", "change_pct", "volume", "market_cap_usd"}
-    assert set(VIEW_FIELDS.values()) <= set(PARITY_FIELDS.values()) | light | set(VIEW_FACT_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS) | set(VIEW_FILL_FIELDS)
+    assert set(VIEW_FIELDS.values()) <= column_map.ROW_FIELD_COLUMNS

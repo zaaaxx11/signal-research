@@ -70,13 +70,16 @@ def _sha256(path: Path) -> str:
 
 
 def _database_files() -> dict[str, str]:
-    """Hash every SQLite file the production database consists of (WAL too)."""
+    """Hash the database itself; the WAL sidecars are excluded on purpose.
 
-    return {
-        path.name: _sha256(path)
-        for path in sorted(REPO_ROOT.glob("ztockz.db*"))
-        if path.is_file()
-    }
+    SQLite creates and removes ``-wal``/``-shm`` whenever *any* process opens
+    the file, and the running service opens this one constantly. A check that
+    included them would fail exactly while the deployment is healthy — it would
+    be measuring the service's activity, not this module's writes.
+    """
+
+    path = REPO_ROOT / "ztockz.db"
+    return {path.name: _sha256(path)} if path.is_file() else {}
 
 
 @pytest.fixture(scope="module", autouse=True)

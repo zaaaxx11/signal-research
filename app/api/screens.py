@@ -45,6 +45,33 @@ Validation lives in :mod:`app.screen.selection` (one
 :class:`~app.screen.selection.SelectionError`, one 422 code per failure kind), so
 this module only maps a validated request onto a scan and the executor.
 
+**The answer is cacheable, and the validator says what it covers.** ``POST
+/screens/select`` returns a **weak** ``ETag`` derived from the answer itself: the
+snapshot, the depth store's cycle, the live scan's cells and the
+fundamentals/facts joins all land in the body, so the body's digest is the one
+revision that cannot silently omit an input. (F3 was the opposite: a strong tag
+over the depth store's clock alone, so the scan and two stores could change the
+answer while a revalidating client still got ``304`` with its old numbers.) The
+one field the digest leaves out is ``as_of`` — the read moment, which moves on
+every call — and that is exactly why the tag is weak: same answer, not
+necessarily the same bytes. A validated repeat still costs one scan, because the
+scan is an input; what a ``304`` saves is the 30–270 KB body and the client's
+repaint.
+
+**One panel, one budget.** A selection page is at most :data:`PANEL_BUDGET_BYTES`
+(60,000 B) whatever way it is asked for — ``columns`` or ``view``. The two used
+to differ by 3× (24 KB against 274 KB for the same 100 rows), because the budget
+was enforced only for a projection. A body that has to shrink says so: it
+carries a ``budget`` object naming the bytes it shipped, whether it was
+truncated, which fields went and how many rows were cut from the tail.
+
+**Two counts, two names.** ``GET /screens`` reports ``matched`` (the rows its own
+question matched) beside ``universe_total`` (the universe it ran over, which on
+that route is the same set because browse applies no filter). The shipped client
+used to print this route's ``total`` and the selection route's ``total`` under one
+label, "Universe", although the selection route answers over the whole market
+rather than the display's 100M-floor subset.
+
 Export is the two-scope bundle and it runs as a **response background task**,
 the same way ``POST /markets/enrich`` runs a job: the 202 body leaves first, the
 work is attached to the response instead of a bare ``create_task`` (which can be
@@ -55,16 +82,19 @@ neither leaves a Pending job behind to poll forever.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping, Sequence
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
+from app.api.cache import cache_headers, not_modified
 from app.api.markets import runtime_of
 from app.auth import ApiError, owner_fingerprint
 from app.branding import logo_for
@@ -79,13 +109,16 @@ from app.screen.export import (
 )
 from app.screen.facts import enrich_rows as enrich_facts
 from app.screen.depth_overlay import SCREEN_ALIASES, overlay
-from app.screen.depth_source import current_depth
+from app.screen.depth_source import DepthSnapshot, current_depth
 from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.selection import (
+    ETAG_NAMESPACE,
     SELECTION_REQUEST_SCHEMA,
     SelectionError,
+    SelectionRequest,
     parse_selection,
+    request_digest,
     select_rows,
 )
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
@@ -109,14 +142,303 @@ ScreenSource = Literal["multi", "tradingview"]
 SCREEN_EXPORT_SERVICE = "screen_export"
 
 
-def _with_logos(document: dict[str, Any]) -> dict[str, Any]:
+#: The panel budget: a 100-row page of nine to twelve numeric columns is ~25 KB,
+#: and the plan promises 60,000 B for one panel response. It is enforced on the
+#: finished body — ``columns`` and ``view`` alike — because the same 100 rows used
+#: to cost 24 KB one way and 274 KB the other, with nothing in either response
+#: saying which one the caller got.
+PANEL_BUDGET_BYTES = 60_000
+
+def _encoded(document: Mapping[str, Any]) -> bytes:
+    """The exact bytes a document ships as — the same encoder the response uses.
+
+    ``separators`` matches Starlette's ``JSONResponse``: a byte count measured
+    with a different encoder is a byte count that can be wrong by 10%.
+    """
+
+    return json.dumps(
+        document,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+
+
+def _etag(*, revision: str, request: SelectionRequest) -> str:
+    """A quoted validator over ``(data revision, canonical request)``.
+
+    The revision is hashed **full width**. ``app.screen.selection.selection_etag``
+    folds its own revision through ``sha1(...)[:8]``, which is a 32-bit target:
+    whoever can influence the inputs (a store row, a store's stamp) can mine two
+    of them onto one tag. Sixty-four hex characters cannot be mined, and the tag
+    is a per-request header, not a per-row cell, so the length costs nothing.
+
+    The ``W/`` prefix is added by :func:`select`: the body carries ``as_of`` (the
+    read moment), so this is a weak validator by definition — same answer, not
+    necessarily the same bytes.
+    """
+
+    digest = hashlib.sha256(revision.encode("utf-8")).hexdigest()
+    return f'"{ETAG_NAMESPACE}-{digest}-{request_digest(request)}"'
+
+
+def _answer_digest(document: Mapping[str, Any]) -> str:
+    """The answer, minus the read clock, as one sha256.
+
+    ``as_of`` is the only field that is not data: it dates the read, so two calls
+    over one store state differ there and nowhere else. Everything else — the
+    rows, their cells, the counts, the filters and columns the answer echoes —
+    is in the digest, which is what makes the validator cover the scan and the
+    fundamentals/facts joins without a second read of a 9 MB page and a 4 k-row
+    table.
+    """
+
+    payload: dict[str, Any] = {
+        key: value for key, value in document.items() if key != "as_of"
+    }
+    payload["rows"] = [
+        {key: value for key, value in row.items() if key != "as_of"}
+        for row in document.get("rows") or []
+    ]
+    return hashlib.sha256(_encoded(payload)).hexdigest()
+
+
+def _data_revision(
+    *,
+    snapshot_id: str | None,
+    snapshot_as_of: str | None,
+    depth: DepthSnapshot,
+    document: Mapping[str, Any],
+) -> str:
+    """Every input that can change the body, in one auditable line.
+
+    * ``snapshot=`` — the stored snapshot a ticker list was resolved in: its id
+      and its own ``as_of``. A criteria query has none (it scans live), hence
+      ``-``.
+    * ``depth=`` — the depth store's cycle stamp **and its row count**. The store
+      has one writer and bumps ``as_of`` per cycle, so the stamp is its revision;
+      the count is the guard against a half-written file, which parses as a
+      shorter table (or as nothing) while the stamp still names the old cycle. A
+      partial store can therefore only ever produce a miss, never a 304.
+    * ``answer=`` — the answer document with ``as_of`` removed. This is where the
+      **live scan** and the **fundamentals/facts joins** are named: ``fetch_scan``
+      returns no stamp of its own (one HTTP page, no ``as_of``), and neither store
+      exposes a revision counter — they are read by ``enrich_rows``, which copies
+      cells onto the rows. Hashing the answer is how their contribution is
+      measured instead of silently omitted: a store row that changes a returned
+      cell changes this digest, and a store row that cannot be seen in the answer
+      cannot change the answer either. (A store-level counter would be a second
+      read of the same table for a strictly weaker guarantee.)
+
+    The canonical request is hashed beside this string by :func:`_etag`, so two
+    questions that happen to answer the same rows still get different entries.
+    """
+
+    return (
+        f"snapshot={snapshot_id or '-'}@{snapshot_as_of or '-'}"
+        f";depth={depth.as_of or '-'}/{depth.count}"
+        f";answer={_answer_digest(document)}"
+    )
+
+
+def _budget_report(
+    *, limit: int, document: dict[str, Any], dropped: Sequence[str], rows_dropped: int
+) -> dict[str, Any]:
+    """The ``budget`` object: what the panel cost and what it went without."""
+
+    report: dict[str, Any] = {
+        "limit_bytes": limit,
+        "bytes": 0,
+        "truncated": bool(dropped) or rows_dropped > 0,
+        "dropped_fields": list(dropped),
+        "rows_dropped": rows_dropped,
+    }
+    # ``bytes`` counts itself, so settle the number in a couple of passes: its
+    # own width changes the length it is describing.
+    for _ in range(4):
+        document["budget"] = report
+        size = len(_encoded(document))
+        if report["bytes"] == size:
+            break
+        report["bytes"] = size
+    document["budget"] = report
+    return report
+
+
+def _fit_panel(
+    document: dict[str, Any], *, protect: Sequence[str] = ()
+) -> dict[str, Any]:
+    """Fit the answer inside :data:`PANEL_BUDGET_BYTES`, and say what was cut.
+
+    Three levers, in the order they cost the caller least:
+
+    1. the **implicit brand mark** goes first (~640 B of base64 per row, 64 KB
+       per 100 rows), unless the caller named ``logo`` in ``columns`` — a
+       projection that asked for it gets it, budget or not;
+    2. then **rows from the tail**. Never the first row: a truncated panel has
+       to be a prefix of the answer it truncated, or a client cannot tell which
+       page it is holding;
+    3. only if a *single* row cannot fit, **cells from the tail of each row**,
+       never ``symbol`` and never a column the caller named.
+
+    The report is the point of the whole exercise. ``view=all`` at 100 rows was
+    273,923 B and the response said nothing about it; now ``budget.truncated``,
+    ``budget.rows_dropped`` and ``budget.dropped_fields`` do.
+    """
+
+    limit = PANEL_BUDGET_BYTES
+    rows = [dict(row) for row in document.get("rows") or []]
+    dropped: list[str] = []
+
+    def build(
+        rows_now: Sequence[dict[str, Any]],
+        *,
+        rows_dropped: int = 0,
+        extra: Sequence[str] = (),
+    ) -> tuple[dict[str, Any], int]:
+        candidate = {**document, "rows": list(rows_now)}
+        if rows_dropped:
+            candidate["returned"] = len(rows_now)
+        report = _budget_report(
+            limit=limit,
+            document=candidate,
+            # One entry per field, in the order it went: `dropped` is what the
+            # budget took for every row, `extra` the cells the last-resort cut
+            # removed from the surviving ones.
+            dropped=list(dict.fromkeys([*dropped, *extra])),
+            rows_dropped=rows_dropped,
+        )
+        return candidate, int(report["bytes"])
+
+    candidate, size = build(rows)
+    if size <= limit:
+        return candidate
+
+    if "logo" not in protect and any("logo" in row for row in rows):
+        rows = [{key: value for key, value in row.items() if key != "logo"} for row in rows]
+        dropped.append("logo")
+        candidate, size = build(rows)
+        if size <= limit:
+            return candidate
+
+    # Rows, from the tail. Estimate first, then walk down until it fits — the
+    # estimate is one serialisation instead of a hundred.
+    overhead = len(_encoded({**document, "rows": [], "returned": 0}))
+    per_row = max(1, (size - overhead) // max(1, len(rows)))
+    keep = max(1, min(len(rows), (limit - overhead) // per_row))
+    keep = min(keep, len(rows))
+    candidate, size = build(rows[:keep], rows_dropped=len(rows) - keep)
+    while keep > 1 and size > limit:
+        keep -= 1
+        candidate, size = build(rows[:keep], rows_dropped=len(rows) - keep)
+    if size <= limit or not rows:
+        return candidate
+
+    # One row still does not fit: cut cells from its tail, keeping the identity
+    # the panel is sorted by and every column the caller asked for by name.
+    protected = {"symbol", *protect}
+    names = [name for name in rows[0] if name not in protected]
+    cut: list[str] = []
+    while names and size > limit:
+        cut.append(names.pop())
+        trimmed = [{key: row[key] for key in row if key not in cut} for row in rows[:keep]]
+        candidate, size = build(trimmed, rows_dropped=len(rows) - keep, extra=cut)
+    return candidate
+
+
+def _integral(value: Any, *, where: str, code: str) -> Any:
+    """A JSON float that spells a whole number is that integer (F11).
+
+    ``json.loads("4.0")`` is a ``float``, and JSON Schema's ``integer`` is "a
+    number with no fractional part", so the published contract always accepted
+    ``4.0``; the validator refusing it was the defect. ``1e9`` is the same thing
+    at a size the panel clamps to 100. A *fraction* of a row is refused with the
+    sentence that names it, because there is no page of 4.5 rows.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, float):
+        return value
+    if not math.isfinite(value) or not value.is_integer():
+        raise ApiError(
+            status_code=422,
+            error=code,
+            message=(
+                f"{where} must be a whole number, got {value!r}: a JSON float that "
+                "names an integer is accepted (`4.0` is 4) and clamped to the "
+                "panel; a fraction of a row is refused"
+            ),
+        )
+    return int(value)
+
+
+def _integral_knobs(block: Mapping[str, Any], *, prefix: str) -> dict[str, Any]:
+    patched = dict(block)
+    for name in ("limit", "offset"):
+        if name in patched:
+            patched[name] = _integral(
+                patched[name], where=f"'{prefix}{name}'", code=f"invalid_{name}"
+            )
+    return patched
+
+
+def _integral_numbers(payload: Any) -> Any:
+    """Normalise the two integer knobs before the validator sees them (F11)."""
+
+    if not isinstance(payload, Mapping):
+        return payload
+    patched: dict[str, Any] = dict(payload)
+    block = patched.get("criteria")
+    if isinstance(block, Mapping):
+        patched["criteria"] = _integral_knobs(block, prefix="criteria.")
+    return _integral_knobs(patched, prefix="")
+
+
+def _browse_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Rename the browse count to ``matched`` and name the universe beside it.
+
+    ``total`` on this route and ``total`` on ``/screens/select`` were different
+    numbers — 3,896 (with the display's 100M floor and ``subtype=common`` gate)
+    against 5,600 (the whole stock market) — and the shipped client printed both
+    under one label, "Universe". The browse number is the count of rows that
+    matched *this route's* question, so it is called ``matched``; ``universe_total``
+    is the universe the question ran over, which on this route is the same set
+    because browse applies no filter. The two names now mean the same thing on
+    both routes, and the client can label them correctly.
+    """
+
+    result = dict(document)
+    # Tolerant on purpose: the document builder and this rename may land in
+    # either order, and clobbering a `matched` that is already there with the
+    # count of a missing `total` is how a 23-row screen reads as an empty market.
+    matched = result.pop("total", result.get("matched", 0))
+    matched = int(matched or 0)
+    result["matched"] = matched
+    result["universe_total"] = int(result.get("universe_total") or matched)
+    return result
+
+
+def _with_logos(document: dict[str, Any], *, columns: Sequence[str] = ()) -> dict[str, Any]:
     """Attach a guaranteed brand mark to every row without mutating a snapshot.
 
     ``logo`` belongs to the instrument identity, not to the source that answered.
     The resolver is filesystem-only, so this adds no provider call and no
     latency; a symbol without a vendored asset gets an offline monogram.
+
+    A **projected** row is the exception: ``columns`` names the exact cells the
+    caller wants, and a monogram is ~640 bytes of base64. 100 implicit copies
+    would add 64 KB to a panel that asked for twelve numeric columns, so the mark
+    is attached only when the projection asks for ``"logo"`` by name (or when
+    there is no projection at all, where the light row has always carried it).
+
+    A ``view`` asks for the mark implicitly (its column list contains ``logo``),
+    so the panel budget — not this function — is what takes it away, and only
+    when the finished body would exceed :data:`PANEL_BUDGET_BYTES`: dropping 64 KB
+    of decoration is the cheapest way to keep all 100 rows.
     """
 
+    if columns and "logo" not in columns:
+        return document
     result = dict(document)
     result["rows"] = [
         {**dict(row), "logo": logo_for(row.get("symbol"), row.get("name"))}
@@ -158,9 +480,13 @@ async def browse(
     runtime = runtime_of(request)
     try:
         if source == "multi":
-            return _with_logos(await runtime.multi_source_screen.load(region, sort))
-        return _with_logos(
-            await load_screen(region, sort, repository=runtime.screen_repository)
+            return _browse_document(
+                _with_logos(await runtime.multi_source_screen.load(region, sort))
+            )
+        return _browse_document(
+            _with_logos(
+                await load_screen(region, sort, repository=runtime.screen_repository)
+            )
         )
     except ScanError as exc:
         raise ApiError(
@@ -190,7 +516,7 @@ async def selection_schema() -> dict[str, object]:
 
 
 @router.post("/select")
-async def select(request: Request) -> dict[str, Any]:
+async def select(request: Request) -> Any:
     """Answer a two-mode selection: a criteria query or an explicit ticker list.
 
     The body is validated by :func:`app.screen.selection.parse_selection`, not by
@@ -207,6 +533,14 @@ async def select(request: Request) -> dict[str, Any]:
     422 instead of being relabelled with the requested one. The snapshot names
     *which* universe the tickers are looked up in; the rows are read now and the
     response dates them with its own ``as_of``, never with the snapshot's.
+
+    The answer carries a **weak** ``ETag`` derived from the answer itself — the
+    snapshot, the depth cycle, the scan's cells and the two joins — and a repeat
+    POST that presents it gets ``304``: empty body, no repaint. It is weak
+    because the body carries ``as_of``, the read moment, which the digest leaves
+    out; a strong tag would have to move with the clock and would never match. A
+    validated repeat still pays for one scan, because the scan is an input; what
+    the ``304`` saves is the 30–270 KB body.
     """
 
     try:
@@ -218,6 +552,10 @@ async def select(request: Request) -> dict[str, Any]:
             message=f"the selection body is not valid JSON: {exc}",
         ) from exc
 
+    # F11: `4.0` is 4 and `1e9` is clamped, exactly as the schema has always
+    # said; only a fraction of a row is refused, with the sentence that names it.
+    payload = _integral_numbers(payload)
+
     try:
         selection = parse_selection(payload)
     except SelectionError as exc:
@@ -227,6 +565,7 @@ async def select(request: Request) -> dict[str, Any]:
 
     runtime = runtime_of(request)
     snapshot_id: str | None = None
+    snapshot_as_of: str | None = None
     if selection.is_criteria:
         assert selection.region is not None  # parse_selection requires it
         region = selection.region
@@ -252,6 +591,7 @@ async def select(request: Request) -> dict[str, Any]:
         region = str(snapshot["region"])
         source = str(selection.source)
         snapshot_id = selection.snapshot_id
+        snapshot_as_of = str(snapshot.get("as_of") or "") or None
         try:
             family = asset_class_for(region, selection.asset_class)
         except ValueError as exc:
@@ -261,6 +601,10 @@ async def select(request: Request) -> dict[str, Any]:
             raise ApiError(
                 status_code=422, error="asset_class_mismatch", message=str(exc)
             ) from exc
+
+    # Depth is the broadest enrichment and one of the two stamps the answer's
+    # tags name; it is read once per selection, before the scan.
+    depth = current_depth()
 
     try:
         if selection.is_criteria:
@@ -280,12 +624,13 @@ async def select(request: Request) -> dict[str, Any]:
                 asset_class=family,
             )
         else:
-            # A ticker lookup needs no metric unless the caller asked for a
-            # view: then the view cells must come from the parity scan.
+            # A ticker lookup needs no metric unless the caller asked for a view
+            # or a column: then the cells must come from the parity scan, because
+            # the light row carries none of them.
             page = await fetch_scan(
                 region,
                 limit=FULL_SCAN_ROWS,
-                columns=PARITY_COLUMNS if selection.view else None,
+                columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
                 asset_class=family,
             )
     except ScanError as exc:
@@ -309,7 +654,7 @@ async def select(request: Request) -> dict[str, Any]:
         universe = build_universe(
             page.rows,
             region=region,
-            columns=PARITY_COLUMNS if selection.view else None,
+            columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
             asset_class=family,
         )
 
@@ -325,7 +670,6 @@ async def select(request: Request) -> dict[str, Any]:
     # Depth is the broadest enrichment: it carries the columns no scan metric
     # exists for. It is merged first so that a store which *owns* a cell
     # (forward P/E, short float, insider own) still wins over it below.
-    depth = current_depth()
     if depth.symbols:
         universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
 
@@ -367,7 +711,29 @@ async def select(request: Request) -> dict[str, Any]:
             filler = WideFiller(adapter=adapter)
             request.app.state.wide_filler = filler
         document["rows"] = await filler.fill(document.get("rows", []))
-    return _with_logos(document)
+
+    # The validator, once the answer exists: every input that can change it is
+    # either a named store stamp or inside the digest — see `_data_revision`.
+    document = _fit_panel(
+        _with_logos(document, columns=selection.columns), protect=selection.columns
+    )
+    etag = _etag(
+        revision=_data_revision(
+            snapshot_id=snapshot_id,
+            snapshot_as_of=snapshot_as_of,
+            depth=depth,
+            document=document,
+        ),
+        request=selection,
+    )
+    headers = cache_headers(etag)
+    # Weak on purpose: `as_of` is the read moment, the one field the digest
+    # leaves out, so "same answer" is the promise, not "same bytes". A client
+    # that sends either form revalidates — `cache.matches` strips the prefix.
+    headers["ETag"] = f"W/{etag}"
+    if not_modified(request, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=_encoded(document), media_type="application/json", headers=headers)
 
 
 @router.post("/{screen_id}/export", status_code=202)

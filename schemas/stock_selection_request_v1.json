@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ztockz.local/schemas/stock-selection-request-v1.json",
   "title": "StockSelectionRequestV1",
-  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 20 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 20-row display never claims to be a 20-stock market.",
+  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 100 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`, in request order, with its own `limit`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 100-row panel never claims to be a 100-stock market. A filter key may be one of the 82 Finviz keys (`x-filter-keys`) or one of the catalogue spellings in `x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to one row column, and a key no column can answer is a 422 that names it. The two tables together are the vocabulary a filter picker is built from.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -30,17 +30,25 @@
         "etf"
       ],
       "default": "stock",
-      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes \u2014 `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
+      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes — `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
     },
     "view": {
       "enum": [
+        "today",
+        "value",
+        "quality",
+        "growth",
+        "momentum",
+        "trend",
+        "ownership",
+        "income",
+        "profile",
+        "all",
         "overview",
         "valuation",
-        "ownership",
         "performance",
         "financial",
-        "technical",
-        "all"
+        "technical"
       ],
       "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
     },
@@ -51,7 +59,13 @@
       "items": {
         "type": "string"
       },
-      "description": "Both modes: the exact cells each row returns, in order. `symbol` and `as_of` are always present; a requested cell the row does not carry is null. Omit it for the historical light row. Mutually exclusive with `view` \u2014 two ways to name the same output is a question with two answers."
+      "description": "Both modes: the exact cells each row returns, in order. `symbol` and `as_of` are always present; a requested cell the row does not carry is null. Omit it for the historical light row. `logo` is an accepted column name (a vendored asset path or an offline monogram data URI) and is the one cell that is opt-in: a 100-row panel that did not ask for it does not carry 100 base64 marks. Mutually exclusive with `view` — two ways to name the same output is a question with two answers."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 100,
+      "description": "Symbols only: the page size for a ticker lookup, which has no `criteria` block to carry it. Clamped to 100, exactly like `criteria.limit`. A criteria query sends its limit inside `criteria`; a second answer at the top level is a 422."
     },
     "fill_wide": {
       "type": "boolean",
@@ -69,7 +83,7 @@
             "$ref": "#/$defs/filter"
           },
           "default": [],
-          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric \u2014 never ignored, because an ignored filter returns the unfiltered screen."
+          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric — never ignored, because an ignored filter returns the unfiltered screen."
         },
         "sort": {
           "enum": [
@@ -83,8 +97,8 @@
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "default": 20,
-          "description": "Page size. Clamped to 20: a larger value is not an error, it simply cannot widen the display, and the response reports the limit that was applied."
+          "default": 100,
+          "description": "Page size. Clamped to 100: a larger value is not an error, it simply cannot widen the panel, and the response reports the limit that was applied."
         },
         "offset": {
           "type": "integer",
@@ -118,7 +132,7 @@
     "snapshot_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices \u2014 the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
+      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices — the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
     }
   },
   "allOf": [
@@ -153,6 +167,11 @@
             {
               "required": [
                 "snapshot_id"
+              ]
+            },
+            {
+              "required": [
+                "limit"
               ]
             }
           ]
@@ -217,7 +236,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 47 that resolve to one row column, the 3 that filter through their option vocabulary, and the 32 that are refused with their reason, are listed in x-filter-keys."
+          "description": "One of the 82 Finviz filter keys. The 47 that resolve to one row column, the 3 that filter through their option vocabulary, and the 32 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 105 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 187 keys a filter may name, and any other key is a 422 that names it."
         },
         "field": {
           "enum": [
@@ -838,7 +857,7 @@
           "10y1000o": "ret_10y gte 1000.0"
         },
         "unsupported": {
-          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` \u2026 `ret_10y`), and `ret_3y` exists only on the deep/quote path"
+          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists only on the deep/quote path"
         }
       }
     },
@@ -985,7 +1004,7 @@
           "10y1000o": "ret_10y gte 1000.0"
         },
         "unsupported": {
-          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` \u2026 `ret_10y`), and `ret_3y` exists only on the deep/quote path"
+          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists only on the deep/quote path"
         }
       }
     },
@@ -1149,6 +1168,490 @@
       "tab": "etf",
       "field": null,
       "reason": "needs ETF holdings data: the scan does not carry a fund's constituent list"
+    }
+  },
+  "x-filter-alias-count": 105,
+  "x-filter-aliases": {
+    "atr": {
+      "field": "atr_14",
+      "kind": "number",
+      "label": "ATR"
+    },
+    "atr_14": {
+      "field": "atr_14",
+      "kind": "number"
+    },
+    "aum_usd": {
+      "field": "aum_usd",
+      "kind": "number"
+    },
+    "average_volume": {
+      "field": "avg_volume_30d",
+      "kind": "number",
+      "label": "Avg Volume"
+    },
+    "avg_volume_10d": {
+      "field": "avg_volume_10d",
+      "kind": "number"
+    },
+    "avg_volume_30d": {
+      "field": "avg_volume_30d",
+      "kind": "number"
+    },
+    "beta": {
+      "field": "beta_1y",
+      "kind": "number",
+      "label": "Beta"
+    },
+    "beta_1y": {
+      "field": "beta_1y",
+      "kind": "number"
+    },
+    "change": {
+      "field": "change_pct",
+      "kind": "number",
+      "label": "Change %"
+    },
+    "change_from_open": {
+      "field": "change_from_open",
+      "kind": "number",
+      "label": "Change from Open %"
+    },
+    "change_pct": {
+      "field": "change_pct",
+      "kind": "number"
+    },
+    "company": {
+      "field": "name",
+      "kind": "text",
+      "label": "Company"
+    },
+    "country": {
+      "field": "country",
+      "kind": "text",
+      "label": "Country"
+    },
+    "currency": {
+      "field": "currency",
+      "kind": "text"
+    },
+    "current_ratio": {
+      "field": "current_ratio",
+      "kind": "number",
+      "label": "Curr R"
+    },
+    "debt_to_equity": {
+      "field": "debt_to_equity",
+      "kind": "number",
+      "label": "Debt/Eq"
+    },
+    "dividend_yield": {
+      "field": "dividend_yield",
+      "kind": "number",
+      "label": "Dividend Yield"
+    },
+    "earnings_date": {
+      "field": "earnings_date",
+      "kind": "number",
+      "label": "Earnings"
+    },
+    "eps_forecast_next_fq": {
+      "field": "eps_forecast_next_fq",
+      "kind": "number"
+    },
+    "eps_forecast_next_fy": {
+      "field": "eps_forecast_next_fy",
+      "kind": "number"
+    },
+    "ev_ebitda": {
+      "field": "ev_ebitda",
+      "kind": "number",
+      "label": "EV/EBITDA"
+    },
+    "ev_sales": {
+      "field": "ev_to_sales",
+      "kind": "number",
+      "label": "EV/Sales"
+    },
+    "ev_to_sales": {
+      "field": "ev_to_sales",
+      "kind": "number"
+    },
+    "exchange": {
+      "field": "exchange",
+      "kind": "text",
+      "label": "Exchange"
+    },
+    "float_shares": {
+      "field": "float_shares",
+      "kind": "number"
+    },
+    "forward_pe": {
+      "field": "pe_forward",
+      "kind": "number",
+      "label": "Forward P/E"
+    },
+    "gap": {
+      "field": "gap_pct",
+      "kind": "number",
+      "label": "Gap"
+    },
+    "gap_pct": {
+      "field": "gap_pct",
+      "kind": "number"
+    },
+    "gross_margin": {
+      "field": "gross_margin",
+      "kind": "number",
+      "label": "Gross M"
+    },
+    "high_52w": {
+      "field": "high_52w",
+      "kind": "number",
+      "label": "52W High"
+    },
+    "insider_own": {
+      "field": "insider_own",
+      "kind": "number",
+      "label": "Insider Own"
+    },
+    "inst_own": {
+      "field": "inst_own",
+      "kind": "number",
+      "label": "Inst Own"
+    },
+    "ipo_date": {
+      "field": "listing_date",
+      "kind": "number",
+      "label": "IPO Date"
+    },
+    "is_primary": {
+      "field": "is_primary",
+      "kind": "bool"
+    },
+    "listing_date": {
+      "field": "listing_date",
+      "kind": "number"
+    },
+    "low_52w": {
+      "field": "low_52w",
+      "kind": "number",
+      "label": "52W Low"
+    },
+    "market_cap": {
+      "field": "market_cap_usd",
+      "kind": "number",
+      "label": "Market Cap"
+    },
+    "market_cap_usd": {
+      "field": "market_cap_usd",
+      "kind": "number"
+    },
+    "name": {
+      "field": "name",
+      "kind": "text"
+    },
+    "net_margin": {
+      "field": "profit_margin",
+      "kind": "number",
+      "label": "Profit M"
+    },
+    "oper_margin": {
+      "field": "oper_margin",
+      "kind": "number"
+    },
+    "operating_margin": {
+      "field": "oper_margin",
+      "kind": "number",
+      "label": "Oper M"
+    },
+    "payout_ratio": {
+      "field": "payout_ratio",
+      "kind": "number",
+      "label": "Payout Ratio"
+    },
+    "pb": {
+      "field": "pb",
+      "kind": "number",
+      "label": "P/B"
+    },
+    "pc": {
+      "field": "price_to_cash",
+      "kind": "number",
+      "label": "P/C"
+    },
+    "pct_from_52w_high": {
+      "field": "pct_from_52w_high",
+      "kind": "number"
+    },
+    "pe": {
+      "field": "pe_ttm",
+      "kind": "number",
+      "label": "P/E"
+    },
+    "pe_forward": {
+      "field": "pe_forward",
+      "kind": "number"
+    },
+    "pe_ttm": {
+      "field": "pe_ttm",
+      "kind": "number"
+    },
+    "peg": {
+      "field": "peg",
+      "kind": "number",
+      "label": "PEG"
+    },
+    "perf_10y": {
+      "field": "ret_10y",
+      "kind": "number",
+      "label": "Perf 10Y"
+    },
+    "perf_13w": {
+      "field": "ret_3m",
+      "kind": "number",
+      "label": "Perf Quart"
+    },
+    "perf_1w": {
+      "field": "ret_1w",
+      "kind": "number",
+      "label": "Perf Week"
+    },
+    "perf_26w": {
+      "field": "ret_6m",
+      "kind": "number",
+      "label": "Perf Half"
+    },
+    "perf_3y": {
+      "field": "ret_3y",
+      "kind": "number",
+      "label": "Perf 3Y"
+    },
+    "perf_4w": {
+      "field": "ret_1m",
+      "kind": "number",
+      "label": "Perf Month"
+    },
+    "perf_52w": {
+      "field": "ret_1y",
+      "kind": "number",
+      "label": "Perf Year"
+    },
+    "perf_5y": {
+      "field": "ret_5y",
+      "kind": "number",
+      "label": "Perf 5Y"
+    },
+    "perf_ytd": {
+      "field": "ret_ytd",
+      "kind": "number",
+      "label": "Perf YTD"
+    },
+    "pfcf": {
+      "field": "pfcf",
+      "kind": "number",
+      "label": "P/FCF"
+    },
+    "price": {
+      "field": "price",
+      "kind": "number",
+      "label": "Price"
+    },
+    "price_to_cash": {
+      "field": "price_to_cash",
+      "kind": "number"
+    },
+    "profit_margin": {
+      "field": "profit_margin",
+      "kind": "number"
+    },
+    "ps": {
+      "field": "ps",
+      "kind": "number",
+      "label": "P/S"
+    },
+    "quick_ratio": {
+      "field": "quick_ratio",
+      "kind": "number",
+      "label": "Quick R"
+    },
+    "recom_finviz": {
+      "field": "recom_finviz",
+      "kind": "number"
+    },
+    "recommendation": {
+      "field": "recommendation",
+      "kind": "number",
+      "label": "Recom"
+    },
+    "rel_volume_10d": {
+      "field": "rel_volume_10d",
+      "kind": "number"
+    },
+    "relative_volume": {
+      "field": "rel_volume_10d",
+      "kind": "number",
+      "label": "Rel Volume"
+    },
+    "ret_10y": {
+      "field": "ret_10y",
+      "kind": "number"
+    },
+    "ret_1m": {
+      "field": "ret_1m",
+      "kind": "number"
+    },
+    "ret_1w": {
+      "field": "ret_1w",
+      "kind": "number"
+    },
+    "ret_1y": {
+      "field": "ret_1y",
+      "kind": "number"
+    },
+    "ret_3m": {
+      "field": "ret_3m",
+      "kind": "number"
+    },
+    "ret_3y": {
+      "field": "ret_3y",
+      "kind": "number"
+    },
+    "ret_5y": {
+      "field": "ret_5y",
+      "kind": "number"
+    },
+    "ret_6m": {
+      "field": "ret_6m",
+      "kind": "number"
+    },
+    "ret_ytd": {
+      "field": "ret_ytd",
+      "kind": "number"
+    },
+    "revenue_forecast_next_fy": {
+      "field": "revenue_forecast_next_fy",
+      "kind": "number"
+    },
+    "roa": {
+      "field": "roa",
+      "kind": "number",
+      "label": "ROA"
+    },
+    "roe": {
+      "field": "roe",
+      "kind": "number",
+      "label": "ROE"
+    },
+    "roic": {
+      "field": "roic",
+      "kind": "number",
+      "label": "ROIC"
+    },
+    "rsi": {
+      "field": "rsi_14",
+      "kind": "number",
+      "label": "RSI"
+    },
+    "rsi_14": {
+      "field": "rsi_14",
+      "kind": "number"
+    },
+    "sector": {
+      "field": "sector",
+      "kind": "text",
+      "label": "Sector"
+    },
+    "shares_float": {
+      "field": "float_shares",
+      "kind": "number",
+      "label": "Float"
+    },
+    "shares_outstanding": {
+      "field": "shares_outstanding",
+      "kind": "number",
+      "label": "Outstanding"
+    },
+    "short_float": {
+      "field": "short_float",
+      "kind": "number",
+      "label": "Short Float"
+    },
+    "sma20": {
+      "field": "sma_20",
+      "kind": "number",
+      "label": "SMA20"
+    },
+    "sma200": {
+      "field": "sma_200",
+      "kind": "number",
+      "label": "SMA200"
+    },
+    "sma50": {
+      "field": "sma_50",
+      "kind": "number",
+      "label": "SMA50"
+    },
+    "sma_20": {
+      "field": "sma_20",
+      "kind": "number"
+    },
+    "sma_200": {
+      "field": "sma_200",
+      "kind": "number"
+    },
+    "sma_50": {
+      "field": "sma_50",
+      "kind": "number"
+    },
+    "symbol": {
+      "field": "symbol",
+      "kind": "text"
+    },
+    "target_price": {
+      "field": "target_price",
+      "kind": "number",
+      "label": "Target Price"
+    },
+    "ticker": {
+      "field": "symbol",
+      "kind": "text",
+      "label": "Ticker"
+    },
+    "turnover": {
+      "field": "turnover",
+      "kind": "number"
+    },
+    "turnover_usd": {
+      "field": "turnover_usd",
+      "kind": "number"
+    },
+    "volatility_1w": {
+      "field": "volatility_w",
+      "kind": "number",
+      "label": "Volatility W"
+    },
+    "volatility_4w": {
+      "field": "volatility_m",
+      "kind": "number",
+      "label": "Volatility M"
+    },
+    "volatility_d": {
+      "field": "volatility_d",
+      "kind": "number"
+    },
+    "volatility_m": {
+      "field": "volatility_m",
+      "kind": "number"
+    },
+    "volatility_w": {
+      "field": "volatility_w",
+      "kind": "number"
+    },
+    "volume": {
+      "field": "volume",
+      "kind": "number",
+      "label": "Volume"
     }
   }
 }

@@ -170,7 +170,7 @@ async def test_the_default_browse_is_a_verified_multi_source_document(
     assert page["degraded"] is False
     assert page["verification_error"] is None
     assert page["returned"] == S.DISPLAY_ROWS and len(page["rows"]) == S.DISPLAY_ROWS
-    assert page["total"] == S.US_TOTAL
+    assert page["matched"] == S.US_TOTAL
 
     for row in page["rows"]:
         assert "source_summary" in row, (
@@ -294,7 +294,7 @@ async def test_a_verifier_outage_answers_the_raw_snapshot_honestly(
     assert "failed" in page["verification_error"]
     assert page["selection_source"] == "tradingview"
     assert len(page["rows"]) == S.DISPLAY_ROWS
-    assert page["total"] == S.US_TOTAL
+    assert page["matched"] == S.US_TOTAL
     assert "source_summary" not in page["rows"][0], (
         "the fallback is the raw snapshot, not a consensus with missing evidence"
     )

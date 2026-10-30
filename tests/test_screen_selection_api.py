@@ -13,7 +13,7 @@ those ways:
   the API, with a code a client can switch on — an unknown field, an unknown
   operator and a Finviz key with no light column are 422s, never an ignored
   filter;
-* a ``limit`` above the display window still serves 20 rows and says so;
+* a ``limit`` above the panel (100 rows) is clamped and the envelope says so;
 * the schema route serves the document that ships in ``schemas/``.
 """
 
@@ -45,6 +45,9 @@ ENVELOPE_KEYS = {
     "missing",
     "rows",
     "columns",
+    # The panel budget report (F9): bytes shipped, whether the body was
+    # truncated, which fields went and how many rows were cut from the tail.
+    "budget",
 }
 
 #: The US tab after filter+dedupe for the **browse** contract (100M floor,
@@ -212,7 +215,7 @@ async def test_without_fill_wide_no_stock_page_is_requested(
     assert calls == [], "the default selection must not spend a page request"
 
 
-async def test_a_limit_above_twenty_still_serves_twenty_rows(
+async def test_a_limit_above_the_panel_serves_the_whole_fixture_universe(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
@@ -220,10 +223,13 @@ async def test_a_limit_above_twenty_still_serves_twenty_rows(
 
     body = response.json()
     assert response.status_code == 200, response.text
-    assert body["limit"] == 20, (
-        f"the display window is 20 rows and the envelope must say so, got {body['limit']}"
+    assert body["limit"] == 100, (
+        f"the panel is 100 rows and the envelope must say so, got {body['limit']}"
     )
-    assert body["returned"] == 20 and len(body["rows"]) == 20
+    assert body["returned"] == US_CRITERIA_UNIVERSE and len(body["rows"]) == US_CRITERIA_UNIVERSE, (
+        "the fixture's criteria universe (27) is smaller than the panel, so one "
+        "request returns all of it"
+    )
     assert body["total"] == US_CRITERIA_UNIVERSE, (
         "clamping the page must not clamp the total: the whole criteria universe "
         "matches an empty filter"

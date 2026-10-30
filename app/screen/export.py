@@ -50,7 +50,7 @@ from app.screen import universe as universes
 from app.screen.repository import SqliteScreenRepository
 from app.screen.symbols import provider_symbol
 from app.screen.scanner import FULL_SCAN_ROWS, fetch_all, fetch_scan
-from app.screen.views import VIEW_NAMES
+from app.screen.views import SCREEN_VIEW_NAMES
 from app.sources.graph import GRAPH_VERSION
 from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth
@@ -159,9 +159,9 @@ class ExportMetadata:
                 raise InvalidExportMetadata(
                     f"{name} must be a non-empty string when given, got {value!r}"
                 )
-        if self.view is not None and self.view not in VIEW_NAMES:
+        if self.view is not None and self.view not in SCREEN_VIEW_NAMES:
             raise InvalidExportMetadata(
-                f"unknown view {self.view!r}; expected one of {', '.join(VIEW_NAMES)}"
+                f"unknown view {self.view!r}; expected one of {', '.join(SCREEN_VIEW_NAMES)}"
             )
         if self.criteria_snapshot is not None:
             if not isinstance(self.criteria_snapshot, Mapping):

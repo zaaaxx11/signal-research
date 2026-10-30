@@ -25,8 +25,11 @@ SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
     "title": "ScreenResponseV1",
     "description": (
         "Top 20 of a five-minute screen snapshot. `rows` is always the top 20 "
-        "of the requested region/sort; `total` is the full post-filter/post-dedupe "
-        "universe, which may be larger than 20."
+        "of the requested region/sort; `matched` is how many rows this route's "
+        "question matched and `universe_total` is the universe it ran over "
+        "(the same set on this route, which applies no filter of its own). "
+        "`/screens/select` reports the two separately, because a query there "
+        "can narrow `total` far below `universe_total`."
     ),
     "type": "object",
     "additionalProperties": False,
@@ -39,7 +42,8 @@ SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
         "refreshed_at",
         "next_refresh_at",
         "stale",
-        "total",
+        "matched",
+        "universe_total",
         "returned",
         "rows",
     ],
@@ -92,10 +96,23 @@ SCREEN_RESPONSE_SCHEMA: dict[str, object] = {
             "type": "boolean",
             "description": "True when a refresh was blocked and the previous snapshot is being served honestly.",
         },
-        "total": {
+        "matched": {
             "type": "integer",
             "minimum": 0,
-            "description": "Full post-filter/post-dedupe universe size, not the page size.",
+            "description": (
+                "Rows this route's question matched (post-filter, post-dedupe), "
+                "not the page size. Named `matched`, not `total`, because "
+                "`/screens/select` uses `total` for a query over the whole "
+                "market and the two numbers must not be printed under one label."
+            ),
+        },
+        "universe_total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": (
+                "The universe this route ran over. Equal to `matched` here "
+                "because browse applies no filter of its own."
+            ),
         },
         "returned": {
             "type": "integer",

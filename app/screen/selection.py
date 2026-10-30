@@ -32,15 +32,20 @@ Three rules the code has to earn:
    "value": "1w10u"}`` — and :mod:`app.screen.choice_filters` compiles it into
    the same ``field op number`` predicate a ``field`` criterion would have
    produced.
-2. **The display is capped at 20 rows.** ``limit`` cannot widen the page: a
-   larger value is clamped (not an error, because the caller asked for a page
-   that does not exist) and the envelope reports the applied ``limit``, so a
-   client can see what it got. ``symbols`` is capped the same way.
+2. **One page holds at most :data:`PANEL_LIMIT` rows (100).** ``limit`` cannot
+   widen the page past the panel: a larger value is clamped (not an error,
+   because the caller asked for a page that does not exist) and the envelope
+   reports the applied ``limit``, so a client can see what it got. ``symbols``
+   is capped the same way and takes the same knob. The old 20-row window is
+   :data:`DISPLAY_LIMIT`, which is now the *browse* display only: a screener
+   panel is 100 rows × 9–12 columns, and selling it five 20-row pages is how the
+   same symbol appeared twice across a page boundary.
 3. **Same input, same output.** The executor is a pure function of
-   ``(rows, request)``: filters AND in the order given, ``rank_rows`` is a stable
-   sort with missing values last, and ``symbols`` keeps request order. Two calls
-   with the same arguments produce identical documents, which is what makes a
-   selection reproducible in a test, a bug report or an export.
+   ``(rows, request)``: filters AND in the order given, ``rank_rows`` orders by
+   the metric and breaks ties on ``symbol`` (so page boundaries are stable even
+   if the provider reshuffles equal-valued rows), and ``symbols`` keeps request
+   order. Two calls with the same arguments produce identical documents, which
+   is what makes a selection reproducible in a test, a bug report or an export.
 
 ``parse_selection`` is the validator and knows nothing about HTTP; the API route
 maps :class:`SelectionError` to the ``{error, errorMessage}`` envelope. The
@@ -64,15 +69,58 @@ column, filled from the parity metrics the bulk scan carries
 (:data:`VIEW_FIELDS`). Without ``view`` the row is the light browse row, exactly
 as before; an unknown view is a 422 (:class:`SelectionError` code
 ``unknown_view``) before a row is read.
+
+One vocabulary, two spellings
+-----------------------------
+
+``columns`` speaks the catalogue (``pe_ttm``, ``roic``, ``market_cap``), while a
+filter used to speak only Finviz's screener keys (``fa_pe``, ``fa_roi``, ``cap``).
+Requiring a caller to know both is how a request ends up filtering on a key the
+other half of the document never mentions. So a filter key is resolved in one
+order, and the order is the contract:
+
+1. the 82 Finviz keys, unchanged — a legacy name can never be shadowed by a
+   catalogue alias;
+2. a catalogue key, translated by :func:`app.screen.columns.field_for` into the
+   row column it already means (``pe`` → ``pe_ttm``, ``market_cap`` →
+   ``market_cap_usd``, ``perf_4w`` → ``ret_1m``), or itself when the catalogue key
+   *is* the column (``roic``, ``ps``, ``dividend_yield``);
+3. anything else is a 422 that names the key — including a real catalogue column
+   no filter can read (``enterprise_value``), because a filter that cannot change
+   the answer must never return the unfiltered screen as if it matched.
+
+That resolver is the one table, and it has three readers: the filter compiler
+(which needs a column the DSL can compare), :func:`view_row` (which needs the
+column a view renders) and the ``columns`` projection. ``SCREEN_ALIASES`` and
+``VIEW_FIELDS`` are projections of it, not copies of it, so ``pe`` cannot mean
+``pe_ttm`` to a view and something else to a filter. :func:`select_rows` also
+harmonises every row through the same table before a filter runs, so the
+catalogue's spelling and the screen's spelling of one metric hold one number.
+
+Caching: the tag is a function of the question, not of the clock
+----------------------------------------------------------------
+
+:func:`selection_etag` derives a strong ETag from the *canonical* request (every
+default and clamp applied, keys sorted) plus a data revision. It deliberately
+does not hash the response: hashing a 40 KB document to answer "did anything
+change?" costs more than the payload saves, and the response carries ``as_of`` —
+the read moment — which changes on every call and would invalidate every tag.
+The revision is the newest store stamp the answer is built on (the depth store's
+cycle ``as_of``, or the snapshot a ``symbols`` lookup is pinned to), so a repeat
+call inside one data cycle revalidates for free while a new cycle, a new filter
+or a new region gets a new tag.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.engine.catalog import CATALOG_BY_KEY
 from app.screen import choice_filters
+from app.screen import columns as column_map
 from app.screen import rank as ranking
 from app.screen import views as screen_views
 from app.screen.filter_fields import (
@@ -80,12 +128,13 @@ from app.screen.filter_fields import (
     CHOICE_FIELDS,
     ROW_FIELDS,
     FilterKeyError,
+    UnavailableFilterKey,
+    UnknownFilterKey,
     binding,
     unavailable_keys,
 )
 from app.screen.filters import FIELDS, OPERATORS, apply_filters, compile_filter
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, display_row
-from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS, VIEW_FILL_FIELDS
 from app.screen.universe import ASSET_CLASSES, REGIONS, asset_class_for
 
 #: The two modes. A selection is exactly one of them; the payload may not mix.
@@ -95,14 +144,21 @@ MODES: tuple[str, ...] = ("criteria", "symbols")
 #: provenance field must not be accepted as "some other source".
 SOURCES: tuple[str, ...] = (SOURCE,)
 
-#: Rows a selection may display. Imported, not re-declared: the browse display
-#: and the selection page are the same window, and two constants would drift.
+#: Rows one selection page may display: the interface's panel (100 rows × 9–12
+#: columns). One constant, exported, so the UI and the API cannot disagree about
+#: how many rows a view holds.
+PANEL_LIMIT = 100
+
+#: The browse display window, imported rather than re-declared: ``GET /screens``
+#: is still the top 20 of a snapshot, and a second constant would drift.
 DISPLAY_LIMIT = DISPLAY_ROWS
 
 #: The sort a criteria selection uses when it does not name one.
 DEFAULT_SORT = "market_cap"
 
-#: Top-level keys a selection may carry (the strict contract).
+#: Top-level keys a selection may carry (the strict contract). ``limit`` is here
+#: for ``symbols`` mode, which has no ``criteria`` block to put it in; a criteria
+#: query must still send it inside ``criteria``, where the hint points it.
 SELECTION_KEYS: frozenset[str] = frozenset(
     {
         "mode",
@@ -115,6 +171,7 @@ SELECTION_KEYS: frozenset[str] = frozenset(
         "snapshot_id",
         "fill_wide",
         "columns",
+        "limit",
     }
 )
 
@@ -125,83 +182,26 @@ COLUMN_LIMIT = 40
 CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset", "common_only"})
 FILTER_KEYS: frozenset[str] = frozenset({"key", "field", "op", "value"})
 
-#: View column (a Finviz quote metric key) → the canonical parity row field that
-#: can answer it. One table, for the same reason :data:`app.screen.universe.
-#: PARITY_FIELDS` is one table: a view is a layout decision, and the *source* of
-#: every cell has to be stated once instead of being guessed per call site.
+#: View column → the row field that holds its value — **derived**, never written
+#: here. One table states what every name means
+#: (:data:`app.screen.columns.CATALOGUE_COLUMNS`); this mapping is that table
+#: projected onto the columns the views declare (canonical *and* frozen tabs), so
+#: :func:`view_row`, the ``columns`` projection and the filter compiler cannot
+#: disagree about ``pe``, ``perf_4w`` or ``net_income`` again.
 #:
-#: A view column with no entry here is still emitted — with ``None`` — because a
-#: table whose shape depends on the payload cannot be compared between two runs.
-#: The bulk scan simply does not carry those metrics yet: enterprise value,
-#: income/sales, the per-share book and cash, insider/institutional ownership,
-#: employees, index membership, ATR and the 3-year window. ``volatility`` is two
-#: cells (week and month) in Finviz, so one key cannot name one column.
-VIEW_FIELDS: Mapping[str, str] = {
-    # -- identity / light cells that are also view columns
-    "price": "price",
-    "change_pct": "change_pct",
-    "volume": "volume",
-    "market_cap": "market_cap_usd",
-    # -- valuation
-    "pe": "pe_ttm",
-    "forward_pe": "pe_forward",
-    "peg": "peg",
-    "ps": "ps",
-    "pb": "pb",
-    "pfcf": "pfcf",
-    "ev_ebitda": "ev_ebitda",
-    "pc": "price_to_cash",
-    "ev_sales": "ev_to_sales",
-    "enterprise_value": "enterprise_value",
-    "eps_ttm": "eps_ttm",
-    "sales": "revenue_ttm",
-    "income": "net_income_ttm",
-    "book_per_share": "book_per_share",
-    "cash_per_share": "cash_per_share",
-    "prev_close": "prev_close",
-    "eps_next_y_growth": "eps_next_y_growth",
-    "avg_volume": "avg_volume_30d",
-    "atr_14": "atr_14",
-    "rel_volume": "rel_volume_10d",
-    "volatility": "volatility_w",
-    # -- financial (levels the bulk scan really carries)
-    "eps_next_y": "eps_forecast_next_fy",
-    "eps_next_q": "eps_forecast_next_fq",
-    "roa": "roa",
-    "roe": "roe",
-    "roic": "roic",
-    "gross_margin": "gross_margin",
-    "oper_margin": "oper_margin",
-    "profit_margin": "profit_margin",
-    "quick_ratio": "quick_ratio",
-    "current_ratio": "current_ratio",
-    "debt_to_equity": "debt_to_equity",
-    # -- ownership (share counts; holdings come from the facts store)
-    "shares_outstanding": "shares_outstanding",
-    "shares_float": "float_shares",
-    "insider_own": "insider_own",
-    "inst_own": "inst_own",
-    # -- technicals
-    "sma20": "sma_20",
-    "sma50": "sma_50",
-    "sma200": "sma_200",
-    "rsi_14": "rsi_14",
-    "beta": "beta_1y",
-    "week52_high": "high_52w",
-    "week52_low": "low_52w",
-    # -- performance
-    "perf_week": "ret_1w",
-    "perf_month": "ret_1m",
-    "perf_quarter": "ret_3m",
-    "perf_half_y": "ret_6m",
-    "perf_ytd": "ret_ytd",
-    "perf_year": "ret_1y",
-    "perf_3y": "ret_3y",
-    "perf_5y": "ret_5y",
-    "perf_10y": "ret_10y",
-    # -- profile / events
-    "ipo": "listing_date",
-}
+#: A view column that resolves to nothing renders ``None``; the only such columns
+#: are the documented session cells ``open``/``high``/``low``
+#: (:data:`app.screen.columns.ABSENT_COLUMNS`), and the boot check below fails the
+#: process if a fourth appears.
+VIEW_FIELDS: Mapping[str, str] = column_map.view_fields(
+    tuple(
+        dict.fromkeys(
+            name
+            for definition in screen_views.VIEW_COLUMNS.values()
+            for name in definition
+        )
+    )
+)
 
 #: Where a misplaced knob belongs — used to turn "unexpected key" into a fix.
 _HINTS: Mapping[str, str] = {
@@ -211,8 +211,9 @@ _HINTS: Mapping[str, str] = {
 }
 
 #: View columns that read a cell every universe row already carries (the light
-#: row), not a parity metric. Kept explicit so the boot check below can tell
-#: "light by design" from "a parity field that does not exist".
+#: row), not a parity metric. Kept because the compatibility view
+#: ``market_cap`` → ``market_cap_usd`` is the one target that is a light cell;
+#: everything else is checked against the resolver's row-column universe.
 _VIEW_LIGHT_FIELDS: frozenset[str] = frozenset(
     {"price", "change_pct", "volume", "market_cap_usd"}
 )
@@ -220,18 +221,30 @@ VIEW_FACT_FIELDS: frozenset[str] = frozenset({"insider_own", "inst_own"})
 
 
 def _validate_view_fields() -> None:
-    """Fail at import: a view cell must point at a column a row really carries."""
+    """Fail at import: a view cell must resolve to a column a row really carries.
 
-    from app.screen.universe import PARITY_FIELDS
+    Two directions, because the old check only had the first and therefore let the
+    bug through: every target must be a row column, **and** every column a view
+    declares must have an entry — or be one of the documented session cells
+    (``open``/``high``/``low``, see :data:`app.screen.columns.ABSENT_COLUMNS`).
+    """
 
-    known = set(PARITY_FIELDS.values()) | set(_VIEW_LIGHT_FIELDS) | set(VIEW_FACT_FIELDS) | set(VIEW_FILL_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS)
+    known = column_map.ROW_FIELD_COLUMNS | set(_VIEW_LIGHT_FIELDS)
     unknown = sorted(set(VIEW_FIELDS.values()) - known)
     if unknown:
         raise RuntimeError(
             f"VIEW_FIELDS names field(s) no row carries: {unknown}; "
-            "they are neither a light column nor a PARITY_FIELDS target"
+            "they are neither a light column nor a row column"
         )
     declared = set().union(*(set(columns) for columns in screen_views.VIEW_COLUMNS.values()))
+    unmapped = sorted(
+        declared - set(VIEW_FIELDS) - set(column_map.ABSENT_COLUMNS)
+    )
+    if unmapped:
+        raise RuntimeError(
+            f"{len(unmapped)} view column(s) map to no row field: {unmapped}; "
+            "add them to app.screen.columns.CATALOGUE_COLUMNS"
+        )
     stray = sorted(set(VIEW_FIELDS) - declared)
     if stray:
         raise RuntimeError(f"VIEW_FIELDS maps column(s) no view declares: {stray}")
@@ -337,15 +350,20 @@ def _reject_extra(mapping: Mapping[str, Any], allowed: frozenset[str], what: str
 
 
 def _limit(raw: Any) -> int:
-    """The display cap: a positive integer, clamped to :data:`DISPLAY_LIMIT`."""
+    """Page size: a positive integer, clamped to :data:`PANEL_LIMIT`.
+
+    Clamped, not refused: a caller asking for 1,000 rows asked for a page that
+    does not exist, and the envelope reports the limit that was applied so the
+    difference is visible instead of silent.
+    """
 
     if raw is None:
-        return DISPLAY_LIMIT
+        return PANEL_LIMIT
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise SelectionError(f"'limit' must be an integer, got {raw!r}")
     if raw < 1:
         raise SelectionError(f"'limit' must be at least 1, got {raw}")
-    return min(raw, DISPLAY_LIMIT)
+    return min(raw, PANEL_LIMIT)
 
 
 def _sort(raw: Any) -> str:
@@ -446,7 +464,14 @@ def _choice_criterion(
 
 
 def _criterion(item: Any, index: int) -> Criterion:
-    """One filter object → one compiled :class:`Criterion`, or a 422."""
+    """One filter object → one compiled :class:`Criterion`, or a 422.
+
+    A ``key`` is resolved in the order the module docstring states: the 82 Finviz
+    keys first (a legacy name is never shadowed), then a catalogue key through
+    :func:`_alias_column`, and otherwise the Finviz refusal stands. The alias
+    path echoes the key the caller wrote *and* the column it compiled to, so the
+    envelope shows both ends of the translation.
+    """
 
     where = f"criteria.filters[{index}]"
     if not isinstance(item, Mapping):
@@ -465,22 +490,41 @@ def _criterion(item: Any, index: int) -> Criterion:
         raise SelectionError(f"{where} is missing {', '.join(missing)}")
 
     if key is not None:
+        key_text = str(key)
         try:
             resolved = binding(key)
         except FilterKeyError as exc:
-            raise SelectionError(str(exc), code=exc.code) from exc
-        if resolved.choice:
-            return _choice_criterion(str(key), item, where)
-        column = resolved.field
-        assert column is not None  # binding() refuses the unavailable keys
-        prefix = f"{where} (key {key!r})"
+            column = _alias_column(key_text)
+            if column is None:
+                if isinstance(exc, UnknownFilterKey) and key_text in CATALOG_BY_KEY:
+                    # A real catalogue column that no filter can read. Naming it
+                    # is the whole point: a silent no-op would return the
+                    # unfiltered screen and read as "no company has one".
+                    raise SelectionError(
+                        f"filter key {key_text!r} cannot be applied: it is a "
+                        "catalog column, but no screen row carries a value a "
+                        "filter can compare (ask for it in 'columns' instead). "
+                        "Keys that filter a row today are listed at "
+                        "GET /screens/select/schema",
+                        code="unavailable_filter_key",
+                    ) from exc
+                raise SelectionError(str(exc), code=exc.code) from exc
+            # A catalogue spelling of a real column (``pe``, ``market_cap``).
+            column_value: Any = column
+            prefix = f"{where} (key {key!r})"
+        else:
+            if resolved.choice:
+                return _choice_criterion(key_text, item, where)
+            column_value = resolved.field
+            assert column_value is not None  # binding() refuses the unavailable keys
+            prefix = f"{where} (key {key!r})"
     else:
-        column = field
+        column_value = field
         prefix = where
 
     try:
         compiled = compile_filter(
-            {"field": column, "op": item["op"], "value": item["value"]}
+            {"field": column_value, "op": item["op"], "value": item["value"]}
         )
     except ValueError as exc:
         raise SelectionError(f"{prefix}: {exc}", code="invalid_filter") from exc
@@ -513,6 +557,10 @@ def _criteria_block(payload: Mapping[str, Any]) -> Mapping[str, Any]:
                 f"mode 'criteria' selects by query and does not take {name!r}; "
                 "use mode 'symbols' for an explicit ticker list"
             )
+    if "limit" in payload:
+        # Top-level ``limit`` exists for symbols mode, which has no block of its
+        # own; a query has one, and a limit in two places is two answers.
+        raise SelectionError(f"{_HINTS['limit']}: a criteria selection sends it inside 'criteria'")
     block = payload.get("criteria")
     if not isinstance(block, Mapping):
         raise SelectionError(
@@ -522,26 +570,41 @@ def _criteria_block(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return block
 
 
-#: Every name a caller may ask for: the filter vocabulary the screener speaks,
-#: the catalog it is built from, and the light row's own keys.
-_KNOWN_COLUMNS: frozenset[str] = frozenset(FIELDS) | frozenset(CATALOG_BY_KEY) | frozenset(
+#: Every name a caller may ask for: the resolver's table (catalogue keys, the
+#: shipped client's names, every row field) plus the two structural cells a
+#: projection can always ask for.
+_KNOWN_COLUMNS: frozenset[str] = column_map.ROW_COLUMNS | column_map.ROW_FIELD_COLUMNS | frozenset(
     {
         "rank",
-        "symbol",
-        "name",
-        "exchange",
-        "country",
-        "sector",
-        "price",
-        "change_pct",
-        "volume",
-        "turnover",
-        "turnover_usd",
-        "market_cap_usd",
-        "is_primary",
         "as_of",
+        # The brand mark is part of the row identity (the browse row has always
+        # carried it), so a projection must be able to ask for it by name — and
+        # only by name: it is a 600-byte base64 monogram and 100 implicit copies
+        # would triple a twelve-column panel.
+        "logo",
     }
 )
+
+
+def _alias_column(key: str) -> str | None:
+    """A catalogue key's row column, through the one resolver.
+
+    :func:`app.screen.columns.field_for` maps the catalogue spelling to the column
+    ``/screens/select`` reads (``pe`` → ``pe_ttm``, ``market_cap`` →
+    ``market_cap_usd``, ``perf_4w`` → ``ret_1m``); a catalogue key whose spelling
+    *is* the column (``roic``, ``ps``, ``dividend_yield``) resolves to itself.
+    ``None`` means the key is not a catalogue column, or is one no *filter* can
+    compare — the caller then keeps its own refusal.
+
+    The filter is the third reader of the same table: it reads the column the
+    views render and the ``columns`` projection returns, so one key cannot mean
+    two numbers depending on which half of the document mentions it.
+    """
+
+    if key not in CATALOG_BY_KEY and key not in FIELDS:
+        return None
+    column = column_map.field_for(key)
+    return column if column in FIELDS else None
 
 
 def _columns(raw: Any) -> tuple[str, ...]:
@@ -666,20 +729,29 @@ def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
             "version the tickers are resolved against"
         )
 
+    view = _view_name(payload.get("view"))
+    columns = _columns(payload.get("columns"))
+    if view is not None and columns:
+        raise SelectionError(
+            "a selection takes 'view' or 'columns', not both: two ways to name "
+            "the same output is a question with two answers"
+        )
+
     return SelectionRequest(
         mode="symbols",
         region=None,
         filters=(),
         sort=None,
-        limit=DISPLAY_LIMIT,
+        limit=_limit(payload.get("limit")),
         symbols=tuple(symbols),
         source=str(source),
         snapshot_id=snapshot_id,
         asset_class=_asset_class(payload.get("asset_class")),
-        view=_view_name(payload.get("view")),
+        view=view,
         offset=0,
         common_only=False,
         fill_wide=_fill_wide(payload.get("fill_wide")),
+        columns=columns,
     )
 
 
@@ -831,8 +903,11 @@ def view_row(row: Mapping[str, Any], name: str, *, as_of: str) -> dict[str, Any]
     This is deliberately **not** the light row: a view request asks for the
     columns of that Finviz tab, one cell per declared column in view order.
     ``rank``/``symbol``/``as_of`` stay so the row is still addressable and
-    dated; everything else is looked up through :data:`VIEW_FIELDS` and copied
-    verbatim (a column the bulk scan does not carry is ``None``, never ``0``).
+    dated; everything else is read through
+    :func:`app.screen.columns.value_for` — the same resolver ``columns`` and the
+    filter compiler use, so two spellings of one metric cannot return two numbers.
+    A column with no row field (the documented session cells ``open``/``high``/
+    ``low``) is ``None``, never ``0``.
     """
 
     definition = screen_views.view(name)
@@ -843,8 +918,7 @@ def view_row(row: Mapping[str, Any], name: str, *, as_of: str) -> dict[str, Any]
         "as_of": as_of,
     }
     for column in definition.columns:
-        field = VIEW_FIELDS.get(column)
-        shaped[column] = row.get(field) if field is not None else None
+        shaped[column] = column_map.value_for(row, column)
     return shaped
 
 
@@ -855,15 +929,17 @@ def _column_row(
 
     ``symbol`` and ``as_of`` are structural: a row that cannot name its
     instrument or date its observation is not a row a client can use, so they
-    are always present. Everything else is exactly what was asked for — a
-    requested cell the row does not carry answers ``None``, because the column
-    exists and its value is unknown, which is different from a column that was
-    never requested at all.
+    are always present. Everything else is exactly what was asked for, resolved
+    through the one table: ``columns=["pe"]`` and ``view=value`` read the same
+    cell because both call :func:`app.screen.columns.value_for`. A requested cell
+    the row does not carry answers ``None``, because the column exists and its
+    value is unknown, which is different from a column that was never requested
+    at all.
     """
 
     document: dict[str, Any] = {"symbol": row.get("symbol")}
     for column in columns:
-        document[column] = row.get(column)
+        document[column] = column_map.value_for(row, column)
     document["as_of"] = as_of
     return document
 
@@ -895,7 +971,7 @@ def select_rows(
     if not isinstance(as_of, str) or not as_of:
         raise ValueError("as_of is required: a selection must date its own rows")
 
-    universe = [dict(row) for row in rows]
+    universe = column_map.harmonise_rows(rows)
     if request.is_criteria:
         selected, total = _selected(universe, request)
         missing: tuple[str, ...] = ()
@@ -938,6 +1014,81 @@ def select_rows(
 
 
 # ---------------------------------------------------------------------------
+# Caching: one canonical question, one strong validator
+# ---------------------------------------------------------------------------
+
+#: Namespace of the selection validator, so a tag from this route can never be
+#: mistaken for the depth store's or the quote hub's.
+ETAG_NAMESPACE = "select"
+
+
+def canonical_request(request: SelectionRequest) -> dict[str, Any]:
+    """The request as data: every default applied, every clamp resolved.
+
+    This is the document the ETag hashes, so it has to be the *question* rather
+    than the bytes the caller sent. ``{"criteria": {}}`` and a payload that spells
+    out ``limit: 100``, ``sort: market_cap``, ``offset: 0`` and
+    ``common_only: false`` select exactly the same rows; they must therefore
+    produce one tag, or the panel's cache misses on a client that is merely more
+    explicit. Conversely nothing that changes the answer may be absent from it:
+    ``limit: 500`` and ``limit: 101`` both clamp to 100 and are the same page,
+    which is why the clamped value is hashed and not the requested one.
+
+    ``json.dumps(sort_keys=True)`` fixes key order, and the field list is stated
+    here in one place so a new knob has to be added deliberately.
+    """
+
+    return {
+        "mode": request.mode,
+        "region": request.region,
+        "asset_class": request.asset_class,
+        "filters": [criterion.as_dict() for criterion in request.filters],
+        "sort": request.sort,
+        "limit": request.limit,
+        "offset": request.offset,
+        "symbols": list(request.symbols),
+        "source": request.source,
+        "snapshot_id": request.snapshot_id,
+        "view": request.view,
+        "columns": list(request.columns),
+        "common_only": request.common_only,
+        "fill_wide": request.fill_wide,
+    }
+
+
+def request_digest(request: SelectionRequest) -> str:
+    """A 128-bit digest of :func:`canonical_request` (32 hex characters).
+
+    Hashed instead of the response: the request is a few hundred bytes while a
+    twelve-column panel is tens of kilobytes, and a body hash would also have to
+    include ``as_of`` — the read moment — which changes on every call and would
+    make every tag unique. Measured cost of the canonical form + hash: ~10 µs.
+    """
+
+    encoded = json.dumps(
+        canonical_request(request), sort_keys=True, separators=(",", ":"), default=str
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:32]
+
+
+def selection_etag(*, request: SelectionRequest, revision: str) -> str:
+    """A strong, quoted ETag over ``(question, data revision)``.
+
+    ``revision`` is the newest store stamp the answer is built on — the depth
+    store's cycle ``as_of`` for a criteria query, the stored snapshot's ``as_of``
+    for a ticker lookup — and never ``now()``. A validator that moved with the
+    clock would answer one 304 per microsecond and none per client.
+
+    Strong (unquoted ``W/`` absent) because the representation really is
+    byte-identical for a given tag: only the ``as_of`` field of a *new* body
+    would differ, and a 304 never carries a body at all.
+    """
+
+    stamp = hashlib.sha1(str(revision).encode("utf-8")).hexdigest()[:8]
+    return f'"{ETAG_NAMESPACE}-{stamp}-{request_digest(request)}"'
+
+
+# ---------------------------------------------------------------------------
 # The published request schema
 # ---------------------------------------------------------------------------
 
@@ -946,6 +1097,47 @@ def _filter_key_extension() -> dict[str, dict[str, object]]:
     """All 82 keys, in panel order: the column, or the reason it is refused."""
 
     return {entry.key: entry.as_dict() for entry in CATALOGUE}
+
+
+def _filter_alias_extension() -> dict[str, dict[str, object]]:
+    """Every catalogue spelling a filter may name, and the column it means.
+
+    The validator resolves a ``key`` in one order (:func:`_criterion`): the 82
+    Finviz keys first — a legacy name is never shadowed — then a catalogue key
+    through :func:`_alias_column`. Only the first half was published, so a client
+    that generated its filter picker from ``x-filter-keys`` could never offer
+    ``pe``, ``roic`` or ``market_cap``: half of one vocabulary was invisible in
+    the contract (F7).
+
+    Derived from the two tables the validator itself reads, so it cannot drift:
+    a key is published here exactly when ``binding()`` refuses it *and*
+    :func:`_alias_column` resolves it to a row column. A catalogue column that no
+    row can filter on resolves to ``None`` and stays out, because the validator
+    refuses it by name (``unavailable_filter_key``).
+    """
+
+    aliases: dict[str, dict[str, object]] = {}
+    for key in sorted(set(CATALOG_BY_KEY) | set(FIELDS)):
+        try:
+            binding(key)
+        except FilterKeyError:
+            column = _alias_column(key)
+        else:
+            continue  # a Finviz key: already published, never shadowed
+        if column is None:
+            continue
+        entry: dict[str, object] = {"field": column, "kind": FIELDS[column]}
+        spec = CATALOG_BY_KEY.get(key)
+        if spec is not None:
+            entry["label"] = spec.label
+        aliases[key] = entry
+    return aliases
+
+
+#: The alias half of the published vocabulary, built once at import: it is a pure
+#: function of the tables above, and the schema below reads it twice (count and
+#: table) — two spellings of one fact would be one too many.
+_FILTER_ALIASES: dict[str, dict[str, object]] = _filter_alias_extension()
 
 
 def _filter_value_schema() -> dict[str, object]:
@@ -977,10 +1169,17 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
     "description": (
         "A stock selection in one of two modes. `criteria` is a query over a "
         "region's universe: filters are ANDed, `sort` orders the matches and "
-        "`limit` caps the page at 20 rows. `symbols` is an explicit ticker list "
-        "resolved inside the universe addressed by `snapshot_id`. The response "
-        "carries `total` (every row that matched) separately from `returned` "
-        "(the page), so a 20-row display never claims to be a 20-stock market."
+        "`limit` caps the page at "
+        f"{PANEL_LIMIT} rows. `symbols` is an explicit ticker list resolved "
+        "inside the universe addressed by `snapshot_id`, in request order, with "
+        "its own `limit`. The response carries `total` (every row that matched) "
+        "separately from `returned` (the page), so a 100-row panel never claims "
+        "to be a 100-stock market. A filter key may be one of the 82 Finviz "
+        "keys (`x-filter-keys`) or one of the catalogue spellings in "
+        "`x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to "
+        "one row column, and a key no column can answer is a 422 that names it. "
+        "The two tables together are the vocabulary a filter picker is built "
+        "from."
     ),
     "type": "object",
     "additionalProperties": False,
@@ -1023,8 +1222,23 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "Both modes: the exact cells each row returns, in order. "
                 "`symbol` and `as_of` are always present; a requested cell the "
                 "row does not carry is null. Omit it for the historical light "
-                "row. Mutually exclusive with `view` — two ways to name the "
-                "same output is a question with two answers."
+                "row. `logo` is an accepted column name (a vendored asset path "
+                "or an offline monogram data URI) and is the one cell that is "
+                "opt-in: a 100-row panel that did not ask for it does not carry "
+                "100 base64 marks. Mutually exclusive with `view` — two ways to "
+                "name the same output is a question with two answers."
+            ),
+        },
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": PANEL_LIMIT,
+            "description": (
+                "Symbols only: the page size for a ticker lookup, which has no "
+                "`criteria` block to carry it. Clamped to "
+                f"{PANEL_LIMIT}, exactly like `criteria.limit`. A criteria "
+                "query sends its limit inside `criteria`; a second answer at "
+                "the top level is a 422."
             ),
         },
         "fill_wide": {
@@ -1062,11 +1276,12 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
-                    "default": DISPLAY_LIMIT,
+                    "default": PANEL_LIMIT,
                     "description": (
-                        "Page size. Clamped to 20: a larger value is not an error, "
-                        "it simply cannot widen the display, and the response "
-                        "reports the limit that was applied."
+                        "Page size. Clamped to "
+                        f"{PANEL_LIMIT}: a larger value is not an error, it "
+                        "simply cannot widen the panel, and the response reports "
+                        "the limit that was applied."
                     ),
                 },
                 "offset": {
@@ -1127,6 +1342,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                         {"required": ["symbols"]},
                         {"required": ["source"]},
                         {"required": ["snapshot_id"]},
+                        {"required": ["limit"]},
                     ]
                 },
             },
@@ -1155,11 +1371,17 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "key": {
                     "type": "string",
                     "description": (
-                        f"One of the 82 Finviz filter keys. The {len(ROW_FIELDS)} "
-                        "that resolve to one row column, the "
+                        f"One of the {len(CATALOGUE)} Finviz filter keys. The "
+                        f"{len(ROW_FIELDS)} that resolve to one row column, the "
                         f"{len(CHOICE_FIELDS)} that filter through their option "
                         f"vocabulary, and the {len(unavailable_keys())} that are "
-                        "refused with their reason, are listed in x-filter-keys."
+                        "refused with their reason, are listed in x-filter-keys. "
+                        f"A filter may also name one of the {len(_FILTER_ALIASES)} "
+                        "catalogue spellings in x-filter-aliases (`pe`, `roic`, "
+                        "`market_cap`), each published with the row column it "
+                        "means; the two tables together are the "
+                        f"{len(CATALOGUE) + len(_FILTER_ALIASES)} keys a filter "
+                        "may name, and any other key is a 422 that names it."
                     ),
                 },
                 "field": {
@@ -1173,14 +1395,18 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
     },
     "x-filter-key-count": len(CATALOGUE),
     "x-filter-keys": _filter_key_extension(),
+    "x-filter-alias-count": len(_FILTER_ALIASES),
+    "x-filter-aliases": _FILTER_ALIASES,
 }
 
 __all__ = [
     "CRITERIA_KEYS",
     "DEFAULT_SORT",
     "DISPLAY_LIMIT",
+    "ETAG_NAMESPACE",
     "FILTER_KEYS",
     "MODES",
+    "PANEL_LIMIT",
     "SELECTION_KEYS",
     "SELECTION_REQUEST_SCHEMA",
     "SOURCES",
@@ -1190,7 +1416,10 @@ __all__ = [
     "Selection",
     "SelectionError",
     "SelectionRequest",
+    "canonical_request",
     "parse_selection",
+    "request_digest",
     "select_rows",
+    "selection_etag",
     "view_row",
 ]

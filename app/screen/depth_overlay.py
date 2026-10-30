@@ -12,7 +12,12 @@ being the test and not truthiness. ``pe=None`` on the row is a recorded unknown
 that the row owns; ``pe`` absent is a gap. Filling on falsiness would be the
 expensive bug: ``0.0``, ``False`` and ``""`` are observations, and a "fill when
 falsy" overlay would overwrite a real zero P/E or a genuine "not optionable"
-with whatever the store had.
+with whatever the store had. The one documented exception is
+:data:`SCAN_NULL_CELLS`: the columns the bulk scan writes as ``None`` for
+**every** row because the provider does not publish them at all. There a ``None``
+is not an observation, it is the scan saying it cannot answer — which is why
+``ps`` and ``short_float`` were null on all 4,217 symbols while the depth store
+held both.
 
 **Catalog-only.** The store also carries bookkeeping — ``source_time``,
 ``source``, ``conflict``, per-field provenance — because the collector needs to
@@ -53,8 +58,9 @@ from types import MappingProxyType
 from typing import Any
 
 from app.engine.catalog import CATALOG
+from app.screen.columns import CATALOGUE_COLUMNS, CATALOGUE_KEY_SET
 
-__all__ = ["overlay"]
+__all__ = ["SCAN_NULL_CELLS", "SCREEN_ALIASES", "overlay"]
 
 #: depth key -> screen filter field, for measurements the two vocabularies spell
 #: differently. The depth store speaks the catalog (``pe``, ``rsi``, ``beta``);
@@ -62,30 +68,46 @@ __all__ = ["overlay"]
 #: ``beta_1y``). Without this table the cell lands under a name the filter never
 #: reads — the store is full and the screen still answers nothing.
 #:
-#: Only measurements with the same definition are mapped. ``average_volume`` is
-#: not aliased to ``avg_volume_30d`` because the windows differ, and the
-#: forward-estimate fields are left alone because "next quarter" in one
-#: vocabulary is not "next quarter" in the other.
+#: This is **not** a second table: it is the projection of
+#: :data:`app.screen.columns.CATALOGUE_COLUMNS` onto the catalogue keys the two
+#: vocabularies spell differently. The overlay needs exactly that half (a store
+#: cell → the column a filter reads) and nothing else; the full table is the one
+#: place a name's meaning is stated, and ``test_one_table_is_the_only_mapping``
+#: fails if this projection and that table ever disagree.
+#:
+#: ``average_volume`` maps to the **30-day** window, not the ten-day one: the
+#: catalogue sources it from the provider's multi-week ``averageVolume``, and
+#: reading ``avg_volume_10d`` for it answered a different question (the audit's
+#: F6). ``avg_volume_10d`` stays its own cell under its own name.
 SCREEN_ALIASES: Mapping[str, str] = MappingProxyType(
     {
-        "pe": "pe_ttm",
-        "forward_pe": "pe_forward",
-        "market_cap": "market_cap_usd",
-        "operating_margin": "oper_margin",
-        "net_margin": "profit_margin",
-        "pc": "price_to_cash",
-        "ev_sales": "ev_to_sales",
-        "shares_float": "float_shares",
-        "beta": "beta_1y",
-        "rsi": "rsi_14",
-        "atr": "atr_14",
-        "average_volume": "avg_volume_10d",
-        "perf_1w": "ret_1w",
-        "perf_ytd": "ret_ytd",
-        "perf_3y": "ret_3y",
-        "perf_5y": "ret_5y",
-        "perf_10y": "ret_10y",
-        "ipo_date": "listing_date",
+        key: field
+        for key, field in CATALOGUE_COLUMNS.items()
+        if key in CATALOGUE_KEY_SET and field != key
+    }
+)
+
+#: Columns the bulk scan requests and then answers ``null`` for on **every** row,
+#: because the provider has no such cell: forward P/E, P/S, payout ratio, short
+#: float, enterprise value, cash per share and the two ownership shares. A ``None``
+#: in one of these is the scan stating it cannot answer, not a measurement — so
+#: the overlay treats it as a gap. Four of them (``ps``, ``short_float``,
+#: ``enterprise_value``, ``cash_per_share``) were the audit's "null despite having
+#: data" bugs: the store held the number and presence-only filling kept the null.
+#:
+#: Every other column keeps the strict rule: a ``None`` there is an observation
+#: the row owns (a company with no earnings has no meaningful P/E, and the store's
+#: copy must not overwrite that silence with a number).
+SCAN_NULL_CELLS: frozenset[str] = frozenset(
+    {
+        "ps",
+        "pe_forward",
+        "payout_ratio",
+        "short_float",
+        "enterprise_value",
+        "cash_per_share",
+        "insider_own",
+        "inst_own",
     }
 )
 
@@ -146,6 +168,21 @@ def _entry_for(ticker: Any, table: Mapping[str, Any]) -> Mapping[str, Any] | Non
     return None
 
 
+def _fillable(row: Mapping[str, Any], key: str) -> bool:
+    """Is ``key`` a gap this store may fill?
+
+    Absent is always a gap. Present-but-``None`` is a gap only for
+    :data:`SCAN_NULL_CELLS`, the columns the scan answers ``null`` for on every
+    row: there the ``None`` is "the provider has no such cell", and keeping it
+    while the store holds the number is the bug that made P/S and short float
+    permanently null.
+    """
+
+    if key not in row:
+        return True
+    return row[key] is None and key in SCAN_NULL_CELLS
+
+
 def overlay(
     rows: Iterable[Mapping[str, Any]],
     depth: Mapping[str, Mapping[str, Any]],
@@ -172,13 +209,13 @@ def overlay(
         if entry is not None:
             for spec in CATALOG:
                 key = spec.key
-                if key in merged or key not in entry:
+                if not _fillable(merged, key) or key not in entry:
                     continue
                 value = entry[key]
                 if value is not None:
                     merged[key] = value
             for source_key, screen_key in (aliases or {}).items():
-                if screen_key in merged or source_key not in entry:
+                if not _fillable(merged, screen_key) or source_key not in entry:
                     continue
                 value = entry[source_key]
                 if value is not None:

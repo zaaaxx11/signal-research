@@ -8,10 +8,14 @@ visible metric per sort (PLAN-screen.md §3):
 * ``turnover``   → ``turnover`` (traded value, local currency) desc,
 * ``gainers``    → ``change_pct`` desc.
 
-The sort is **stable**: equal values keep the order they arrived in, so the same
-scan produces the same ranks twice — a screen whose order drifts between two
-reads of one snapshot is unreadable. Missing values sort last, never as ``0``
-(a missing market cap is not a small company).
+The sort is **deterministic**: equal values break on ``symbol``, so the same
+universe produces the same order twice — and so page N and page N+1 cannot
+contain the same issuer. A stable sort alone was not enough: it preserves the
+*provider's* arrival order, and the provider reshuffles equal-valued rows between
+two calls (measured: five 20-row pages, two symbols repeated). Ordering the ties
+by symbol is the only tie-break that depends on the row instead of on the network.
+Missing values sort last, never as ``0`` (a missing market cap is not a small
+company).
 """
 
 from __future__ import annotations
@@ -64,8 +68,21 @@ def _key(row: Mapping[str, Any], column: str) -> tuple[int, float]:
     return (1, value)
 
 
+def _symbol(row: Mapping[str, Any]) -> str:
+    """The tie-break key: the ticker as text, never a coerced number."""
+
+    symbol = row.get("symbol")
+    return symbol.strip().upper() if isinstance(symbol, str) else ""
+
+
 def rank_rows(rows: Iterable[Mapping[str, Any]], sort: str = "market_cap") -> list[dict[str, Any]]:
-    """Order ``rows`` by ``sort`` and number them ``1..n``.
+    """Order ``rows`` by ``sort``, break ties on ``symbol``, number them ``1..n``.
+
+    Two passes, not one: the first fixes the tie order on the ticker, and the
+    second is a *stable* sort by the metric, so equal metrics keep the symbol
+    order the first pass established. A single key tuple would have to reverse
+    the symbol along with the metric (``reverse=True`` applies to the whole key),
+    which would order ties Z→A.
 
     Returns new dictionaries (the caller's rows are not mutated) so a ranked
     view can coexist with the universe it came from.
@@ -73,9 +90,10 @@ def rank_rows(rows: Iterable[Mapping[str, Any]], sort: str = "market_cap") -> li
 
     column = metric_for(sort)
     materialised = [dict(row) for row in rows]
-    ordered = sorted(materialised, key=lambda row: _key(row, column), reverse=True)
+    materialised.sort(key=_symbol)
+    materialised.sort(key=lambda row: _key(row, column), reverse=True)
     ranked: list[dict[str, Any]] = []
-    for position, row in enumerate(ordered, start=1):
+    for position, row in enumerate(materialised, start=1):
         row["rank"] = position
         ranked.append(row)
     return ranked

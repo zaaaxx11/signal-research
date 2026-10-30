@@ -44,7 +44,10 @@ def _depth(symbol: str, **cells: Any) -> dict[str, Any]:
 
 
 def test_overlay_is_the_single_public_entry_point() -> None:
-    assert depth_overlay.__all__ == ["overlay"]
+    assert depth_overlay.__all__ == ["SCAN_NULL_CELLS", "SCREEN_ALIASES", "overlay"], (
+        "one function and the two tables it publishes: the alias map a filter "
+        "resolver reads, and the columns the scan answers null for"
+    )
     defined = sorted(
         name
         for name, value in vars(depth_overlay).items()
