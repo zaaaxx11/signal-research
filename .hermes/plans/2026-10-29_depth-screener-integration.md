@@ -46,8 +46,9 @@ Nama field juga beda antar lapisan: katalog menulis `pe`, screener menulis
 | 1 — overlay murni | ✅ `app/screen/depth_overlay.py`, 37 test |
 | 2 — reader + wiring | ✅ `depth_source.py`, 3 seam (snapshot, export, select) |
 | 3 — filter | ✅ 18 alias nama; terukur `roic>15` 607, `pe_ttm<15` 1.108, `rsi_14>80` 48 |
-| 4 — kolom di respons | ✅ parameter `columns` (opsi B), default tetap light row |
+| 3b — kolom di respons | ✅ parameter `columns` (opsi B), default tetap light row |
 | 5 — verifikasi | ✅ live, tanpa depth baris identik |
+| 4 — UI (`ui/app.js` + pemilih kolom) | ⏳ **belum** — sengaja terakhir |
 
 **Keputusan yang diambil di jalan:**
 
