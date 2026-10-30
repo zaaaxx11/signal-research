@@ -1040,3 +1040,46 @@ def test_a_primed_verdict_keeps_the_first_poll_cheap(
 
     assert document.document["checksum"] == "valid"
     assert elapsed < 0.05, f"a primed check took {elapsed:.3f}s"
+
+
+def test_an_out_of_process_observer_is_not_told_the_collector_is_missing(
+    tmp_path: Path,
+) -> None:
+    """The alert CLI reads the same builder from another process.
+
+    It cannot see the service's collector, and reporting that absence as
+    ``missing`` would page on every run of a perfectly healthy deployment. The
+    state is reported as unobserved instead, while the file facts still count.
+    """
+
+    from app.api import health as health_api
+
+    store = tmp_path / "depth.json"
+    store.write_text('{"symbols": {"AAPL": {"price": 1}}}', encoding="utf-8")
+    now = time.time()
+
+    inside = health_api._check_depth_store(
+        store,
+        budget_s=7200.0,
+        collector=None,
+        enabled=True,
+        now=now,
+        observe_runtime=True,
+    )
+    outside = health_api._check_depth_store(
+        store,
+        budget_s=7200.0,
+        collector=None,
+        enabled=True,
+        now=now,
+        observe_runtime=False,
+    )
+
+    # The status string stays "ok" (the file is readable); the collector state is
+    # what fails the check, exactly as the live CLI reported it.
+    assert inside.document["ok"] is False
+    assert "no collector is attached" in str(inside.document["error"] or "") + str(
+        inside.document.get("collector")
+    ) or inside.document["collector"] == "missing"
+    assert outside.document["collector"] == "not_observable"
+    assert outside.document["ok"] is True, outside.document

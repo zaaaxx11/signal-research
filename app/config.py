@@ -276,6 +276,27 @@ class Settings(BaseSettings):
     health_deep_budget_s: float = Field(default=10.0, gt=0.0)
     health_deep_symbol: str = Field(default="AAPL", min_length=1)
     health_deep_cik: str = Field(default="0000320193", min_length=10, max_length=10)
+    #: Alerting (``python -m app.ops.alerts``). The engine turns the facts above
+    #: into events and a sink delivers them; nothing here names a platform.
+    #: ``alert_sink_spec`` is a scheme-prefixed handle (``file:/var/log/...``),
+    #: so wiring Telegram or Slack later is a new scheme in ``app.ops.sinks``
+    #: and a new value here — not a new field, and not an edit to a rule.
+    #: ``alert_state_path`` is the memory that stops a restart from paging
+    #: twice: it holds the last thing said per key, and it is the only file the
+    #: engine writes.
+    alert_state_path: Path = Path("data/alerts.state.json")
+    alert_sink_spec: str = "file:data/alerts.jsonl"
+    #: A depth source is sick after this many consecutive failed cycles. Two,
+    #: not one: a single flaky chunk is noise, two nights running is a rung that
+    #: stopped answering. The ledger already restores the streak across a
+    #: restart, so a deploy cannot reset the count to zero.
+    alert_ledger_error_threshold: int = Field(default=2, ge=1)
+    #: How many catalog fields the depth store may lose before coverage is
+    #: called degraded. Measured against the high-water mark, not the previous
+    #: run, so a slow slide of one field a night still fires on the fifth night
+    #: instead of never. Five is the large-cap universe's noise budget: a whole
+    #: source dropping out costs dozens, a single unavailable cell costs one.
+    alert_field_drop_threshold: int = Field(default=5, ge=1)
 
 
 def get_settings() -> Settings:

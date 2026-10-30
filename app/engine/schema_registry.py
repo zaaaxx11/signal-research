@@ -331,7 +331,7 @@ _REGISTRY: tuple[TableUsage, ...] = (
         evidence=(
             "app/screen/repository.py:196",
             "app/screen/repository.py:265",
-            "app/api/health.py:627",
+            "app/api/health.py:633",
         ),
         note=(
             "One row per verified screen snapshot, read by GET /screens, by the export bundle "

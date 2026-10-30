@@ -334,10 +334,16 @@ def _check_depth_store(
     collector: Any,
     enabled: bool,
     now: float,
+    observe_runtime: bool = True,
 ) -> Check:
     """Does a depth store exist, does it parse, and is it younger than the cadence?"""
 
     state = _collector_state(collector, enabled=enabled)
+    if collector is None and not observe_runtime:
+        # An out-of-process monitor (the alert CLI) cannot see the service's
+        # collector. Calling that "missing" would page on every run of a
+        # healthy deployment, so the state is reported as unobserved instead.
+        state = "not_observable"
     document: dict[str, object] = {
         "ok": True,
         "status": "ok",
@@ -748,6 +754,7 @@ def build_health_report(
     engine_dataset: Any = None,
     startup_error: str | None = None,
     now: float | None = None,
+    observe_runtime: bool = True,
 ) -> dict[str, object]:
     """Build the ``/health`` document from the filesystem and the live objects.
 
@@ -784,6 +791,7 @@ def build_health_report(
                 collector=collector,
                 enabled=bool(getattr(settings, "depth", False)),
                 now=clock,
+                observe_runtime=observe_runtime,
             ),
         ),
         _guarded(
