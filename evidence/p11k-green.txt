@@ -1,0 +1,53 @@
+# P11K GREEN (Finviz egress ladder) — pytest evidence
+# base commit: a7dd87b (+ working tree, nothing committed)
+# date: 2026-10-25T14:43:26Z
+# command: .venv/bin/python -m pytest -o addopts="" -q
+
+===== targeted run 1 — 2026-10-25 (test_finviz_egress, test_screen_facts_proxy, test_finviz_adapter, test_screen_facts, test_proxy_pool, test_yahoo_egress, test_sec_adapter, test_import_direction) =====
+124 passed in 6.35s
+
+===== targeted run 2 =====
+124 passed in 6.60s
+
+===== targeted run 3 =====
+124 passed in 6.57s
+
+===== full run 1 =====
+1724 passed in 97.82s (0:01:37)
+
+===== full run 2 =====
+1724 passed in 98.08s (0:01:38)
+
+===== full run 3 =====
+1724 passed in 98.12s (0:01:38)
+
+=== live retry: 50 missing symbols, zcrapers pool ===
+# command:
+#   .venv/bin/python scripts/screen-facts.py \
+#     --symbols "$(cat /tmp/p11k_symbols.txt)" --retry-missing \
+#     --proxy-pool /home/ubuntu/zcrapers/data/pool_ranked.json \
+#     --proxy-attempts 2 --sleep 0.2 --json
+# symbols: JPM,INTC,ORCL,GE,LRCX,MS,IBM,TD,C,MRVL,... (first 50 without a fresh row)
+header: screen_facts retry · 48 written / 50 attempted · 0 blocked · 50 missing of 50
+retry: {"requested": 50, "missing": 50, "fresh": 0}
+outcomes: {"written": 48, "kept": 0, "empty": 1, "failed": 1}
+pool: {"free_urls": 89, "free_live": 89, "paid_urls": 0, "paid_live": 0, "free_attempts": 2}
+egress mix: direct 50 (Cloudflare did not refuse the direct wire during this window)
+not written: HONA (empty: snapshot table carries no valuation value), VYLR (empty: page carries none of the three facts labels)
+screen_facts rows: 3,269 -> 3,317 (48 new full-width rows, source=finviz)
+
+=== live retry #2: same 50 symbols, --retry-missing again ===
+header: screen_facts retry · 0 written / 2 attempted · 0 blocked · 2 missing of 50
+retry: {"requested": 50, "missing": 2, "fresh": 48}
+# 48 fresh rows cost zero requests; HONA/VYLR stay absent (no fake value written)
+
+=== live ladder probes (real network) ===
+# 1. direct blocked -> reader:
+#    FinvizAdapter(direct_cooldown_s pre-cooled) fetch AAPL -> egress=jina, status=200,
+#    558,411 bytes, parse_facts {'short_float': 0.83, 'insider_own': 0.12, 'inst_own': 68.93},
+#    verdict ok. URL https://r.jina.ai/http://finviz.com/stock?t=AAPL + X-Return-Format: html.
+# 2. free-proxy rung against the zcrapers pool: the pool's exits are a Google-Maps
+#    pool (target https://www.google.com/maps/search/coffee, 89 ok, 2026-10-20);
+#    against finviz.com they answered ConnectTimeout / 403 / TLS CERTIFICATE_VERIFY_FAILED
+#    (self-signed MITM), so the rung reported status -1 and wrote nothing.
+#    No TLS verification is weakened to force a proxy through.

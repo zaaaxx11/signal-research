@@ -19,3 +19,6 @@ build/
 output/
 .ruff_cache/
 .mypy_cache/
+
+# Local agent scratch (not part of the product)
+.hermes/cache/
