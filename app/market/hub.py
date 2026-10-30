@@ -195,6 +195,14 @@ class QuoteStore:
 
     def __init__(self) -> None:
         self._values: dict[str, QuoteValue] = {}
+        #: Bumped when a quote replaces an older one; the ETag identity.
+        self._revision = 0
+
+    @property
+    def revision(self) -> int:
+        """How many times a quote has changed since the process started."""
+
+        return self._revision
 
     def __len__(self) -> int:
         return len(self._values)
@@ -214,6 +222,7 @@ class QuoteStore:
             ):
                 return False
         self._values[value.symbol] = value
+        self._revision += 1
         return True
 
     def snapshot(self, symbols: Iterable[str] | None = None) -> dict[str, QuoteValue]:

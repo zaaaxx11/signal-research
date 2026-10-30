@@ -55,9 +55,10 @@ from datetime import datetime
 from typing import Any, Callable
 from weakref import WeakKeyDictionary
 
-from fastapi import APIRouter, Body, Query, Request
+from fastapi import APIRouter, Body, Query, Request, Response
 from fastapi.responses import JSONResponse
 
+from app.api.cache import cache_headers, etag_for, not_modified
 from app.auth import ApiError
 from app.market.depth import DepthCollector, DepthStore
 from app.market.depth_fields import CATALOG_FIELDS
@@ -377,6 +378,7 @@ def _public_mode(request: Request) -> bool:
 @router.get("/hub")
 async def hub_quote(
     request: Request,
+    response: Response,
     symbols: str | None = Query(
         default=None,
         description="Comma-separated provider symbols, e.g. AAPL,MSFT",
@@ -436,6 +438,11 @@ async def hub_quote(
             "quotes_unavailable",
             "QuoteHub has no quote for the requested symbols",
         )
+    etag = etag_for("hub", hub.store.revision, ",".join(wanted))
+    headers = cache_headers(etag)
+    if not_modified(request, etag):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
     return {
         "as_of": document["as_of"],
         "requested": len(wanted),
@@ -448,6 +455,7 @@ async def hub_quote(
 @router.get("/depth")
 async def depth(
     request: Request,
+    response: Response,
     symbols: str | None = Query(
         default=None,
         description="Comma-separated provider symbols, e.g. AAPL,MSFT",
@@ -497,6 +505,14 @@ async def depth(
             "depth_unavailable",
             "depth collector has no values for the requested symbols",
         )
+    # The store's revision is the entity's identity: a poll that finds the same
+    # revision answers 304 with no body, without re-serialising 4,217 symbols to
+    # discover that nothing changed.
+    etag = etag_for("depth", collector.store.revision, ",".join(wanted))
+    headers = cache_headers(etag)
+    if not_modified(request, etag):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
     return {
         "as_of": document["as_of"],
         "requested": len(wanted),

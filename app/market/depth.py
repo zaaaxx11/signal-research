@@ -171,6 +171,16 @@ class DepthStore:
 
     def __init__(self) -> None:
         self._symbols: dict[str, dict[str, DepthField]] = {}
+        #: Bumped whenever a cell actually changes. It is the store's identity
+        #: for an ETag: a poll that finds the same revision can answer 304
+        #: without walking 4,217 symbols to hash the body.
+        self._revision = 0
+
+    @property
+    def revision(self) -> int:
+        """How many merges have changed a value since the process started."""
+
+        return self._revision
 
     def __len__(self) -> int:
         return len(self._symbols)
@@ -201,6 +211,8 @@ class DepthStore:
                 priority=priority,
             )
             changed += 1
+        if changed:
+            self._revision += 1
         return changed
 
     def seed(self, payload: Mapping[str, Any], *, source: str = "cache") -> int:
