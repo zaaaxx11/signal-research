@@ -71,6 +71,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from app.engine.catalog import CATALOG_BY_KEY
 from app.screen import choice_filters
 from app.screen import rank as ranking
 from app.screen import views as screen_views
@@ -113,8 +114,14 @@ SELECTION_KEYS: frozenset[str] = frozenset(
         "source",
         "snapshot_id",
         "fill_wide",
+        "columns",
     }
 )
+
+#: How many cells one selection may ask for. A screener table is a handful of
+#: columns, not the whole catalog; the ceiling keeps a request from turning the
+#: response into an export.
+COLUMN_LIMIT = 40
 CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset", "common_only"})
 FILTER_KEYS: frozenset[str] = frozenset({"key", "field", "op", "value"})
 
@@ -297,6 +304,9 @@ class SelectionRequest:
     offset: int = 0
     common_only: bool = False
     fill_wide: bool = False
+    #: The exact cells the caller wants back, in order. Empty keeps the
+    #: historical light row, so every existing client is unaffected.
+    columns: tuple[str, ...] = ()
 
     @property
     def is_criteria(self) -> bool:
@@ -512,6 +522,61 @@ def _criteria_block(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return block
 
 
+#: Every name a caller may ask for: the filter vocabulary the screener speaks,
+#: the catalog it is built from, and the light row's own keys.
+_KNOWN_COLUMNS: frozenset[str] = frozenset(FIELDS) | frozenset(CATALOG_BY_KEY) | frozenset(
+    {
+        "rank",
+        "symbol",
+        "name",
+        "exchange",
+        "country",
+        "sector",
+        "price",
+        "change_pct",
+        "volume",
+        "turnover",
+        "turnover_usd",
+        "market_cap_usd",
+        "is_primary",
+        "as_of",
+    }
+)
+
+
+def _columns(raw: Any) -> tuple[str, ...]:
+    """Validate ``columns``: known names, no duplicates, order preserved."""
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise SelectionError(
+            "selection 'columns' is a non-empty list of column names"
+        )
+    if len(raw) > COLUMN_LIMIT:
+        raise SelectionError(
+            f"selection 'columns' asks for {len(raw)} cells; the maximum is "
+            f"{COLUMN_LIMIT}"
+        )
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            raise SelectionError(
+                "every entry of 'columns' must be a non-blank string"
+            )
+        key = item.strip()
+        if key not in _KNOWN_COLUMNS:
+            raise SelectionError(
+                f"unknown column {key!r}; ask for a screener field or a catalog column"
+            )
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(key)
+    return tuple(ordered)
+
+
 def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
     block = _criteria_block(payload)
     region = payload.get("region")
@@ -522,6 +587,13 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
     if region not in REGIONS:
         raise SelectionError(
             f"unknown region {region!r}; expected one of {', '.join(REGIONS)}"
+        )
+    view = _view_name(payload.get("view"))
+    columns = _columns(payload.get("columns"))
+    if view is not None and columns:
+        raise SelectionError(
+            "a selection takes 'view' or 'columns', not both: two ways to name "
+            "the same output is a question with two answers"
         )
     family_raw = _asset_class(payload.get("asset_class"))
     try:
@@ -540,8 +612,9 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         source=None,
         snapshot_id=None,
         asset_class=family,
-        view=_view_name(payload.get("view")),
+        view=view,
         fill_wide=_fill_wide(payload.get("fill_wide")),
+        columns=columns,
     )
 
 
@@ -666,6 +739,7 @@ class Selection:
     rows: tuple[dict[str, Any], ...]
     snapshot_id: str | None = None
     offset: int = 0
+    columns: tuple[str, ...] = ()
 
     @property
     def returned(self) -> int:
@@ -686,6 +760,7 @@ class Selection:
             "total": self.total,
             "returned": self.returned,
             "filters": [criterion.as_dict() for criterion in self.filters],
+            "columns": list(self.columns),
             "symbols": list(self.symbols),
             "missing": list(self.missing),
             "rows": [dict(row) for row in self.rows],
@@ -773,6 +848,26 @@ def view_row(row: Mapping[str, Any], name: str, *, as_of: str) -> dict[str, Any]
     return shaped
 
 
+def _column_row(
+    row: Mapping[str, Any], columns: Sequence[str], *, as_of: str
+) -> dict[str, Any]:
+    """One row carrying the requested cells.
+
+    ``symbol`` and ``as_of`` are structural: a row that cannot name its
+    instrument or date its observation is not a row a client can use, so they
+    are always present. Everything else is exactly what was asked for — a
+    requested cell the row does not carry answers ``None``, because the column
+    exists and its value is unknown, which is different from a column that was
+    never requested at all.
+    """
+
+    document: dict[str, Any] = {"symbol": row.get("symbol")}
+    for column in columns:
+        document[column] = row.get(column)
+    document["as_of"] = as_of
+    return document
+
+
 def select_rows(
     rows: Sequence[Mapping[str, Any]],
     request: SelectionRequest,
@@ -813,7 +908,11 @@ def select_rows(
         sort = None
         echoed_snapshot = snapshot_id
 
-    if request.view:
+    if request.columns:
+        page = tuple(
+            _column_row(row, request.columns, as_of=as_of) for row in selected
+        )
+    elif request.view:
         page = tuple(
             view_row(row, request.view, as_of=as_of) for row in selected
         )
@@ -834,6 +933,7 @@ def select_rows(
         rows=page,
         snapshot_id=echoed_snapshot,
         offset=request.offset,
+        columns=request.columns,
     )
 
 
@@ -912,6 +1012,19 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "cell per declared view column, filled from the parity metrics "
                 "the bulk scan carries (missing columns stay null, never 0); "
                 "without `view` the row is the light screen row."
+            ),
+        },
+        "columns": {
+            "type": "array",
+            "maxItems": COLUMN_LIMIT,
+            "uniqueItems": True,
+            "items": {"type": "string"},
+            "description": (
+                "Both modes: the exact cells each row returns, in order. "
+                "`symbol` and `as_of` are always present; a requested cell the "
+                "row does not carry is null. Omit it for the historical light "
+                "row. Mutually exclusive with `view` — two ways to name the "
+                "same output is a question with two answers."
             ),
         },
         "fill_wide": {

@@ -44,6 +44,7 @@ ENVELOPE_KEYS = {
     "symbols",
     "missing",
     "rows",
+    "columns",
 }
 
 #: The US tab after filter+dedupe for the **browse** contract (100M floor,

@@ -46,6 +46,7 @@ ENVELOPE_KEYS = {
     "symbols",
     "missing",
     "rows",
+    "columns",
 }
 
 

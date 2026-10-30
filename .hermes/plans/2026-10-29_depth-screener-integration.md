@@ -39,6 +39,41 @@ sekarang.
 Nama field juga beda antar lapisan: katalog menulis `pe`, screener menulis
 `pe_ttm`. Overlay memakai key katalog; pemetaan nama milik lapisan screener.
 
+## Status (2026-10-30)
+
+| Phase | Status |
+|---|---|
+| 1 — overlay murni | ✅ `app/screen/depth_overlay.py`, 37 test |
+| 2 — reader + wiring | ✅ `depth_source.py`, 3 seam (snapshot, export, select) |
+| 3 — filter | ✅ 18 alias nama; terukur `roic>15` 607, `pe_ttm<15` 1.108, `rsi_14>80` 48 |
+| 4 — kolom di respons | ✅ parameter `columns` (opsi B), default tetap light row |
+| 5 — verifikasi | ✅ live, tanpa depth baris identik |
+
+**Keputusan yang diambil di jalan:**
+
+1. **Overlay dipasang setelah `build_universe`**, bukan sebelum. `build_universe`
+   membangun ulang baris dari key set-nya sendiri — merge sebelum itu dibuang.
+   Test menangkapnya (baris kosong), bukan asumsi.
+2. **Kunci ticker = `symbol`**, bukan `ticker`. Tanpa itu overlay tidak
+   menemukan satu simbol pun dan gagal tanpa suara.
+3. **Alias 18 nama** (`pe`→`pe_ttm`, `rsi`→`rsi_14`, …). Katalog dan screener
+   menamai pengukuran yang sama dengan nama berbeda; tanpa peta ini store penuh
+   tapi filter tetap menjawab nol.
+4. **Proyeksi baris ditolak sebagai perubahan default.** Sempat ditambahkan 41
+   kolom ke `display_row`; test kontrak light row merah, dan itu benar. Diganti
+   parameter `columns` yang opt-in.
+
+**Kontrak `columns`:**
+
+```text
+"columns": ["roic", "pe_ttm"]        → baris = symbol + sel yang diminta + as_of
+tanpa "columns"                       → light row historis, identik
+kolom dikenal tapi tidak ada di baris → None (bukan hilang)
+kolom tak dikenal                     → 422, menyebut namanya
+columns + view                        → 422 (dua cara menamai satu keluaran)
+maksimum 40 kolom
+```
+
 ## Masalah terukur
 
 ```text

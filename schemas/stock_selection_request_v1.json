@@ -44,6 +44,15 @@
       ],
       "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
     },
+    "columns": {
+      "type": "array",
+      "maxItems": 40,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "Both modes: the exact cells each row returns, in order. `symbol` and `as_of` are always present; a requested cell the row does not carry is null. Omit it for the historical light row. Mutually exclusive with `view` \u2014 two ways to name the same output is a question with two answers."
+    },
     "fill_wide": {
       "type": "boolean",
       "default": false,
