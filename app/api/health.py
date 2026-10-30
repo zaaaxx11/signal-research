@@ -130,6 +130,30 @@ def _identity(path: Path, stat: os.stat_result) -> tuple[object, ...]:
     return (str(path), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
 
 
+def prime_snapshot_verdict(
+    path: Path | str, *, valid: bool = True, error: str | None = None
+) -> None:
+    """Record the verdict the startup load already earned.
+
+    The engine loads this exact file before it serves anything, so the digest
+    has been checked once by the same loader the probe uses. Priming moves the
+    ~2 s cost off the first ``/health`` poll — usually the one a load balancer
+    sees — without weakening the check: any later rewrite changes the file
+    identity and forces a fresh verification.
+    """
+
+    target = Path(path)
+    try:
+        stat = target.stat()
+    except OSError:
+        return
+    key = ("snapshot", *_identity(target, stat))
+    with _VERDICT_LOCK:
+        if len(_VERDICTS) >= _VERDICT_CACHE_MAX:
+            _VERDICTS.clear()
+        _VERDICTS[key] = (bool(valid), error)
+
+
 def _memoised(
     kind: str, path: Path, stat: os.stat_result, compute: Callable[[], _T]
 ) -> _T:

@@ -1007,3 +1007,36 @@ def test_health_settings_read_their_own_variables(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("MEE_HEALTH_SNAPSHOT_PATH", "/srv/other/snapshot.json")
 
     assert Settings().health_snapshot_path == Path("/srv/other/snapshot.json")
+
+
+def test_a_primed_verdict_keeps_the_first_poll_cheap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The startup load already verified the file; the probe must reuse it.
+
+    Without priming, the first /health after a restart pays ~2 s of digest work
+    — exactly the call a load balancer makes.
+    """
+
+    from app.api import health as health_api
+
+    health_api._clear_verification_cache()
+    path = Path("/home/ubuntu/ztockz-data/engine-snapshot.json")
+    if not path.exists():
+        pytest.skip("no production snapshot on this box")
+
+    health_api.prime_snapshot_verdict(path)
+
+    def _boom(_path):
+        raise AssertionError("a primed verdict must not re-verify the snapshot")
+
+    monkeypatch.setattr(health_api, "_snapshot_verdict", _boom)
+
+    started = time.perf_counter()
+    document = health_api._check_snapshot(
+        path, budget_s=999_999.0, has_dataset=True, now=time.time()
+    )
+    elapsed = time.perf_counter() - started
+
+    assert document.document["checksum"] == "valid"
+    assert elapsed < 0.05, f"a primed check took {elapsed:.3f}s"

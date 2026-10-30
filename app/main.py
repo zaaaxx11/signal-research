@@ -158,6 +158,11 @@ def _load_snapshot(
         _record_startup_error(application, exc)
         return None
     application.state.engine_snapshot = str(path)
+    # The load just verified this exact file with the same loader /health uses;
+    # record that verdict so the first poll does not re-hash 23 MB.
+    from app.api.health import prime_snapshot_verdict
+
+    prime_snapshot_verdict(path)
     return dataset
 
 
