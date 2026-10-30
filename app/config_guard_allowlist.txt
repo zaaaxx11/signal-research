@@ -1,0 +1,44 @@
+# MEE_* names this application reads straight from the environment.
+#
+# Settings (app/config.py) already accounts for every name it models, and for
+# the alternate spellings declared through validation_alias, so a name that a
+# Settings field produces never belongs here: an entry that duplicates a field
+# is stale, it would make a dead variable look read, and
+# tests/test_config_guard.py fails on it.
+#
+# What belongs here is the other case: a name that no Settings field or alias
+# produces and that code consumes with os.environ / os.getenv. Every line is
+# "NAME: reason", and the reason names the reader, so the next operator can
+# check the claim instead of trusting the list.
+#
+# MEE_STRICT_ENV is deliberately absent: config_guard reads it itself, so it is
+# part of the built-in known set rather than an exception to it.
+#
+# The four names a deployment's engine.env carries that Settings does not model
+# are MEE_ENGINE_SNAPSHOT, MEE_ENGINE_CACHE_DIR, MEE_SEC_RATE_LIMIT and
+# MEE_DATA_DIR. The rest of the list is read by app/ code just as directly:
+# leaving them out would warn about MEE_LOG_LEVEL=DEBUG on every start, and a
+# guard that cries wolf is one an operator learns to ignore.
+
+# --- data locations (paths are resolved by app/engine/paths.py)
+MEE_DATA_DIR: data root; app/engine/paths.py data_dir, app/screen/depth_source.py
+MEE_BACKUP_DIR: backup root; app/engine/paths.py backup_dir
+
+# --- engine snapshot and cache
+MEE_ENGINE_CACHE_DIR: document cache; app/main.py _cache_dir, app/api/engine.py, app/engine/bootstrap.py
+MEE_ENGINE_SNAPSHOT: dataset snapshot; app/main.py _configured_snapshot, app/engine/paths.py, app/market/depth.py (also a Settings alias for health_snapshot_path)
+
+# --- startup switches read before/around Settings is built
+MEE_ENGINE_PUBLIC_MODE: licence policy; app/main.py _env_flag (public vs private redistribution)
+MEE_ENGINE_QUOTES: startup quote prefill; app/main.py _env_flag
+MEE_ENGINE_SYMBOLS: startup symbol list; app/main.py _configured_symbols
+
+# --- universe overrides that need no file
+MEE_QUOTE_SYMBOLS: comma list when no quote universe file is set; app/main.py
+MEE_DEPTH_SYMBOLS: comma list when no depth universe file is set; app/main.py
+
+# --- operations
+MEE_LOG_LEVEL: level of the mee.* log tree; app/main.py _configure_logging
+MEE_SEC_RATE_LIMIT: SEC request gate in requests/second; app/engine/ratelimit.py
+MEE_SEC_USER_AGENT: SEC fair-access User-Agent; app/providers/adapters/sec.py
+MEE_FAKE_FIXTURE: fixture override for the deterministic fake provider; app/providers/adapters/fake.py

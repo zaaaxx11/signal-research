@@ -27,6 +27,7 @@ from app.api import health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
+from app.config_guard import check_startup
 from app.engine.ingest import EngineDataset, load_sec_dataset
 from app.engine.license import LicensePolicy
 from app.engine.quotes import quote_fields
@@ -455,6 +456,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the ASGI application from settings (no I/O at import time)."""
 
     _configure_logging()
+    #: A mistyped variable is invisible by construction: pydantic-settings
+    #: resolves the names it models and ignores every other key, so a stray
+    #: ``MEE_DEPTH_UNIVERSE`` sat next to ``MEE_DEPTH_UNIVERSE_PATH`` and the
+    #: collector quietly ran on its default universe. Name each offending key
+    #: once, before anything reads the environment and builds on the wrong
+    #: value. Warning by default: a stray shell variable must not take a
+    #: serving process down, so refusing to start stays an opt-in
+    #: (``MEE_STRICT_ENV=1``).
+    check_startup()
     runtime = Runtime(settings or get_settings())
     application = FastAPI(
         title="Ztockz",
