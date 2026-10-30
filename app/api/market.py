@@ -438,7 +438,12 @@ async def hub_quote(
             "quotes_unavailable",
             "QuoteHub has no quote for the requested symbols",
         )
-    etag = etag_for("hub", hub.store.revision, ",".join(wanted))
+    etag = etag_for(
+        "hub",
+        hub.store.revision,
+        str(document["as_of"] or ""),
+        ",".join(wanted),
+    )
     headers = cache_headers(etag)
     if not_modified(request, etag):
         return Response(status_code=304, headers=headers)
@@ -508,7 +513,12 @@ async def depth(
     # The store's revision is the entity's identity: a poll that finds the same
     # revision answers 304 with no body, without re-serialising 4,217 symbols to
     # discover that nothing changed.
-    etag = etag_for("depth", collector.store.revision, ",".join(wanted))
+    etag = etag_for(
+        "depth",
+        collector.store.revision,
+        str(document["as_of"] or ""),
+        ",".join(wanted),
+    )
     headers = cache_headers(etag)
     if not_modified(request, etag):
         return Response(status_code=304, headers=headers)

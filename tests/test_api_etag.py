@@ -159,6 +159,30 @@ def test_a_different_symbol_set_is_a_different_entity(
     assert other.status_code == 200, "the tag named another question"
 
 
+def test_a_restart_with_different_data_is_not_a_304(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revision restarts at zero, so the identity needs the data's own clock.
+
+    Without ``as_of`` in the key, a client holding ``r0`` from before a restart
+    would be told "not modified" against a freshly seeded store that happens to
+    be at revision zero again — and would keep serving the old values.
+    """
+
+    collector = _Collector(revision=0)
+    client = TestClient(_app(monkeypatch, collector=collector))
+    tag = client.get("/market/depth?symbols=AAPL").headers["etag"]
+
+    collector.document = lambda symbols: {  # type: ignore[assignment]
+        **_Collector.document(collector, symbols),
+        "as_of": "2026-10-30T06:00:00+00:00",
+    }
+    fresh = client.get("/market/depth?symbols=AAPL", headers={"If-None-Match": tag})
+
+    assert fresh.status_code == 200, "same revision, newer data is a new entity"
+    assert fresh.headers["etag"] != tag
+
+
 def test_an_unknown_tag_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(_app(monkeypatch, collector=_Collector(revision=5)))
     response = client.get(
