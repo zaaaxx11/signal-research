@@ -31,3 +31,6 @@ research/finviz-ui-raw/**/*.html
 
 # Runtime caches that must never be committed
 /data/
+
+# Raw capture dumps from the Finviz probe stay out of history (9.8 MB).
+research/fv-measure/*.json
