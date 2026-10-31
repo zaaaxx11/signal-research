@@ -9,7 +9,7 @@ bagian, supaya tidak ada halaman yang tampil kosong tanpa alasan.
 |---|---|---|
 | 20 baris/halaman | panel default 20, pager & range ikut | ada |
 | shell nav | Home · Stock Screener · ETF Screener · Maps · Charts · News · Groups · Insider · Futures · Forex · Crypto · Watchlist · Portfolio · Calendar | ada (rute) |
-| kanan atas | search "Search ticker, company or profile" · Login · Sign up free · jam 12h · Pricing · Help | ada (statis) |
+| kanan atas | search "Search ticker, company or profile" · jam 12h (Login/Signup/Pricing/Help ditunda) | ada (statis) |
 | Home sinyal | 11 grup × 20 baris: gainers, losers, new_high, new_low, overbought, oversold, unusual_volume, most_active, most_volatile, insider_buying, insider_selling | `GET /market/signals` (baru) |
 | Upgrades / Downgrades | tidak tersedia — tidak ada sumber rating analis | — |
 
@@ -43,6 +43,8 @@ bagian, supaya tidak ada halaman yang tampil kosong tanpa alasan.
 ## Prinsip yang dipegang
 
 ```text
+0  UI hanya menampilkan apa yang dibutuhkan pembaca. Status mesin (depth store, snapshot,
+   screen db, versi, timestamp UTC, source label) TIDAK pernah tampil — hanya /health untuk ops.
 1  Tidak ada angka palsu. Grup tanpa sumber tampil sebagai "not available" dengan alasannya.
 2  Satu request per permukaan. Home = satu /market/signals, bukan 11.
 3  Setiap nav item punya href nyata; yang belum dibangun masuk /soon/{slug}.
