@@ -14,3 +14,11 @@ evidence
 *.db
 *.sqlite
 *.log
+
+# The web stage builds the shell from source: a host node_modules would carry
+# the wrong platform's binaries, and a host dist would let a stale artefact into
+# the image without ever running the gate.
+web/node_modules
+web/dist
+web/coverage
+web/.vite

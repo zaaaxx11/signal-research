@@ -42,3 +42,8 @@ MEE_LOG_LEVEL: level of the mee.* log tree; app/main.py _configure_logging
 MEE_SEC_RATE_LIMIT: SEC request gate in requests/second; app/engine/ratelimit.py
 MEE_SEC_USER_AGENT: SEC fair-access User-Agent; app/providers/adapters/sec.py
 MEE_FAKE_FIXTURE: fixture override for the deterministic fake provider; app/providers/adapters/fake.py
+
+# --- the web shell (app/api/health.py resolve_web_ui, app/main.py)
+MEE_SERVE_UI: 1/0/auto — does this deployment promise a UI at /app? The image sets 1
+MEE_WEB_DIST: override for the built shell directory (tests, non-standard layouts)
+MEE_WEB_SRC: override for the source directory the staleness check reads

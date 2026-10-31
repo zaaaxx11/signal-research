@@ -1,0 +1,116 @@
+/*
+ * Ztockz dark token set — single source of truth for colour.
+ *
+ * Provenance
+ *   Authored for this project. The ramp's *structure* follows the measured
+ *   Finviz dark set in research/finviz-ui.md §10.1 (surfaces, borders, three
+ *   text tiers, positive/negative/caution); the hex values are ours, chosen
+ *   against the row backgrounds this interface actually paints so that every
+ *   text pair clears WCAG 2.1 AA. No third-party theme file is vendored here,
+ *   so there is no NOTICE to carry and no licence to inherit.
+ *
+ *   D8/D11: dark ships alone. Light is a second *block* of values for the same
+ *   variable names (a `[data-theme="light"]` scope), not a second layout. Do
+ *   not add one until cutover (plan §11).
+ *
+ * Measured contrast (WCAG 2.1 §1.4.3, computed by src/styles/tokens.test.ts —
+ * never eyeballed). Row surfaces are the only backgrounds data text sits on:
+ *
+ *   token          value      on --row-bg  on --row-bg-alt  on --row-hover
+ *   --up           #3ddc97       10.43          9.95            9.01
+ *   --down         #ff6b81        6.74          6.42            5.82
+ *   --flat         #9fb0c8        8.36          7.97            7.22
+ *   --alert        #ffb454       10.46          9.97            9.03
+ *   --fg           #e6ebf4       15.41         14.70           13.32
+ *   --fg-muted     #a8b3c6        8.72          8.31            7.53
+ *   --fg-subtle    #8b97a9        6.23          5.94            5.38
+ *
+ *   All eight clear 4.5:1 at 12 px / 400–600 weight, so none of them is being
+ *   excused as "large text" (18.66 px bold or 24 px regular). --fg-disabled
+ *   (3.26) is exempt: WCAG 1.4.3 excludes inactive controls, and it is used
+ *   only for disabled labels.
+ *
+ *   Borders are decorative hairlines, not information. The one boundary that
+ *   carries meaning — a focusable control's edge — uses --border-control,
+ *   measured against every surface a control sits on (WCAG 1.4.11, 3:1):
+ *
+ *     token             value      sunken  surface  raised  row-bg  hover
+ *     --border-control  #5f7189     3.82    3.70    3.49    3.70   3.19
+ *     --focus           #6ea8ff     7.90    7.65    7.23    7.65   6.61
+ *
+ *   The 0.19 of headroom under --border-control's worst case is deliberate:
+ *   the value this replaced shipped at 2.67 believing it was 3.77. A token
+ *   that only just clears the line is one palette edit from failing silently.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- surfaces ------------------------------------------------------- */
+  --bg: #0a0d13; /* page; the darkest plane */
+  --surface: #10141c; /* panels: top bar, table body, empty state */
+  --surface-raised: #151a24; /* menus, popovers, sticky header */
+  --surface-sunken: #0c1017; /* inset wells, code, footer strip */
+  --row-bg: #10141c; /* data row, even */
+  --row-bg-alt: #141924; /* data row, odd (zebra) */
+  --row-hover: #1b2230; /* row hover */
+  --row-selected: #1e2a40; /* selected row / active view */
+
+  /* ---- borders -------------------------------------------------------- */
+  --border: #242d3c; /* hairline separators */
+  --border-strong: #364357; /* panel edge, sticky-header underline */
+  --border-control: #5f7189; /* control edge: 3.70 on --row-bg, 3.82 on --surface-sunken, 3.19 worst case */
+  --focus: #6ea8ff; /* focus ring: 7.65:1 on --surface */
+
+  /* ---- text tiers ----------------------------------------------------- */
+  --fg: #e6ebf4; /* primary: cells, headings */
+  --fg-muted: #a8b3c6; /* secondary: header labels, units */
+  --fg-subtle: #8b97a9; /* tertiary: metadata in the status line */
+  --fg-disabled: #5d6878; /* disabled only — exempt from 1.4.3 */
+
+  /* ---- structural neutrals -------------------------------------------- */
+  /* Not ramp colours: the modal scrim and the ink that sits on --destructive.
+   * Declared here so tokens.css stays the only file that names a colour. */
+  --scrim: #000000;
+  --on-destructive: #ffffff;
+
+  /* ---- finance semantics ---------------------------------------------- */
+  /* Always paired with a sign or arrow: colour is never the only channel. */
+  --up: #3ddc97;
+  --down: #ff6b81;
+  --flat: #9fb0c8;
+  --alert: #ffb454;
+
+  /* ---- brand / interactive -------------------------------------------- */
+  --brand: #7aa2ff;
+
+  /* ---- density -------------------------------------------------------- */
+  /* Row pitch and type size are decisions D5, not per-component choices. */
+  --row-pitch: 28px;
+  --bar-height: 48px;
+  --tab-height: 36px;
+  --status-height: 28px;
+  --radius: 0.375rem; /* 6 px: Finviz's control radius (§10.4) */
+
+  /* ---- shadcn semantic aliases ---------------------------------------- */
+  /* Vendored components speak these names. They resolve to the ramp above so
+   * a component cannot introduce a colour the token test does not know. */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: #171d29;
+  --popover-foreground: var(--fg);
+  --primary: #e8eef8;
+  --primary-foreground: #0a0d13;
+  --secondary: #1c2331;
+  --secondary-foreground: var(--fg);
+  --muted: #1a212e;
+  --muted-foreground: var(--fg-muted);
+  --accent: #212a3a;
+  --accent-foreground: var(--fg);
+  --destructive: #ff5c72;
+  --destructive-foreground: #14070a;
+  --input: var(--border-control);
+  --ring: var(--focus);
+}

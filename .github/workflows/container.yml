@@ -1,12 +1,41 @@
 name: container
 
+# Two gates and an image — one workflow, so "green" means both halves built.
+#
+# Until Phase 1 this pipeline built a container from a Dockerfile that copied
+# only `pyproject.toml` and `app/`, and ran neither `npm` nor `pytest`. The
+# published image answered 404 for every `/app` URL while its healthcheck said
+# healthy, and nothing in CI could notice. The three jobs below close that:
+#
+#   web     npm ci + `npm run check` (vitest, tsc --noEmit, vite build, 180 KB
+#           budget) and uploads the built shell.
+#   engine  downloads that shell into `web/dist`, then runs the full pytest
+#           suite — which includes the mount tests, the SPA-fallback table and
+#           the staleness gate, all of which need the artefact to exist.
+#   build   only after both, so an image cannot be published from a tree whose
+#           UI failed to build, and the smoke run asserts `/app` in the actual
+#           image.
+#
 # Native builders, one per architecture. QEMU is deliberately not used:
 # Python 3.14's ssl module segfaults under qemu-user 8.2 on an arm64 host, and
 # emulated builds are not evidence that the image runs on the target.
+#
+# Runtime cost, measured on the development box (2 vCPU, warm npm cache; a
+# GitHub runner is comparable but not identical):
+#
+#   web job      ~ 95 s     npm ci 43 s + npm run check 37 s + checkout/setup
+#   engine job   ~ 4 min    pip install ~ 40 s + pytest 2 m 51 s (4,336 tests)
+#   build job    + ~ 80 s   web stage inside `docker build` (npm ci 43 s, gate
+#                           and build 37 s), layer-cached for the smoke rebuild
+#                           in the same runner
+#
+# About six minutes of extra wall time on a full run; the two gates run in
+# parallel with nothing, so this is also the shortest honest pipeline.
 on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -15,10 +44,95 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.14"
 
 jobs:
+  web:
+    name: web shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: npm run check (vitest, tsc, vite build, budget)
+        working-directory: web
+        run: npm run check
+
+      - name: Upload the built shell
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  engine:
+    name: engine tests
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The suite asserts on the built shell (mount, fallback table, budget,
+      # staleness). Without this step those tests skip and the run is green on
+      # a tree that has no UI at all — which is the failure this pipeline exists
+      # to prevent.
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: The shell is present and current
+        run: |
+          set -euo pipefail
+          test -f web/dist/index.html || {
+            echo "web/dist/index.html is missing: the artifact did not land"
+            exit 1
+          }
+          python - <<'PY'
+          import sys
+
+          from app.api.health import build_is_stale, resolve_web_ui
+
+          state = resolve_web_ui(mounted=True)
+          stale = build_is_stale(state.dist_dir.parent)
+          if stale:
+              sys.exit(
+                  f"web/dist is stale: {stale[0]} is newer than the artefact "
+                  "— run `cd web && npm run build`"
+              )
+          print(f"shell present and current: {state.index}")
+          PY
+
+      - name: pytest
+        run: python -m pytest -q
+
   build:
     name: build ${{ matrix.platform }}
+    needs: [web, engine]
+    # A pull request gets both gates; only a push to main or a tag publishes.
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -61,23 +175,81 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx build --platform linux/amd64 --load -t ztockz-engine:smoke .
+
+          # The image must carry the shell, and must not carry the toolchain
+          # that built it: the web stage is separate on purpose.
+          docker run --rm --entrypoint sh ztockz-engine:smoke -c '
+            set -e
+            test -f /app/web/dist/index.html
+            test -d /app/web/dist/assets
+            ! command -v node
+            ! command -v npm
+            ! find / -xdev -maxdepth 6 -name node_modules -print -quit | grep -q .
+          '
+
           mkdir -p smoke-data
           chmod 777 smoke-data
           docker run --rm -v "$PWD/smoke-data:/data" ztockz-engine:smoke \
             python -m app.engine.bootstrap --symbols AAPL --output /data/engine-snapshot.json
           docker run -d --name ztockz-smoke -p 8080:8080 -v "$PWD/smoke-data:/data" ztockz-engine:smoke
-          for _ in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/engine/health -o health.json; then break; fi
+          trap 'docker rm -f ztockz-smoke >/dev/null 2>&1 || true' EXIT
+
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health -o health.json; then break; fi
             sleep 2
           done
+
+          # The fallback must refuse the shapes that used to come back as 200
+          # HTML. `--path-as-is` is what keeps curl from normalising `//` and
+          # `..` before they reach the server, which is the whole point.
+          for path in \
+            "/app//etc/passwd" \
+            "/app/%252e%252e%252f%252e%252e%252fetc%252fpasswd" \
+            "/app/x%00" \
+            "/app/assets" \
+            "/app/HEALTH"; do
+            code=$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080${path}")
+            if [ "$code" != "404" ]; then
+              echo "${path} answered ${code}, expected 404"
+              exit 1
+            fi
+          done
+
           python3 - <<'PY'
           import json
-          document = json.load(open("health.json"))
-          symbols = document["dataset"]["symbols"]
-          assert symbols > 0, document
-          print(f"amd64 runtime ok: {symbols} symbols")
+          import urllib.error
+          import urllib.request
+
+          BASE = "http://127.0.0.1:8080"
+
+
+          def get(path):
+              try:
+                  response = urllib.request.urlopen(BASE + path, timeout=5)
+              except urllib.error.HTTPError as exc:
+                  return exc.code, exc.headers.get("content-type", ""), exc.read()
+              return response.status, response.headers.get("content-type", ""), response.read()
+
+
+          status, ctype, body = get("/app")
+          assert status == 200, (status, ctype)
+          assert "text/html" in ctype, ctype
+          assert b'<div id="root">' in body, "the served document is not the shell"
+
+          status, ctype, body = get("/health")
+          health = json.loads(body)
+          assert status == 200, (status, health)
+          assert health["ui"]["ok"] is True, health["ui"]
+          assert health["ui"]["status"] == "ok", health["ui"]
+          assert health["ui"]["required"] is True, "the image must declare the UI it ships"
+
+          status, ctype, body = get("/engine/health")
+          assert status == 200, (status, ctype)
+          symbols = json.loads(body)["dataset"]["symbols"]
+          assert symbols > 0, body
+
+          print(f"amd64 runtime ok: /app 200, {symbols} symbols, ui={health['ui']['status']}")
           PY
-          docker rm -f ztockz-smoke
 
       - uses: actions/upload-artifact@v4
         with:
@@ -88,6 +260,7 @@ jobs:
   merge:
     name: merge the manifest
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

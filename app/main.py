@@ -16,11 +16,15 @@ import logging
 import os
 from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.types import Scope
 
 from app import __version__
 from app.api import discovery, health, market, markets, news, providers, requests, screens
@@ -41,6 +45,8 @@ from app.jobs.errors import JobError, QuoteError
 from app.news.service import build_news_service
 from app.runtime import Runtime
 from app.sources.api import router as sources_router
+
+logger = logging.getLogger("mee.web")
 
 
 def _envelope(error: str, message: str) -> dict[str, str]:
@@ -81,6 +87,193 @@ def mount_router(application: FastAPI, router: APIRouter) -> None:
 #: else — including an empty string — is false, so a typo cannot silently turn
 #: a licence boundary or an external fetch on.
 _TRUE_FLAGS = frozenset({"1", "true", "yes"})
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _decode_once(raw: str) -> str | None:
+    """Decode ``%XX`` escapes exactly once, or ``None`` when the path is malformed.
+
+    ``urllib.parse.unquote`` is what this wants, and the import-direction rule
+    keeps ``urllib`` out of ``app/`` (it is the root of the legacy transports).
+    Fifteen lines of dependency-free decoding are a smaller price than an
+    exception to a rule that exists for a reason.
+
+    A malformed escape answers ``None`` and the caller refuses the path. That is
+    the whole point: a decoder that guesses — by dropping the ``%``, or by
+    leaving the sequence alone — is a traversal bug with a friendly face, and
+    the two layers below this one disagree about what the path means.
+    """
+
+    if "%" not in raw:
+        return raw
+
+    out = bytearray()
+    index = 0
+    while index < len(raw):
+        char = raw[index]
+        if char != "%":
+            out.extend(char.encode("utf-8"))
+            index += 1
+            continue
+        escape = raw[index + 1 : index + 3]
+        if len(escape) != 2 or not set(escape) <= _HEX_DIGITS:
+            return None
+        out.append(int(escape, 16))
+        index += 3
+    try:
+        return out.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+class _SpaStaticFiles(StaticFiles):
+    """Static files with a single-page-app fallback, scoped to the app.
+
+    Three behaviours, each chosen against a specific failure mode:
+
+    1. **A deep link serves ``index.html``.** ``/app/screener/value`` is a
+       client route; there is no file by that name, so the 404 becomes the
+       shell and the client takes over.
+    2. **A missing *asset* stays a 404.** The classic Vite-behind-a-subpath bug
+       is a chunk requested from the wrong base; if this fallback answered it
+       with HTML, the browser would receive a 200 and fail with
+       ``Unexpected token '<'`` — a misleading error two layers from the cause.
+       A path whose last segment has an extension is therefore never the SPA.
+    3. **``/app/api/…`` is never the SPA.** No API lives under the app prefix;
+       a request that lands there is a client bug, and it must fail as a 404
+       rather than render a shell that looks successful to ``fetch()``. The same
+       applies to every name the API already owns at the root (``/app/screens``,
+       ``/app/health``…): those segments belong to the API, so the mount will not
+       invent a client route inside one of them. A 200 HTML answer to a mistaken
+       API call is the hardest kind of bug to see.
+
+    Directory escape is not this class's job: ``StaticFiles.lookup_path``
+    resolves the candidate with ``realpath`` and refuses anything whose common
+    path is not the served directory. This class must not undo that, so it
+    refuses to fall back for any request whose shape looks like an escape —
+    a dot segment, a repeated slash, a backslash, a NUL, or a percent escape
+    that survives one decode — because the fallback would otherwise turn a
+    blocked traversal into a 200 shell, which hides an attack the operator
+    should see in the log.
+
+    The decision is taken on the **raw** scope path, not on the ``path``
+    argument: ``StaticFiles.get_path`` runs ``os.path.normpath``, which
+    collapses ``//`` and ``..`` before this method could see them. That
+    normalisation is why ``/app//etc/passwd`` used to arrive here as the
+    perfectly ordinary client route ``etc/passwd``.
+    """
+
+    #: First path segments reserved for something other than the SPA. They are
+    #: the API's own top-level namespaces (``app/main.py`` mounts them at the
+    #: root) plus the build's own output directory, so a client route may not
+    #: claim one by accident.
+    reserved_segments: frozenset[str] = frozenset(
+        {
+            "api",
+            "assets",
+            "engine",
+            "export",
+            "health",
+            "market",
+            "markets",
+            "news",
+            "providers",
+            "requests",
+            "screens",
+            "sources",
+            "symbols",
+        }
+    )
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or not self._is_client_route(path, scope):
+                raise
+            return await super().get_response("index.html", scope)
+
+    @staticmethod
+    def _raw_path(path: str, scope: Mapping[str, object] | None) -> str:
+        """The request path as it arrived, with the mount prefix removed.
+
+        ``scope["path"]`` is the path the server decoded *once*; ``root_path``
+        is the prefix this mount consumed. Together they are the only honest
+        view of what was asked for. The ``path`` argument is used only when
+        there is no scope (a direct call from a test), and then it is treated
+        as the raw path.
+        """
+
+        if scope is None:
+            return "/" + path.lstrip("/")
+
+        root = str(scope.get("root_path") or "")
+        raw = str(scope.get("path") or "")
+        if root and raw.startswith(root):
+            return raw[len(root):] or "/"
+        if path:
+            return "/" + path.lstrip("/")
+        return raw or "/"
+
+    def _is_client_route(
+        self, path: str, scope: Mapping[str, object] | None = None
+    ) -> bool:
+        """Whether a 404 for this request should be answered with the shell.
+
+        Everything is decided after **one** decode of the raw path, because
+        that is exactly what the server did to the URL: a second decode here
+        turns ``%252e%252e`` into ``..`` and makes the shape visible, while a
+        path that still carries a ``%`` after that decode is the signature of
+        double encoding and is refused rather than interpreted.
+
+        What is left is the client's own vocabulary: word slugs, no extension
+        (a last segment with a dot is an asset), and never a name the API
+        already owns at the root.
+        """
+
+        decoded = _decode_once(self._raw_path(path, scope))
+        if decoded is None:  # a malformed escape is not a client route
+            return False
+
+        if not decoded.startswith("/"):
+            return False
+        # NUL truncates or splits a path in every layer below this one; a
+        # backslash is a separator for the filesystems this may run on; a
+        # residual ``%`` is an encoding this method refused to resolve.
+        if "\x00" in decoded or "\\" in decoded or "%" in decoded:
+            return False
+
+        body = decoded[1:]
+        if "//" in body:
+            return False
+        # One trailing slash is the same route (browsers and bookmarks disagree
+        # about it); two are a normalisation probe and stay refused.
+        if body.endswith("/"):
+            body = body[:-1]
+        if not body:
+            # The prefix itself, which ``html=True`` already answers with the
+            # shell. Reaching the fallback here means index.html is missing.
+            return False
+
+        segments = body.split("/")
+        # ``.`` and ``..`` are the traversal spellings; a leading dot is a
+        # hidden file (``.git/config``, ``.env``) and never a route; an empty
+        # segment here is a doubled slash the check above already refused.
+        if any(
+            segment in {"", ".", ".."} or segment.startswith(".")
+            for segment in segments
+        ):
+            return False
+
+        # Case-insensitive on purpose: ``/app/HEALTH`` and ``/app/health`` are
+        # the same namespace, and a case-sensitive check is a coin flip.
+        if segments[0].lower() in self.reserved_segments:
+            return False
+
+        # A last segment with a dot is a file request (asset, source map,
+        # favicon), not a client route. Client routes here are word slugs.
+        return "." not in segments[-1]
 
 
 def _env_flag(name: str) -> bool:
@@ -452,6 +645,46 @@ def _configure_logging() -> None:
     _LOG_CONFIGURED = True
 
 
+def _log_web_ui(state: health.WebUiState) -> None:
+    """Say once, at startup, whether ``/app`` can answer — and how to fix it.
+
+    The mount used to be skipped in silence: the API came up, the container's
+    healthcheck (which watched the engine, not the shell) stayed green, and
+    every ``/app`` URL answered 404. One line at boot is the cheapest place to
+    say otherwise, and it names the command rather than the symptom.
+
+    ``ERROR`` when the deployment says it serves a UI (``MEE_SERVE_UI=1``, which
+    the image sets) and there is nothing to serve; ``WARNING`` in auto mode,
+    where a developer's unbuilt tree is a normal state. The happy path logs
+    nothing: a line per boot that always says "fine" is a line nobody reads.
+    """
+
+    if not state.enabled:
+        logger.debug("web UI is switched off; GET /app answers 404")
+        return
+    if not state.index.is_file():
+        logger.log(
+            logging.ERROR if state.required else logging.WARNING,
+            "web UI is not mounted: %s is missing, so GET /app answers 404. "
+            "Rebuild it with: cd web && %s",
+            state.index,
+            "npm run build",
+        )
+        return
+    try:
+        built = state.index.stat().st_mtime
+    except OSError:  # vanished between the is_file() above and here
+        return
+    if state.newest_source_mtime is not None and state.newest_source_mtime > built:
+        logger.warning(
+            "web UI is stale: %s is older than %s by %ds. Rebuild it with: "
+            "cd web && npm run build",
+            state.index,
+            state.newest_source,
+            int(state.newest_source_mtime - built),
+        )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the ASGI application from settings (no I/O at import time)."""
 
@@ -519,6 +752,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         @application.get("/", include_in_schema=False)
         async def _ui_root() -> RedirectResponse:
             return RedirectResponse(url="/ui/")
+
+    #: The new interface (plan §3): a Vite build in ``web/dist``, mounted at
+    #: ``/app`` until parity, when ``/`` learns to redirect here (D9).
+    #:
+    #: Conditional on the build artefact, not on the source tree: ``dist/`` is
+    #: generated by ``npm run build`` and is not committed, so a checkout that
+    #: has never built must still import this module and serve the API. The
+    #: alternative — ``check_dir=True`` against a missing directory — makes an
+    #: unbuilt tree unstartable, which is a build-order trap rather than a
+    #: safeguard.
+    #:
+    #: The same resolution is the health check's evidence
+    #: (``app.api.health.resolve_web_ui``): one object says where the shell is,
+    #: whether this deployment promises one, and what this process mounted. Two
+    #: resolutions would be two answers, and the second is always the one that
+    #: disagrees.
+    web = health.resolve_web_ui()
+    web_mounted = web.index.is_file()
+    if web_mounted:
+
+        # GET *and* HEAD: FastAPI 0.159 does not add HEAD for a GET route (the
+        # way Starlette's Route does), and a monitor or cache issuing HEAD on
+        # the entry point should not get a 405 for a document it can GET.
+        @application.api_route(
+            "/app", methods=["GET", "HEAD"], include_in_schema=False
+        )
+        async def _app_root() -> FileResponse:
+            """Answer the bare prefix with the shell, not a trailing-slash 307.
+
+            ``StaticFiles(html=True)`` would redirect ``/app`` to ``/app/``.
+            Both are correct URLs, but a redirect on the entry point is one
+            more thing that can be cached differently from the asset URLs it
+            hands out, so the canonical entry is served directly.
+            """
+
+            return FileResponse(web.index, media_type="text/html")
+
+        # Added after the exact route above on purpose: Starlette matches in
+        # registration order, and the mount would otherwise claim "/app" and
+        # answer it with the redirect this route exists to avoid.
+        application.mount(
+            "/app", _SpaStaticFiles(directory=web.dist_dir, html=True), name="app"
+        )
+
+    #: Frozen at build of this app: ``mounted`` is the only field a later
+    #: filesystem check cannot reconstruct, and it is what makes a
+    #: ``npm run build`` after boot visible as a 404 instead of a healthy shell.
+    application.state.web_ui = replace(web, mounted=web_mounted)
+    _log_web_ui(application.state.web_ui)
 
     @application.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError) -> JSONResponse:

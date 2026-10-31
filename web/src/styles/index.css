@@ -1,0 +1,170 @@
+/*
+ * Explicit content detection.
+ *
+ * Tailwind v4 scans the whole project by default — every file that is not
+ * gitignored, including `scripts/`, `README.md` and `dist/`. A colour class
+ * named in prose or in a test fixture therefore compiles into the shipped CSS:
+ * the gate's own self-test string produced `.text-[#ff00aa]` in the bundle.
+ * `source(none)` turns the heuristic off; only the document and `src/` are
+ * scanned, so what ships is a function of the app and nothing else.
+ */
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+
+@source "../../index.html";
+@source "../../src";
+@import "./tokens.css";
+
+/*
+ * Close the palette.
+ *
+ * Tailwind v4 ships ~250 default colours (`red-500`, `lime-700`, …) and they
+ * are all addressable from any component: `text-lime-700` compiles to
+ * `oklch(53.2% .157 131.589)` whether or not this project ever vetted it, and
+ * the Vitest gate — which reads tokens.css — never sees the utility.
+ *
+ * `--color-*: initial` deletes the namespace, so from here a colour utility can
+ * only name something this file maps. The two survivors are structural, not
+ * palette leftovers: `black` is the dialog/sheet scrim (`bg-black/50`) and
+ * `white` is ink on `--destructive` in the vendored button and badge. Both
+ * resolve to tokens (`--scrim`, `--on-destructive`), so tokens.css stays the
+ * only file that names a colour.
+ */
+@theme {
+  --color-*: initial;
+  /* The two names the vendored primitives still spell themselves. They resolve
+   * into tokens.css like everything else: --scrim is the dialog/sheet scrim,
+   * --on-destructive is the ink on a destructive button. */
+  --color-black: var(--scrim);
+  --color-white: var(--on-destructive);
+}
+
+/*
+ * Tailwind v4 reads its design tokens from @theme. `inline` keeps the utility
+ * pointing at the CSS variable instead of copying the resolved value, which is
+ * what lets a future light block repaint every utility by redeclaring :root.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* The shell's own vocabulary. */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-row: var(--row-bg);
+  --color-row-alt: var(--row-bg-alt);
+  --color-row-hover: var(--row-hover);
+  --color-row-selected: var(--row-selected);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-line-control: var(--border-control);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-flat: var(--flat);
+  --color-alert: var(--alert);
+  --color-focus: var(--focus);
+  --color-brand: var(--brand);
+
+  /* Type scale: 12 px is the data size, 13 px the chrome size (D5). */
+  --text-data: 0.75rem;
+  --text-ui: 0.8125rem;
+  --text-label: 0.625rem;
+  --text-title: 0.9375rem;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+
+  html {
+    background-color: var(--bg);
+    /* A 28 px pitch survives font scaling; a fixed px body does not. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-size: 13px;
+    line-height: 1.45;
+    /* No external font request: the stack above resolves locally. */
+  }
+
+  ::selection {
+    background-color: var(--row-selected);
+    color: var(--fg);
+  }
+
+  /* One focus treatment everywhere. The old UI used `outline: none` plus a
+   * border recolour (research/finviz-ui.md §10.4); at 6 px radius and 1 px
+   * borders that is invisible on a dark plane, so the ring is real. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+
+  /* Numerals in the grid and in the status line must not jitter when a value
+   * changes; tabular figures are the whole reason a screener is readable. */
+  .nums {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* The one hairline used for the sticky header underline and the identity
+   * lane shadow — a shadow, not a border, so it composes with zebra rows
+   * without adding 1 px to the row box (research/finviz-ui.md §3.3). */
+  .lane-edge {
+    box-shadow: inset -1px 0 0 var(--border-strong);
+  }
+
+  /* The search box is a composite control: the input inside suppresses its own
+   * outline (a 1 px ring around an inner field reads as a box inside a box), so
+   * the shell carries the focus indicator — see the `focus-within:` utilities
+   * in shell/SymbolSearch.tsx. */
+}

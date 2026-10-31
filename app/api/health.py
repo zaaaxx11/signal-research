@@ -680,18 +680,317 @@ def _check_screen_db(path: Path, *, timeout_s: float) -> Check:
 
 
 # ---------------------------------------------------------------------------
+# the web shell
+# ---------------------------------------------------------------------------
+
+#: The one instruction that fixes every state below. It is in the ``/health``
+#: document and in the startup log because "the UI is missing" is not actionable
+#: and "run this" is.
+REBUILD_COMMAND = "cd web && npm run build"
+
+#: True/False spellings of ``MEE_SERVE_UI``. Anything else — including an empty
+#: string — is the default, "auto": report on whatever the checkout contains.
+_UI_TRUE = frozenset({"1", "true", "yes", "on"})
+_UI_FALSE = frozenset({"0", "false", "no", "off"})
+
+#: Directory names under ``web/src`` that hold tests: they cannot reach the
+#: bundle, so editing one does not make an artefact stale. A gate that fired on
+#: the most common edit in the repository would be switched off within a week.
+_TEST_DIRECTORIES = frozenset({"__tests__", "__mocks__", "__snapshots__"})
+
+
+@dataclass(frozen=True, slots=True)
+class WebUiState:
+    """What this process knows about the shell it is — or is not — serving.
+
+    ``mounted`` is the part no live filesystem check can reconstruct: whether
+    ``create_app`` registered the ``/app`` mount when the process started. It is
+    what turns "the file is there" into "the file was there when it mattered",
+    which is the difference between a working deployment and one that answers
+    404 for every UI URL until it is restarted.
+
+    ``newest_source`` is measured once, at startup, so a load-balancer poll
+    costs one ``stat`` of ``index.html`` and never a walk of the source tree.
+    """
+
+    dist_dir: Path
+    source_dir: Path
+    index: Path
+    enabled: bool
+    required: bool
+    mounted: bool | None
+    newest_source: Path | None = None
+    newest_source_mtime: float | None = None
+    #: ``web/dist/index.html`` — computed once, because building it on every
+    #: poll means resolving this module's path on every poll.
+    label: str = "dist/index.html"
+
+
+def repository_root() -> Path:
+    """The checkout (or install) this module was imported from.
+
+    ``app/api/health.py`` → ``app/api`` → ``app`` → root. In the container the
+    working tree shadows the installed copy, so this is ``/app`` and the shell
+    resolves to ``/app/web/dist`` — the path the Dockerfile copies.
+
+    Called when an app is built (once) and never on the poll path: ``resolve``
+    walks the filesystem, and ``/health`` is answered every few seconds.
+    """
+
+    return Path(__file__).resolve().parents[2]
+
+
+def _is_build_input(path: Path) -> bool:
+    """Whether editing ``path`` could change the built document.
+
+    Test files cannot: vitest reads them, ``vite build`` does not. Everything
+    else under ``web/src`` can, even a comment.
+    """
+
+    if any(part in _TEST_DIRECTORIES for part in path.parts):
+        return False
+    return ".test." not in path.name and ".spec." not in path.name
+
+
+def newest_build_input(web_dir: Path) -> tuple[Path, float] | None:
+    """The most recently modified file that can change the built document.
+
+    ``web/src`` plus the Vite entry ``web/index.html`` — the two inputs whose
+    mtime ``vite build`` always advances past. Test files are excluded: they are
+    not inputs, and a check that cannot tell the difference is a check everybody
+    learns to ignore.
+    """
+
+    candidates: list[Path] = [web_dir / "index.html"]
+    source = web_dir / "src"
+    if source.is_dir():
+        candidates.extend(
+            path
+            for path in source.rglob("*")
+            if path.is_file() and _is_build_input(path)
+        )
+
+    newest: tuple[Path, float] | None = None
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            mtime = path.stat().st_mtime
+        except OSError:  # a file that vanished mid-walk is not a verdict
+            continue
+        if newest is None or mtime > newest[1]:
+            newest = (path, mtime)
+    return newest
+
+
+def build_is_stale(web_dir: Path | str) -> tuple[Path, float] | None:
+    """The newest build input that is newer than ``dist/index.html``, or ``None``.
+
+    ``None`` means one of two things and the caller knows which: the artefact is
+    current, or there is no artefact at all (the health check owns that verdict).
+    A rebuild writes the document last, so on a machine that just ran
+    ``npm run build`` the comparison is always clean — the false positive here
+    would be a gate that fails a perfect build.
+    """
+
+    root = Path(web_dir)
+    try:
+        built = (root / "dist" / "index.html").stat().st_mtime
+    except OSError:
+        return None
+
+    newest = newest_build_input(root)
+    if newest is None or newest[1] <= built:
+        return None
+    return newest
+
+
+def resolve_web_ui(
+    *,
+    dist_dir: Path | str | None = None,
+    source_dir: Path | str | None = None,
+    serve_ui: str | None = None,
+    mounted: bool | None = None,
+) -> WebUiState:
+    """Locate the shell and decide whether this deployment claims to serve it.
+
+    Three intents, because "no ``dist``" means three different things:
+
+    * ``MEE_SERVE_UI=1`` — **required**. The image bakes this in: it ships the
+      artefact, so an artefact-less process is a broken image, not a choice.
+    * ``MEE_SERVE_UI=0`` — **off**. An API-only deployment; the check is silent.
+    * unset — **auto**. The tree is a claim only if it holds a ``web`` project
+      (``package.json``) or an artefact; a bare checkout is ``disabled`` and an
+      unbuilt one is ``absent`` (reported, not fatal).
+
+    ``MEE_WEB_DIST`` / ``MEE_WEB_SRC`` exist so a test can point at a throwaway
+    tree instead of fabricating one inside the repository.
+    """
+
+    root = repository_root()
+    override = dist_dir if dist_dir is not None else os.environ.get("MEE_WEB_DIST")
+    dist = Path(override).expanduser() if override else root / "web" / "dist"
+    source_override = (
+        source_dir if source_dir is not None else os.environ.get("MEE_WEB_SRC")
+    )
+    source = (
+        Path(source_override).expanduser() if source_override else dist.parent / "src"
+    )
+    index = dist / "index.html"
+
+    raw = serve_ui if serve_ui is not None else os.environ.get("MEE_SERVE_UI", "")
+    switch = raw.strip().lower()
+    if switch in _UI_TRUE:
+        enabled, required = True, True
+    elif switch in _UI_FALSE:
+        enabled, required = False, False
+    else:
+        if switch:
+            # A typo must not silently switch a safety check off, and it must
+            # not switch it on either: the default is the middle, and the line
+            # says so once at startup.
+            logger.warning(
+                "MEE_SERVE_UI=%r is not a boolean; treating it as unset (auto)", raw
+            )
+        enabled = index.is_file() or (dist.parent / "package.json").is_file()
+        required = False
+
+    newest = newest_build_input(dist.parent) if enabled else None
+    return WebUiState(
+        dist_dir=dist,
+        source_dir=source,
+        index=index,
+        enabled=enabled,
+        required=required,
+        mounted=mounted,
+        newest_source=newest[0] if newest else None,
+        newest_source_mtime=newest[1] if newest else None,
+        label=_index_label(index),
+    )
+
+
+def _index_label(index: Path) -> str:
+    """``web/dist/index.html`` — a path an anonymous caller may be told about.
+
+    ``/health`` can be served to anyone who can reach the port, so the document
+    never carries an absolute path from this box; the startup log has the real
+    one. A path outside the repository (``MEE_WEB_DIST``) is reduced to its own
+    ``dist/index.html`` for the same reason.
+    """
+
+    try:
+        return str(index.relative_to(repository_root()))
+    except ValueError:
+        return f"{index.parent.name}/{index.name}"
+
+
+def web_ui_check(state: WebUiState) -> Check:
+    """Does ``/app`` answer, and does it answer with bytes this source describes?
+
+    Four verdicts, and the severity is the deployment's own claim, not a guess:
+
+    * ``disabled`` — nothing claims a UI here (``MEE_SERVE_UI=0``).
+    * ``absent`` / ``missing`` — no artefact. ``degraded`` in auto mode because
+      an API-only process must stay startable; **``failing``** when the process
+      was told it serves a UI, because then the artefact is the product and an
+      orchestrator must refuse the rollout.
+    * ``not_mounted`` — the artefact exists *now* but did not when the process
+      started, so every ``/app`` URL answers 404 until a restart. This is the
+      one state a filesystem-only check cannot see.
+    * ``stale`` — the artefact is older than the newest source file. Serving,
+      but no longer the source it claims to be; ``degraded``, and the message
+      carries the rebuild command.
+    """
+
+    document: dict[str, object] = {
+        "ok": True,
+        "status": "ok",
+        "required": state.required,
+        "mounted": state.mounted,
+        "exists": False,
+        "age_s": None,
+        "stale_s": None,
+        "newest_source": None,
+        "error": None,
+    }
+    label = state.label
+
+    if not state.enabled:
+        document["status"] = "disabled"
+        return Check("web_ui", document)
+
+    try:
+        stat = state.index.stat()
+    except OSError:
+        document.update(
+            ok=False,
+            status="missing" if state.required else "absent",
+            error=(
+                f"{label} is missing, so GET /app answers 404. "
+                f"Rebuild it with `{REBUILD_COMMAND}`"
+            ),
+        )
+        return Check("web_ui", document, fatal=state.required)
+
+    document.update(exists=True, age_s=_age_seconds(stat.st_mtime, time.time()))
+
+    if state.mounted is False:
+        document.update(
+            ok=False,
+            status="not_mounted",
+            error=(
+                f"{label} appeared after this process started, so the /app mount "
+                "was never registered and every /app URL answers 404; restart the "
+                f"process to pick it up (after `{REBUILD_COMMAND}`)"
+            ),
+        )
+        return Check("web_ui", document, fatal=state.required)
+
+    if (
+        state.newest_source_mtime is not None
+        and state.newest_source_mtime > stat.st_mtime
+    ):
+        stale_s = int(state.newest_source_mtime - stat.st_mtime)
+        name = state.newest_source.name if state.newest_source else "the sources"
+        document.update(
+            ok=False,
+            status="stale",
+            stale_s=stale_s,
+            newest_source=name,
+            error=(
+                f"{label} is {stale_s}s older than {name}, so /app serves bytes the "
+                f"source no longer describes; rebuild it with `{REBUILD_COMMAND}`"
+            ),
+        )
+        return Check("web_ui", document)
+
+    return Check("web_ui", document)
+
+
+
+# ---------------------------------------------------------------------------
 # the document
 # ---------------------------------------------------------------------------
 
 
-def _status_of(checks: list[Check], startup_error: str | None) -> str:
-    """``failing`` only for untrusted data; otherwise any complaint is ``degraded``."""
+def _status_of(
+    checks: list[Check], startup_error: str | None, shell: Check | None = None
+) -> str:
+    """``failing`` only for untrusted data; otherwise any complaint is ``degraded``.
 
-    if any(check.fatal for check in checks):
+    ``shell`` is the web-UI verdict. It is a sibling of the five data checks
+    rather than a sixth entry — the data contract names exactly those five, and
+    the UI is the delivery surface, not a data subsystem — but it counts the
+    same way: a fatal shell verdict makes the whole deployment ``failing``.
+    """
+
+    considered = checks + ([shell] if shell is not None else [])
+    if any(check.fatal for check in considered):
         return STATUS_FAILING
-    if startup_error is not None or any(not check.ok for check in checks):
+    if startup_error is not None or any(not check.ok for check in considered):
         return STATUS_DEGRADED
     return STATUS_OK
+
 
 
 def _guarded(name: str, build: Callable[[], Check]) -> Check:
@@ -755,6 +1054,7 @@ def build_health_report(
     startup_error: str | None = None,
     now: float | None = None,
     observe_runtime: bool = True,
+    web_ui: WebUiState | None = None,
 ) -> dict[str, object]:
     """Build the ``/health`` document from the filesystem and the live objects.
 
@@ -762,7 +1062,12 @@ def build_health_report(
     thread, because a cold digest verification is a second of CPU and a locked
     SQLite database is a wait. ``now`` is injectable so a test can age a file
     without touching the clock.
+
+    ``web_ui`` carries ``mounted`` — the startup verdict only ``create_app``
+    knows. A caller that omits it (the alert CLI) still gets the filesystem
+    verdict, with ``mounted: null`` meaning "not observed from out here".
     """
+
 
     started = time.perf_counter()
     clock = time.time() if now is None else now
@@ -822,8 +1127,11 @@ def build_health_report(
         ),
     ]
 
-    status = _status_of(checks, startup_error)
-    _log_transition(status, checks, startup_error)
+    shell_state = web_ui if isinstance(web_ui, WebUiState) else resolve_web_ui()
+    shell = _guarded("web_ui", lambda: web_ui_check(shell_state))
+
+    status = _status_of(checks, startup_error, shell)
+    _log_transition(status, [*checks, shell], startup_error)
     return {
         "status": status,
         "version": __version__,
@@ -831,6 +1139,10 @@ def build_health_report(
         "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 1),
         "startup_error": startup_error,
         "checks": {check.name: check.document for check in checks},
+        # Sibling, not a sixth ``checks`` entry: the five data checks are a
+        # published contract, and the shell is a delivery surface. It still
+        # decides the verdict above — an image without its UI is ``failing``.
+        "ui": shell.document,
     }
 
 
@@ -1070,6 +1382,10 @@ async def health(request: Request) -> JSONResponse:
         collector=getattr(state, "depth", None),
         engine_dataset=getattr(getattr(state, "engine", None), "dataset", None),
         startup_error=getattr(state, "engine_startup_error", None),
+        # The startup verdict, not a fresh one: only this object knows whether
+        # the /app mount was registered, and that is what makes a post-boot
+        # ``npm run build`` visible as a 404 rather than as a healthy shell.
+        web_ui=getattr(state, "web_ui", None),
     )
     return JSONResponse(
         status_code=_HTTP_STATUS[str(report["status"])], content=report
@@ -1089,4 +1405,14 @@ async def health_deep(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200, content=report)
 
 
-__all__ = ["build_health_report", "deep_health_report", "router"]
+__all__ = [
+    "REBUILD_COMMAND",
+    "WebUiState",
+    "build_health_report",
+    "build_is_stale",
+    "deep_health_report",
+    "newest_build_input",
+    "resolve_web_ui",
+    "router",
+    "web_ui_check",
+]
