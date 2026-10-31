@@ -40,6 +40,25 @@ bagian, supaya tidak ada halaman yang tampil kosong tanpa alasan.
 | Watchlist / Portfolio | akun, sesi, penyimpanan per pengguna | 3–5 hari |
 | Pricing / Help | halaman statis + konten | 0,5 hari |
 
+
+## Probe data untuk Wave 3–4 (diukur 2026-10-31)
+
+```text
+crypto/futures/forex   Yahoo chart v8 menjawab semuanya:
+                       BTC-USD 77.318,72 · ETH-USD 2.249,18
+                       ES=F 7.614,00 (prev 7.754,25) · NQ=F 28.534,00
+                       EURUSD=X 1,1166 · GBPUSD=X 1,3393 · ^GSPC 7.580,07
+                       → universe alternatif cukup daftar simbol + batch quote yang sudah ada
+
+calendar               earnings_date ada di 3.730 dari 4.217 baris depth (>88%)
+
+insider                app/engine/insider.py sudah mem-parse Form 4 XML;
+                       cache berisi CIK*-form4-*.xml → daftar insider = agregasi yang sudah ada
+
+charts                 belum ada cache OHLC; perlu endpoint chart yang memakai
+                       egress ladder yang sama + cache 5–15 menit
+```
+
 ## Prinsip yang dipegang
 
 ```text
