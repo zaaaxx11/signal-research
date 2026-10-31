@@ -419,3 +419,24 @@ for its own probe and never restarted it, so the public site answered 502 for th
 build. Builders use `:8098` or an ephemeral port. The parent checks `systemctl is-active ztockz`
 and the public `/app` after every batch, before anything else.
 
+
+## 15. Progress (measured, updated as phases land)
+
+| Phase | Status | Commit | Gate |
+|---|---|---|---|
+| 0 backend | ✅ | `ce5cb54` | 4,298 ×3 |
+| 1 shell + tokens | ✅ | `4b3bc2b` | 4,336 ×3 · image 123.7 MiB · bundle 85.6 KB |
+| 2 grid | ✅ | `d43aafc` | 4,348 ×3 · bundle 105.6 KB · 0 clipped cells at 1024 |
+| 3 filters | 🔄 | — | — |
+| 4 views | ⏳ | — | — |
+| 5 detail | ⏳ | — | — |
+| 6 breadth | ⏳ | — | — |
+| 7 parity | ⏳ | — | — |
+
+**Live:** `https://ztockz.customin.biz.id/app` (200). The old UI stays at `/` and `/ui/`.
+
+**Scan cache (Phase 2):** 5 s TTL + single-flight in front of the scan, keyed by
+(region, asset_class, source, page shape). Five view switches: 8.23 s → 2.28 s; nine
+requests: nine scans → one. The ETag stays honest: a store change still moves the tag
+and a replay returns 200 with the new body.
+
