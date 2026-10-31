@@ -29,6 +29,8 @@ interface State {
 
 const IDLE: State = { phase: "idle", hits: [], message: null, query: null };
 const LISTBOX_ID = "symbol-search-listbox";
+/** The keys this combobox answers to, said once instead of guessed at. */
+const HINT_ID = "symbol-search-hint";
 
 function optionId(index: number): string {
   return `symbol-search-option-${index}`;
@@ -58,6 +60,20 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
   const ownRef = React.useRef<HTMLInputElement>(null);
   const boxRef = inputRef ?? ownRef;
   const rootRef = React.useRef<HTMLDivElement>(null);
+  /**
+   * The symbol the reader just committed, if the box still holds it.
+   *
+   * `commit` writes the symbol into the box, which is also the search text. The
+   * debounced effect cannot tell "the reader typed AAPL" from "we put AAPL
+   * there" — so without this, picking a hit re-asks the API for the symbol it
+   * just opened and drops a fresh list back over the panel 220 ms later. A
+   * keyboard user commits with Enter, sees the list close, and then watches it
+   * reopen on top of the thing they chose.
+   *
+   * Any keystroke clears it (`onChange`), so typing the same symbol by hand
+   * still searches.
+   */
+  const committedRef = React.useRef<string | null>(null);
   const trimmed = query.trim();
 
   // A combobox that stays open after a click elsewhere is a modal that forgot
@@ -77,6 +93,13 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
 
   React.useEffect(() => {
     if (trimmed.length === 0) {
+      setState(IDLE);
+      setOpen(false);
+      return;
+    }
+
+    // We put this text in the box; it is an answer, not a new question.
+    if (committedRef.current !== null && trimmed === committedRef.current) {
       setState(IDLE);
       setOpen(false);
       return;
@@ -115,6 +138,7 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
 
   const commit = React.useCallback(
     (hit: SymbolHit) => {
+      committedRef.current = hit.symbol;
       setQuery(hit.symbol);
       setOpen(false);
       onSelect?.(hit);
@@ -175,6 +199,7 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
   };
 
   const clear = () => {
+    committedRef.current = null;
     setQuery("");
     setState(IDLE);
     setOpen(false);
@@ -230,6 +255,10 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
           type="text"
           role="combobox"
           aria-label="Search symbols and companies"
+          // The listbox is the input's popup; without `aria-haspopup` the
+          // relationship was only declared once the list was already open.
+          aria-haspopup="listbox"
+          aria-describedby={HINT_ID}
           aria-expanded={showList}
           aria-controls={showList ? LISTBOX_ID : undefined}
           aria-autocomplete="list"
@@ -239,7 +268,10 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
           spellCheck={false}
           placeholder="Symbol or company"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            committedRef.current = null;
+            setQuery(event.target.value);
+          }}
           onKeyDown={onKeyDown}
           className="h-full min-w-0 flex-1 bg-transparent text-ui text-fg placeholder:text-fg-subtle focus-visible:outline-none"
         />
@@ -262,6 +294,10 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
         )}
       </div>
 
+      <p id={HINT_ID} className="sr-only">
+        Type a symbol or company name. Use Up and Down to move through the
+        results, Enter to open the highlighted one, Escape to close the list.
+      </p>
       <p aria-live="polite" className="sr-only">
         {statusText}
       </p>

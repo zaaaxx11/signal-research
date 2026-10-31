@@ -74,7 +74,11 @@ export function ChipBar({
       ) : null}
 
       {notice ? (
-        <p role="status" className="ml-auto flex items-center gap-2 text-data text-alert">
+        // An alert, not a status: this sentence reports that a filter in the
+        // reader's link was dropped, and it must not wait for a pause in the
+        // grid's own announcements. The app's single `role="status"` belongs
+        // to the row range in `ScreenPanel`.
+        <p role="alert" className="ml-auto flex items-center gap-2 text-data text-alert">
           <span>{notice}</span>
           {onDismissNotice ? (
             <button

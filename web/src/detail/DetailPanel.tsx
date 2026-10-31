@@ -57,6 +57,16 @@ export const DEFAULT_PANEL_WIDTH = 420;
 export const RESIZE_STEP = 16;
 export const RESIZE_PAGE = 64;
 
+/** The tab stops inside the panel, in document order. Mirrors the drawer's. */
+const FOCUSABLE = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
 export function clampPanelWidth(width: number): number {
   if (!Number.isFinite(width)) return DEFAULT_PANEL_WIDTH;
   return Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, Math.round(width)));
@@ -94,8 +104,36 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
   const [width, setWidth] = React.useState(DEFAULT_PANEL_WIDTH);
   const [dragging, setDragging] = React.useState(false);
   const panelRef = React.useRef<HTMLElement | null>(null);
+  const closeRef = React.useRef<HTMLButtonElement | null>(null);
+  /** Where focus came from, for the case where the grid row no longer exists. */
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  /** False until this mount has placed focus once; a symbol change must not. */
+  const enteredRef = React.useRef(false);
   const panelId = React.useId();
   const dragRef = React.useRef<{ startX: number; startWidth: number } | null>(null);
+
+  /**
+   * Focus enters with the panel — on its **first** control, the close button.
+   *
+   * Adversarial (b): the way out is one stop away, before the tab strip and
+   * before any metric. A reader who opened the wrong row should not have to tab
+   * through four tabs' worth of data to leave.
+   *
+   * `enteredRef` makes this a one-time move per mount: switching AAPL → MSFT
+   * replaces the body but must not steal focus from the tab the reader is on.
+   */
+  React.useEffect(() => {
+    if (!symbol) {
+      enteredRef.current = false;
+      return;
+    }
+    if (enteredRef.current) return;
+    enteredRef.current = true;
+    const active = document.activeElement;
+    returnFocusRef.current =
+      active instanceof HTMLElement && active !== document.body ? active : null;
+    closeRef.current?.focus({ preventScroll: true });
+  }, [symbol]);
 
   const changeWidth = React.useCallback((next: number) => setWidth(clampPanelWidth(next)), []);
 
@@ -110,18 +148,72 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
   const close = React.useCallback((options?: { restoreFocus?: boolean }) => {
     if (symbol && (options?.restoreFocus ?? true)) {
       const row = findGridRow(symbol);
-      row?.focus();
-      onClose();
-      if (!row && typeof requestAnimationFrame === "function") {
-        // The row may not be mounted yet (a page turn is landing); one frame is
-        // enough for the parent's state to settle, and only then is there a row
-        // to return focus to.
-        requestAnimationFrame(() => findGridRow(symbol)?.focus());
+      const opener = returnFocusRef.current;
+      if (row) {
+        row.focus();
+        onClose();
+        return;
       }
+      onClose();
+      // The row may not be mounted yet (a page turn is landing) or may never
+      // have existed (the panel was opened from the symbol search or a link).
+      // One frame gives the parent's state a chance to settle, and then the
+      // opener is the honest place to put the caret back — never `<body>`.
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => {
+          const late = findGridRow(symbol);
+          if (late) late.focus();
+          else if (opener?.isConnected) opener.focus();
+        });
+        return;
+      }
+      if (opener?.isConnected) opener.focus();
       return;
     }
     onClose();
   }, [symbol, onClose]);
+
+  /**
+   * Tab is contained inside the panel while it is open.
+   *
+   * The panel is docked, not modal: the grid stays visible and clickable, and
+   * the panel does not claim `aria-modal`. But the keyboard has exactly one
+   * path in (Tab, in document order) and one way out (Escape, or the close
+   * button), and the panel now takes focus when it opens. Without an edge wrap,
+   * a Tab from the last metric walks into the footer — behind the panel — and
+   * the ring the reader is following disappears. Wrapping the two edges keeps
+   * every stop reachable and every stop visible.
+   *
+   * `[hidden]` is filtered because Radix keeps the three inactive tab panels
+   * mounted and hidden: their `tabIndex={0}` would otherwise make the "last"
+   * stop one that cannot receive focus at all.
+   */
+  const onPanelKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const items = Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [],
+    ).filter((element) => element.tabIndex >= 0 && element.closest("[hidden]") === null);
+    if (items.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = items[0] as HTMLElement;
+    const last = items[items.length - 1] as HTMLElement;
+    const active = document.activeElement;
+    const inside = panelRef.current?.contains(active) ?? false;
+
+    // Only the two edges are intercepted; every Tab in between is the
+    // browser's own, so the panel's internal order stays what the DOM says.
+    if (event.shiftKey) {
+      if (!inside || active === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (!inside || active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   // Escape is document-level because focus may sit on the tab, a metric, or the
   // body. It stays out of the way of a role="dialog" (Radix's filter drawer) and
@@ -251,6 +343,7 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
       data-testid="detail-panel"
       data-symbol={symbol}
       data-docked="right"
+      onKeyDown={onPanelKeyDown}
       style={{
         width: `${width}px`,
         minWidth: `${MIN_PANEL_WIDTH}px`,
@@ -258,6 +351,23 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
       }}
       className="relative flex h-full min-h-0 flex-none flex-col border-l border-line-strong bg-surface"
     >
+
+      <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+        <h2 className="min-w-0 truncate text-ui font-semibold text-fg" title={symbol}>
+          {symbol}
+        </h2>
+        <button
+          ref={closeRef}
+          type="button"
+          onClick={() => close()}
+          aria-label="Close details"
+          title="Close details"
+          className="focus-ring inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-fg-muted hover:bg-row-hover hover:text-fg"
+        >
+          <X aria-hidden="true" className="size-3.5" />
+        </button>
+      </header>
+
       <div
         role="separator"
         aria-orientation="vertical"
@@ -275,34 +385,19 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
         className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize bg-transparent hover:bg-surface-raised focus-visible:bg-surface-raised"
       />
 
-      <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <h2 className="min-w-0 truncate text-ui font-semibold text-fg" title={symbol}>
-          {symbol}
-        </h2>
-        <button
-          type="button"
-          onClick={() => close()}
-          aria-label="Close details"
-          title="Close details"
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-fg-muted hover:bg-row-hover hover:text-fg"
-        >
-          <X aria-hidden="true" className="size-3.5" />
-        </button>
-      </header>
-
       <Tabs defaultValue="fundamentals" className="flex min-h-0 flex-1 flex-col gap-0">
         <div className="shrink-0 border-b border-line px-2 py-1">
           <TabsList variant="line" className="h-8 w-full justify-between gap-0">
-            <TabsTrigger value="fundamentals" className="flex-1 px-1.5 text-data">
+            <TabsTrigger value="fundamentals" className="focus-ring flex-1 px-1.5 text-data">
               Fundamentals
             </TabsTrigger>
-            <TabsTrigger value="ownership" className="flex-1 px-1.5 text-data">
+            <TabsTrigger value="ownership" className="focus-ring flex-1 px-1.5 text-data">
               Ownership
             </TabsTrigger>
-            <TabsTrigger value="insiders" className="flex-1 px-1.5 text-data">
+            <TabsTrigger value="insiders" className="focus-ring flex-1 px-1.5 text-data">
               Insiders
             </TabsTrigger>
-            <TabsTrigger value="news" className="flex-1 px-1.5 text-data">
+            <TabsTrigger value="news" className="focus-ring flex-1 px-1.5 text-data">
               News
             </TabsTrigger>
           </TabsList>
@@ -325,7 +420,7 @@ function DetailBody({ symbol }: { symbol: string }): React.ReactElement {
         value="fundamentals"
         data-testid="tabpanel-fundamentals"
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+        className="focus-ring min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
       >
         <FundamentalsTab symbol={symbol} state={detail.fundamentals} onRetry={detail.fundamentals.retry} />
       </TabsContent>
@@ -333,7 +428,7 @@ function DetailBody({ symbol }: { symbol: string }): React.ReactElement {
         value="ownership"
         data-testid="tabpanel-ownership"
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+        className="focus-ring min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
       >
         <OwnershipTab symbol={symbol} state={detail.ownership} onRetry={detail.ownership.retry} />
       </TabsContent>
@@ -341,7 +436,7 @@ function DetailBody({ symbol }: { symbol: string }): React.ReactElement {
         value="insiders"
         data-testid="tabpanel-insiders"
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+        className="focus-ring min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
       >
         <InsidersTab symbol={symbol} state={detail.insiders} onRetry={detail.insiders.retry} />
       </TabsContent>
@@ -349,7 +444,7 @@ function DetailBody({ symbol }: { symbol: string }): React.ReactElement {
         value="news"
         data-testid="tabpanel-news"
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+        className="focus-ring min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
       >
         <NewsTab symbol={symbol} state={detail.news} onRetry={detail.news.retry} />
       </TabsContent>

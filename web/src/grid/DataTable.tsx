@@ -94,6 +94,21 @@ export interface DataTableProps {
    */
   absent?: (symbol: string, key: string) => string | null;
   /**
+   * The table's accessible name, spoken once when a screen reader enters the
+   * grid: the view, the slice on screen and the ordering the toolbar chose.
+   *
+   * A `<caption>` rather than `aria-label` because a caption is what HTML says
+   * a table is called, and Chrome exposes it as the table node's name in the AX
+   * tree either way — but only the caption also survives when the table is
+   * reached in browse mode, and only the caption can be read as the table's
+   * description without stealing the name slot.
+   *
+   * It carries the sort in *words* ("sorted by market cap, highest first")
+   * because the ordering is not visible in the grid at all: no header is
+   * marked, no arrow is drawn, and colour is not used to say it (adversarial c).
+   */
+  caption?: string;
+  /**
    * Render only the columns the viewport can see, with fixed-width spacers
    * standing in for the rest (the wide destination: 116 columns × 20 rows).
    *
@@ -181,6 +196,7 @@ export function DataTable({
   selectedSymbol,
   containerWidth,
   absent,
+  caption,
   windowed = false,
   stale = false,
   busy,
@@ -414,10 +430,23 @@ export function DataTable({
           ))}
         </div>
       ) : (
+        // `aria-sort` is deliberately absent from every header.
+        //
+        // `aria-sort` is the pattern for a table whose rows are ordered by
+        // *pressing that header*: it tells assistive tech "this column is the
+        // sort key" and pairs with `aria-sort` toggling on activation. Here no
+        // header is a sort control — every column is `enableSorting: false`,
+        // the toolbar owns the ordering, and the API's three sorts are
+        // whole-screen rankings rather than column sorts: "gainers" names *no
+        // column at all*, and the sorted column (market cap, turnover) may not
+        // even be in the reader's column selection. Marking a header would
+        // announce a sort affordance that does not exist — the accessibility
+        // equivalent of the Finviz dead-header problem this rebuild exists to
+        // fix. The ordering is said in the caption, in words, and as
+        // `aria-pressed` on the toolbar buttons that really do change it.
         <table
           data-testid="grid-table"
           data-stale={stale ? "true" : "false"}
-          aria-label={`${view.label} screen`}
           aria-rowcount={hasRows ? announcedRows : undefined}
           aria-colcount={columnCount}
           aria-describedby={solved.overflow ? OVERFLOW_NOTE_ID : undefined}
@@ -440,6 +469,14 @@ export function DataTable({
           }}
           className="w-full text-data text-fg"
         >
+          {/* Visually hidden, but a real caption: it is the table's name in the
+              accessibility tree, and it is the only place the ordering is
+              stated in words. `sr-only` takes it out of the fixed layout, so
+              it costs no column width. */}
+          <caption className="sr-only" data-testid="grid-caption">
+            {caption ??
+              `${view.label}: ${hasRows ? `${rows.length} rows on this page` : "no rows"}.`}
+          </caption>
           <colgroup>
             {solved.columns.map((column, index) => (
               <col key={column.key} style={{ width: solved.widths[index] ?? 0 }} />
@@ -635,13 +672,25 @@ const GridRow = React.memo(function GridRow({
       // keeps — one current item per document, and the tab strip marks itself
       // with `aria-selected` (role=tab), so the two cannot be confused.
       aria-current={selected ? "true" : undefined}
+      // The row is a tab stop (one per row, never one per cell), so it is
+      // focusable and therefore *named*: a focused `<tr>` with no accessible
+      // name reaches a screen reader as "row", and the symbol the reader is on
+      // — the one thing this grid is about — is not said. The cells keep their
+      // own text; this only names the row. Adversarial (c): the symbol is
+      // spoken, and no colour is involved.
+      aria-label={symbol}
       tabIndex={tabbable ? 0 : -1}
       onFocus={() => onFocusRow(index)}
       onKeyDown={(event) => onKeyDown(event, index)}
       onClick={() => onActivate(symbol)}
       className={cn(
         "h-7 cursor-default outline-offset-[-2px] odd:bg-row even:bg-row-alt",
-        "hover:bg-row-hover focus-visible:outline-2 focus-visible:outline-focus",
+        // One 2 px rose ring around the row, drawn inset so the sticky header
+        // cannot clip it. `relative z-10` while focused lifts the ring above the
+        // pinned lane's own background — without it the sticky `<td>` paints
+        // over the ring's leading edge and the focus indicator looks like it
+        // stops at the lane.
+        "hover:bg-row-hover focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-focus",
         "data-[selected=true]:bg-row-selected",
       )}
       style={{ height: ROW_HEIGHT }}

@@ -423,21 +423,39 @@ export function ScreenPanel({
             />
           ) : null}
 
-          <label className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-            sort
-            <select
-              aria-label="Sort by"
-              value={sort}
-              onChange={(event) => changeSort(event.target.value as ScreenSort)}
-              className="rounded-sm border border-line bg-surface-sunken px-1 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted"
+          {/* Three toggle buttons, not a `<select>`.
+              The sort is a mode the toolbar is *in*, not a field being filled:
+              `aria-pressed` says which one is on, so a screen reader hears
+              "Market cap, pressed, button" without opening anything. A native
+              select has no pressed state — the only way to learn the current
+              ordering was to open it, and the control's own name ("Sort by")
+              never said what it was set to. The group is named once; each
+              button keeps its own label. */}
+          <div
+            role="group"
+            aria-label="Sort by"
+            data-testid="sort-group"
+            className="flex shrink-0 items-center gap-0.5"
+          >
+            <span
+              aria-hidden="true"
+              className="pr-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
             >
-              {SORTS.map((option) => (
-                <option key={option} value={option}>
-                  {SORT_LABELS[option]}
-                </option>
-              ))}
-            </select>
-          </label>
+              sort
+            </span>
+            {SORTS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={sort === option}
+                data-sort={option}
+                onClick={() => changeSort(option)}
+                className="rounded-sm border border-transparent px-1.5 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-line-strong hover:text-fg aria-pressed:border-brand aria-pressed:bg-row-selected aria-pressed:text-fg"
+              >
+                {SORT_LABELS[option]}
+              </button>
+            ))}
+          </div>
 
           <button
             type="button"
@@ -465,8 +483,12 @@ export function ScreenPanel({
       ) : null}
 
       {columnNotice !== null && columnNotice !== undefined ? (
+        // An alert, not a status: this sentence appears only when the reader
+        // asked for a column the panel cannot carry, and it must interrupt —
+        // the checkbox they just ticked is not going to stay ticked. The one
+        // `role="status"` in the app belongs to the row range below.
         <div
-          role="status"
+          role="alert"
           data-testid="column-notice"
           className="flex shrink-0 items-start justify-between gap-3 border-b border-line bg-surface-raised px-3 py-1.5"
         >
@@ -501,6 +523,18 @@ export function ScreenPanel({
         pageIndex={pageIndex}
         pageSize={limit}
         rowCount={total}
+        // What the table is called, and the two facts that are not otherwise
+        // said anywhere: which slice is on screen and how it is ordered. The
+        // direction is in words because the grid never draws an arrow: the API
+        // sorts every one of the three descending (`app/screen/rank.py`), ties
+        // broken by symbol.
+        caption={
+          `${view.label}: ` +
+          (rows.length === 0
+            ? "no rows on this page"
+            : `rows ${first}–${last} of ${total.toLocaleString("en-US")}`) +
+          `, sorted by ${SORT_LABELS[sort].toLowerCase()}, highest first.`
+        }
         onRetry={screens.refresh}
         onActivate={onActivate}
         onClear={onClear}
@@ -516,11 +550,13 @@ export function ScreenPanel({
             {total > 0 ? `${first}–${last} of ${total.toLocaleString("en-US")}` : "—"}
           </span>
           {/*
-            The one live region. It is mounted empty and filled by a state
-            change, because a region that appears *with* its sentence is not
-            reliably announced. `aria-atomic` re-reads the whole sentence
-            rather than a diff of it, and nothing else in the panel carries a
-            live role for this text, so it is said once.
+            The **one** `role="status"` in the document.
+            It is mounted empty and filled by a state change, because a region
+            that appears *with* its sentence is not reliably announced.
+            `aria-atomic` re-reads the whole sentence rather than a diff of it.
+            Every other announcement in the app is either a `role="alert"`
+            (a refusal or a warning) or a plain `aria-live="polite"` node — see
+            `a11y.test.tsx`, which counts them on the rendered shell.
           */}
           <span
             role="status"

@@ -191,3 +191,51 @@
    * the shell carries the focus indicator — see the `focus-within:` utilities
    * in shell/SymbolSearch.tsx. */
 }
+
+/*
+ * The focus ring, for elements a vendored primitive has stripped.
+ *
+ * `:focus-visible` in `@layer base` is the default, but a Tailwind *utility* —
+ * `outline-none`, which the shadcn `button`/`tabs`/`input` templates carry —
+ * lives in `@layer utilities`, and the cascade decides layers before it ever
+ * considers specificity. A `.focus-ring` rule inside `@layer components`
+ * therefore loses to `outline-none` no matter how specific it is. This rule is
+ * intentionally unlayered: unlayered declarations outrank every layered one, so
+ * two class names beat one utility, and the ring is the same 2 px rose the rest
+ * of the app paints.
+ *
+ * It is not a second focus *style*: same width, same token, same offset as the
+ * base rule. It exists only so `outline-none` cannot erase the ring inside the
+ * detail panel's tabs and the breadth strip's retry button.
+ */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/*
+ * The ring is not a transition.
+ *
+ * Tailwind's `transition-colors` animates `outline-color` along with the rest of
+ * the colour properties. Because `:focus-visible` only starts applying when the
+ * element is focused, the outline's *previous* computed colour is the element's
+ * `currentColor` — so a keyboard user's first focused control spends ~150 ms
+ * with a grey, text-coloured ring before it resolves to rose. Measured in
+ * Chromium: `outlineColor` read `rgb(185,175,180)` at t=0 and
+ * `rgb(255,142,196)` at t=600 ms on the same button. WCAG 2.4.13 asks the focus
+ * indicator to be visible *while* the component has focus; a ring that fades in
+ * is a ring that is not there yet.
+ *
+ * Everything else keeps its transition; only `outline-color` is taken out of
+ * the list. Unlayered for the same reason as `.focus-ring` above: the utility
+ * this overrides lives in `@layer utilities`.
+ *
+ * `.search-shell` is here because the composite search field draws its ring on
+ * the wrapper (`focus-within:`), not on the input it contains.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.search-shell:focus-within {
+  transition-property:
+    color, background-color, border-color, text-decoration-color, fill, stroke,
+    opacity, box-shadow, transform;
+}

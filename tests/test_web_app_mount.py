@@ -1,4 +1,6 @@
-"""The React interface is served at ``/app``; the old cockpit at ``/`` and ``/ui/`` does not move.
+"""The React interface is served at ``/app`` and, since Phase 7, at ``/``.
+
+The old cockpit lives at ``/ui/`` and answers ``/legacy`` for one release.
 
 Three classes of assertion live here, and they are deliberately separate:
 
@@ -407,10 +409,18 @@ def test_head_on_the_entry_point_is_allowed_and_has_no_body(
     assert "text/html" in response.headers["content-type"]
 
 
-def test_old_interface_is_untouched(client: TestClient) -> None:
-    root = client.get("/", follow_redirects=False)
-    assert root.status_code in {307, 308}
-    assert root.headers["location"] == "/ui/"
+def test_old_interface_is_reachable_at_legacy(client: TestClient) -> None:
+    """Phase 7 moved ``/`` to the new shell; the old cockpit kept a name.
+
+    The front door itself is asserted in ``tests/test_ui_mount.py``. This is
+    the escape hatch: ``/legacy`` answers for one release and lands on
+    ``/ui/``, which is the base the old document's relative asset links were
+    written against.
+    """
+
+    legacy = client.get("/legacy", follow_redirects=False)
+    assert legacy.status_code == 302
+    assert legacy.headers["location"] == "/ui/"
 
     page = client.get("/ui/")
     assert page.status_code == 200

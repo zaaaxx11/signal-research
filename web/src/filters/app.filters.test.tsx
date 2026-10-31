@@ -201,7 +201,7 @@ describe("the shell and its filters", () => {
 
     const notices = () =>
       screen
-        .queryAllByRole("status")
+        .queryAllByRole("alert")
         .filter((element) => /Ignored 1 filter/.test(element.textContent ?? ""));
     expect(notices()).toHaveLength(1);
 

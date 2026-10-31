@@ -160,6 +160,10 @@ export function AllColumnsPanel({
         pageIndex={0}
         pageSize={ALL_COLUMNS_LIMIT}
         rowCount={all.meta?.total ?? all.rows.length}
+        // The wide table says what it is: the destination, its true width and
+        // its fixed ordering, in words — the same contract the screen grid's
+        // caption keeps.
+        caption={`${destination.label}, wide view: ${all.rows.length} rows, ${keys.length} columns, sorted by market cap, highest first.`}
         onRetry={all.refresh}
         onActivate={onActivate}
         onClear={onClear}

@@ -23,7 +23,6 @@ export interface TabSkeletonProps {
 export function TabSkeleton({ label, testId, rows = 8 }: TabSkeletonProps): React.ReactElement {
   return (
     <div
-      role="status"
       aria-busy="true"
       aria-live="polite"
       data-testid={testId}

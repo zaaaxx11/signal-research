@@ -53,7 +53,7 @@ describe("the ⌘K filter palette", () => {
 
     await user.type(input, "idx");
     expect(screen.queryAllByRole("option")).toHaveLength(0);
-    expect(screen.getByRole("status").textContent).toMatch(/No filter matches/);
+    expect(screen.getByTestId("palette-empty").textContent).toMatch(/No filter matches/);
 
     await user.clear(input);
     await user.type(input, "Index");

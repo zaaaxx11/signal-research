@@ -137,8 +137,11 @@ export function ColumnPicker({
         </div>
 
         {notice !== null ? (
+          // The cap refusal: an alert, because the checkbox the reader just
+          // ticked did not take. The one `role="status"` in the app is the
+          // row-range region in `ScreenPanel`.
           <p
-            role="status"
+            role="alert"
             data-testid="column-picker-notice"
             className="shrink-0 border-b border-line bg-surface-raised px-3 py-1.5 text-data text-alert"
           >

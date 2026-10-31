@@ -319,7 +319,10 @@ describe("the selected row is announced (F3)", () => {
     const selected = rows.filter((row) => row.getAttribute("aria-current") === "true");
     expect(selected).toHaveLength(1);
     expect(selected[0]?.getAttribute("data-symbol")).toBe("NVDA");
-    expect(screen.getByTestId("grid-table").getAttribute("aria-label")).toBe("Today screen");
+    // The table is named by its `<caption>`, not by `aria-label`: one name, in
+    // the element HTML reserves for it.
+    expect(table.querySelector("caption")?.textContent).toContain("Today");
+    expect(table.hasAttribute("aria-label")).toBe(false);
 
     // One current item per document: the tab strip marks itself with
     // `aria-selected` (role=tab), so a row cursor cannot be mistaken for it.

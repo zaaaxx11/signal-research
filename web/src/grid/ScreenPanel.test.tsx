@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -109,13 +109,24 @@ describe("ScreenPanel", () => {
     render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
     await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
 
-    await user.selectOptions(screen.getByLabelText("Sort by"), "turnover");
+    // The toolbar's sort is three toggle buttons now; pressing one is the
+    // choice, and `aria-pressed` says which one is on.
+    const group = screen.getByRole("group", { name: "Sort by" });
+    expect(within(group).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Market cap",
+      "Turnover",
+      "Gainers",
+    ]);
+    await user.click(within(group).getByRole("button", { name: "Turnover" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.criteria.sort).toBe("turnover");
     expect(body.criteria.offset).toBe(0);
+    expect(within(group).getByRole("button", { name: "Turnover" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
   });
 
   it("announces the API's message when the panel cannot load", async () => {

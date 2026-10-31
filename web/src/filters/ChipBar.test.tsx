@@ -61,7 +61,7 @@ describe("the chip bar", () => {
         onDismissNotice={onDismiss}
       />,
     );
-    expect(screen.getByRole("status").textContent).toMatch(/idx/);
+    expect(screen.getByRole("alert").textContent).toMatch(/idx/);
     await user.click(screen.getByRole("button", { name: "Dismiss filter notice" }));
     expect(onDismiss).toHaveBeenCalled();
   });

@@ -103,8 +103,8 @@ function StaleBadge() {
 function LoadingSkeleton() {
   return (
     <div
-      role="status"
       aria-busy="true"
+      aria-live="polite"
       data-testid="breadth-skeleton"
       className="flex min-w-0 flex-wrap items-start gap-x-6 gap-y-2 px-3 pb-2 pt-1.5"
     >
@@ -156,7 +156,7 @@ function FailureNotice({ view, testId, title, detail, icon: Icon }: FailureNotic
             </p>
           ) : null}
         </div>
-        <Button variant="outline" size="xs" onClick={view.reload}>
+        <Button variant="outline" size="xs" onClick={view.reload} className="focus-ring focus-visible:ring-0">
           Retry
         </Button>
       </div>
@@ -263,8 +263,11 @@ function BreadthBody({ view }: { readonly view: BreadthView }) {
       </div>
 
       {check.ok ? null : (
+        // The counts do not add up: an alert, not a status. It is a warning
+        // about the table above it, and the one status role in the app is the
+        // row range in `ScreenPanel`.
         <p
-          role="status"
+          role="alert"
           data-testid="breadth-sum-warning"
           className="mt-2 flex items-start gap-1.5 rounded-sm border border-alert/60 border-l-2 border-l-alert bg-alert/10 px-2 py-1 text-data text-alert"
         >

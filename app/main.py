@@ -30,6 +30,7 @@ from app import __version__
 from app.api import discovery, health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.api import logos as logos_api
+from app.api.cache import matches
 from app.auth import ApiError
 from app.config import Settings, get_settings
 from app.config_guard import check_startup
@@ -169,6 +170,13 @@ class _SpaStaticFiles(StaticFiles):
     #: the API's own top-level namespaces (``app/main.py`` mounts them at the
     #: root) plus the build's own output directory, so a client route may not
     #: claim one by accident.
+    #:
+    #: ``legacy`` and ``ui`` joined the set at the cutover (Phase 7): both names
+    #: are now served by ``create_app`` itself at the origin root, for the old
+    #: cockpit. The fallback must not invent ``/app/legacy`` or ``/app/ui`` as
+    #: client routes while the same words answer a *different document* one
+    #: level up — a shell that renders on a path the product already defines is
+    #: the "200 HTML answer to a mistaken URL" this class exists to prevent.
     reserved_segments: frozenset[str] = frozenset(
         {
             "api",
@@ -176,6 +184,7 @@ class _SpaStaticFiles(StaticFiles):
             "engine",
             "export",
             "health",
+            "legacy",
             "market",
             "markets",
             "news",
@@ -184,6 +193,7 @@ class _SpaStaticFiles(StaticFiles):
             "screens",
             "sources",
             "symbols",
+            "ui",
         }
     )
 
@@ -275,6 +285,41 @@ class _SpaStaticFiles(StaticFiles):
         # A last segment with a dot is a file request (asset, source map,
         # favicon), not a client route. Client routes here are word slugs.
         return "." not in segments[-1]
+
+
+def _shell_response(request: Request, index: Path) -> Response:
+    """The built shell, with the one conditional a repeat visit needs.
+
+    Two URLs serve this document (``/`` and ``/app``) and both answer from here,
+    so the two can never disagree about their validator or their cache policy.
+
+    The ``ETag`` is derived from the artefact's ``stat`` — ``mtime_ns`` and
+    ``size``, the nginx shape — not from a hash of the bytes. A rebuild writes a
+    new file, so the tag moves exactly when the document does, and reading 801
+    bytes to prove it has not changed would be work spent to produce a header.
+
+    The conditional is handled **here** because Starlette 1.9's ``FileResponse``
+    (``starlette/responses.py``) sets ``ETag``/``Last-Modified`` and then ignores
+    ``If-None-Match`` entirely: every revalidation would re-send the document.
+    The Phase 7 budget is a warm first paint — the browser asks, gets ``304`` in
+    a millisecond, and paints from its own copy — so the check has to exist on
+    the request path. ``matches`` is the app's own comparator
+    (:mod:`app.api.cache`), so ``W/``-prefixed and comma-separated forms are
+    read the same way every other route reads them.
+
+    ``no-cache`` is the policy for a document whose every asset is content
+    addressed: store it, always ask, and let the 304 be the answer. ``max-age``
+    would let a deploy sit in a browser behind an old document that references
+    hashed chunks the new build no longer ships — the one cache bug that looks
+    like a blank page.
+    """
+
+    stat_result = index.stat()
+    etag = f'"{stat_result.st_mtime_ns:x}-{stat_result.st_size:x}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if matches(etag, request.headers.get("if-none-match")):
+        return Response(status_code=304, headers=headers)
+    return FileResponse(index, media_type="text/html", headers=headers)
 
 
 def _env_flag(name: str) -> bool:
@@ -753,12 +798,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if ui_dir.is_dir():
         application.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
 
-        @application.get("/", include_in_schema=False)
-        async def _ui_root() -> RedirectResponse:
-            return RedirectResponse(url="/ui/")
+        #: Phase 7 cutover: the old cockpit keeps a stable *name* for one
+        #: release, but not a second copy of its files.
+        #:
+        #: ``/legacy`` is a 302 to ``/ui/`` rather than another
+        #: ``StaticFiles`` mount of the same directory because ``ui/index.html``
+        #: links its own assets **relatively** (``./styles.css``, ``./app.js``).
+        #: Served at ``/legacy``, those bytes would resolve against the origin
+        #: root and ask for ``/styles.css`` — a 404 for every stylesheet on a
+        #: page that otherwise looks fine. A document only moves with its base,
+        #: and ``/ui/`` is the base this one was written against. A redirect
+        #: carries the base for free; the alternative is an HTML rewrite on
+        #: every request for a UI that is leaving next release.
+        #:
+        #: ``no-store`` on the hop: the alias is temporary by contract, and a
+        #: cached 302 would outlive the release that owns it. The trailing-slash
+        #: spelling is registered on the same handler so a bookmarked
+        #: ``/legacy/`` is one hop, not the router's automatic 307 to
+        #: ``/legacy`` and then this redirect.
+        @application.api_route(
+            "/legacy", methods=["GET", "HEAD"], include_in_schema=False
+        )
+        @application.api_route(
+            "/legacy/", methods=["GET", "HEAD"], include_in_schema=False
+        )
+        async def _legacy_root() -> RedirectResponse:
+            return RedirectResponse(
+                url="/ui/", status_code=302, headers={"Cache-Control": "no-store"}
+            )
 
     #: The new interface (plan §3): a Vite build in ``web/dist``, mounted at
-    #: ``/app`` until parity, when ``/`` learns to redirect here (D9).
+    #: ``/app`` and, since the Phase 7 cutover, also served at ``/`` (D9).
     #:
     #: Conditional on the build artefact, not on the source tree: ``dist/`` is
     #: generated by ``npm run build`` and is not committed, so a checkout that
@@ -782,16 +852,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         @application.api_route(
             "/app", methods=["GET", "HEAD"], include_in_schema=False
         )
-        async def _app_root() -> FileResponse:
+        async def _app_root(request: Request) -> Response:
             """Answer the bare prefix with the shell, not a trailing-slash 307.
 
             ``StaticFiles(html=True)`` would redirect ``/app`` to ``/app/``.
             Both are correct URLs, but a redirect on the entry point is one
             more thing that can be cached differently from the asset URLs it
-            hands out, so the canonical entry is served directly.
+            hands out, so the canonical entry is served directly. It shares
+            :func:`_shell_response` with ``/``: one document, one validator,
+            one cache policy, whichever URL a bookmark happens to use.
             """
 
-            return FileResponse(web.index, media_type="text/html")
+            return _shell_response(request, web.index)
 
         # Added after the exact route above on purpose: Starlette matches in
         # registration order, and the mount would otherwise claim "/app" and
@@ -799,6 +871,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.mount(
             "/app", _SpaStaticFiles(directory=web.dist_dir, html=True), name="app"
         )
+
+    #: The front door (plan §9, D9). ``/`` serves the shell **directly**; it
+    #: does not redirect to ``/app/``. The plan offered both, and the deciding
+    #: argument is that a redirect would buy nothing:
+    #:
+    #: * the build's base is **absolute** — ``web/vite.config.ts`` sets
+    #:   ``base: "/app/"``, so the document's asset URLs are ``/app/assets/…``
+    #:   whichever URL served it. "Keep the SPA's relative base honest" is a
+    #:   real constraint for a ``base: "./"`` build and an empty one here;
+    #: * a hop would be one more round trip *before* the document that starts
+    #:   the first paint clock, on the one URL every visit begins with;
+    #: * and it is the shape that loops behind an edge: a proxy that rewrites
+    #:   ``/`` to ``/app/`` (or a CDN rule that maps ``/app/*`` back to ``/``)
+    #:   turns a two-URL redirect into a circle. Serving the bytes where the
+    #:   request arrived has no hop to mistranslate.
+    #:
+    #: An unbuilt checkout still works: with no artefact, ``/`` falls back to
+    #: the old ``/ui/`` redirect instead of 404ing the front door.
+    #:
+    #: Registration order is not load-bearing here — no root mount exists, so
+    #: nothing can shadow this route, and ``/ui`` and ``/legacy`` are separate
+    #: prefixes rather than fallbacks.
+    if web_mounted:
+
+        @application.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+        async def _front_door(request: Request) -> Response:
+            """The new cockpit at the origin root."""
+
+            return _shell_response(request, web.index)
+
+    elif ui_dir.is_dir():
+
+        @application.get("/", include_in_schema=False)
+        async def _ui_root() -> RedirectResponse:
+            """No build on disk: the old cockpit is still the product."""
+
+            return RedirectResponse(url="/ui/")
 
     #: Frozen at build of this app: ``mounted`` is the only field a later
     #: filesystem check cannot reconstruct, and it is what makes a

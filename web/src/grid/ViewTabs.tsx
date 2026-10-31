@@ -92,6 +92,11 @@ export function ViewTabs({ views, active, onChange }: ViewTabsProps) {
             role="tab"
             aria-selected={selected}
             aria-controls={VIEW_PANEL_ID}
+            // The count is a column count, not part of the name: a tab read as
+            // "Today 11" is a sentence fragment. An explicit name is used rather
+            // than a hidden suffix because Chrome joins separate text nodes with
+            // a space, which produced "Today , 11 columns".
+            aria-label={`${view.label}, ${view.columns.length} columns`}
             tabIndex={selected || (!anySelected && index === 0) ? 0 : -1}
             onClick={() => onChange(view.name)}
             onKeyDown={onKeyDown}
@@ -102,7 +107,11 @@ export function ViewTabs({ views, active, onChange }: ViewTabsProps) {
             )}
           >
             {view.label}
-            <span className="ml-1.5 font-mono text-label text-fg-subtle">{view.columns.length}</span>
+            {/* The count is sighted-only: the accessible name above already
+                says "11 columns". */}
+            <span aria-hidden="true" className="ml-1.5 font-mono text-label text-fg-subtle">
+              {view.columns.length}
+            </span>
           </button>
         );
       })}

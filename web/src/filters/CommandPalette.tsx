@@ -167,7 +167,14 @@ export function CommandPalette({ open, registry, onClose, onPick }: CommandPalet
         </ul>
 
         {matches.length === 0 ? (
-          <p role="status" className="border-t border-line px-3 py-3 text-data text-fg-subtle">
+          // A polite live region, not `role="status"`: the emptiness of a
+          // search box is a running commentary, and the app reserves the one
+          // status role for the grid's row range.
+          <p
+            aria-live="polite"
+            data-testid="palette-empty"
+            className="border-t border-line px-3 py-3 text-data text-fg-subtle"
+          >
             No filter matches “{query.trim()}”. Refused keys are not offered.
           </p>
         ) : null}

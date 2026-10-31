@@ -35,6 +35,58 @@ export interface DetailChunkModule {
 }
 
 /**
+ * The id the skip link points at.
+ *
+ * It is the wrapper that holds whatever occupies the content column — the grid,
+ * its error state or its skeleton — rather than the `<table>` itself, because a
+ * skip link whose target only exists in the happy state is a link that dies
+ * exactly when the panel is showing an error. The wrapper always exists.
+ */
+export const GRID_REGION_ID = "grid-region";
+
+/**
+ * The first focusable element in the document.
+ *
+ * The chrome in front of the grid is four bands and about twenty controls, so
+ * without this a keyboard user pays ten-plus Tab presses before the first row.
+ *
+ * It is an `<a href>` and not a button, so it appears in a screen reader's list
+ * of links and works with the browser's own fragment navigation; the click
+ * handler adds only the focus, which is the half a URL cannot do (a fragment
+ * scrolls the box, it does not move the caret). `preventDefault` keeps the
+ * address bar clean — the app already writes view/page/sort into the query
+ * string, and a `#grid-region` in the middle of that is noise a reload would
+ * carry.
+ *
+ * Adversarial (d): this is not a second `<main>`. The one `<main>` below owns
+ * the content band and the link targets a named region inside it. A landmark
+ * that existed only to be skipped to would give the document two mains and make
+ * "go to main content" ambiguous.
+ */
+function SkipLink() {
+  return (
+    <a
+      href={`#${GRID_REGION_ID}`}
+      data-testid="skip-link"
+      onClick={(event) => {
+        const target = document.getElementById(GRID_REGION_ID);
+        // No grid yet: let the browser's own fragment jump happen instead of
+        // swallowing the click.
+        if (!target) return;
+        event.preventDefault();
+        target.focus();
+      }}
+      // Off-screen until focused, then a 28 px rose-bordered pill at the top
+      // left. `fixed` (not `sr-only`) so focusing it cannot shift the layout:
+      // the link is painted above the top bar for as long as it holds focus.
+      className="-translate-y-[200%] fixed left-2 top-2 z-[100] rounded-sm border border-focus bg-surface px-3 py-1.5 text-ui font-medium text-fg transition-transform focus:translate-y-0"
+    >
+      Skip to the stock grid
+    </a>
+  );
+}
+
+/**
  * The one dynamic import, behind a property so a test can make it reject.
  *
  * A chunk 404 is the failure the detail boundary exists for, and jsdom cannot
@@ -191,6 +243,7 @@ export function App() {
 
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-bg">
+      <SkipLink />
       <TopBar onSelect={(hit) => setSymbol(hit.symbol)} inputRef={searchRef} />
 
       <div className="flex items-stretch justify-between gap-2 border-b border-line bg-surface px-3 pt-0.5">
@@ -236,7 +289,18 @@ export function App() {
         <BreadthStrip />
 
         <div className="flex min-h-0 flex-1 gap-2">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div
+            id={GRID_REGION_ID}
+            // The skip link's destination. `tabIndex={-1}` makes it a programmatic
+            // focus target (and not a tab stop); the region is named so the
+            // landing is announced as something ("Stock grid region") rather
+            // than as an anonymous box. It is not a landmark in its own right
+            // beyond `region`, and it is inside the one `<main>`.
+            role="region"
+            aria-label="Stock grid"
+            tabIndex={-1}
+            className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
+          >
             {schema.status === "error" ? (
               <section
                 role="alert"
