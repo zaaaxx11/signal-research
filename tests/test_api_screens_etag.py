@@ -6,10 +6,13 @@ puts four HTTP-level promises on this route:
 * **a validator derived from the question and from the data that answered it** —
   a repeat POST with ``If-None-Match`` answers ``304`` with **no body at all**,
   and the client keeps the rows it already has. The tag covers every input that
-  can change the answer: the snapshot, the depth store's cycle, the live scan
-  and the fundamentals/facts joins. F3 was the opposite: the tag named only the
-  depth clock, so the scan and two stores could change the body and the client
-  still got a 304 with its old numbers;
+  can change the answer: the snapshot, the depth store's file version, the live
+  scan's page and the fundamentals/facts joins. It does so by **naming those
+  inputs**, not by hashing the finished answer, because the comparison has to
+  happen before the answer is built (``tests/test_screen_select_revalidation.py``
+  measures that); F3 was the opposite: the tag named only the depth clock, so the
+  scan and two stores could change the body and the client still got a 304 with
+  its old numbers;
 * **a clock tick does not change the tag, a data change does** — if the
   validator moved with ``as_of``, no client would ever get a 304 and the panel
   would repaint at 1.8 s per poll; if it *failed* to move with the data, the
@@ -493,10 +496,10 @@ async def test_a_scan_change_moves_the_tag(tmp_path: Path, monkeypatch: Any) -> 
     assert 999.5 in prices, f"the new scan must be in the body, got {prices}"
 
 
-def depth_store(as_of: str | None, symbols: dict[str, dict[str, Any]]) -> Any:
-    from app.screen.depth_source import DepthSnapshot
+def depth_store(as_of: str | None, symbols: dict[str, dict[str, Any]]) -> str:
+    """A depth store document in the collector's own shape."""
 
-    return DepthSnapshot(as_of=as_of, symbols=symbols, loaded_at=0.0)
+    return json.dumps({"as_of": as_of, "symbols": symbols})
 
 
 async def test_a_half_written_depth_store_cannot_mint_a_304(
@@ -504,31 +507,43 @@ async def test_a_half_written_depth_store_cannot_mint_a_304(
 ) -> None:
     """F3(b): a store caught mid-write must move the tag, not freeze it.
 
-    A truncated write parses as *fewer symbols* (or as nothing at all) while the
-    collector's ``as_of`` still says the old cycle. The tag names the cycle **and**
-    the row count, so a partial store can only ever produce a miss.
+    Written against a **real file**, because the revision names the store's file
+    version — path, ``mtime_ns``, size — and nothing else. A test that faked the
+    parsed snapshot would be proving something about a seam the route no longer
+    consults: the tag must move because the *file* moved, which is the thing a
+    truncating writer actually changes.
+
+    A truncated write is a shorter file (and a newer ``mtime_ns``), and it parses
+    as fewer symbols or as nothing at all, so a partial store can only ever
+    produce a miss.
     """
 
     from app.api import screens as screens_api
+    from app.screen import depth_source
 
-    whole = depth_store(
-        "2026-10-30T16:13:15Z", {"AAPL": {"pe": 7.7}, "NVDA": {"pe": 8.8}}
+    store = tmp_path / "depth.json"
+    store.write_text(
+        depth_store(
+            "2026-10-30T16:13:15Z", {"AAPL": {"pe": 7.7}, "NVDA": {"pe": 8.8}}
+        )
     )
-    partial = depth_store("2026-10-30T16:13:15Z", {"AAPL": {"pe": 7.7}})
-    empty = depth_store(None, {})
+    monkeypatch.setattr(screens_api, "resolve_store_path", lambda *a, **k: store)
+    monkeypatch.setattr(depth_source, "resolve_store_path", lambda *a, **k: store)
 
-    monkeypatch.setattr(screens_api, "current_depth", lambda *a, **k: whole)
     async with S.screen_client(tmp_path, monkeypatch) as harness:
         body = criteria(limit=20, columns=["symbol", "pe_ttm"])
         first = await harness.client.post("/screens/select", json=body)
         assert first.status_code == 200, first.text
         tag = first.headers["etag"]
 
-        monkeypatch.setattr(screens_api, "current_depth", lambda *a, **k: partial)
+        # The collector's stamp did not move; the file did (one symbol fewer).
+        store.write_text(depth_store("2026-10-30T16:13:15Z", {"AAPL": {"pe": 7.7}}))
         second = await harness.client.post(
             "/screens/select", json=body, headers={"if-none-match": tag}
         )
-        monkeypatch.setattr(screens_api, "current_depth", lambda *a, **k: empty)
+
+        # A write caught mid-flight: valid prefix of nothing, no symbols at all.
+        store.write_text('{"as_of": "2026-10-30T16:13:15Z", "symb')
         third = await harness.client.post(
             "/screens/select", json=body, headers={"if-none-match": tag}
         )
@@ -540,6 +555,9 @@ async def test_a_half_written_depth_store_cannot_mint_a_304(
     assert third.status_code == 200 and third.headers["etag"] not in {tag, second.headers["etag"]}
     assert any(row["pe_ttm"] == 7.7 for row in first.json()["rows"]), (
         "the whole store's cell must be in the body, or this test proves nothing"
+    )
+    assert not any(row["pe_ttm"] == 7.7 for row in third.json()["rows"]), (
+        "a store that no longer parses must not contribute its old cell"
     )
 
 

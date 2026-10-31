@@ -45,16 +45,24 @@ Validation lives in :mod:`app.screen.selection` (one
 :class:`~app.screen.selection.SelectionError`, one 422 code per failure kind), so
 this module only maps a validated request onto a scan and the executor.
 
-**The answer is cacheable, and the validator says what it covers.** ``POST
-/screens/select`` returns a **weak** ``ETag`` derived from the answer itself: the
-snapshot, the depth store's cycle, the live scan's cells and the
-fundamentals/facts joins all land in the body, so the body's digest is the one
-revision that cannot silently omit an input. (F3 was the opposite: a strong tag
-over the depth store's clock alone, so the scan and two stores could change the
-answer while a revalidating client still got ``304`` with its old numbers.) The
-one field the digest leaves out is ``as_of`` — the read moment, which moves on
-every call — and that is exactly why the tag is weak: same answer, not
-necessarily the same bytes.
+**The answer is cacheable, and the validator names its inputs.** ``POST
+/screens/select`` returns a **weak** ``ETag`` computed **before the answer is
+built**: the depth store's file identity, the snapshot's id and stamp, the scan
+page's generation, the two enrichment stores' row count and newest
+``updated_at``, the brand-asset directory, and the canonical request. A matching
+``If-None-Match`` is answered ``304`` without building anything, because a
+revalidation whose work is the whole answer has saved the bytes and nothing
+else. (Phase 7 measured the old shape: 744 ms p50 against a 150 ms budget — the
+tag *was* the answer's digest, so it could only be computed after
+``build_universe``, both joins and ``select_rows`` had run.)
+
+The digest was the one revision that could not silently omit an input, and it
+was also the one that could not be computed early. Every input is named instead
+(:func:`_data_revision` lists them) and the trade is explicit: a store that
+cannot describe its own revision answers a **unique** token, so the route pays a
+``200`` rather than certify a body it never read. ``as_of`` stays out — it is
+the read moment, and a tag that moved with the clock would never match; that is
+why the tag is weak.
 
 **One scan serves a burst, but not a second longer.** The scan is the expensive
 half of a selection (measured: 2.0 s live for the 5,715-row US universe, 12.5 s
@@ -67,6 +75,14 @@ store that changes still moves the tag. It expires hard at
 :data:`SCAN_CACHE_TTL_S` — no stale-while-revalidate, no stale-on-error — and
 the ``X-Scan-Cache`` header says whether a given answer was a ``miss``, a
 ``hit`` or ``shared``.
+
+The cache also hands out a **generation** with every page (:meth:`ScanCache.page`
+returns it), and the tag carries the generation of the page it was built from.
+That is what makes the fast path safe: a tag can only ever name the page the
+answer used, so a concurrent scan cannot mint a ``304`` for rows a client never
+saw. Once the window closes no generation is available, the route must build,
+and the next tag carries the next number — a revalidation after the TTL is a
+``200``, which is right, because it has to re-scan to know.
 
 **One panel, one budget.** A selection page is at most :data:`PANEL_BUDGET_BYTES`
 (60,000 B) whatever way it is asked for — ``columns`` or ``view``. The two used
@@ -95,8 +111,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
@@ -121,7 +139,7 @@ from app.screen.export import (
 )
 from app.screen.facts import enrich_rows as enrich_facts
 from app.screen.depth_overlay import SCREEN_ALIASES, overlay
-from app.screen.depth_source import DepthSnapshot, current_depth
+from app.screen.depth_source import current_depth, resolve_store_path
 from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.selection import (
@@ -137,6 +155,8 @@ from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
 from app.screen.scanner import DEFAULT_FLOOR, FULL_SCAN_ROWS, ScanError, ScanPage, fetch_scan
 from app.screen.universe import PARITY_COLUMNS, asset_class_for, build_universe
 from app.screen.wide_fill import WideFiller
+
+logger = logging.getLogger("mee.api.screens")
 
 router = APIRouter(prefix="/screens", tags=["screens"])
 
@@ -160,6 +180,21 @@ SCREEN_EXPORT_SERVICE = "screen_export"
 #: to cost 24 KB one way and 274 KB the other, with nothing in either response
 #: saying which one the caller got.
 PANEL_BUDGET_BYTES = 60_000
+
+#: The directory :func:`app.branding.logos.logo_for` resolves vendored marks
+#: against, spelled with the same expression that module uses so the two cannot
+#: drift silently (``tests/test_screen_select_revalidation.py`` pins the
+#: equality). It is a revision input because a row's ``logo`` is a **URL into
+#: this directory**: adding an asset changes the cell a row carries.
+BRAND_DIR = Path(__file__).resolve().parents[2] / "ui" / "logos"
+
+#: The two enrichment tables whose cells land in a selection row. Named here
+#: because the revision reads one aggregate from each — see
+#: :func:`_store_identity` for why a row count and a newest ``updated_at`` are
+#: the cheapest complete signal these stores offer.
+FUNDAMENTALS_TABLE = "fundamentals_snapshots"
+FACTS_TABLE = "screen_facts"
+
 
 def _encoded(document: Mapping[str, Any]) -> bytes:
     """The exact bytes a document ships as — the same encoder the response uses.
@@ -198,12 +233,14 @@ def _etag(*, revision: str, request: SelectionRequest) -> str:
 def _answer_digest(document: Mapping[str, Any]) -> str:
     """The answer, minus the read clock, as one sha256.
 
+    Only ``fill_wide`` still uses it: those cells are live page fetches that no
+    store revision can name, so that one mode keeps the old shape (build, digest
+    the answer, compare afterwards). Every other selection is judged from
+    :func:`_data_revision` *before* it builds — which is the whole point of that
+    function, and why this one is no longer on the ``304`` path.
+
     ``as_of`` is the only field that is not data: it dates the read, so two calls
-    over one store state differ there and nowhere else. Everything else — the
-    rows, their cells, the counts, the filters and columns the answer echoes —
-    is in the digest, which is what makes the validator cover the scan and the
-    fundamentals/facts joins without a second read of a 9 MB page and a 4 k-row
-    table.
+    over one store state differ there and nowhere else.
     """
 
     payload: dict[str, Any] = {
@@ -216,42 +253,177 @@ def _answer_digest(document: Mapping[str, Any]) -> str:
     return hashlib.sha256(_encoded(payload)).hexdigest()
 
 
+def _unknown_revision(what: str) -> str:
+    """A revision that matches nothing: an input we cannot describe is a miss.
+
+    A *shared* placeholder (``"?"``) would be F3 again — two different store
+    states under one token, and a ``304`` for a body nobody read. A unique token
+    costs exactly one ``200`` and cannot certify anything.
+    """
+
+    return f"unreadable:{what}:{time.monotonic_ns()}"
+
+
+def _depth_identity() -> str:
+    """The depth store's **file version**, or why there is not one.
+
+    ``path``, ``mtime_ns`` and ``size`` — never the collector's ``as_of``. The
+    store is rewritten atomically every cycle, so a new cycle moves ``mtime_ns``
+    even when the stamp it carries does not move, and a same-size rewrite is
+    invisible to a revision built from ``size`` alone. Reading the parsed
+    snapshot here instead would cost an 11.7 MB parse on the revalidation path
+    this function exists to keep cheap (``load_depth`` caches it, but a cold
+    process would pay it once for a ``304`` that needs no rows at all); hashing
+    the file to be thorough costs 1.7 ms to read plus 6.4 ms to digest, against
+    2.5 µs for the ``stat`` — and buys nothing the writer's atomic rename does
+    not already guarantee.
+    """
+
+    try:
+        path = resolve_store_path()
+    except Exception as exc:  # noqa: BLE001 - an unreadable configuration is a miss
+        logger.warning("selection revision: the depth store path is unusable: %s", exc)
+        return _unknown_revision("depth")
+    if path is None:
+        return "off"
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        # No collector on this box is the normal case, not a fault.
+        return "absent"
+    except (ValueError, RuntimeError):  # pragma: no cover - exotic path
+        return _unknown_revision("depth")
+    return f"{path}|{stat.st_mtime_ns}|{stat.st_size}"
+
+
+def _brand_identity() -> str:
+    """The vendored-asset directory's version: which marks exist, not their bytes.
+
+    A row carries ``/ui/logos/AAPL.png``, so *adding* an asset changes the answer
+    and *rewriting* one does not. A directory's ``mtime_ns`` moves on exactly
+    the first of those.
+    """
+
+    try:
+        stat = BRAND_DIR.stat()
+    except OSError:
+        return "absent"
+    except (ValueError, RuntimeError):  # pragma: no cover - exotic path
+        return _unknown_revision("brand")
+    return f"{BRAND_DIR}|{stat.st_mtime_ns}|{stat.st_size}"
+
+
+async def _store_identity(store: Any, table: str) -> str:
+    """``<rows>:<newest updated_at>`` for one enrichment table, or why not.
+
+    A selection's rows carry cells from two stores, and neither publishes a
+    revision counter — so the revision is read from the table the join reads:
+    ``COUNT(*)`` catches an insert or a purge, ``MAX(updated_at)`` catches a
+    rewrite (both ``upsert`` implementations stamp ``updated_at`` on every
+    write, and both ``purge_expired`` delete). Measured on the service database
+    (3,902 and 3,831 rows): the two aggregates cost **6.3 ms and 3.3 ms**;
+    materialising ``rows()`` to hash them costs **228 ms and 74 ms** — 302 ms,
+    twice the whole 150 ms budget, to describe data the aggregate describes.
+
+    Three answers that are **not** a revision, in order of how much they cost:
+
+    * ``none`` — no store was wired, so it contributes nothing (and the body
+      says so with nulls); a stable token, because the absence is stable.
+    * ``absent`` — no such table, same argument.
+    * a unique ``unreadable:`` token — the store exists but cannot describe
+      itself (no ``engine``: a test double, or a future non-SQL store). Every
+      such request pays a ``200``; none of them can be a stale ``304``.
+
+    ``table`` is interpolated rather than bound, because SQLite does not bind
+    identifiers; the caller passes one of the two module constants above.
+    """
+
+    if store is None:
+        return "none"
+    try:
+        engine = getattr(store, "engine", None)
+    except Exception as exc:  # noqa: BLE001 - a broken store is a miss, never a 500
+        logger.warning("selection revision: %s exposes no usable engine: %s", table, exc)
+        return _unknown_revision(table)
+    if engine is None:
+        return _unknown_revision(f"{table}-no-engine")
+    assert table in {FUNDAMENTALS_TABLE, FACTS_TABLE}, f"unexpected table {table!r}"
+    try:
+        from sqlalchemy import text
+
+        async with engine.begin() as connection:
+            result = await connection.execute(
+                text(f"SELECT COUNT(*) AS n, MAX(updated_at) AS m FROM {table}")
+            )
+            row = result.mappings().first() or {}
+    except Exception as exc:  # noqa: BLE001 - see the three answers above
+        if "no such table" in str(exc).lower():
+            logger.debug("selection revision: %s has no table (%s)", table, exc)
+            return "absent"
+        logger.warning("selection revision: %s cannot be read: %s", table, exc)
+        return _unknown_revision(table)
+    return f"{int(row.get('n') or 0)}:{row.get('m') or '-'}"
+
+
 def _data_revision(
     *,
     snapshot_id: str | None,
     snapshot_as_of: str | None,
-    depth: DepthSnapshot,
-    document: Mapping[str, Any],
+    depth: str,
+    scan: int | str,
+    fundamentals: str,
+    facts: str,
+    brand: str,
+    answer: str | None = None,
 ) -> str:
     """Every input that can change the body, in one auditable line.
 
+    * ``v2`` — **a deliberate bump of the revision, not of the tag format.**
+      The tag is still ``select-<64 hex sha256>-<32 hex request>`` and still
+      served weak (``W/``); a client that stores and replays it needs no change.
+      What moved is the *composition*: the answer digest left, five input
+      identities arrived. Every warm client's tag therefore changes exactly
+      once, on its next request, which is a ``200`` — the safe direction. The
+      old string could not be kept because it contained the answer, and the
+      answer is the one thing this route may no longer build before deciding.
     * ``snapshot=`` — the stored snapshot a ticker list was resolved in: its id
       and its own ``as_of``. A criteria query has none (it scans live), hence
-      ``-``.
-    * ``depth=`` — the depth store's cycle stamp **and its row count**. The store
-      has one writer and bumps ``as_of`` per cycle, so the stamp is its revision;
-      the count is the guard against a half-written file, which parses as a
-      shorter table (or as nothing) while the stamp still names the old cycle. A
-      partial store can therefore only ever produce a miss, never a 304.
-    * ``answer=`` — the answer document with ``as_of`` removed. This is where the
-      **live scan** and the **fundamentals/facts joins** are named: ``fetch_scan``
-      returns no stamp of its own (one HTTP page, no ``as_of``), and neither store
-      exposes a revision counter — they are read by ``enrich_rows``, which copies
-      cells onto the rows. Hashing the answer is how their contribution is
-      measured instead of silently omitted: a store row that changes a returned
-      cell changes this digest, and a store row that cannot be seen in the answer
-      cannot change the answer either. (A store-level counter would be a second
-      read of the same table for a strictly weaker guarantee.)
+      ``-``. The snapshot's *rows* are not read: symbols mode resolves tickers
+      against the live scan, and the snapshot only names the universe and is
+      echoed, so its identity is its stamp.
+    * ``depth=`` — the depth store's file identity (:func:`_depth_identity`),
+      which is strictly stronger than the cycle stamp it replaces: a version
+      implies a stamp, a stamp does not imply a version.
+    * ``scan=`` — the **generation** of the scan page this answer is built from
+      (:meth:`ScanCache.page` hands it out with the page). A generation names one
+      *page*, not one row set: a re-scan gets a new number even when it returns
+      the same rows, because telling those two apart means encoding and hashing
+      11.4 MB of parsed page — measured at 193–200 ms per scan, the same order as
+      the ``build_universe`` this route stopped paying. The direction of the
+      error is the safe one: the cost of a false move is a body the client
+      already had, never a stale ``304``.
+    * ``fund=`` / ``facts=`` — the two joins (:func:`_store_identity`).
+    * ``logo=`` — the vendored brand set (:func:`_brand_identity`).
+    * ``answer=`` — present **only for ``fill_wide``**, whose cells are live
+      page fetches that no store revision can name. That mode keeps the old
+      behaviour exactly: build, digest the answer, compare afterwards.
 
     The canonical request is hashed beside this string by :func:`_etag`, so two
     questions that happen to answer the same rows still get different entries.
     """
 
-    return (
-        f"snapshot={snapshot_id or '-'}@{snapshot_as_of or '-'}"
-        f";depth={depth.as_of or '-'}/{depth.count}"
-        f";answer={_answer_digest(document)}"
+    line = (
+        "v2"
+        f";snapshot={snapshot_id or '-'}@{snapshot_as_of or '-'}"
+        f";depth={depth}"
+        f";scan={scan}"
+        f";fund={fundamentals}"
+        f";facts={facts}"
+        f";logo={brand}"
     )
+    if answer is not None:
+        line += f";answer={answer}"
+    return line
 
 
 def _budget_report(
@@ -504,8 +676,13 @@ class ScanCache:
         self._ttl = float(ttl_s)
         self._clock = clock
         self._entries: dict[tuple[str, ...], tuple[float, ScanPage]] = {}
-        self._inflight: dict[tuple[str, ...], asyncio.Task[ScanPage]] = {}
-        # Guards the two dictionaries only; a scan is never awaited under it, so
+        self._inflight: dict[tuple[str, ...], asyncio.Task[tuple[ScanPage, int]]] = {}
+        #: Every stored page gets the next number, so a generation names exactly
+        #: one page for the life of the process. The tag carries it; see
+        #: :meth:`page` and :func:`_data_revision`.
+        self._generation = 0
+        self._stamps: dict[tuple[str, ...], int] = {}
+        # Guards the dictionaries only; a scan is never awaited under it, so
         # a slow provider cannot serialise unrelated keys.
         self._lock = asyncio.Lock()
         self._counts = {"scan": 0, "hit": 0, "shared": 0}
@@ -526,27 +703,47 @@ class ScanCache:
             return None
         return page
 
+    def stamp(self, key: tuple[str, ...]) -> int | None:
+        """The generation of the page this key would answer *from*, or ``None``.
+
+        Read-only by contract — no scan, no counter, no entry touched — because
+        it runs on the revalidation path, whose whole point is that it does no
+        work. ``None`` means "a request for this key has to scan", which is
+        exactly when a ``304`` cannot be decided from the inputs alone: after the
+        TTL, whether the answer still holds is a question only the provider can
+        answer, so the route must ask it and pay the ``200``.
+        """
+
+        if self._fresh(key) is None:
+            return None
+        return self._stamps.get(key)
+
     async def page(
         self, key: tuple[str, ...], fetch: Callable[[], Any]
-    ) -> tuple[ScanPage, str]:
-        """The page for ``key``, and how this request got it.
+    ) -> tuple[ScanPage, str, int]:
+        """The page for ``key``, how this request got it, and its generation.
 
         The second element is ``"hit"`` (a cached page), ``"miss"`` (this request
         ran the scan) or ``"shared"`` (it waited on a scan another request had
         already started). It is the ``X-Scan-Cache`` response header, so the
         behaviour is observable without a counter inside the process.
+
+        The third is the **generation of the page returned**, handed out with it
+        rather than looked up afterwards: a tag built from a lookup could name a
+        page another request stored in the meantime, and a validator that names
+        a page it did not use is a ``304`` for rows the client never saw.
         """
 
         page = self._fresh(key)
         if page is not None:
             self._counts["hit"] += 1
-            return page, "hit"
+            return page, "hit", self._stamps[key]
 
         async with self._lock:
             page = self._fresh(key)
             if page is not None:
                 self._counts["hit"] += 1
-                return page, "hit"
+                return page, "hit", self._stamps[key]
             task = self._inflight.get(key)
             if task is None:
                 task = asyncio.ensure_future(self._scan(key, fetch))
@@ -562,9 +759,12 @@ class ScanCache:
         # Shield: one waiter's cancellation must not cancel the scan the others
         # are waiting on. A failure propagates to every waiter and is stored
         # nowhere.
-        return await asyncio.shield(task), role
+        page, generation = await asyncio.shield(task)
+        return page, role, generation
 
-    async def _scan(self, key: tuple[str, ...], fetch: Callable[[], Any]) -> ScanPage:
+    async def _scan(
+        self, key: tuple[str, ...], fetch: Callable[[], Any]
+    ) -> tuple[ScanPage, int]:
         self._counts["scan"] += 1
         try:
             page = await fetch()
@@ -573,7 +773,11 @@ class ScanCache:
             # the moment it was asked for: a 12.5 s scan must not spend its own
             # duration of the window.
             self._entries[key] = (self._clock(), page)
-            return page
+            # After the fetch, never before: a scan that raises must not move the
+            # number another caller's validator is built on.
+            self._generation += 1
+            self._stamps[key] = self._generation
+            return page, self._generation
         finally:
             self._inflight.pop(key, None)
 
@@ -583,6 +787,7 @@ class ScanCache:
         now = self._clock()
         for key in [k for k, (at, _) in self._entries.items() if now - at >= self._ttl]:
             self._entries.pop(key, None)
+            self._stamps.pop(key, None)
 
 
 def _quiet(task: asyncio.Task[Any]) -> None:
@@ -608,39 +813,95 @@ def _scan_cache(request: Request) -> ScanCache:
     return cache
 
 
+@dataclass(frozen=True, slots=True)
+class _ScanPlan:
+    """What one selection asks the provider for, and the key that names it.
+
+    Both halves are computed before the scan runs, so the cache can be *asked*
+    whether it holds a fresh page (:meth:`ScanCache.stamp`) without running one.
+    """
+
+    key: tuple[str, ...]
+    columns: Sequence[str] | None
+    min_market_cap: Any
+    subtype: str | None
+
+
+def _scan_plan(
+    *, selection: SelectionRequest, region: str, family: str, source: str
+) -> _ScanPlan:
+    """The one scan a selection needs, described before it is run.
+
+    A criteria query filters on metrics the light row never carried (P/E, RSI,
+    beta, the SMAs...), so it asks for the parity columns and drops both provider
+    filters that would hide rows: no 100M floor and no ``subtype=common`` gate,
+    because a selection answers over the stock market, not over the display's
+    subset. ``type=stock`` (or ``type=fund``/``subtype=etf`` for the ETF
+    universe) and the OTC exclusion stay on.
+
+    A ticker lookup needs no metric unless the caller asked for a view or a
+    column: then the cells must come from the parity scan, because the light row
+    carries none of them.
+    """
+
+    if selection.is_criteria:
+        columns: Sequence[str] | None = PARITY_COLUMNS
+        floor: Any = None
+        subtype: str | None = None
+    else:
+        columns = PARITY_COLUMNS if (selection.view or selection.columns) else None
+        floor = DEFAULT_FLOOR
+        subtype = "common"
+    return _ScanPlan(
+        key=_scan_key(
+            region=region,
+            asset_class=family,
+            source=source,
+            columns=columns,
+            limit=FULL_SCAN_ROWS,
+            min_market_cap=floor,
+            subtype=subtype,
+        ),
+        columns=columns,
+        min_market_cap=floor,
+        subtype=subtype,
+    )
+
+
 async def _selection_scan(
     request: Request,
+    plan: _ScanPlan,
     *,
     region: str,
     asset_class: str,
     source: str,
-    columns: Sequence[str] | None,
-    min_market_cap: Any,
-    subtype: str | None,
-) -> tuple[ScanPage, str]:
+) -> tuple[ScanPage, str, int]:
     """One selection's universe, through the cache, and how it was answered."""
 
     cache = _scan_cache(request)
-    key = _scan_key(
-        region=region,
-        asset_class=asset_class,
-        source=source,
-        columns=columns,
-        limit=FULL_SCAN_ROWS,
-        min_market_cap=min_market_cap,
-        subtype=subtype,
-    )
     return await cache.page(
-        key,
+        plan.key,
         lambda: fetch_scan(
             region,
             limit=FULL_SCAN_ROWS,
-            columns=columns,
-            min_market_cap=min_market_cap,
-            subtype=subtype,
+            columns=plan.columns,
+            min_market_cap=plan.min_market_cap,
+            subtype=plan.subtype,
             asset_class=asset_class,
         ),
     )
+
+
+def _revalidated(etag: str, *, scan: str) -> Response:
+    """The ``304``: the same headers a ``200`` carries, and no body at all."""
+
+    headers = cache_headers(etag)
+    # Weak on purpose: `as_of` is the read moment, the one field the revision
+    # leaves out, so "same answer" is the promise, not "same bytes". A client
+    # that sends either form revalidates — `cache.matches` strips the prefix.
+    headers["ETag"] = f"W/{etag}"
+    headers["X-Scan-Cache"] = scan
+    return Response(status_code=304, headers=headers)
 
 
 def _browse_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -795,11 +1056,16 @@ async def select(request: Request) -> Any:
     *which* universe the tickers are looked up in; the rows are read now and the
     response dates them with its own ``as_of``, never with the snapshot's.
 
-    The answer carries a **weak** ``ETag`` derived from the answer itself — the
-    snapshot, the depth cycle, the scan's cells and the two joins — and a repeat
-    POST that presents it gets ``304``: empty body, no repaint. It is weak
-    because the body carries ``as_of``, the read moment, which the digest leaves
-    out; a strong tag would have to move with the clock and would never match.
+    The answer carries a **weak** ``ETag`` computed from the answer's **inputs**,
+    before the answer exists: the depth store's file version, the snapshot's id
+    and stamp, the scan page's generation, the two enrichment stores' revisions,
+    the brand-asset directory and the canonical request (see
+    :func:`_data_revision`). A repeat POST that presents it gets ``304`` with no
+    body and **no build** — the comparison happens first, so what a revalidation
+    saves is the 235–318 ms universe, the 295–315 ms fundamentals join, the
+    104–110 ms facts join, the 93 ms selection and the body. It is weak because
+    the body carries ``as_of``, the read moment, which the revision leaves out; a
+    strong tag would have to move with the clock and would never match.
 
     **One scan serves a burst.** The universe comes through :class:`ScanCache`,
     keyed by what the provider was asked (see :func:`_scan_key`) and good for
@@ -809,7 +1075,11 @@ async def select(request: Request) -> Any:
     facts join are read per request, so a store that changes still moves the tag
     and a replay of the old tag is still a ``200`` with the new cell. Outside the
     window — and after any failed scan — a revalidation pays one scan, because
-    the scan is an input. What the ``304`` saves is the 30–270 KB body.
+    the scan is an input.
+
+    ``fill_wide`` is the one exception, and it keeps the old shape: its cells are
+    live page fetches that no store revision can name, so that mode builds first
+    and folds the answer's digest into the revision afterwards.
     """
 
     try:
@@ -871,41 +1141,52 @@ async def select(request: Request) -> Any:
                 status_code=422, error="asset_class_mismatch", message=str(exc)
             ) from exc
 
-    # Depth is the broadest enrichment and one of the two stamps the answer's
-    # tags name; it is read once per selection, before the scan.
+    # ---- the revision, before any of the work it describes ----------------
+    #
+    # Everything below is a stat or one indexed aggregate: ~13 ms in total,
+    # against the 744 ms the build used to cost before the tag could be
+    # compared. `depth` is read below, after the fast path has had its chance,
+    # so a `304` never parses the 11.7 MB store.
+    cache = _scan_cache(request)
+    plan = _scan_plan(selection=selection, region=region, family=family, source=source)
+    depth_revision = _depth_identity()
+    brand_revision = _brand_identity()
+    fundamentals_revision = await _store_identity(
+        getattr(runtime, "fundamentals_store", None), FUNDAMENTALS_TABLE
+    )
+    facts_revision = await _store_identity(
+        getattr(runtime, "facts_store", None), FACTS_TABLE
+    )
+
+    def revision(scan: int | str, answer: str | None = None) -> str:
+        return _data_revision(
+            snapshot_id=snapshot_id,
+            snapshot_as_of=snapshot_as_of,
+            depth=depth_revision,
+            scan=scan,
+            fundamentals=fundamentals_revision,
+            facts=facts_revision,
+            brand=brand_revision,
+            answer=answer,
+        )
+
+    # A revalidation of an answer whose scan is still warm is decided here, and
+    # only here: no scan, no universe, no joins, no body.
+    if not selection.fill_wide:
+        stamp = cache.stamp(plan.key)
+        if stamp is not None:
+            etag = _etag(revision=revision(stamp), request=selection)
+            if not_modified(request, etag):
+                return _revalidated(etag, scan="hit")
+
+    # Depth is the broadest enrichment; it is read once per selection, before
+    # the scan, and only by the requests that are going to build.
     depth = current_depth()
 
     try:
-        if selection.is_criteria:
-            # A criteria query filters on metrics the light row never carried
-            # (P/E, RSI, beta, the SMAs...), so the scan asks for the parity
-            # columns, and it drops both provider filters that would hide rows:
-            # there is no 100M floor and no `subtype=common` gate, because a
-            # selection answers over the stock market, not over the display's
-            # subset. `type=stock` (or type=fund/subtype=etf for the ETF
-            # universe) and the OTC exclusion stay on.
-            page, scan = await _selection_scan(
-                request,
-                region=region,
-                asset_class=family,
-                source=source,
-                columns=PARITY_COLUMNS,
-                min_market_cap=None,
-                subtype=None,
-            )
-        else:
-            # A ticker lookup needs no metric unless the caller asked for a view
-            # or a column: then the cells must come from the parity scan, because
-            # the light row carries none of them.
-            page, scan = await _selection_scan(
-                request,
-                region=region,
-                asset_class=family,
-                source=source,
-                columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
-                min_market_cap=DEFAULT_FLOOR,
-                subtype="common",
-            )
+        page, scan, generation = await _selection_scan(
+            request, plan, region=region, asset_class=family, source=source
+        )
     except ScanError as exc:
         raise ApiError(
             status_code=503,
@@ -985,22 +1266,23 @@ async def select(request: Request) -> Any:
             request.app.state.wide_filler = filler
         document["rows"] = await filler.fill(document.get("rows", []))
 
-    # The validator, once the answer exists: every input that can change it is
-    # either a named store stamp or inside the digest — see `_data_revision`.
+    # The validator, from the same inputs the fast path used — plus the page
+    # generation this request actually built from, which is what lets the next
+    # caller's `cache.stamp` reproduce this exact tag.
     document = _fit_panel(
         _with_logos(document, columns=selection.columns), protect=selection.columns
     )
     etag = _etag(
-        revision=_data_revision(
-            snapshot_id=snapshot_id,
-            snapshot_as_of=snapshot_as_of,
-            depth=depth,
-            document=document,
+        revision=revision(
+            generation,
+            # `fill_wide` cells are live page fetches: no store revision names
+            # them, so that mode keeps the old answer-digest behaviour.
+            _answer_digest(document) if selection.fill_wide else None,
         ),
         request=selection,
     )
     headers = cache_headers(etag)
-    # Weak on purpose: `as_of` is the read moment, the one field the digest
+    # Weak on purpose: `as_of` is the read moment, the one field the revision
     # leaves out, so "same answer" is the promise, not "same bytes". A client
     # that sends either form revalidates — `cache.matches` strips the prefix.
     headers["ETag"] = f"W/{etag}"
@@ -1010,7 +1292,7 @@ async def select(request: Request) -> Any:
     # "refreshed" from "replayed" without a second request.
     headers["X-Scan-Cache"] = scan
     if not_modified(request, etag):
-        return Response(status_code=304, headers=headers)
+        return _revalidated(etag, scan=scan)
     return Response(content=_encoded(document), media_type="application/json", headers=headers)
 
 

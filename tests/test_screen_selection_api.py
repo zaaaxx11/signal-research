@@ -655,9 +655,11 @@ async def test_a_store_change_still_moves_the_tag_behind_a_warm_cache(
 ) -> None:
     """The scan is cached; the stores are not. A changed store moves the tag.
 
-    The 304 in the middle is what a warm cache makes cheap. The replay after the
-    store change must be a ``200`` with the new cell, because the tag names the
-    answer — and the answer changed.
+    The 304 in the middle is what a warm cache makes cheap — and it is cheap for
+    the server too now, because the route compares the tag before it builds
+    (``tests/test_screen_select_revalidation.py``). The replay after the store
+    change must be a ``200`` with the new cell: the revision names the store, and
+    the store moved.
     """
 
     body = {

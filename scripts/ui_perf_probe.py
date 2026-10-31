@@ -798,8 +798,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             select_hit.gated = args.strict
             select_hit.note = (
-                "304, but the route rebuilds the answer before comparing the tag "
-                "(recompute path — see research/phase7-perf.md)"
+                "304 from the revision (store identities + scan generation + "
+                "request hash), computed before any row is built — see "
+                "research/phase7-perf.md"
             )
             checks.extend([select_miss, select_hit])
 

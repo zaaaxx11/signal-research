@@ -197,11 +197,20 @@ etag miss POST /screens/select      1     735.5     735.5     735.5     735.5   
 etag hit POST /screens/select       5     727.5     744.0    1578.6    2133.5     150 ms  FAIL (advisory)
 ```
 
-**744 ms p50 — five times the budget.** This is not a cache hit and the route
-does not pretend it is: it rebuilds the answer and *then* compares the tag,
-because the tag names the answer (`app/api/screens.py`, `select`: "the `304`
-saves the 30–270 KB body", not the work). Measured attribution of one warm
-request (in-process, same stores):
+**744 ms p50 at the time of measurement — five times the budget.** The route
+did not pretend it was a cache hit: it rebuilt the answer and *then* compared
+the tag, because the tag named the answer (`app/api/screens.py`, `select`:
+"the `304` saves the 30–270 KB body", not the work).
+
+**Fixed after this report.** The tag is now derived from the answer's inputs
+before any work — the depth store's file identity, the snapshot stamp, the
+scan generation handed out with the page, the logos directory and the
+canonical request hash — and a matching `If-None-Match` returns `304` without
+scanning, building or encoding. Measured after the change: **12.9 ms p50**
+(13.0 / 13.3 on repeat runs, 20.5 ms under load ~1.7), zero row-builder
+calls, ten tests in `tests/test_screen_select_revalidation.py`. Historical
+attribution of the old path, kept because it explains why the fast path
+exists:
 
 | stage | cost |
 |---|---|
