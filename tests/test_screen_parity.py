@@ -48,7 +48,7 @@ from app.screen.filter_fields import (
     unavailable_keys,
 )
 from app.screen.facts import FACTS_ROW_FIELDS
-from app.screen.filters import FIELDS, apply_filters, compile_filter
+from app.screen.filters import FIELDS, US_VALUES, apply_filters, compile_filter
 from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.scanner import SCAN_COLUMNS, scan_body
 from app.screen.selection import SelectionError, parse_selection, select_rows
@@ -168,8 +168,12 @@ def test_a_mapped_key_really_filters_a_row(key: str) -> None:
     assert field is not None
     kind = FIELDS[field]
     if kind == "text":
-        rows = [{"symbol": "LOW", field: "Alpha"}, {"symbol": "HIGH", field: "Zulu"}]
-        compiled = compile_filter({"field": field, "op": "eq", "value": "Alpha"})
+        # A column with a declared vocabulary only accepts a code it carries;
+        # every other text column takes a free string. The probe's job is to
+        # prove the predicate selects, not to invent a venue.
+        sample = (US_VALUES.get(field) or ("Alpha",))[0]
+        rows = [{"symbol": "LOW", field: sample}, {"symbol": "HIGH", field: "Zulu"}]
+        compiled = compile_filter({"field": field, "op": "eq", "value": sample})
         assert [row["symbol"] for row in apply_filters(rows, compiled)] == ["LOW"]
         return
     rows = [{"symbol": "LOW", field: 5.0}, {"symbol": "HIGH", field: 50.0}]

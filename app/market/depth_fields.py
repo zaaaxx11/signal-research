@@ -98,6 +98,11 @@ _OWNERSHIP: dict[str, tuple[str, Quality]] = {
     "industry": (OWNER_YAHOO, "exact"),
     "security_type": (OWNER_YAHOO, "exact"),
     "country": (OWNER_YAHOO, "exact"),
+    # Two writers, one vocabulary: EDGAR prints a venue name ("Nasdaq") and Yahoo
+    # a product code ("NasdaqGM"); app.market.venue turns either into a MIC at the
+    # depth write boundary. The provider's spelling is kept beside it as the
+    # store's `exchange_source` — metadata, deliberately NOT a column here: this
+    # registry may only name the catalogue's frozen 116 keys (research D2).
     "exchange": (OWNER_YAHOO, "exact"),
     # ^GSPC?modules=components answers an empty array (probed); only NDX and
     # DJI membership can be built from Yahoo.

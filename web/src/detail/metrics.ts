@@ -21,6 +21,8 @@
  * set. Nothing is derived, nothing is invented.
  */
 
+import { exchangeLabel } from "@/lib/exchanges";
+
 import {
   formatCompact,
   formatMoney,
@@ -160,7 +162,14 @@ export function groupMetricRows(
       label: definition.label,
       unit: entry?.unit || definition.unit,
       group: definition.group,
-      value: entry?.value,
+      // The exchange arrives as a code from the grid's source and as a name from
+      // the security master; the leaf labels a code and leaves a name alone, so
+      // one rule serves both. It is imported from `lib/`, never from
+      // `grid/columnMeta`, which this lazy chunk must not pull in.
+      value:
+        definition.key === "exchange" && typeof entry?.value === "string"
+          ? exchangeLabel(entry.value)
+          : entry?.value,
     };
   });
 

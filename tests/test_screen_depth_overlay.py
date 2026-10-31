@@ -442,3 +442,41 @@ def test_overlay_leaves_a_row_alone_when_its_entry_is_not_a_mapping() -> None:
 
     assert out[0] == row
 
+
+
+# ---------------------------------------------------------------------------
+# Rule 6 — the depth store's venue never rewrites the screener's
+# ---------------------------------------------------------------------------
+
+
+def test_a_depth_venue_cannot_overwrite_the_screen_rows_venue() -> None:
+    """The scan is the authority for ``exchange`` on its own rows.
+
+    The 164 rows where EDGAR says ``NYSE`` and the scan says ``XASE`` are a
+    known, documented disagreement. Fill-missing-only is what keeps the
+    normaliser from "fixing" the store's side and moving it onto the row: the
+    row carries the key, so the store's cell is never read.
+    """
+
+    row: dict[str, Any] = {"ticker": "ET", "exchange": "XASE"}
+    store = _depth("ET", exchange="XNYS", exchange_source="NYSE")
+
+    merged = depth_overlay.overlay([row], store["symbols"])[0]
+
+    assert merged["exchange"] == "XASE"
+    assert "exchange_source" not in merged, (
+        "the store's provenance must not become a public row key either"
+    )
+
+
+def test_the_venue_provenance_is_dropped_like_any_other_store_bookkeeping() -> None:
+    """``exchange_source`` is store metadata; a public row speaks the catalog."""
+
+    row: dict[str, Any] = {"ticker": "NEW"}
+    store = _depth("NEW", exchange="XNAS", exchange_source="NasdaqGM")
+
+    merged = depth_overlay.overlay([row], store["symbols"])[0]
+
+    assert merged == {"ticker": "NEW", "exchange": "XNAS"}, (
+        "the venue is a catalog cell; its provenance is not"
+    )

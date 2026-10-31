@@ -165,3 +165,55 @@ def test_the_real_documents_load(tmp_path: Path) -> None:
     assert fields["sector"], "the universe carries a sector"
     assert fields["industry"], "the snapshot carries a SIC description"
     assert fields["country"] == "United States"
+
+
+# ---------------------------------------------------------------------------
+# The venue the documents carry (research D11)
+# ---------------------------------------------------------------------------
+
+
+def test_the_identity_join_publishes_the_exchange_it_documents(
+    tmp_path: Path,
+) -> None:
+    """``FIELDS`` used to omit ``exchange`` while the module docstring claimed it.
+
+    The snapshot prints EDGAR's venue name (``Nasdaq``); every other surface
+    speaks MIC, so the join publishes the MIC and nothing else.
+    """
+
+    from app.market.identity import FIELDS
+
+    index = IdentityIndex(
+        universe_path=_universe(tmp_path, [NVDA_UNIVERSE]),
+        snapshot_path=_snapshot(tmp_path, [NVDA_SNAPSHOT]),
+    )
+    fields = index.fields_for("NVDA")
+
+    assert "exchange" in FIELDS
+    assert set(fields) == set(FIELDS), "fields_for must answer every declared column"
+    assert fields["exchange"] == "XNAS", "one vocabulary: EDGAR's 'Nasdaq' is XNAS"
+
+
+def test_a_venue_with_no_mic_is_not_borrowed_from_a_neighbour(
+    tmp_path: Path,
+) -> None:
+    snapshot = dict(NVDA_SNAPSHOT, exchange="TXSE")
+    index = IdentityIndex(
+        universe_path=_universe(tmp_path, [NVDA_UNIVERSE]),
+        snapshot_path=_snapshot(tmp_path, [snapshot]),
+    )
+
+    assert index.fields_for("NVDA")["exchange"] == "TXSE", (
+        "TXSE has no verified MIC; the raw venue is the answer, not XASE"
+    )
+
+
+def test_a_document_without_a_venue_answers_none(tmp_path: Path) -> None:
+    snapshot = {k: v for k, v in NVDA_SNAPSHOT.items() if k != "exchange"}
+    universe = {k: v for k, v in NVDA_UNIVERSE.items() if k != "exchange"}
+    index = IdentityIndex(
+        universe_path=_universe(tmp_path, [universe]),
+        snapshot_path=_snapshot(tmp_path, [snapshot]),
+    )
+
+    assert index.fields_for("NVDA")["exchange"] is None, "absent is not invented"

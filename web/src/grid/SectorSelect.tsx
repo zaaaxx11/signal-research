@@ -98,6 +98,15 @@ export function SectorSelect({ names, source, value, onChange }: SectorSelectPro
 export interface SectorChipProps {
   readonly name: string;
   readonly onClear: () => void;
+  /**
+   * Draw only the chip, without its own bar.
+   *
+   * `ScreenPanel` puts the sector chip and the exchange chip in one shared
+   * `control-chip-bar`, so two controls do not stack two full-width rows. The
+   * default (`false`) keeps the standalone markup — and every existing test —
+   * byte-identical.
+   */
+  readonly bare?: boolean;
 }
 
 /**
@@ -108,7 +117,33 @@ export interface SectorChipProps {
  * "All sectors": the `sec` equality leaves the request and everything else the
  * reader filtered on stays.
  */
-export function SectorChip({ name, onClear }: SectorChipProps) {
+export function SectorChip({ name, onClear, bare = false }: SectorChipProps) {
+  const chip = (
+    <span
+      data-testid="sector-chip"
+      className="inline-flex h-6 items-center gap-1 rounded-sm border border-line-strong bg-surface-raised pl-1.5 text-data text-fg"
+    >
+      <span className="text-fg-subtle">Sector:</span>{" "}
+      <span
+        data-testid="sector-chip-name"
+        className="max-w-[18rem] truncate text-fg-muted"
+        title={name}
+      >
+        {name}
+      </span>
+      <button
+        type="button"
+        aria-label={`Clear sector filter: ${name}`}
+        onClick={onClear}
+        className="h-5 w-5 rounded-sm text-fg-muted transition-colors hover:bg-row-hover hover:text-fg"
+      >
+        ×
+      </button>
+    </span>
+  );
+
+  if (bare) return chip;
+
   return (
     <div
       data-testid="sector-chip-bar"
@@ -116,27 +151,7 @@ export function SectorChip({ name, onClear }: SectorChipProps) {
       aria-label="Sector filter"
       className="flex flex-wrap items-center gap-1 border-b border-line bg-surface-sunken px-2 py-1"
     >
-      <span
-        data-testid="sector-chip"
-        className="inline-flex h-6 items-center gap-1 rounded-sm border border-line-strong bg-surface-raised pl-1.5 text-data text-fg"
-      >
-        <span className="text-fg-subtle">Sector:</span>{" "}
-        <span
-          data-testid="sector-chip-name"
-          className="max-w-[18rem] truncate text-fg-muted"
-          title={name}
-        >
-          {name}
-        </span>
-        <button
-          type="button"
-          aria-label={`Clear sector filter: ${name}`}
-          onClick={onClear}
-          className="h-5 w-5 rounded-sm text-fg-muted transition-colors hover:bg-row-hover hover:text-fg"
-        >
-          ×
-        </button>
-      </span>
+      {chip}
     </div>
   );
 }

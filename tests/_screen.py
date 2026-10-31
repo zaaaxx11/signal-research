@@ -81,8 +81,35 @@ SNAPSHOT_TTL_S = 300
 DEEP_ROWS = 20
 MIN_MARKET_CAP_USD = 100_000_000
 
-US_EXCHANGES = frozenset({"XNYS", "XNAS", "XASE"})
+#: The four US venue codes the app serves. All four, not three: ``XCBO`` is the
+#: single stock row and 1,677 ETF rows on the live tape, and a fixture that
+#: omits it fails an assertion over a *correct* universe (research D10).
+US_EXCHANGES = frozenset({"XNYS", "XNAS", "XASE", "XCBO"})
 OTC_EXCHANGES = frozenset({"OTC", "PNK", "OTCQX", "OTCQB", "GREY"})
+
+#: The live population per venue, measured 2026-10-31 by walking
+#: ``POST /screens/select`` (``mode=criteria``, no filters, columns
+#: ``["exchange","symbol"]``, 56 pages for ``us`` and 46 for ``us_etf``). The
+#: totals below are **sums of these four integers**, never a fifth hand-typed
+#: number: the only way a total can be wrong is if a venue count is wrong, and
+#: a venue that is not in the vocabulary makes the invariant test fail loudly.
+#:
+#: ``us``      3,308 + 2,009 + 258 + 1 = 5,576  (``universe_total``)
+#: ``us_etf``  2,739 + 1,677 + 1,282 + 78 = 5,776
+LIVE_US_BY_EXCHANGE: dict[str, int] = {
+    "XNAS": 3_308,
+    "XNYS": 2_009,
+    "XASE": 258,
+    "XCBO": 1,
+}
+LIVE_ETF_BY_EXCHANGE: dict[str, int] = {
+    "XASE": 2_739,
+    "XCBO": 1_677,
+    "XNAS": 1_282,
+    "XNYS": 78,
+}
+LIVE_US_UNIVERSE_TOTAL: int = sum(LIVE_US_BY_EXCHANGE.values())
+LIVE_ETF_UNIVERSE_TOTAL: int = sum(LIVE_ETF_BY_EXCHANGE.values())
 
 #: Expected universe size after filtering + dedupe (hand-counted from the
 #: fixtures, not derived by the implementation under test).

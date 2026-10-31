@@ -14,6 +14,12 @@
  *   glyph and the sign are in the text, so it survives colour blindness, a
  *   greyscale print and a screen reader. And a magnitude that rounds to zero
  *   claims no direction at all: `-0.001` prints `0.00%`, not `-0.00%`.
+ *
+ * A column may also declare a `display` formatter (`ColumnSpec.display`), which
+ * changes the *text* of a text cell without changing its value. The raw value
+ * then stays in the cell's title as `LABEL (RAW)` and in its `data-value`, so a
+ * copy, a test or an export can always recover what the API filters on. That is
+ * the exchange column: `XNAS` prints `NASDAQ` and is still `XNAS`.
  */
 
 import type { ColumnSpec } from "./columnMeta";
@@ -214,8 +220,16 @@ export function formatCell(value: unknown, spec: ColumnSpec): CellText {
     }
     case "text":
     default: {
-      const text = String(value);
-      return { text, sign: null, absent: false, title: text };
+      const raw = String(value);
+      // The label is display only: the raw value stays in the title whenever
+      // the formatter changed it, so the code a filter matches is never lost.
+      const text = spec.display ? spec.display(raw) : raw;
+      return {
+        text,
+        sign: null,
+        absent: false,
+        title: text === raw ? raw : `${text} (${raw})`,
+      };
     }
   }
 

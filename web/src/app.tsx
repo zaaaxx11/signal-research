@@ -12,7 +12,9 @@ import { ScreenPanel } from "@/grid/ScreenPanel";
 import { ViewTabs } from "@/grid/ViewTabs";
 import { splitCatalogue } from "@/grid/catalogue";
 import { useColumnSelection } from "@/grid/columnSelection";
+import { withExchange } from "@/grid/exchanges";
 import { withSector } from "@/grid/sectors";
+import { useExchangeOptions } from "@/grid/useExchanges";
 import { useSectorOptions } from "@/grid/useSectors";
 import { StatusLine } from "@/shell/StatusLine";
 import type { DetailPanelProps } from "@/detail";
@@ -162,6 +164,10 @@ export function App() {
   // over the whole universe. Read here, not in the panel, so the panel stays a
   // renderer — and so the menu survives a panel that has not loaded yet.
   const sectors = useSectorOptions();
+  // The exchange menu's population: the venues `GET /market/exchanges` counted
+  // over the same universe the selection filters. A route of its own, read once
+  // per mount — breadth keeps its two consumers and its reconcilable counts.
+  const exchanges = useExchangeOptions();
   const columnSelection = useColumnSelection({
     viewNames,
     catalogue: catalogue.keys,
@@ -375,6 +381,21 @@ export function App() {
                   // to 1.
                   onSectorChange={(name) =>
                     screen.setFilters(withSector(screen.state.filters, name))
+                  }
+                  exchangeOptions={exchanges.venues}
+                  exchangeSource={
+                    exchanges.status === "ready"
+                      ? "market"
+                      : exchanges.status === "loading"
+                        ? "loading"
+                        : "unavailable"
+                  }
+                  // One predicate per set: `eq` for a single venue, `in` for
+                  // several. `setFilters` turns the page back to 1, so a choice
+                  // is one request at offset 0, and the chip, the URL and the
+                  // body all read the same array.
+                  onExchangeChange={(codes) =>
+                    screen.setFilters(withExchange(screen.state.filters, codes))
                   }
                 />
               </ErrorBoundary>

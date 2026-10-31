@@ -21,6 +21,11 @@ The rules
   is lying about its own facets.
 * **The row key is the ticker.** ``ticker`` is the canonical symbol the row is
   keyed by, not a second lookup.
+* **One venue vocabulary.** The snapshot prints EDGAR's venue name (``Nasdaq``)
+  and the universe file prints TradingView's code (``NASDAQ``): both reach
+  ``exchange`` as the MIC (``XNAS``), because that is what every other surface
+  of this engine stores (``app/market/venue.py``). The raw spelling is not
+  republished here; a venue with no verified MIC (``TXSE``) keeps its name.
 * **No network, no disk writes.** Both documents are read once at
   construction; a missing document is an empty index, not an error.
 
@@ -34,8 +39,13 @@ from pathlib import Path
 from typing import Any
 
 from app.market.depth import canonical_symbol
+from app.market.venue import normalize_venue
 
-#: The columns this join publishes, in catalog order.
+#: The columns this join publishes. ``exchange`` is appended last on purpose
+#: (research D11): the docstring above always said the snapshot carries a venue,
+#: while this tuple left it out, so no caller of the join could get the venue and
+#: every surface asked the snapshot directly in its own answer shape. Appending
+#: keeps every existing consumer's key order intact.
 FIELDS: tuple[str, ...] = (
     "ticker",
     "company",
@@ -43,6 +53,7 @@ FIELDS: tuple[str, ...] = (
     "industry",
     "country",
     "security_type",
+    "exchange",
 )
 
 #: The universe's ``type``/``subtype`` pair → the catalog's ``security_type``.
@@ -133,6 +144,10 @@ class IdentityIndex:
         security_type = _SECURITY_TYPES.get(
             (str(universe.get("type") or ""), str(universe.get("subtype") or ""))
         )
+        # The snapshot is the identity spine, so its venue wins; the universe
+        # file is the fallback. Either spelling becomes the MIC the rest of the
+        # engine stores (``Nasdaq``/``NASDAQ`` -> ``XNAS``).
+        exchange, _ = normalize_venue(snapshot.get("exchange") or universe.get("exchange"))
 
         return {
             # The canonical symbol, and only for a symbol the documents
@@ -145,6 +160,8 @@ class IdentityIndex:
             "industry": snapshot.get("industry") or None,
             "country": str(country) if country else None,
             "security_type": security_type,
+            # One vocabulary, and absent when neither document names a venue.
+            "exchange": exchange or None,
         }
 
 

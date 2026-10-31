@@ -142,3 +142,30 @@ async def test_html_served_with_200_is_blocked_and_never_retried(monkeypatch: An
         "a blocked response must not be retried; the scanner sent "
         f"{S.provider_requests(web)} requests"
     )
+
+
+async def test_a_transport_failure_is_a_scan_error_not_an_unhandled_500(
+    monkeypatch: Any,
+) -> None:
+    """A read timeout is "the scanner could not answer", not a 500.
+
+    It used to escape ``fetch_scan`` as a raw exception, and every caller that
+    maps ``ScanError`` to ``503 scanner_unavailable`` — ``/screens/select``,
+    ``/market/breadth`` and ``/market/exchanges`` — answered the house 500
+    instead. The message keeps the exception type so an operator can tell a
+    timeout from a TLS failure.
+    """
+
+    web = S.MockWeb()
+
+    def _timeout(request: Any) -> Any:
+        raise OSError("simulated read timeout")
+
+    web.route("tradingview", _timeout)
+    S.install_web(monkeypatch, web)
+
+    with pytest.raises(S.scanner().ScanError) as info:
+        await S.scanner().fetch_scan("us")
+
+    assert "transport failed" in str(info.value)
+    assert "OSError" in str(info.value)

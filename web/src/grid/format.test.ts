@@ -1,5 +1,8 @@
+import { render } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it } from "vitest";
 
+import { CellValue } from "./cellRenderers";
 import { columnSpec } from "./columnMeta";
 import {
   NULL_PLACEHOLDER,
@@ -251,5 +254,69 @@ describe("formatter allocation (F13)", () => {
     expect(formatNumber(1.005, 2)).toBe("1.01");
     expect(formatNumber(1.005, 0)).toBe("1");
     expect(formatNumber(1.005, 3)).toBe("1.005");
+  });
+});
+
+/**
+ * A column that prints a *label* for a raw value — the exchange cell.
+ *
+ * The rule is the split: the reader sees `NASDAQ`, the wire, the title and the
+ * DOM keep `XNAS`. The title and `data-value` are what make the label safe — a
+ * copy, a test or a future export can recover the code, and the tooltip never
+ * loses it either. Geometry is structural (one span, one line), so a label
+ * cannot change how tall or how wide a row is.
+ */
+describe("a column with a display formatter", () => {
+  const exchange = columnSpec("exchange");
+
+  it("prints NASDAQ and keeps XNAS in the title", () => {
+    expect(formatCell("XNAS", exchange)).toMatchObject({
+      text: "NASDAQ",
+      title: "NASDAQ (XNAS)",
+      absent: false,
+    });
+    expect(formatCell("XNYS", exchange).text).toBe("NYSE");
+  });
+
+  it("prints an unknown code as itself and adds no parentheses", () => {
+    expect(formatCell("XWAR", exchange)).toMatchObject({ text: "XWAR", title: "XWAR" });
+  });
+
+  it("leaves a name alone", () => {
+    // The detail payload's vocabulary reaches the grid on the global tab.
+    expect(formatCell("Nasdaq", exchange)).toMatchObject({ text: "Nasdaq", title: "Nasdaq" });
+  });
+
+  it("still renders an absent value as the em dash, never as a label", () => {
+    expect(formatCell(null, exchange)).toMatchObject({
+      text: NULL_PLACEHOLDER,
+      absent: true,
+    });
+    expect(formatCell("", exchange).absent).toBe(true);
+  });
+
+  it("draws one span, keeps the code in data-value, and adds no wrapper", () => {
+    const { container } = render(React.createElement(CellValue, { spec: exchange, value: "XNAS" }));
+    const spans = container.querySelectorAll("span");
+    expect(spans).toHaveLength(1);
+    const span = spans[0] as HTMLElement;
+    expect(span.textContent).toBe("NASDAQ");
+    expect(span.getAttribute("data-value")).toBe("XNAS");
+    expect(span.getAttribute("data-kind")).toBe("text");
+    expect(span.getAttribute("title")).toBe("NASDAQ (XNAS)");
+    // One line, left aligned: the same box every text cell has, so the label
+    // cannot wrap into two lines and change the row's height.
+    expect(span.className).toContain("block truncate text-left");
+  });
+
+  it("adds no data-value to a text column without a formatter", () => {
+    const sector = columnSpec("sector");
+    expect(sector.display).toBeUndefined();
+    const { container } = render(
+      React.createElement(CellValue, { spec: sector, value: "Electronic Technology" }),
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.hasAttribute("data-value")).toBe(false);
+    expect(span.textContent).toBe("Electronic Technology");
   });
 });

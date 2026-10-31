@@ -11,6 +11,8 @@
  * client change and cannot make a column disappear.
  */
 
+import { exchangeLabel } from "@/lib/exchanges";
+
 export type ColumnKind =
   | "money"
   | "compactMoney"
@@ -37,6 +39,16 @@ export interface ColumnSpec {
   precision?: number;
   /** A unit suffix such as `x` (relative volume). */
   suffix?: string;
+  /**
+   * Display-only text for a raw value.
+   *
+   * Never changes the value that is sent, the value a cell carries in
+   * `data-value`, or the value a filter matches on: `format.ts` applies it and
+   * puts the raw value back into the cell's title as `LABEL (RAW)`. The data
+   * lives in a leaf module (`lib/exchanges.ts`), not here, because the detail
+   * chunk reads it too and must not pull this 12 KB table in to do it.
+   */
+  display?: (value: string) => string;
 }
 
 /** The pinned identity lane. 101 px is the measured Finviz value. */
@@ -180,7 +192,7 @@ export const COLUMN_META: Record<string, Meta> = {
   industry: { label: "Industry", kind: "text", weight: 1.6, min: 110 },
   security_type: { label: "Security Type", short: "Type", ...TEXT, min: 84 },
   country: { label: "Country", ...TEXT, min: 84 },
-  exchange: { label: "Exchange", ...TEXT, min: 84 },
+  exchange: { label: "Exchange", ...TEXT, min: 104, display: exchangeLabel },
   index_membership: { label: "Index Membership", short: "Index", kind: "text", weight: 1.5, min: 100 },
   optionable: { label: "Optionable", short: "Options", kind: "badge", weight: 0.95, min: 76 },
   shortable: { label: "Shortable", kind: "badge", weight: 0.95, min: 92 },

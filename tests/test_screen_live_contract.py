@@ -135,4 +135,6 @@ def test_global_tickers_get_the_provider_suffix_before_deep_enrichment() -> None
     assert provider_symbol("ASML", "EURONEXT") == "ASML.AS"
     assert provider_symbol("AAPL", "XNAS") == "AAPL"
     assert provider_symbol("BRK.B", "XNYS") == "BRK.B"
+    assert provider_symbol("SPY", "XCBO") == "SPY", "CBOE is a US venue: no suffix"
+    assert provider_symbol("SPY", "CBOE") == "SPY"
     assert provider_symbol("UNKNOWN", "MYSTERY") == "UNKNOWN"

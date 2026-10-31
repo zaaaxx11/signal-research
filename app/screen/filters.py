@@ -100,6 +100,18 @@ Text rules are split on purpose: ``eq``/``ne``/``in`` compare exactly (an
 exchange code is an identifier), ``contains`` searches case-insensitively (it is
 the operator a human types). Values inside ``in`` and ``between`` are tuples of
 numbers or strings, never a bare scalar.
+
+**A value column may declare its vocabulary.** ``exchange`` is an identifier
+whose canonical values are a closed set in code — the four MICs the universe
+emits — so :data:`VALUE_ALIASES` lets the spelling a human knows (``NYSE``,
+``nasdaq``) compile to the code a row carries. Resolution happens in
+:func:`compile_filter`, *before* a :class:`Filter` exists: the predicate, the
+request digest and the ETag all see the canonical value, while the row cell is
+never rewritten. A token that is neither a spelling nor an accepted code is an
+:class:`UnknownValue` — a 422 whose message lists the accepted values — not an
+empty page that reads as "the market has none". ``contains`` is deliberately
+outside the table: it is a substring search, and resolving it would leave the
+one operator that can find a code by a fragment of itself unable to do so.
 """
 
 from __future__ import annotations
@@ -263,6 +275,48 @@ _SYMBOLS: Mapping[str, str] = MappingProxyType(
     {"=": "eq", "==": "eq", "!=": "ne", ">": "gt", ">=": "gte", "<": "lt", "<=": "lte"}
 )
 
+# ---------------------------------------------------------------------------
+# Value vocabularies
+# ---------------------------------------------------------------------------
+
+#: Row column → written spelling (already case-folded) → the canonical value it
+#: names. Only a column whose vocabulary is **closed in code** may appear here:
+#: every alias resolves to a code a row really carries, so a spelling can never
+#: invent a venue. Keyed by row column rather than by filter key, so
+#: ``{"key": "exch"}`` and ``{"field": "exchange"}`` cannot disagree.
+VALUE_ALIASES: Mapping[str, Mapping[str, str]] = MappingProxyType(
+    {
+        "exchange": MappingProxyType(
+            {
+                "nyse": "XNYS",
+                "nasdaq": "XNAS",
+                "nasd": "XNAS",
+                "amex": "XASE",
+                "cboe": "XCBO",
+            }
+        )
+    }
+)
+
+#: Row column → the canonical values its rows carry on the US tabs, sorted. The
+#: closed side of :data:`VALUE_ALIASES`: a value outside this set on a US region
+#: is a 422, not an empty page — "no row has this code" and "this is not a code"
+#: are two different answers. Published as ``x-filter-keys.exch.values``.
+US_VALUES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {"exchange": ("XASE", "XCBO", "XNAS", "XNYS")}
+)
+
+#: The regions whose venue vocabulary is the closed US set: their rows are built
+#: by ``mic_for`` from the four provider names, so nothing else can be a value.
+#: Every other region (``global``) carries the provider's own codes — `SIX`,
+#: `XLON`, `TSE` — which are open-ended by construction.
+US_REGIONS: frozenset[str] = frozenset({"us", "us_etf"})
+
+#: What a provider code looks like outside the US tabs. A token of another shape
+#: is a typo rather than a venue, and is refused exactly as an unknown MIC is;
+#: a well-shaped code that names nothing is answered by the scan with zero rows.
+PROVIDER_CODE = re.compile(r"^[A-Z0-9]{1,8}$")
+
 #: ``market_cap_usd >= 100000000``, ``sector = Technology``, ``price between 5..10``,
 #: ``exchange in (XNAS, XNYS)``. The named form needs a word boundary so ``in``
 #: cannot match the first two letters of a value.
@@ -415,7 +469,94 @@ def _operator(op: Any) -> str:
     return _SYMBOLS.get(token, token)
 
 
-def _value(field: str, kind: str, op: str, raw: Any) -> Any:
+class UnknownValue(ValueError):
+    """A value outside the vocabulary its column declares (422 ``unknown_value``).
+
+    Distinct from a grammar error: the predicate is well-formed, the word is
+    not a value the column can carry. ``allowed`` is the closed list a client
+    can offer, and the message repeats it, so neither end has to guess.
+    """
+
+    code = "unknown_value"
+
+    def __init__(
+        self,
+        column: str,
+        raw: Any,
+        *,
+        region: str | None,
+        allowed: Sequence[str] = (),
+    ) -> None:
+        self.column = column
+        self.raw = raw
+        self.region = region
+        self.allowed: tuple[str, ...] = tuple(allowed)
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        where = f"region {self.region!r}" if self.region else "this region"
+        if self.allowed:
+            spellings = ", ".join(sorted(VALUE_ALIASES.get(self.column, {})))
+            return (
+                f"{self.column} value {self.raw!r} is not a venue in {where}; "
+                f"allowed: {', '.join(self.allowed)} "
+                f"(a MIC, or one of its spellings: {spellings}). "
+                "A code from another market is accepted on a non-US region as a "
+                "provider code matching [A-Z0-9]{1,8}"
+            )
+        return (
+            f"{self.column} value {self.raw!r} is not a venue in {where}; "
+            "a provider code must match [A-Z0-9]{1,8} (e.g. SIX, XLON). "
+            f"The US tabs accept {', '.join(US_VALUES.get(self.column, ()))}"
+        )
+
+
+def resolve_value(field: str, raw: Any, *, region: str | None = None) -> Any:
+    """The canonical value ``raw`` names for ``field``, or :class:`UnknownValue`.
+
+    ``strip`` and ``casefold`` are used for the **lookup only** — no prefix, no
+    edit distance, no ``startswith``: ``nasdax`` is not ``nasd`` with a suffix,
+    it is a miss, and a miss raises. A column with no table is returned
+    untouched, byte for byte, so every other text filter keeps its exact
+    comparison.
+
+    ``region`` selects the closed vocabulary: on ``us``/``us_etf`` (or when a
+    caller has no region, as the DSL alone cannot have one) only
+    :data:`US_VALUES` is a value; on every other region a provider code of the
+    shape :data:`PROVIDER_CODE` is accepted and the scan answers.
+    """
+
+    table = VALUE_ALIASES.get(field)
+    if table is None:
+        return raw
+    if not isinstance(raw, str):
+        raise ValueError(f"{field} expects a string, got {raw!r}")
+
+    token = raw.strip()
+    key = token.casefold()
+    resolved: str | None = table.get(key)
+    if resolved is None:
+        for code in US_VALUES.get(field, ()):
+            if key == code.casefold():
+                resolved = code
+                break
+    if resolved is None:
+        # Not a spelling and not a canonical code: either a provider code for a
+        # region whose vocabulary is open, or a typo. The region check decides.
+        resolved = token
+
+    closed = region is None or region in US_REGIONS
+    if closed:
+        if resolved not in US_VALUES.get(field, ()):
+            raise UnknownValue(
+                field, raw, region=region, allowed=US_VALUES.get(field, ())
+            )
+    elif not PROVIDER_CODE.match(resolved):
+        raise UnknownValue(field, raw, region=region)
+    return resolved
+
+
+def _value(field: str, kind: str, op: str, raw: Any, *, region: str | None = None) -> Any:
     """Coerce ``raw`` to the type ``kind``/``op`` requires, or raise ``ValueError``."""
 
     if kind == "number":
@@ -436,17 +577,31 @@ def _value(field: str, kind: str, op: str, raw: Any) -> Any:
             return tuple(_boolean(field, item) for item in _items(field, raw))
         return _boolean(field, raw)
 
+    # `contains` is the operator a human types: it is a case-insensitive
+    # substring search over the cell, never a vocabulary lookup. Resolving it
+    # would turn `contains nyse` into a search for `XNYS` and lose the one
+    # operator that can find a code by a fragment of itself.
     if op == "contains":
         if not isinstance(raw, str) or not raw.strip():
             raise ValueError(f"{field} 'contains' expects a non-empty string, got {raw!r}")
         return raw.strip()
+    aliased = field in VALUE_ALIASES
     if op == "in":
         items = _items(field, raw)
         if not all(isinstance(item, str) for item in items):
             raise ValueError(f"{field} 'in' expects strings, got {raw!r}")
-        return tuple(items)
+        if not aliased:
+            return tuple(items)
+        resolved: list[str] = []
+        for item in items:
+            value = resolve_value(field, item, region=region)
+            if value not in resolved:  # first-seen order, no duplicates
+                resolved.append(value)
+        return tuple(resolved)
     if not isinstance(raw, str):
         raise ValueError(f"{field} expects a string, got {raw!r}")
+    if aliased:
+        return resolve_value(field, raw, region=region)
     return raw
 
 
@@ -492,11 +647,20 @@ def _unpack(spec: Any) -> tuple[Any, Any, Any]:
     raise ValueError(f"cannot compile a filter from {type(spec).__name__}: {spec!r}")
 
 
-def compile_filter(spec: Filter | Mapping[str, Any] | Sequence[Any] | str) -> Filter:
+def compile_filter(
+    spec: Filter | Mapping[str, Any] | Sequence[Any] | str, *, region: str | None = None
+) -> Filter:
     """Validate one filter and return it in canonical form.
 
     Raises ``ValueError`` for an unknown field, an unknown operator, a value of
-    the wrong type, or an operator that cannot apply to the field's kind.
+    the wrong type, an operator that cannot apply to the field's kind, or a
+    :class:`UnknownValue` when the value is not one the column declares.
+
+    ``region`` is the request's tab, and only a value column with a declared
+    vocabulary reads it: a US region accepts the four MICs, every other region
+    accepts a provider code. Omitted, the closed US vocabulary is applied — the
+    DSL alone has no region, and guessing "anything goes" would be the silent
+    empty page this table exists to remove.
     """
 
     field, op, raw = _unpack(spec)
@@ -517,7 +681,9 @@ def compile_filter(spec: Filter | Mapping[str, Any] | Sequence[Any] | str) -> Fi
         )
     if operator in TEXT_OPS and kind != "text":
         raise ValueError(f"operator {operator!r} needs a text field; {field!r} is {kind}")
-    return Filter(field=field, op=operator, value=_value(field, kind, operator, raw))
+    return Filter(
+        field=field, op=operator, value=_value(field, kind, operator, raw, region=region)
+    )
 
 
 def _is_triple(raw: Sequence[Any]) -> bool:
@@ -529,25 +695,30 @@ def _is_triple(raw: Sequence[Any]) -> bool:
     )
 
 
-def parse_filters(raw: Any = None) -> tuple[Filter, ...]:
+def parse_filters(raw: Any = None, *, region: str | None = None) -> tuple[Filter, ...]:
     """Parse a filter document into compiled filters.
 
     Accepts ``None``, one expression string, a ``;``/newline separated string, a
     mapping, a ``Filter``, a ``(field, op, value)`` triple, or any iterable of
     those. The result is a tuple so a caller cannot mutate a parsed document.
+
+    ``region`` is forwarded to :func:`compile_filter`: the executor re-compiles
+    the criteria it already validated, and a value column with a declared
+    vocabulary has to see the same region both times or a provider code accepted
+    at parse time would be refused at match time.
     """
 
     if raw is None:
         return ()
     if isinstance(raw, str):
         expressions = [part.strip() for part in re.split(r"[;\n]", raw) if part.strip()]
-        return tuple(compile_filter(expression) for expression in expressions)
+        return tuple(compile_filter(expression, region=region) for expression in expressions)
     if isinstance(raw, (Filter, Mapping)):
-        return (compile_filter(raw),)
+        return (compile_filter(raw, region=region),)
     if isinstance(raw, (tuple, list)) and _is_triple(raw):
-        return (compile_filter(raw),)
+        return (compile_filter(raw, region=region),)
     if isinstance(raw, Iterable):
-        return tuple(compile_filter(item) for item in raw)
+        return tuple(compile_filter(item, region=region) for item in raw)
     raise ValueError(f"cannot parse filters from {type(raw).__name__}: {raw!r}")
 
 
@@ -612,16 +783,20 @@ def _matches(row: Mapping[str, Any], item: Filter) -> bool:
 
 
 def apply_filters(
-    rows: Iterable[dict[str, Any]], filters: Any = None
+    rows: Iterable[dict[str, Any]], filters: Any = None, *, region: str | None = None
 ) -> list[dict[str, Any]]:
     """Return the rows that satisfy every filter, in input order.
 
     Rows are passed through untouched — same objects, no copy, no sort — so a
     caller can chain this with the ranker or the exporter without a second
     normalisation step. ``filters=None`` (or ``[]``) is the identity.
+
+    ``region`` reaches :func:`parse_filters` for the same reason it exists on
+    :func:`compile_filter`: a value vocabulary is per tab, and the executor must
+    judge a request by the region the request named.
     """
 
-    compiled = parse_filters(filters)
+    compiled = parse_filters(filters, region=region)
     if not compiled:
         return list(rows)
     return [
@@ -1630,13 +1805,19 @@ __all__ = [
     "FILTER_CATALOG",
     "FILTER_KEYS",
     "FILTER_TABS",
+    "PROVIDER_CODE",
     "Filter",
     "FilterSpec",
     "NUMERIC_OPS",
     "OPERATORS",
     "TEXT_OPS",
     "UI_TYPES",
+    "US_REGIONS",
+    "US_VALUES",
+    "UnknownValue",
+    "VALUE_ALIASES",
     "apply_filters",
     "compile_filter",
     "parse_filters",
+    "resolve_value",
 ]

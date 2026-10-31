@@ -52,7 +52,13 @@ YAHOO_SUFFIX: dict[str, str] = {
     "SET": ".BK",
 }
 
-US_EXCHANGES: frozenset[str] = frozenset({"XNAS", "XNYS", "XASE", "NASDAQ", "NYSE", "AMEX"})
+#: US venues in both spellings: the MIC that a snapshot row carries after
+#: :func:`app.screen.universe.mic_for`, and the TradingView code the scanner
+#: prints. ``XCBO`` is the fourth: CBOE lists stocks *and* 1,677 live ETFs, and
+#: a set that stops at three is how an ETF tab loses a venue (research D8/D10).
+US_EXCHANGES: frozenset[str] = frozenset(
+    {"XNAS", "XNYS", "XASE", "XCBO", "NASDAQ", "NYSE", "AMEX", "CBOE"}
+)
 
 
 def provider_symbol(symbol: Any, exchange: Any = None) -> str:

@@ -74,4 +74,15 @@ describe("column metadata", () => {
       expect(columnSpec(key).min, `${key} cannot hold a seven-figure price`).toBeGreaterThanOrEqual(92);
     }
   });
+
+  it("gives the exchange column room for the longest venue name it prints", () => {
+    // 84 px − 16 px padding = 68 px ≈ 10 characters at 12 px; `NYSE American`
+    // is 13. The label is display-only, so the *width* is the only thing that
+    // can cut it — and a cut label plus a code in the title is two reads for
+    // one fact.
+    const spec = columnSpec("exchange");
+    expect(spec.min).toBe(104);
+    expect(typeof spec.display).toBe("function");
+    expect(spec.display?.("XNAS")).toBe("NASDAQ");
+  });
 });

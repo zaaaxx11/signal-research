@@ -514,6 +514,255 @@ async def test_the_schema_route_serves_the_repo_artifact(
 
 
 # ---------------------------------------------------------------------------
+# Exchange values over the route: the words a human knows, and the 422s
+# ---------------------------------------------------------------------------
+
+
+def exchange_body(
+    value: Any, op: str = "eq", region: str = "us", columns: list[str] | None = None
+) -> dict[str, Any]:
+    """One criteria selection whose only filter is `exch`."""
+
+    body: dict[str, Any] = {
+        "mode": "criteria",
+        "region": region,
+        "criteria": {
+            "filters": [{"key": "exch", "op": op, "value": value}],
+            "sort": "market_cap",
+            "limit": 100,
+        },
+    }
+    if columns is not None:
+        body["columns"] = columns
+    return body
+
+
+async def test_exch_alias_equals_the_mic_count(tmp_path: Path, monkeypatch: Any) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        alias = await harness.client.post("/screens/select", json=exchange_body("NYSE"))
+        mic = await harness.client.post("/screens/select", json=exchange_body("XNYS"))
+        padded = await harness.client.post("/screens/select", json=exchange_body("  XNYS "))
+
+    assert alias.status_code == 200, alias.text
+    assert mic.status_code == 200, mic.text
+    assert alias.json()["total"] == mic.json()["total"] == 14
+    assert alias.json()["universe_total"] == mic.json()["universe_total"]
+    assert [row["symbol"] for row in alias.json()["rows"]] == [
+        row["symbol"] for row in mic.json()["rows"]
+    ]
+    assert padded.status_code == 200, (
+        "surrounding whitespace is a transport accident, not a different venue: "
+        f"{padded.text}"
+    )
+    assert padded.json()["total"] == 14
+
+
+async def test_exch_in_takes_both_spellings_in_one_filter(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        mixed = await harness.client.post(
+            "/screens/select", json=exchange_body(["NYSE", "XNAS"], op="in")
+        )
+        canonical = await harness.client.post(
+            "/screens/select", json=exchange_body(["XNYS", "XNAS"], op="in")
+        )
+
+    assert mixed.status_code == 200, mixed.text
+    assert mixed.json()["filters"][0]["value"] == ["XNYS", "XNAS"], (
+        "the envelope echoes the predicate's own value, so a reader sees what ran"
+    )
+    assert mixed.json()["total"] == canonical.json()["total"] == US_CRITERIA_UNIVERSE
+
+
+async def test_an_unknown_exchange_is_a_422_not_an_empty_page(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The refusal happens in `parse_selection`: no scan, no universe."""
+
+    from app.api import screens as screens_api
+
+    built: list[int] = []
+    real = screens_api.build_universe
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        built.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(screens_api, "build_universe", counted)
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post("/screens/select", json=exchange_body("nope"))
+        scans = S.provider_requests(harness.web)
+
+    body = assert_envelope(response, status=422)
+    assert body["error"] == "unknown_value", (
+        "a typo is a different fault from an invalid filter: the grammar is fine"
+    )
+    assert "nope" in body["errorMessage"]
+    for code in ("XASE", "XCBO", "XNAS", "XNYS"):
+        assert code in body["errorMessage"], (
+            f"the refusal must carry the `allowed` list, {code} missing: "
+            f"{body['errorMessage']}"
+        )
+    assert scans == 0, (
+        "a 422 that costs a provider scan is a DoS surface: the value is checked "
+        f"before the scan (got {scans} requests)"
+    )
+    assert built == [], "a 422 must never build the universe either"
+
+
+async def test_a_us_code_outside_the_four_mics_is_refused(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post("/screens/select", json=exchange_body("XLON"))
+        scans = S.provider_requests(harness.web)
+
+    body = assert_envelope(response, status=422)
+    assert body["error"] == "unknown_value"
+    assert "XNYS" in body["errorMessage"]
+    assert scans == 0
+
+
+async def test_the_etf_tab_is_a_us_tab_for_the_vocabulary_too(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """``us_etf`` rows are built by the same ``mic_for``, so it is a US tab."""
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        alias = await harness.client.post(
+            "/screens/select", json=exchange_body("AMEX", region="us_etf")
+        )
+        mic = await harness.client.post(
+            "/screens/select", json=exchange_body("XASE", region="us_etf")
+        )
+        foreign = await harness.client.post(
+            "/screens/select", json=exchange_body("XLON", region="us_etf")
+        )
+
+    assert alias.status_code == 200, alias.text
+    assert alias.json()["total"] == mic.json()["total"] > 0
+    assert {row["exchange"] for row in alias.json()["rows"]} == {"XASE"}
+    refusal = assert_envelope(foreign, status=422)
+    assert refusal["error"] == "unknown_value" and "XLON" in refusal["errorMessage"]
+
+
+async def test_a_provider_code_is_open_only_on_a_non_us_region(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        absent = await harness.client.post(
+            "/screens/select", json=exchange_body("XLON", region="global")
+        )
+        present = await harness.client.post(
+            "/screens/select", json=exchange_body("LSE", region="global")
+        )
+        typo = await harness.client.post(
+            "/screens/select", json=exchange_body("nope", region="global")
+        )
+
+    assert absent.status_code == 200, (
+        "XLON is a real venue code on a provider-owned region; it must answer "
+        f"the scan, not 422: {absent.text}"
+    )
+    assert absent.json()["total"] == 0, "no London row in the fixture — an empty answer, honestly"
+    assert present.status_code == 200, present.text
+    assert present.json()["total"] == 3, "LSE names the three London rows"
+
+    refusal = assert_envelope(typo, status=422)
+    assert refusal["error"] == "unknown_value", (
+        "an open vocabulary is not an anything-goes vocabulary: a token that is "
+        "not even shaped like a provider code is still a typo"
+    )
+    assert "[A-Z0-9]{1,8}" in refusal["errorMessage"]
+
+
+async def test_a_valid_value_that_matches_no_row_is_still_a_200(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The 422 is about the *word*, never about an empty intersection."""
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        empty_venue = await harness.client.post(
+            "/screens/select", json=exchange_body("XCBO")
+        )
+        contradiction = await harness.client.post(
+            "/screens/select",
+            json={
+                "mode": "criteria",
+                "region": "us",
+                "criteria": {
+                    "filters": [
+                        {"key": "exch", "op": "eq", "value": "XNYS"},
+                        {"key": "exch", "op": "eq", "value": "XNAS"},
+                    ],
+                    "limit": 10,
+                },
+            },
+        )
+
+    assert empty_venue.status_code == 200, empty_venue.text
+    assert empty_venue.json()["total"] == 0
+    assert contradiction.status_code == 200, contradiction.text
+    assert contradiction.json()["total"] == 0, (
+        "two valid venues ANDed can never match a row with one exchange: an "
+        "empty answer, not a refusal"
+    )
+
+
+async def test_the_alias_never_rewrites_the_row_value(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Same rows, same cell: the alias is a predicate constant, not a rewrite."""
+
+    columns = ["symbol", "exchange"]
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        alias = await harness.client.post(
+            "/screens/select", json=exchange_body("NYSE", columns=columns)
+        )
+        mic = await harness.client.post(
+            "/screens/select", json=exchange_body("XNYS", columns=columns)
+        )
+
+    assert alias.status_code == 200, alias.text
+    written = alias.json()
+    canonical = mic.json()
+    assert [row["symbol"] for row in written["rows"]] == [
+        row["symbol"] for row in canonical["rows"]
+    ]
+    assert [(row["symbol"], row["exchange"]) for row in written["rows"]] == [
+        (row["symbol"], row["exchange"]) for row in canonical["rows"]
+    ], "the two spellings must answer the same rows with the same cells"
+    assert {row["exchange"] for row in written["rows"]} == {"XNYS"}, (
+        "the response carries the MIC the row holds, never the word that was typed"
+    )
+    assert written["filters"][0]["value"] == "XNYS", (
+        "the echoed criterion is the predicate, so `NYSE` never appears as a value "
+        "the matcher did not use"
+    )
+
+
+async def test_the_accepted_exchange_values_are_published(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from app.screen import filters as filters_module
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.get("/screens/select/schema")
+
+    assert response.status_code == 200, response.text
+    entry = response.json()["x-filter-keys"]["exch"]
+    assert entry["values"] == ["XASE", "XCBO", "XNAS", "XNYS"], (
+        "a client must be able to build the control without hard-coding the list"
+    )
+    assert entry["values"] == list(filters_module.US_VALUES["exchange"])
+    assert entry["aliases"] == dict(filters_module.VALUE_ALIASES["exchange"])
+    assert set(entry["aliases"].values()) <= set(entry["values"])
+    assert entry["field"] == "exchange" and entry["kind"] == "text"
+
+
+# ---------------------------------------------------------------------------
 # The scan cache — one scan serves a burst, and not one request longer
 # ---------------------------------------------------------------------------
 

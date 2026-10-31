@@ -105,3 +105,36 @@ describe("metric cells carry their unit", () => {
     expect(metricCell(0, "USD").text).toBe("0.00");
   });
 });
+
+/**
+ * The detail panel's exchange cell.
+ *
+ * The grid shows codes, the security master sends names, and both must read the
+ * same way. The label comes from `lib/exchanges.ts` — the same leaf the grid
+ * uses — because this panel is a lazy chunk and pulling `grid/columnMeta` in to
+ * read one map would put the whole 12 KB column table in it.
+ */
+describe("the profile group's exchange", () => {
+  function exchangeRow(payload: Record<string, { value: unknown; unit: string }>) {
+    const rows = groupMetricRows(payload).flatMap((section) => section.rows);
+    const row = rows.find((candidate) => candidate.key === "exchange");
+    return { rows, row };
+  }
+
+  it("labels a code the same way the grid cell does", () => {
+    const { row } = exchangeRow({ exchange: { value: "XNAS", unit: "text" } });
+    expect(row?.value).toBe("NASDAQ");
+    expect(metricCell(row?.value, row?.unit ?? "text").text).toBe("NASDAQ");
+  });
+
+  it("leaves a name the master already spelled alone", () => {
+    const { row } = exchangeRow({ exchange: { value: "Nasdaq", unit: "text" } });
+    expect(metricCell(row?.value, "text").text).toBe("Nasdaq");
+  });
+
+  it("still draws all 43 rows when the payload has no exchange", () => {
+    const { rows, row } = exchangeRow({});
+    expect(rows).toHaveLength(43);
+    expect(metricCell(row?.value, "text").absent).toBe(true);
+  });
+});

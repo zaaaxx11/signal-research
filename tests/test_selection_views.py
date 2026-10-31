@@ -26,7 +26,7 @@ from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS, VIEW_FILL_FIELDS
 from app.screen import views as V
 from app.screen.selection import VIEW_FACT_FIELDS, VIEW_FIELDS, parse_selection, select_rows
 from tests import _screen as S
-from tests.test_screen_etf import ETF_UNIVERSE_TOTAL, TOP20, etf_web
+from tests.test_screen_etf import ETF_FIXTURE_TOTAL, TOP20, etf_web
 
 #: The moment the executor stamps; fixed so two runs are comparable.
 AS_OF = "2026-10-23T12:00:00.000000+00:00"
@@ -320,8 +320,8 @@ async def test_an_etf_selection_answers_over_the_etf_universe(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["universe_total"] == ETF_UNIVERSE_TOTAL == 6_123
-    assert body["total"] == 6_123
+    assert body["universe_total"] == ETF_FIXTURE_TOTAL == 6_123
+    assert body["total"] == ETF_FIXTURE_TOTAL
     assert body["returned"] == 20 and body["limit"] == 20
     assert [row["symbol"] for row in body["rows"]] == TOP20
     assert "market_cap_usd" in body["rows"][0], "no view means the light row"
@@ -347,7 +347,9 @@ async def test_the_us_etf_region_implies_the_etf_family(
     body = response.json()
     assert response.status_code == 200, response.text
     assert body["region"] == "us_etf"
-    assert body["universe_total"] == 6_123
+    assert body["universe_total"] == ETF_FIXTURE_TOTAL, (
+        "the count comes from the recording this request replayed, not the tape"
+    )
 
 
 async def test_an_etf_view_row_reads_etf_parity_metrics(

@@ -27,7 +27,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
-from app.api import discovery, health, market, markets, news, providers, requests, screens
+from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.api import logos as logos_api
 from app.api.cache import matches
@@ -787,6 +787,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(providers.router)
     mount_router(application, screens.router)
     mount_router(application, discovery.router)
+    #: ``GET /market/exchanges``: the venue vocabulary and its counts, over the
+    #: selector's own universe and sharing its scan cache.
+    mount_router(application, exchanges.router)
     mount_router(application, news.router)
     #: ``GET /logos/{symbol}``: the brand mark on its own URL, so a 100-row
     #: projection carries none of its bytes and every row still has a ``src``.

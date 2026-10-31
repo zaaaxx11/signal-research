@@ -618,3 +618,41 @@ async def test_the_four_source_document_costs_zero_verifier_calls_on_a_second_re
         "TradingView plus all four verifiers"
     )
     assert second["rows"][0]["source_summary"]["confidence"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# A CBOE listing is a US listing (research D8)
+# ---------------------------------------------------------------------------
+
+
+def test_a_cboe_listing_is_asked_by_every_leg_that_can_spell_it() -> None:
+    """The venue sets used to hold ``CBOE`` and not ``XCBO`` — the MIC a row carries.
+
+    A snapshot row stores the MIC (``mic_for``), so every leg filtered all 1,678
+    CBOE rows out before any request: no error, no log line, no verification.
+    """
+
+    for venue in ("XCBO", "CBOE"):
+        row = {"symbol": "SPY", "exchange": venue}
+        assert yahoo_symbol(row) == "SPY", venue
+        assert finviz_symbol(row) == "SPY", venue
+
+    assert google_symbol({"symbol": "SPY", "exchange": "XCBO"}) is None, (
+        "Google has no CBOE spelling; not asking beats asking with an invented one"
+    )
+
+
+async def test_the_quote_leg_accepts_a_cboe_mic() -> None:
+    from app.screen.multi_source import NasdaqVerifier
+
+    calls: list[str] = []
+
+    class Source:
+        async def fetch(self, symbol: str) -> None:
+            calls.append(symbol)
+            return None
+
+    await NasdaqVerifier(source=Source()).observe(
+        [{"symbol": "SPY", "exchange": "XCBO"}]
+    )
+    assert calls == ["SPY"], "a CBOE row must reach the quote leg like any other"

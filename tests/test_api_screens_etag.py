@@ -265,6 +265,128 @@ async def test_two_spellings_of_one_question_share_a_tag(
     assert replay.status_code == 304
 
 
+async def test_two_spellings_of_one_venue_share_a_tag(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The tag hashes the compiled predicate, so `NYSE` and `XNYS` are one entry.
+
+    Both aliases of one venue (`nasdaq`, `nasd`) must land on the same tag as the
+    MIC, because they select the same rows: a tag that moved with the spelling
+    would split one cache entry into three and repaint a panel that did not
+    change.
+    """
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        alias = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "NYSE"}, limit=10),
+        )
+        mic = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "XNYS"}, limit=10),
+        )
+        second_alias = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "nasd"}, limit=10),
+        )
+        long_alias = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "NASDAQ"}, limit=10),
+        )
+        replay = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "NYSE"}, limit=10),
+            headers={"if-none-match": mic.headers["etag"]},
+        )
+
+    assert alias.status_code == 200, alias.text
+    assert alias.headers["etag"] == mic.headers["etag"], (
+        "the same predicate cannot wear two validators: the digest must see the "
+        "resolved value, not the alias"
+    )
+    assert second_alias.headers["etag"] == long_alias.headers["etag"], (
+        "`nasd` and `NASDAQ` are two spellings of XNAS; an alias edit that keeps "
+        "the answer must keep the tag"
+    )
+    assert second_alias.headers["etag"] != mic.headers["etag"], (
+        "two venues are two answers, so they keep two validators — equality "
+        "everywhere would prove nothing"
+    )
+    assert second_alias.json()["total"] != mic.json()["total"]
+    assert replay.status_code == 304 and replay.content == b"", (
+        "a client that read the `XNYS` body can revalidate with the `NYSE` one"
+    )
+    assert alias.json()["total"] == mic.json()["total"]
+    assert [(row["symbol"], row["exchange"], row["market_cap_usd"]) for row in alias.json()["rows"]] == [
+        (row["symbol"], row["exchange"], row["market_cap_usd"]) for row in mic.json()["rows"]
+    ], "same rows, same cells — only `as_of` (the read moment) may differ"
+
+
+def test_the_canonical_request_carries_the_resolved_value() -> None:
+    """Unit proof of the mechanism behind the shared tag: `as_dict` is canonical."""
+
+    from app.screen.selection import (
+        SelectionRequest,
+        canonical_request,
+        parse_selection,
+        request_digest,
+    )
+
+    alias = parse_selection(
+        {
+            "mode": "criteria",
+            "region": "us",
+            "criteria": {"filters": [{"key": "exch", "op": "eq", "value": "NYSE"}]},
+        }
+    )
+    mic = parse_selection(
+        {
+            "mode": "criteria",
+            "region": "us",
+            "criteria": {"filters": [{"key": "exch", "op": "eq", "value": "XNYS"}]},
+        }
+    )
+
+    assert isinstance(alias, SelectionRequest)
+    assert canonical_request(alias)["filters"][0]["value"] == "XNYS"
+    assert request_digest(alias) == request_digest(mic)
+    assert canonical_request(alias) == canonical_request(mic)
+
+
+async def test_an_alias_edit_that_would_change_the_answer_moves_the_tag(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The tag follows the table only through the predicate it compiles to.
+
+    Repointing a spelling is a data change to the vocabulary: the request that
+    used that spelling must stop answering the old rows *and* stop answering the
+    old tag. A tag that ignored the table would hand a stale 304 to a client
+    while the server matched different rows.
+    """
+
+    from app.screen import filters as filters_module
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        before = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "nasd"}, limit=10),
+        )
+        repointed = dict(filters_module.VALUE_ALIASES)
+        repointed["exchange"] = {**repointed["exchange"], "nasd": "XASE"}
+        monkeypatch.setattr(filters_module, "VALUE_ALIASES", repointed)
+        after = await harness.client.post(
+            "/screens/select",
+            json=criteria({"key": "exch", "op": "eq", "value": "nasd"}, limit=10),
+        )
+
+    assert before.status_code == 200 and after.status_code == 200
+    assert after.headers["etag"] != before.headers["etag"], (
+        "a spelling that now names a different venue names a different answer, "
+        "so it must name a different validator"
+    )
+    assert before.json()["total"] != after.json()["total"]
+
+
 # ---------------------------------------------------------------------------
 # 100 rows, twelve columns, one small body
 # ---------------------------------------------------------------------------

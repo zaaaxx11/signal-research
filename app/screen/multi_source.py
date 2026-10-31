@@ -94,7 +94,7 @@ from app.market.sources import (
 from app.providers import http as provider_http
 from app.screen.repository import SqliteScreenRepository, iso
 from app.screen.snapshot import load_screen
-from app.screen.universe import US_EXCHANGES
+from app.screen.universe import MIC_BY_EXCHANGE
 
 #: The document-level ``source`` a verified page publishes. It is deliberately
 #: *not* stored in ``screens.source``: the stored snapshot is TradingView's, and
@@ -179,7 +179,14 @@ YAHOO_SUFFIX_BY_EXCHANGE: Mapping[str, str] = {
 #: US venues in both spellings: the MIC that :func:`app.screen.universe.mic_for`
 #: stores on a snapshot row, and the TradingView code the scanner prints. A bare
 #: ticker is correct for either, so accepting both is robustness, not guessing.
-US_VENUES: frozenset[str] = US_EXCHANGES | frozenset({"NASDAQ", "NYSE", "AMEX", "CBOE"})
+#:
+#: Derived from :data:`app.screen.universe.MIC_BY_EXCHANGE` in *both* directions,
+#: not retyped: a venue added to the MIC table joins the verifier gate in the
+#: same commit. The previous literal was a second copy of the same fact, which
+#: is how a set can be one venue short without anyone noticing (D8/D10).
+US_VENUES: frozenset[str] = frozenset(MIC_BY_EXCHANGE) | frozenset(
+    MIC_BY_EXCHANGE.values()
+)
 
 #: Finviz's quote page. Not ``/quote.ashx``: that legacy path answers ``301`` and
 #: the provider client deliberately does not follow redirects (02 §3.11 SSRF), so

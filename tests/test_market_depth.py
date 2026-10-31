@@ -304,7 +304,10 @@ def test_sec_depth_source_reads_identity_and_classifies_sector() -> None:
         "ticker": "AAPL",
         "company": "Apple Inc.",
         "security_type": "Stock",
-        "exchange": "Nasdaq",
+        # EDGAR prints the venue name; the store speaks MIC and keeps the
+        # provider's spelling beside it (research D2).
+        "exchange": "XNAS",
+        "exchange_source": "Nasdaq",
         "industry": "Electronic Computers",
         "country": "United States",
         "sector": "Technology",
@@ -845,3 +848,114 @@ def test_each_source_reports_its_own_duration(
 
     lines = [record.getMessage() for record in caplog.records]
     assert any(line.startswith("depth source alpha done in") for line in lines), lines
+
+
+# ---------------------------------------------------------------------------
+# The venue cell: normalise on write, never rewrite history
+# ---------------------------------------------------------------------------
+
+
+def test_a_provider_venue_is_normalised_to_a_mic_and_its_spelling_kept() -> None:
+    from app.market.venue import EXCHANGE_SOURCE_FIELD
+
+    for spelling, mic in (
+        ("Nasdaq", "XNAS"),
+        ("NasdaqGM", "XNAS"),
+        ("NasdaqCM", "XNAS"),
+        ("NasdaqGS", "XNAS"),
+        ("NYSE", "XNYS"),
+        ("CBOE", "XCBO"),
+        ("NYSE American", "XASE"),
+        ("OTC", "OTCM"),
+    ):
+        observation = _obs("AAPL", {"exchange": spelling})
+        assert observation.fields["exchange"] == mic, spelling
+        assert observation.fields[EXCHANGE_SOURCE_FIELD] == spelling, (
+            "the original spelling is metadata, not a second published venue"
+        )
+
+
+def test_a_venue_with_no_verified_mic_keeps_its_own_name() -> None:
+    """TXSE: 9 live rows, no MIC in the vocabulary, no borrowed code."""
+
+    observation = _obs("ET", {"exchange": "TXSE"})
+
+    assert observation.fields["exchange"] == "TXSE"
+    assert observation.fields["exchange_source"] == "TXSE"
+
+
+def test_a_provider_cannot_forge_the_venue_provenance() -> None:
+    observation = _obs("AAPL", {"exchange": "Nasdaq", "exchange_source": "nonsense"})
+
+    assert observation.fields["exchange_source"] == "Nasdaq"
+
+
+def test_an_observation_without_a_venue_gains_no_provenance_key() -> None:
+    observation = _obs("AAPL", {"pe": 28.0})
+
+    assert "exchange" not in observation.fields
+    assert "exchange_source" not in observation.fields
+
+
+def test_the_store_publishes_the_mic_and_the_original_spelling_beside_it() -> None:
+    store = DepthStore()
+    store.merge(_obs("ET", {"exchange": "TXSE"}), priority=0)
+    store.merge(_obs("AAPL", {"exchange": "NasdaqGS"}), priority=0)
+
+    rows = store.document(["AAPL", "ET"])["symbols"]
+
+    assert rows["AAPL"] == {"exchange": "XNAS", "exchange_source": "NasdaqGS"}
+    assert rows["ET"] == {"exchange": "TXSE", "exchange_source": "TXSE"}
+
+
+def test_seeding_a_legacy_store_does_not_rewrite_its_rows(tmp_path: Path) -> None:
+    """No historical migration: the seed is restored, not normalised.
+
+    A re-run is safe precisely because it changes nothing: the old document is
+    written back byte-for-byte at the field level, and a row is rewritten only
+    when a live source observes it again through ``DepthObservation``.
+    """
+
+    target = tmp_path / "depth.json"
+    store = DepthStore()
+    store.seed(
+        {
+            "as_of": "2026-10-27T00:00:00+00:00",
+            "symbols": {"AAPL": {"exchange": "Nasdaq", "pe": 28.0}},
+        }
+    )
+    store.write(target)
+
+    reread = json.loads(target.read_text())["symbols"]["AAPL"]
+    assert reread == {"exchange": "Nasdaq", "pe": 28.0}, (
+        "seeding must not silently normalise 4,217 historical rows"
+    )
+
+    # The same document written twice is the same document: a re-run is a no-op.
+    again = DepthStore()
+    again.seed(json.loads(target.read_text()))
+    again.write(target)
+    assert json.loads(target.read_text())["symbols"]["AAPL"] == reread
+
+
+def test_two_sources_cannot_split_the_venue_from_its_provenance() -> None:
+    """``exchange`` and ``exchange_source`` are written together, so they merge
+    together: the winning source owns both cells or neither."""
+
+    store = DepthStore()
+    store.merge(_obs("AAPL", {"exchange": "Nasdaq"}, source="sec"), priority=0)
+    store.merge(_obs("AAPL", {"exchange": "NasdaqGS"}, source="yahoo_full"), priority=3)
+
+    row = store.document(["AAPL"])["symbols"]["AAPL"]
+
+    assert row == {"exchange": "XNAS", "exchange_source": "Nasdaq"}, (
+        "the higher-priority source owns the pair; a MIC from one writer and a "
+        "spelling from another would be a provenance lie"
+    )
+
+
+def test_a_non_text_venue_is_not_published() -> None:
+    observation = _obs("AAPL", {"exchange": 123})
+
+    assert "exchange" not in observation.fields, "a number is not a venue"
+    assert "exchange_source" not in observation.fields

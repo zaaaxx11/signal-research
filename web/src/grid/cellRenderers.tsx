@@ -95,11 +95,18 @@ export function CellValue({ spec, value }: CellValueProps) {
     );
   }
 
+  // A column that prints a *label* for a raw value keeps the value in the DOM:
+  // `data-value` is the code the API filters on, so a copy, a test or a future
+  // export can recover it without a second visible column. Columns with no
+  // `display` formatter get no attribute at all, so their markup is unchanged.
+  const rawValue = spec.display ? String(value) : undefined;
+
   return (
     <span
       className="block truncate text-left"
       title={cell.title}
       data-kind={spec.kind}
+      data-value={rawValue}
       dir="auto"
     >
       {cell.text}

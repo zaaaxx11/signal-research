@@ -331,7 +331,7 @@
           ]
         },
         "value": {
-          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. For an option-driven key (ta_perf, ta_perf2, ta_volatility) the value is the Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate each token compiles to is published under `x-filter-keys.<key>.choice.options`. Everywhere else Finviz's option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
+          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. For an option-driven key (ta_perf, ta_perf2, ta_volatility) the value is the Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate each token compiles to is published under `x-filter-keys.<key>.choice.options`. For `exch` the value is a MIC (`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published under `x-filter-keys.exch.aliases`; any other value on the US tabs is a 422 `unknown_value` whose message lists the accepted codes, while a non-US region (`global`) accepts a provider code matching `[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it names — zero when it names none. Everywhere else Finviz's option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
           "oneOf": [
             {
               "type": "number"
@@ -364,7 +364,20 @@
       "label": "Exchange",
       "tab": "descriptive",
       "field": "exchange",
-      "kind": "text"
+      "kind": "text",
+      "values": [
+        "XASE",
+        "XCBO",
+        "XNAS",
+        "XNYS"
+      ],
+      "aliases": {
+        "nyse": "XNYS",
+        "nasdaq": "XNAS",
+        "nasd": "XNAS",
+        "amex": "XASE",
+        "cboe": "XCBO"
+      }
     },
     "idx": {
       "label": "Index",

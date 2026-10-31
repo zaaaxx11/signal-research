@@ -133,7 +133,15 @@ from app.screen.filter_fields import (
     binding,
     unavailable_keys,
 )
-from app.screen.filters import FIELDS, OPERATORS, apply_filters, compile_filter
+from app.screen.filters import (
+    FIELDS,
+    OPERATORS,
+    US_VALUES,
+    VALUE_ALIASES,
+    UnknownValue,
+    apply_filters,
+    compile_filter,
+)
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, display_row
 from app.screen.universe import ASSET_CLASSES, REGIONS, asset_class_for
 
@@ -463,7 +471,7 @@ def _choice_criterion(
     )
 
 
-def _criterion(item: Any, index: int) -> Criterion:
+def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion:
     """One filter object → one compiled :class:`Criterion`, or a 422.
 
     A ``key`` is resolved in the order the module docstring states: the 82 Finviz
@@ -471,6 +479,10 @@ def _criterion(item: Any, index: int) -> Criterion:
     :func:`_alias_column`, and otherwise the Finviz refusal stands. The alias
     path echoes the key the caller wrote *and* the column it compiled to, so the
     envelope shows both ends of the translation.
+
+    ``region`` is the tab the value vocabulary belongs to: a value column with a
+    declared vocabulary refuses a value that region cannot carry, and it does so
+    here — in ``parse_selection``, before a scan or a universe exists.
     """
 
     where = f"criteria.filters[{index}]"
@@ -524,8 +536,13 @@ def _criterion(item: Any, index: int) -> Criterion:
 
     try:
         compiled = compile_filter(
-            {"field": column_value, "op": item["op"], "value": item["value"]}
+            {"field": column_value, "op": item["op"], "value": item["value"]},
+            region=region,
         )
+    except UnknownValue as exc:
+        # The word is wrong, not the grammar: a client switching on `error` can
+        # tell the two apart, and the message carries the accepted list.
+        raise SelectionError(f"{prefix}: {exc}", code=exc.code) from exc
     except ValueError as exc:
         raise SelectionError(f"{prefix}: {exc}", code="invalid_filter") from exc
     return Criterion(
@@ -536,7 +553,7 @@ def _criterion(item: Any, index: int) -> Criterion:
     )
 
 
-def _filters(raw: Any) -> tuple[Criterion, ...]:
+def _filters(raw: Any, *, region: str | None = None) -> tuple[Criterion, ...]:
     """The ANDed filter list; absent means the identity, not "filter nothing"."""
 
     if raw is None:
@@ -545,7 +562,7 @@ def _filters(raw: Any) -> tuple[Criterion, ...]:
         raise SelectionError(
             "'criteria.filters' must be an array of {key|field, op, value} objects"
         )
-    return tuple(_criterion(item, index) for index, item in enumerate(raw))
+    return tuple(_criterion(item, index, region=region) for index, item in enumerate(raw))
 
 
 def _criteria_block(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -666,7 +683,7 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
     return SelectionRequest(
         mode="criteria",
         region=str(region),
-        filters=_filters(block.get("filters")),
+        filters=_filters(block.get("filters"), region=str(region)),
         sort=_sort(block.get("sort")),
         limit=_limit(block.get("limit")),
         offset=_offset(block.get("offset")),
@@ -860,7 +877,7 @@ def _selected(
     from the same pass that built the page, so the two can never disagree.
     """
 
-    matched = apply_filters(rows, _predicates(request))
+    matched = apply_filters(rows, _predicates(request), region=request.region)
     ranked = ranking.rank_rows(matched, request.sort or DEFAULT_SORT)
     page = ranked[request.offset :]
     return ranking.top_rows(page, request.limit), len(matched)
@@ -1094,9 +1111,25 @@ def selection_etag(*, request: SelectionRequest, revision: str) -> str:
 
 
 def _filter_key_extension() -> dict[str, dict[str, object]]:
-    """All 82 keys, in panel order: the column, or the reason it is refused."""
+    """All 82 keys, in panel order: the column, or the reason it is refused.
 
-    return {entry.key: entry.as_dict() for entry in CATALOGUE}
+    A key whose column declares a closed value vocabulary also publishes it —
+    ``values`` (the canonical codes) and ``aliases`` (the spellings the compiler
+    resolves to them). ``exch`` is the only such key today: without the block a
+    schema-driven picker can only offer ``XNYS``, because the four human
+    spellings lived in the compiler and in the published contract nowhere.
+    Derived from the tables the validator itself reads, so the two cannot drift.
+    """
+
+    extension: dict[str, dict[str, object]] = {}
+    for entry in CATALOGUE:
+        block = entry.as_dict()
+        field = entry.field
+        if field is not None and field in VALUE_ALIASES:
+            block["values"] = list(US_VALUES.get(field, ()))
+            block["aliases"] = dict(VALUE_ALIASES[field])
+        extension[entry.key] = block
+    return extension
 
 
 def _filter_alias_extension() -> dict[str, dict[str, object]]:
@@ -1149,7 +1182,13 @@ def _filter_value_schema() -> dict[str, object]:
             f"option-driven key ({', '.join(CHOICE_FIELDS)}) the value is the "
             "Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate "
             "each token compiles to is published under "
-            "`x-filter-keys.<key>.choice.options`. Everywhere else Finviz's option "
+            "`x-filter-keys.<key>.choice.options`. For `exch` the value is a MIC "
+            "(`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published "
+            "under `x-filter-keys.exch.aliases`; any other value on the US tabs "
+            "is a 422 `unknown_value` whose message lists the accepted codes, "
+            "while a non-US region (`global`) accepts a provider code matching "
+            "`[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it "
+            "names — zero when it names none. Everywhere else Finviz's option "
             "tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send "
             "the number the bucket means."
         ),

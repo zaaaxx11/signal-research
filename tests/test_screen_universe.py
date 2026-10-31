@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.screen import universe as universe_mod
 from tests import _screen as S
 
 
@@ -236,3 +237,108 @@ def test_turnover_usd_is_never_invented_without_fx() -> None:
             "until an FX rate exists, never 0 and never the local value relabelled"
         )
         assert isinstance(row["turnover"], (int, float)) and row["turnover"] > 0
+
+
+# ---------------------------------------------------------------------------
+# The venue vocabulary — an unknown venue must fail the suite, not vanish
+# ---------------------------------------------------------------------------
+
+#: Venues the depth store prints as themselves because no MIC is verified for
+#: them. ``TXSE`` is the only one: the SEC source refuses to guess a MIC for a
+#: venue this new, so the store keeps the raw name instead of borrowing XASE.
+#: A venue belongs here only with a written reason — the invariant is otherwise
+#: a silent allow-list.
+PASSTHROUGH_VENUES: frozenset[str] = frozenset({"TXSE"})
+
+
+def _unknown_venues(venues: Any) -> set[str]:
+    """Every venue the app's vocabulary cannot name — the invariant, as a set."""
+
+    vocabulary = set(universe_mod.MIC_BY_EXCHANGE.values()) | PASSTHROUGH_VENUES
+    return {str(venue) for venue in venues} - vocabulary
+
+
+def test_every_live_venue_is_in_the_mic_vocabulary() -> None:
+    """A fifth provider code must fail here, not disappear from the universe.
+
+    ``mic_for`` passes an unknown code through and ``build_universe`` then drops
+    the row because ``is_us`` only knows ``US_EXCHANGES`` — no error, no log
+    line, one whole venue missing (the mechanism that lost ~1.7k CBOE ETFs).
+    The population checked is the measured live distribution per tab, so the
+    day a provider starts printing a new code this test is the alarm.
+    """
+
+    for region, distribution in (
+        ("us", S.LIVE_US_BY_EXCHANGE),
+        ("us_etf", S.LIVE_ETF_BY_EXCHANGE),
+    ):
+        unknown = _unknown_venues(distribution)
+        assert unknown == set(), (
+            f"{region} carries {sorted(unknown)}, which no MIC and no documented "
+            "pass-through names; add the venue to MIC_BY_EXCHANGE (or to "
+            "PASSTHROUGH_VENUES with a reason) before it silently disappears"
+        )
+
+
+def test_the_invariant_has_teeth() -> None:
+    """A fake venue added to the live distribution is reported, not absorbed."""
+
+    invented = dict(S.LIVE_US_BY_EXCHANGE, BATS=7)
+    assert _unknown_venues(invented) == {"BATS"}
+
+
+def test_the_fixture_vocabulary_matches_the_app_vocabulary() -> None:
+    """One table, no second copy: ``tests/_screen.py`` may not drift from it.
+
+    ``tests/_screen.py`` keeps its own ``US_EXCHANGES`` because the fixture has
+    to name the codes without importing the module under test. Research D10 is
+    that copy being one code short of the app's, so the two are tied here.
+    """
+
+    assert set(universe_mod.US_EXCHANGES) == set(S.US_EXCHANGES)
+    assert set(S.US_EXCHANGES) == set(universe_mod.MIC_BY_EXCHANGE.values())
+
+
+def test_a_provider_code_outside_the_vocabulary_is_dropped_by_design() -> None:
+    """The failure mode is documented: ``mic_for`` passes it, ``is_us`` drops it."""
+
+    from app.screen.universe import mic_for
+
+    assert mic_for("BATS") == "BATS", "an unknown code is passed through, not invented"
+    assert "BATS" not in universe_mod.US_EXCHANGES
+
+
+def test_the_verifier_covers_every_live_row() -> None:
+    """Every row of the measured live tape is inside the verifier's venue gate.
+
+    Measured correction to research D8: ``US_VENUES`` is derived from
+    ``US_EXCHANGES``, which is derived from ``MIC_BY_EXCHANGE``, so the verifier
+    gate already contained ``XCBO`` at this commit. The set that named itself
+    "US venues" and omitted it was ``app/screen/symbols.py`` — the provider
+    ticker set — where the omission was latent (XCBO has no Yahoo suffix, so
+    ``provider_symbol`` returned the bare ticker either way). It is closed here
+    and the three sets are tied together, so a venue can never again be added to
+    one and forgotten in another. Coverage is computed from the measured
+    distribution: 5,576 of 5,576 stock rows and 5,776 of 5,776 ETF rows.
+    """
+
+    from app.screen import symbols as symbols_mod
+    from app.screen.multi_source import US_VENUES
+
+    for region, distribution in (
+        ("us", S.LIVE_US_BY_EXCHANGE),
+        ("us_etf", S.LIVE_ETF_BY_EXCHANGE),
+    ):
+        covered = sum(count for venue, count in distribution.items() if venue in US_VENUES)
+        assert covered == sum(distribution.values()), (
+            f"{region}: the verifier skips {sum(distribution.values()) - covered} rows "
+            f"because US_VENUES lacks {sorted(set(distribution) - US_VENUES)}"
+        )
+    assert S.LIVE_US_UNIVERSE_TOTAL == 5_576
+    assert S.LIVE_ETF_UNIVERSE_TOTAL == 5_776
+
+    expected = set(universe_mod.MIC_BY_EXCHANGE) | set(universe_mod.MIC_BY_EXCHANGE.values())
+    assert set(symbols_mod.US_EXCHANGES) == expected, (
+        "the provider-symbol set must name every US venue in both spellings"
+    )
+    assert set(US_VENUES) == expected, "the verifier gate is the same table"

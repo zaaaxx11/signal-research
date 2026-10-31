@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 
+from app.screen import filters as filters_module
 from app.screen.filters import (
     FIELDS,
     FILTER_CATALOG,
@@ -44,6 +45,7 @@ from app.screen.universe import (
     MIN_MARKET_CAP_USD,
     PARITY_FIELDS,
     UNIVERSE_COLUMNS,
+    US_EXCHANGES,
     build_universe,
 )
 from tests import _screen as S
@@ -514,3 +516,158 @@ def test_a_negative_or_non_numeric_floor_is_refused() -> None:
         build_universe([], region="us", min_market_cap=-1)
     with pytest.raises(ValueError, match="min_market_cap"):
         build_universe([], region="us", min_market_cap="cheap")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Exchange values: the spelling a human knows, resolved to the MIC a row carries
+# ---------------------------------------------------------------------------
+
+
+def test_the_exchange_value_table_names_only_venues_the_product_carries() -> None:
+    """The table is closed on both sides: five spellings, four codes, no invention."""
+
+    table = filters_module.VALUE_ALIASES
+    assert dict(table["exchange"]) == {
+        "nyse": "XNYS",
+        "nasdaq": "XNAS",
+        "nasd": "XNAS",
+        "amex": "XASE",
+        "cboe": "XCBO",
+    }
+    assert set(table) == {"exchange"}, (
+        "only a column whose values are a closed vocabulary in code may carry a "
+        f"value table; got {sorted(table)}"
+    )
+    assert set(table["exchange"].values()) == US_EXCHANGES, (
+        "an alias must resolve to a code the universe emits, and every emitted "
+        f"code must be reachable; got {sorted(set(table['exchange'].values()))}"
+    )
+    assert set(filters_module.US_VALUES["exchange"]) == US_EXCHANGES, (
+        "the published US vocabulary is the four MICs the rows carry"
+    )
+    spellings = set(table["exchange"])
+    options = set(FILTER_CATALOG["exch"].options) - {"", "modal"}
+    assert spellings <= options | {"nasdaq"}, (
+        "an alias must be a spelling Finviz's own control showed (or the long "
+        f"form `nasdaq`); got {sorted(spellings - (options | {'nasdaq'}))}"
+    )
+
+
+def test_a_human_exchange_value_resolves_to_its_mic() -> None:
+    compiled = compile_filter({"field": "exchange", "op": "eq", "value": "NYSE"})
+    assert compiled == Filter("exchange", "eq", "XNYS")
+    assert compiled.value == "XNYS", "the predicate carries the MIC, never the alias"
+
+
+def test_an_alias_is_resolved_before_the_criterion_is_built() -> None:
+    as_written = compile_filter({"field": "exchange", "op": "eq", "value": "nyse"})
+    canonical = compile_filter({"field": "exchange", "op": "eq", "value": "XNYS"})
+
+    assert as_written == canonical, (
+        "resolution must happen in the compiler, so the two spellings are one "
+        "predicate — the request digest hashes this object"
+    )
+    assert as_written.as_dict() == {"field": "exchange", "op": "eq", "value": "XNYS"}
+
+
+def test_alias_lookup_is_case_insensitive_and_strips_surrounding_space() -> None:
+    for written in ("XNYS", "xnys", "nyse", "NYSE", "NySe", " XNYS ", "XNYS\t", " nyse\n"):
+        assert (
+            compile_filter({"field": "exchange", "op": "eq", "value": written}).value
+            == "XNYS"
+        ), f"{written!r} names the New York Stock Exchange"
+
+
+def test_an_unknown_exchange_value_raises_instead_of_passing_through() -> None:
+    with pytest.raises(ValueError) as caught:
+        compile_filter({"field": "exchange", "op": "eq", "value": "nope"})
+
+    message = str(caught.value)
+    assert "nope" in message
+    for code in ("XASE", "XCBO", "XNAS", "XNYS"):
+        assert code in message, f"the refusal must list {code}: {message!r}"
+    assert caught.value.code == "unknown_value", (  # type: ignore[attr-defined]
+        "an unknown value is its own 422 code, not `invalid_filter`: the grammar "
+        "is fine, the word is wrong"
+    )
+
+
+def test_no_prefix_or_fuzzy_matching_of_exchange_values() -> None:
+    """A miss raises; there is no `startswith`, no edit distance, no guess."""
+
+    for typo in (
+        "nasdax",
+        "nas",
+        "xn",
+        "nys",
+        "newyork",
+        "NYSE American",
+        "nyse!",
+        "nasdaq100",
+        "New York Stock Exchange",
+    ):
+        with pytest.raises(ValueError) as caught:
+            compile_filter({"field": "exchange", "op": "eq", "value": typo})
+        assert typo.strip() in str(caught.value)
+
+
+def test_a_value_outside_the_us_vocabulary_is_refused_before_any_row_is_read() -> None:
+    for code in ("SIX", "XLON", "TSE", "OTC", ""):
+        with pytest.raises(ValueError) as caught:
+            compile_filter({"field": "exchange", "op": "eq", "value": code})
+        assert "allowed" in str(caught.value), (
+            f"{code!r} must be refused with the accepted list: {caught.value}"
+        )
+
+
+def test_a_non_string_exchange_value_is_a_type_error_not_an_alias_lookup() -> None:
+    with pytest.raises(ValueError, match="expects a string"):
+        compile_filter({"field": "exchange", "op": "eq", "value": 123})
+
+
+def test_in_resolves_each_member_and_dedupes_in_first_seen_order() -> None:
+    compiled = compile_filter(
+        {"field": "exchange", "op": "in", "value": ["nyse", "XNYS", "nasdaq"]}
+    )
+    assert compiled.value == ("XNYS", "XNAS")
+    assert symbols(apply_filters(ROWS, compiled)) == ["AAA", "BBB", "CCC"], (
+        "both venues resolve, so every fixture row is inside the union"
+    )
+
+    dsl = parse_filters("exchange in (NYSE, XNAS)")
+    assert dsl[0].value == ("XNYS", "XNAS"), "the string DSL takes the same road"
+
+
+def test_ne_resolves_the_alias_to_the_same_predicate() -> None:
+    compiled = compile_filter({"field": "exchange", "op": "ne", "value": "NYSE"})
+    assert compiled.value == "XNYS"
+    assert symbols(apply_filters(ROWS, compiled)) == ["AAA", "CCC"]
+
+
+def test_contains_is_not_aliased() -> None:
+    """Rule: `contains` never resolves — it stays a case-insensitive substring.
+
+    The stored cell is a MIC (`XNAS`, `XNYS`), so `contains nas` happens to match
+    `XNAS`, `contains nys` matches `XNYS`, and `contains nyse` matches nothing.
+    A writer's spelling is not a substring of the value a row carries.
+    """
+
+    nys = compile_filter({"field": "exchange", "op": "contains", "value": "nys"})
+    assert nys.value == "nys", "contains must be carried verbatim, not resolved"
+    assert symbols(apply_filters(ROWS, nys)) == ["BBB"]
+
+    nyse = compile_filter({"field": "exchange", "op": "contains", "value": "nyse"})
+    assert apply_filters(ROWS, nyse) == []
+
+    nas = compile_filter({"field": "exchange", "op": "contains", "value": "nas"})
+    assert symbols(apply_filters(ROWS, nas)) == ["AAA", "CCC"]
+
+
+def test_the_alias_does_not_touch_a_rows_exchange_cell() -> None:
+    filtered = apply_filters(
+        ROWS, compile_filter({"field": "exchange", "op": "eq", "value": "NYSE"})
+    )
+
+    assert filtered, "the alias must select the NYSE rows"
+    assert filtered[0] is ROWS[1], "rows pass through untouched — same objects"
+    assert [row["exchange"] for row in filtered] == ["XNYS"]

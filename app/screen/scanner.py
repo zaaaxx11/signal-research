@@ -386,7 +386,12 @@ async def fetch_scan(
     async with provider_http.build_client(
         timeout_s=timeout_s, headers=dict(REQUEST_HEADERS)
     ) as client:
-        response = await client.post(url, json=body)
+        try:
+            response = await client.post(url, json=body)
+        except Exception as exc:  # connect/read timeout, DNS, TLS: a scan failure
+            raise ScanError(
+                f"scanner transport failed for {url}: {type(exc).__name__}: {exc}"
+            ) from exc
         payload = response.content or b""
         content_type = response.headers.get("content-type", "")
 

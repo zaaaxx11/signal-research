@@ -295,6 +295,9 @@ describe("the keyboard path", () => {
       "Filters",
       "Columns",
       "Sector",
+      // The exchange control is one more tab stop in the toolbar, and it is
+      // listed here on purpose: the promise is the ordered list, not the count.
+      "Exchange",
       "Market cap",
       "Turnover",
       "Gainers",

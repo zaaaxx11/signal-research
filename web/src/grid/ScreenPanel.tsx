@@ -33,6 +33,13 @@ import { pendingLabel, useDelayedFlag, useReducedMotion } from "./pending";
 import { sameColumns } from "./columnSelection";
 import { SectorChip, SectorSelect, type SectorSource } from "./SectorSelect";
 import { activeSector, isSectorChoice, sectorNamesFromRows } from "./sectors";
+import { ExchangeChip, ExchangeSelect, type ExchangeSource } from "./ExchangeSelect";
+import {
+  activeExchanges,
+  exchangeVenuesFromRows,
+  isExchangeChoice,
+  type VenueBucket,
+} from "./exchanges";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
 
 import type { ActiveFilter } from "@/filters/types";
@@ -88,6 +95,25 @@ export interface ScreenPanelProps {
    * and the request body all keep reading a single state.
    */
   onSectorChange?: (name: string | null) => void;
+  /**
+   * The market's venues, from the shell's `GET /market/exchanges` read.
+   *
+   * Same split as `sectorOptions`: the shell owns the one request, the panel
+   * renders what it was given, and an empty list falls back to the `exchange`
+   * cells of the page — labelled as such, because a page is not the market.
+   */
+  exchangeOptions?: readonly VenueBucket[];
+  /** Whether that list is the market's, still loading, or unavailable. */
+  exchangeSource?: "market" | "loading" | "unavailable";
+  /**
+   * Choosing a set of exchange codes, or clearing it (`[]`).
+   *
+   * Supplying this is what mounts the control: the panel writes one `exch`
+   * predicate (`eq` for one code, `in` for many) into the *one* filter list
+   * through this callback, so the chip, the URL and the request body all keep
+   * reading a single state.
+   */
+  onExchangeChange?: (codes: string[]) => void;
 }
 
 const SORT_LABELS: Record<ScreenSort, string> = {
@@ -129,6 +155,9 @@ export function ScreenPanel({
   sectorOptions,
   sectorSource,
   onSectorChange,
+  exchangeOptions,
+  exchangeSource,
+  onExchangeChange,
 }: ScreenPanelProps) {
   const activeFilters = filters ?? [];
   const filterKey = filtersSignature(activeFilters);
@@ -315,11 +344,45 @@ export function ScreenPanel({
         : sectorSource === "loading"
           ? "loading"
           : "none";
-  // The selector draws the one predicate it owns; the chip bar draws the rest.
-  // A panel with no selector hides nothing.
-  const barFilters = sectorCapable
-    ? activeFilters.filter((filter) => !isSectorChoice(filter))
-    : activeFilters;
+
+  // --- the exchange menu -------------------------------------------------
+  //
+  // Same five expressions as the sector menu, for the same reason: the
+  // population is the market's (`GET /market/exchanges`), the fallback is the
+  // page's own `exchange` cells, and the control says which one it is showing.
+  // The control mounts only when a callback was passed, so every panel test
+  // that does not wire one keeps its toolbar byte-identical — and no panel
+  // spends a request on a menu it does not draw.
+  const exchangeCapable = onExchangeChange !== undefined;
+  const offeredVenues = React.useMemo(
+    () =>
+      (exchangeOptions ?? []).filter(
+        (venue) => typeof venue?.code === "string" && venue.code.trim().length > 0,
+      ),
+    [exchangeOptions],
+  );
+  const derivedVenues = React.useMemo(() => exchangeVenuesFromRows(rows), [rows]);
+  const venues = offeredVenues.length > 0 ? offeredVenues : derivedVenues;
+  const exchangeValue = exchangeCapable ? activeExchanges(activeFilters) : [];
+  const exchangePopulation: ExchangeSource =
+    offeredVenues.length > 0
+      ? "market"
+      : derivedVenues.length > 0
+        ? "rows"
+        : exchangeSource === "loading"
+          ? "loading"
+          : "none";
+
+  const barFilters = activeFilters.filter(
+    (filter) =>
+      !(sectorCapable && isSectorChoice(filter)) &&
+      !(exchangeCapable && isExchangeChoice(filter)),
+  );
+
+  // The menus draw the one predicate each owns; the chip bar draws the rest.
+  // A panel with no controls hides nothing.
+  const showControlChips =
+    (sectorCapable && sectorValue !== null) || (exchangeCapable && exchangeValue.length > 0);
 
   // A page is a request, and the URL may name one that cannot exist (a shared
   // link, a stale tab, a filter that shrank the result set). `parseScreenState`
@@ -423,6 +486,15 @@ export function ScreenPanel({
             />
           ) : null}
 
+          {exchangeCapable ? (
+            <ExchangeSelect
+              venues={venues}
+              source={exchangePopulation}
+              value={exchangeValue}
+              onChange={(codes) => onExchangeChange?.(codes)}
+            />
+          ) : null}
+
           {/* Three toggle buttons, not a `<select>`.
               The sort is a mode the toolbar is *in*, not a field being filled:
               `aria-pressed` says which one is on, so a screen reader hears
@@ -467,8 +539,24 @@ export function ScreenPanel({
         </div>
       </div>
 
-      {sectorCapable && sectorValue !== null ? (
-        <SectorChip name={sectorValue} onClear={() => onSectorChange?.(null)} />
+      {/* The toolbar's own chips, in one bar: the sector menu and the exchange
+          menu each own exactly one predicate, and neither is printed in
+          `ChipBar` — that bar draws what the controls do *not* own, and the same
+          filter in two places reads as two filters. */}
+      {showControlChips ? (
+        <div
+          data-testid="control-chip-bar"
+          role="group"
+          aria-label="Toolbar filters"
+          className="flex flex-wrap items-center gap-1 border-b border-line bg-surface-sunken px-2 py-1"
+        >
+          {sectorCapable && sectorValue !== null ? (
+            <SectorChip bare name={sectorValue} onClear={() => onSectorChange?.(null)} />
+          ) : null}
+          {exchangeCapable && exchangeValue.length > 0 ? (
+            <ExchangeChip codes={exchangeValue} onClear={() => onExchangeChange?.([])} />
+          ) : null}
+        </div>
       ) : null}
 
       {registry ? (

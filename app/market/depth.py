@@ -30,8 +30,9 @@ from typing import Any, Protocol
 
 from app.market.chart import YahooChartDepthSource
 from app.market.health_ledger import HealthLedger
-from app.market.yahoo_egress import rainproxy_url
 from app.market.sectors import classify_sector
+from app.market.venue import EXCHANGE_SOURCE_FIELD, normalize_venue
+from app.market.yahoo_egress import rainproxy_url
 
 logger = logging.getLogger("mee.depth")
 
@@ -137,6 +138,10 @@ class DepthObservation:
             name = canonical_field(field)
             if name in DROP_FIELDS:
                 continue
+            # Provenance is *derived* from the venue cell below. A provider that
+            # sends one is not allowed to state where its own value came from.
+            if name == EXCHANGE_SOURCE_FIELD:
+                continue
             # Yahoo reports this one cell in percent points while Finviz and
             # StockAnalysis report the catalog's ratio. Normalize at the source
             # boundary; a merge must never choose between 0.17 and 16.97.
@@ -146,6 +151,20 @@ class DepthObservation:
                 except (TypeError, ValueError):
                     continue
             normalized[name] = value
+        # One venue vocabulary at the one write boundary. The store keeps the
+        # MIC in `exchange` (the screener's vocabulary) and the provider's
+        # spelling beside it, so a disagreement can be traced instead of being
+        # silently rewritten; `DepthStore.seed` deliberately does not do this,
+        # so loading a legacy document never rewrites a historical row.
+        if "exchange" in normalized:
+            venue, spelling = normalize_venue(normalized["exchange"])
+            if venue:
+                normalized["exchange"] = venue
+                normalized[EXCHANGE_SOURCE_FIELD] = spelling
+            else:
+                # A number or a blank is not a venue: publish nothing rather
+                # than a fake code.
+                del normalized["exchange"]
         object.__setattr__(self, "fields", normalized)
 
 

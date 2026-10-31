@@ -16,6 +16,7 @@ import pytest
 
 from app.market.depth import QUOTE_ONLY_FIELDS, canonical_symbol
 from app.market.depth_fields import CATALOG_FIELDS
+from app.market.venue import EXCHANGE_SOURCE_FIELD
 from app.market.yahoo_depth import (
     EMITTED_FIELDS,
     QUOTE_SUMMARY_MODULES,
@@ -676,7 +677,9 @@ async def test_only_catalog_fields_are_emitted(monkeypatch: Any) -> None:
     result = await source.fetch_many(["AAPL"])
 
     fields = set(result["AAPL"].fields)
-    assert fields <= CATALOG_FIELDS
+    # The parser emits catalog keys only; the *observation* adds exactly one
+    # documented metadata cell — the venue spelling behind the MIC (D2).
+    assert fields <= CATALOG_FIELDS | {EXCHANGE_SOURCE_FIELD}
     assert "someFutureYahooKey" not in fields
     assert not (fields & QUOTE_ONLY_FIELDS)
     for banned in ("price", "change_pct", "volume", "prev_close", "regularMarketPrice"):
@@ -978,8 +981,9 @@ async def test_two_expiries_mean_optionable(monkeypatch: Any) -> None:
     assert request.url.params.get("date") is None
     # The rest of the row is untouched by the probe.
     assert result["AAPL"].fields["market_cap"] == pytest.approx(5.04e12)
-    # Nothing outside the catalog arrives with the new cell.
-    assert set(result["AAPL"].fields) <= CATALOG_FIELDS
+    # Nothing outside the catalog arrives with the new cell — except the one
+    # documented venue-provenance metadata key.
+    assert set(result["AAPL"].fields) <= CATALOG_FIELDS | {EXCHANGE_SOURCE_FIELD}
 
 
 async def test_option_probe_runs_after_the_timeseries(monkeypatch: Any) -> None:

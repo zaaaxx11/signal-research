@@ -8,10 +8,13 @@ Contract (PLAN-finviz-parity.md §2/§5 P0, PARITY-STATUS gap 1):
   and keeps a row whose cap the provider did not send, while the stock tab is
   byte-identical to what it was: ``type=stock``, ``subtype=common``, USD 100M;
 * OTC/pink-sheet funds stay out of both;
-* the live probe behind the plan answered **6,123** ETFs for
-  ``type=fund&subtype=etf`` (Finviz: 6,168), so ``total=6,123`` is the gate — and
-  the recorded fixture carries one OTC fund beyond that count to prove the
-  exclusion is a filter, not a coincidence of the body;
+* the live ETF tab is **5,776** rows today (2026-10-31, measured); the recorded
+  2026-10 fixture carries 6,124 rows, one of them an OTC fund. The two numbers
+  are different facts and are therefore named differently here:
+  :data:`ETF_UNIVERSE_TOTAL` is the *live* gate (computed from the measured
+  per-venue distribution in ``tests/_screen.py``), :data:`ETF_FIXTURE_TOTAL` is
+  what the recording rebuilds. Pinning the live count to a fixture-sized
+  assertion is exactly how the stale 6,123 survived — see research D10;
 * one refresh pass writes **six** snapshots: the four stock screens plus
   ``us_etf_market_cap`` and ``us_etf_turnover``.
 """
@@ -19,6 +22,7 @@ Contract (PLAN-finviz-parity.md §2/§5 P0, PARITY-STATUS gap 1):
 from __future__ import annotations
 
 import json
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -57,8 +61,12 @@ TOP20 = [
     "SCHD",
 ]
 
-#: 6,123 listed ETFs + the one OTC fund the universe must drop.
-ETF_UNIVERSE_TOTAL = 6_123
+#: The **live** ETF population (5,776), computed from the measured per-venue
+#: distribution — never typed twice. This is the gate the product promises.
+ETF_UNIVERSE_TOTAL = S.LIVE_ETF_UNIVERSE_TOTAL
+#: What the recorded scan rebuilds: 6,124 raw rows minus the one OTC fund. A
+#: fixture fact, not a live one; it moves only when the recording is re-cut.
+ETF_FIXTURE_TOTAL = 6_123
 ETF_RAW = 6_124
 
 
@@ -229,12 +237,46 @@ def test_etf_universe_has_no_floor_but_still_drops_otc_and_stocks() -> None:
     assert caps["NOCAP"] is None, "no floor means unknown size is kept as unknown, never 0"
 
 
-def test_etf_universe_total_matches_the_live_probe() -> None:
+def test_etf_universe_rebuilds_the_live_venue_distribution() -> None:
+    """5,776 live ETFs, split exactly as the tape splits them (measured 2026-10-31).
+
+    The population is synthetic (a row per symbol, no invented prices) but its
+    *venue counts* are the measured ones, so the test fails if a venue stops
+    reaching the ETF tab — the failure mode that lost 1,677 CBOE funds before
+    ``CBOE → XCBO`` existed. Building the same assertion over the 6,124-row
+    recording is a different fact and lives next door.
+    """
+
+    rows = [
+        _fund(f"{venue}{index:05d}", exchange=venue)
+        for venue, count in S.LIVE_ETF_BY_EXCHANGE.items()
+        for index in range(count)
+    ]
+    universe = universe_mod.build_universe(rows, region="us_etf")
+
+    assert len(universe) == ETF_UNIVERSE_TOTAL == 5_776, (
+        f"expected {ETF_UNIVERSE_TOTAL} live ETFs, got {len(universe)}"
+    )
+    assert Counter(row["exchange"] for row in universe) == Counter(
+        S.LIVE_ETF_BY_EXCHANGE
+    ), "an ETF venue is missing from the tab"
+    assert {row["exchange"] for row in universe} <= S.US_EXCHANGES
+    assert sum(S.LIVE_ETF_BY_EXCHANGE.values()) == ETF_UNIVERSE_TOTAL, (
+        "the total is a sum of the measured venue counts, not a second number"
+    )
+
+
+def test_the_recorded_etf_scan_still_rebuilds_its_own_total() -> None:
+    """The 2026-10 recording is a fixture fact: 6,124 rows, one OTC fund.
+
+    Its count is pinned so a fixture edit fails here instead of silently
+    changing what the filter tests above are testing.
+    """
+
     universe = universe_mod.build_universe(etf_rows(), region="us_etf")
 
-    assert len(universe) == ETF_UNIVERSE_TOTAL == 6_123, (
-        f"expected {ETF_UNIVERSE_TOTAL} listed ETFs (the live probe count), "
-        f"got {len(universe)}"
+    assert len(universe) == ETF_FIXTURE_TOTAL == 6_123, (
+        f"the recording rebuilds {ETF_FIXTURE_TOTAL} listed ETFs, got {len(universe)}"
     )
     assert ETF_RAW == len(etf_rows()) == 6_124, "the fixture carries one OTC fund too"
     symbols = {row["symbol"] for row in universe}
@@ -256,7 +298,9 @@ async def test_etf_browse_serves_the_top_twenty_with_total_6123(
         page = await harness.create_screen(region="us_etf", sort="market_cap")
 
     assert page["region"] == "us_etf"
-    assert page["matched"] == ETF_UNIVERSE_TOTAL
+    assert page["matched"] == ETF_FIXTURE_TOTAL, (
+        "the browse total is the recording's, not the live tape's"
+    )
     assert page["returned"] == S.DISPLAY_ROWS
     assert [row["symbol"] for row in page["rows"]] == TOP20
     assert page["rows"][0]["market_cap_usd"] == 650_000_000_000
