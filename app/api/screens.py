@@ -54,9 +54,19 @@ over the depth store's clock alone, so the scan and two stores could change the
 answer while a revalidating client still got ``304`` with its old numbers.) The
 one field the digest leaves out is ``as_of`` — the read moment, which moves on
 every call — and that is exactly why the tag is weak: same answer, not
-necessarily the same bytes. A validated repeat still costs one scan, because the
-scan is an input; what a ``304`` saves is the 30–270 KB body and the client's
-repaint.
+necessarily the same bytes.
+
+**One scan serves a burst, but not a second longer.** The scan is the expensive
+half of a selection (measured: 2.0 s live for the 5,715-row US universe, 12.5 s
+when this box is loaded, and the panel's own build is a further ~0.4 s), and a
+view switch changes only which columns are projected, not which universe is
+read. So the universe comes through a short-TTL, single-flight :class:`ScanCache`
+and every panel inside the window reuses it. The cache holds the *scan*, never
+the answer: the depth and fundamentals/facts reads happen per request, so a
+store that changes still moves the tag. It expires hard at
+:data:`SCAN_CACHE_TTL_S` — no stale-while-revalidate, no stale-on-error — and
+the ``X-Scan-Cache`` header says whether a given answer was a ``miss``, a
+``hit`` or ``shared``.
 
 **One panel, one budget.** A selection page is at most :data:`PANEL_BUDGET_BYTES`
 (60,000 B) whatever way it is asked for — ``columns`` or ``view``. The two used
@@ -82,12 +92,14 @@ neither leaves a Pending job behind to poll forever.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import math
+import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
@@ -122,7 +134,7 @@ from app.screen.selection import (
     select_rows,
 )
 from app.screen.snapshot import DISPLAY_ROWS, SOURCE, load_screen
-from app.screen.scanner import FULL_SCAN_ROWS, ScanError, fetch_scan
+from app.screen.scanner import DEFAULT_FLOOR, FULL_SCAN_ROWS, ScanError, ScanPage, fetch_scan
 from app.screen.universe import PARITY_COLUMNS, asset_class_for, build_universe
 from app.screen.wide_fill import WideFiller
 
@@ -394,6 +406,243 @@ def _integral_numbers(payload: Any) -> Any:
     return _integral_knobs(patched, prefix="")
 
 
+# ---------------------------------------------------------------------------
+# One scan, many panels — the scan cache
+# ---------------------------------------------------------------------------
+
+#: How long one scan may answer more than one request, in seconds.
+#:
+#: A number chosen against a measurement, not a feeling. A live parity scan of
+#: the US universe is **2.0 s** on this box (5,715 rows; 2,051 ms for the first
+#: cold panel, of which ~1.6 s is the provider), and a view switch is one click:
+#: without a cache every tab paid that again to show the same universe with
+#: different columns, so a switch was a 2 s empty panel. Five seconds is ~2.5
+#: scans' worth, which covers a burst of switches and a double-click, and it
+#: bounds the damage: a cached page is at most 5 s old — 1/60 of the 300 s the
+#: browse snapshot already lives for (:data:`app.screen.snapshot.SNAPSHOT_TTL_S`).
+#: Longer is not free: at 60 s every "Check again" inside the window would
+#: revalidate against a page that cannot have changed, and `as_of` would be a
+#: minute ahead of the rows it dates.
+SCAN_CACHE_TTL_S = 5.0
+
+
+def _scan_key(
+    *,
+    region: str,
+    asset_class: str,
+    source: str,
+    columns: Sequence[str] | None,
+    limit: int,
+    min_market_cap: Any,
+    subtype: str | None,
+    offset: int = 0,
+) -> tuple[str, ...]:
+    """The identity of one scan: the universe it addresses, then the page it asks for.
+
+    ``(region, asset_class, source)`` is the universe — the first two are what
+    :func:`app.screen.universe.build_universe` receives, the third is the feed a
+    ``symbols`` selection names — and the rest is the page shape. Both halves are
+    in the key because both change the answer: ``parse_scan`` reads ``d``
+    **positionally** through the requested column list, so a page fetched for one
+    column list would put a number under another column's name; a different cap
+    floor, subtype or offset is a different question to the provider. A key that
+    named only the universe would serve one panel's cells to another.
+    """
+
+    if min_market_cap is DEFAULT_FLOOR:
+        floor = "default"
+    elif min_market_cap is None:
+        floor = "-"
+    else:
+        floor = f"{float(min_market_cap):.10g}"
+    return (
+        f"region={region}",
+        f"asset_class={asset_class}",
+        f"source={source}",
+        f"columns={'-' if columns is None else ','.join(columns)}",
+        f"limit={int(limit)}",
+        f"min_market_cap={floor}",
+        f"subtype={subtype or '-'}",
+        f"offset={int(offset)}",
+    )
+
+
+class ScanCache:
+    """A short-TTL, single-flight cache in front of :func:`fetch_scan`.
+
+    Three promises, in the order they matter to the panel:
+
+    1. **never older than the TTL.** An entry answers only while
+       ``clock() - stored_at < ttl_s``. At ``ttl_s == 0`` nothing is ever served
+       (the single-flight below still applies), which is how a caller that must
+       see every scan — a test pinning what the validator covers — asks for it.
+       There is no stale-while-revalidate and no stale-on-error: an expired entry
+       is not served even once, because "the cache outlived its TTL by one
+       request" is the bug this class exists to avoid.
+    2. **one scan per burst.** Concurrent misses on one key share one in-flight
+       task, so ten panels that arrive before the scan returns cost one scan, not
+       ten. Each waiter is shielded from the others' cancellation, and the task
+       is owned by the cache rather than by whichever request happened to be
+       first.
+    3. **a failure is never an answer.** Nothing is stored unless the fetch
+       returned. A scanner error reaches every waiter as that error and the next
+       request tries again — a cached page must not become an outage that reads
+       as a fresh 200.
+
+    The TTL is read from :data:`SCAN_CACHE_TTL_S` at construction, so a test can
+    pin it by patching the constant **before** the app's first scan.
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl_s: float = SCAN_CACHE_TTL_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if ttl_s < 0:
+            raise ValueError(f"ttl_s must be zero or positive, got {ttl_s!r}")
+        self._ttl = float(ttl_s)
+        self._clock = clock
+        self._entries: dict[tuple[str, ...], tuple[float, ScanPage]] = {}
+        self._inflight: dict[tuple[str, ...], asyncio.Task[ScanPage]] = {}
+        # Guards the two dictionaries only; a scan is never awaited under it, so
+        # a slow provider cannot serialise unrelated keys.
+        self._lock = asyncio.Lock()
+        self._counts = {"scan": 0, "hit": 0, "shared": 0}
+
+    # -- reading -----------------------------------------------------------
+
+    def stats(self) -> dict[str, int]:
+        """Scans actually run, plus how the other requests were answered."""
+
+        return dict(self._counts)
+
+    def _fresh(self, key: tuple[str, ...]) -> ScanPage | None:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        stored_at, page = entry
+        if self._clock() - stored_at >= self._ttl:
+            return None
+        return page
+
+    async def page(
+        self, key: tuple[str, ...], fetch: Callable[[], Any]
+    ) -> tuple[ScanPage, str]:
+        """The page for ``key``, and how this request got it.
+
+        The second element is ``"hit"`` (a cached page), ``"miss"`` (this request
+        ran the scan) or ``"shared"`` (it waited on a scan another request had
+        already started). It is the ``X-Scan-Cache`` response header, so the
+        behaviour is observable without a counter inside the process.
+        """
+
+        page = self._fresh(key)
+        if page is not None:
+            self._counts["hit"] += 1
+            return page, "hit"
+
+        async with self._lock:
+            page = self._fresh(key)
+            if page is not None:
+                self._counts["hit"] += 1
+                return page, "hit"
+            task = self._inflight.get(key)
+            if task is None:
+                task = asyncio.ensure_future(self._scan(key, fetch))
+                self._inflight[key] = task
+                # Without this, a task nobody has finished awaiting when it fails
+                # logs "exception was never retrieved" at collection time.
+                task.add_done_callback(_quiet)
+                role = "miss"
+            else:
+                self._counts["shared"] += 1
+                role = "shared"
+
+        # Shield: one waiter's cancellation must not cancel the scan the others
+        # are waiting on. A failure propagates to every waiter and is stored
+        # nowhere.
+        return await asyncio.shield(task), role
+
+    async def _scan(self, key: tuple[str, ...], fetch: Callable[[], Any]) -> ScanPage:
+        self._counts["scan"] += 1
+        try:
+            page = await fetch()
+            self._prune()
+            # The age is measured from the moment the answer arrived, not from
+            # the moment it was asked for: a 12.5 s scan must not spend its own
+            # duration of the window.
+            self._entries[key] = (self._clock(), page)
+            return page
+        finally:
+            self._inflight.pop(key, None)
+
+    def _prune(self) -> None:
+        """Drop expired entries on write; the key space is small but unbounded."""
+
+        now = self._clock()
+        for key in [k for k, (at, _) in self._entries.items() if now - at >= self._ttl]:
+            self._entries.pop(key, None)
+
+
+def _quiet(task: asyncio.Task[Any]) -> None:
+    """Mark a done task's exception as retrieved, so an abandoned scan is silent."""
+
+    if not task.cancelled():
+        task.exception()
+
+
+def _scan_cache(request: Request) -> ScanCache:
+    """The app's scan cache, created on first use.
+
+    Per app, not per process: a test builds a fresh app per case and gets a fresh
+    cache, and two deployments in one process cannot answer each other. The
+    getattr/setattr pair has no ``await`` between them, so on one event loop it
+    is atomic — two concurrent first requests cannot create two caches.
+    """
+
+    cache = getattr(request.app.state, "scan_cache", None)
+    if not isinstance(cache, ScanCache):
+        cache = ScanCache(ttl_s=SCAN_CACHE_TTL_S)
+        request.app.state.scan_cache = cache
+    return cache
+
+
+async def _selection_scan(
+    request: Request,
+    *,
+    region: str,
+    asset_class: str,
+    source: str,
+    columns: Sequence[str] | None,
+    min_market_cap: Any,
+    subtype: str | None,
+) -> tuple[ScanPage, str]:
+    """One selection's universe, through the cache, and how it was answered."""
+
+    cache = _scan_cache(request)
+    key = _scan_key(
+        region=region,
+        asset_class=asset_class,
+        source=source,
+        columns=columns,
+        limit=FULL_SCAN_ROWS,
+        min_market_cap=min_market_cap,
+        subtype=subtype,
+    )
+    return await cache.page(
+        key,
+        lambda: fetch_scan(
+            region,
+            limit=FULL_SCAN_ROWS,
+            columns=columns,
+            min_market_cap=min_market_cap,
+            subtype=subtype,
+            asset_class=asset_class,
+        ),
+    )
+
+
 def _browse_document(document: dict[str, Any]) -> dict[str, Any]:
     """Rename the browse count to ``matched`` and name the universe beside it.
 
@@ -505,11 +754,23 @@ async def schema() -> dict[str, object]:
 
 @router.get("/select/schema")
 async def selection_schema() -> dict[str, object]:
-    """The JSON Schema for a ``POST /screens/select`` body.
+    """The JSON Schema for a ``POST /screens/select`` body, plus the view catalogue.
 
     Served from the module that validates with it, so the published contract and
-    the validator cannot drift: the same object is written to
-    ``schemas/stock_selection_request_v1.json``.
+    the validator cannot drift: this exact document is written to
+    ``schemas/stock_selection_request_v1.json`` and compared to it, byte for
+    byte, by the schema tests.
+
+    ``views`` is a top-level annotation on that document, beside
+    ``x-filter-keys``: the canonical view catalogue (name, label, job and ordered
+    column keys) from :mod:`app.screen.views`, so a client builds its tab strip
+    and its column lists from this answer instead of spelling them itself. That
+    is the one thing that cannot drift — Phase 0's F1 was a client hardcoding a
+    column set the server had already renamed. It is not a request property: the
+    document's ``properties`` does not name it, so a body that carries it is
+    still refused. (F3 was this key living only in the route's return value: the
+    served document and the artifact then differed by one key, and "the artifact"
+    and "the answer" were two documents with one name.)
     """
 
     return SELECTION_REQUEST_SCHEMA
@@ -538,9 +799,17 @@ async def select(request: Request) -> Any:
     snapshot, the depth cycle, the scan's cells and the two joins — and a repeat
     POST that presents it gets ``304``: empty body, no repaint. It is weak
     because the body carries ``as_of``, the read moment, which the digest leaves
-    out; a strong tag would have to move with the clock and would never match. A
-    validated repeat still pays for one scan, because the scan is an input; what
-    the ``304`` saves is the 30–270 KB body.
+    out; a strong tag would have to move with the clock and would never match.
+
+    **One scan serves a burst.** The universe comes through :class:`ScanCache`,
+    keyed by what the provider was asked (see :func:`_scan_key`) and good for
+    :data:`SCAN_CACHE_TTL_S` seconds, so five view switches inside the window pay
+    one scan instead of five. The tag stays honest because the cache holds the
+    *scan* and not the answer: the depth store, the fundamentals join and the
+    facts join are read per request, so a store that changes still moves the tag
+    and a replay of the old tag is still a ``200`` with the new cell. Outside the
+    window — and after any failed scan — a revalidation pays one scan, because
+    the scan is an input. What the ``304`` saves is the 30–270 KB body.
     """
 
     try:
@@ -615,23 +884,27 @@ async def select(request: Request) -> Any:
             # selection answers over the stock market, not over the display's
             # subset. `type=stock` (or type=fund/subtype=etf for the ETF
             # universe) and the OTC exclusion stay on.
-            page = await fetch_scan(
-                region,
-                limit=FULL_SCAN_ROWS,
+            page, scan = await _selection_scan(
+                request,
+                region=region,
+                asset_class=family,
+                source=source,
                 columns=PARITY_COLUMNS,
                 min_market_cap=None,
                 subtype=None,
-                asset_class=family,
             )
         else:
             # A ticker lookup needs no metric unless the caller asked for a view
             # or a column: then the cells must come from the parity scan, because
             # the light row carries none of them.
-            page = await fetch_scan(
-                region,
-                limit=FULL_SCAN_ROWS,
-                columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
+            page, scan = await _selection_scan(
+                request,
+                region=region,
                 asset_class=family,
+                source=source,
+                columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
+                min_market_cap=DEFAULT_FLOOR,
+                subtype="common",
             )
     except ScanError as exc:
         raise ApiError(
@@ -731,6 +1004,11 @@ async def select(request: Request) -> Any:
     # leaves out, so "same answer" is the promise, not "same bytes". A client
     # that sends either form revalidates — `cache.matches` strips the prefix.
     headers["ETag"] = f"W/{etag}"
+    # Whether this answer's universe came from a scan or from the scan cache
+    # (five views inside one window = one "miss" and four "hits"). It is the only
+    # place the caching is visible to a client, and it is how the panel can tell
+    # "refreshed" from "replayed" without a second request.
+    headers["X-Scan-Cache"] = scan
     if not_modified(request, etag):
         return Response(status_code=304, headers=headers)
     return Response(content=_encoded(document), media_type="application/json", headers=headers)

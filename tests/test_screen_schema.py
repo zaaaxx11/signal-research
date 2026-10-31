@@ -222,12 +222,112 @@ def test_the_published_description_names_both_vocabularies() -> None:
 async def test_the_served_request_schema_is_the_repo_artifact(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
-    """The route, the module and the file are one document (no fourth copy)."""
+    """The route, the module and the file are one document (no fourth copy).
+
+    Exact equality, including ``views``. The catalogue is *in* the served
+    document (a top-level annotation beside ``x-filter-keys``), so the artifact
+    published in ``schemas/`` carries it too and a consumer that loads the file
+    gets exactly what the route answers. F3 was this test failing because the
+    route had grown a key the artifact never got: "the artifact" and "the answer"
+    were two documents with one name. Weakening the comparison to ignore
+    ``views`` would have made the suite green and left that drift in place.
+    """
 
     async with api_client(tmp_path, monkeypatch) as client:
         response = await client.get("/screens/select/schema")
 
     assert response.status_code == 200, response.text
     served = response.json()
-    assert served == json.loads(REQUEST_ARTIFACT.read_text(encoding="utf-8"))
+    artifact = json.loads(REQUEST_ARTIFACT.read_text(encoding="utf-8"))
+    assert served == artifact, (
+        "the served schema and schemas/stock_selection_request_v1.json must be one "
+        f"document; served has {sorted(set(served) - set(artifact))} extra and is "
+        f"missing {sorted(set(artifact) - set(served))}"
+    )
     assert served["x-filter-alias-count"] == len(served["x-filter-aliases"])
+    assert served["views"], "a document with an empty view list is worse than none"
+
+
+def test_the_artifact_is_generated_from_the_module() -> None:
+    """Byte-for-byte parity, so the artifact cannot be hand-edited into drift.
+
+    The file is the document serialised with the one encoder that writes it
+    (``indent=2``, UTF-8, one trailing newline). A key added to the module and
+    not regenerated here fails on the bytes, not on someone remembering to look.
+    """
+
+    from app.screen.selection import SELECTION_REQUEST_SCHEMA
+
+    generated = json.dumps(SELECTION_REQUEST_SCHEMA, indent=2, ensure_ascii=False) + "\n"
+    assert REQUEST_ARTIFACT.read_text(encoding="utf-8") == generated, (
+        "schemas/stock_selection_request_v1.json is not what the module serialises: "
+        "regenerate it with json.dumps(document, indent=2, ensure_ascii=False) + '\\n'"
+    )
+
+
+def test_the_view_catalogue_is_an_annotation_and_not_a_request_property() -> None:
+    """``views`` is metadata: a body that carries it is still refused.
+
+    The document has two readers — a validator (``properties``, ``$defs``,
+    ``allOf``) and a client building its tabs (``views``). Putting the catalogue
+    in ``properties`` would advertise an input the route rejects, so it stays a
+    top-level keyword the validator ignores, exactly like ``x-filter-keys``.
+    """
+
+    from app.screen.views import view_catalogue
+
+    document = json.loads(REQUEST_ARTIFACT.read_text(encoding="utf-8"))
+    assert document["views"] == view_catalogue()
+    assert "views" not in document["properties"], (
+        "a request property named `views` would be an input the route refuses"
+    )
+    assert "views" not in document["required"]
+    assert document["additionalProperties"] is False, (
+        "the request body is still closed; `views` is not an escape hatch"
+    )
+
+
+async def test_the_served_views_are_the_module_catalogue(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The served catalogue is the module's catalogue, not a copy of a copy.
+
+    The client renders tabs and asks for columns from this list. If the route
+    ever served a hand-written table, a rename in :mod:`app.screen.views` would
+    show up here as a mismatch instead of in production as a blank column.
+    """
+
+    from app.screen.views import VIEW_NAMES, view_catalogue
+
+    async with api_client(tmp_path, monkeypatch) as client:
+        response = await client.get("/screens/select/schema")
+
+    assert response.status_code == 200, response.text
+    served = response.json()["views"]
+
+    assert served == view_catalogue(), "the route must serve the module's list verbatim"
+    assert [view["name"] for view in served] == [*VIEW_NAMES, "all"], (
+        "the nine canonical views in catalogue order, then the all-columns "
+        "destination — a client's tab order is the server's order"
+    )
+    assert len(served) == 10
+
+    seen: dict[str, str] = {}
+    for view in served:
+        assert set(view) == {"name", "label", "job", "columns"}
+        assert view["label"] and view["job"]
+        assert all(isinstance(key, str) and key for key in view["columns"])
+        if view["name"] == "all":
+            continue
+        # Every non-`all` view is a scannable panel: 8–13 columns, never the
+        # whole catalogue. `all` is the explicit destination, not a view.
+        assert 8 <= len(view["columns"]) <= 13, (
+            f"{view['name']} has {len(view['columns'])} columns; the panel "
+            "budget is 9–13 (income is the 8-column exception)"
+        )
+        for key in view["columns"]:
+            assert key not in seen, (
+                f"{key!r} is in both {seen.get(key)!r} and {view['name']!r}"
+            )
+            seen[key] = view["name"]
+

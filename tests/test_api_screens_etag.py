@@ -457,8 +457,20 @@ def moving_scan_web() -> tuple[MockWeb, dict[str, float]]:
 
 
 async def test_a_scan_change_moves_the_tag(tmp_path: Path, monkeypatch: Any) -> None:
-    """F3, the half the depth clock cannot see: the live scan re-runs per call."""
+    """F3, the half the depth clock cannot see: the live scan re-runs per call.
 
+    The scan cache is switched off here on purpose. It is a *separate* promise —
+    one scan may answer a burst for ``SCAN_CACHE_TTL_S`` seconds
+    (``test_five_view_switches_inside_the_window_cost_one_scan``) — and it would
+    hide the very change this test exists to observe. With ``ttl_s = 0`` every
+    call reads the provider, so an unchanged tag below can only mean the
+    validator failed to cover the scan; single-flight still applies, so this is
+    "every request scans", not "the cache is unplugged".
+    """
+
+    from app.api import screens as screens_api
+
+    monkeypatch.setattr(screens_api, "SCAN_CACHE_TTL_S", 0.0)
     web, state = moving_scan_web()
     async with S.screen_client(tmp_path, monkeypatch, web=web) as harness:
         body = criteria(limit=3, columns=["symbol", "price"])

@@ -64,26 +64,73 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+interface RequestOptions {
+  signal?: AbortSignal;
+  method?: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+}
+
 async function request(
   path: string,
-  signal?: AbortSignal,
-): Promise<{ status: number; ok: boolean; body: unknown }> {
+  options: RequestOptions = {},
+): Promise<{ status: number; ok: boolean; etag: string | null; body: unknown }> {
   const response = await fetch(path, {
-    signal: signal ?? null,
-    headers: { accept: "application/json" },
+    method: options.method ?? "GET",
+    signal: options.signal ?? null,
+    headers: { accept: "application/json", ...options.headers },
+    body: options.body,
     // Same-origin by construction; `same-origin` makes that explicit and stops
     // a redirect from silently carrying the request somewhere else.
     credentials: "same-origin",
     mode: "same-origin",
+    // The caller owns conditional requests (the selection route's weak ETag).
+    // A browser cache answering with its own stale body would defeat that.
+    cache: "no-store",
   });
   const body = await readJson(response);
-  return { status: response.status, ok: response.ok, body };
+  return { status: response.status, ok: response.ok, etag: response.headers.get("etag"), body };
 }
 
-async function getJson(path: string, signal?: AbortSignal): Promise<unknown> {
-  const { status, ok, body } = await request(path, signal);
+export async function getJson(path: string, signal?: AbortSignal): Promise<unknown> {
+  const { status, ok, body } = await request(path, { signal });
   if (!ok) throw new ApiError(status, messageOf(body, `HTTP ${status}`));
   return body;
+}
+
+/** The house envelope's message, for a caller that renders the failure. */
+export function readErrorMessage(body: unknown, status: number): string {
+  return messageOf(body, `HTTP ${status}`);
+}
+
+export interface ConditionalAnswer {
+  status: number;
+  etag: string | null;
+  body: unknown;
+}
+
+/**
+ * A JSON POST whose validator the caller owns.
+ *
+ * Unlike :func:`getJson` this does not throw on a non-2xx: a `304` is a success
+ * with no body (the caller keeps its rows), and a `422`'s message is product
+ * copy the grid shows. Transport failures still reject, so the caller's abort
+ * and network handling stay in one place.
+ */
+export async function postJsonConditional(
+  path: string,
+  body: unknown,
+  options: { signal?: AbortSignal; etag?: string | null } = {},
+): Promise<ConditionalAnswer> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (options.etag) headers["if-none-match"] = options.etag;
+  const answer = await request(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: options.signal,
+  });
+  return { status: answer.status, etag: answer.etag, body: answer.body };
 }
 
 function isSymbolHit(value: unknown): value is SymbolHit {
@@ -140,7 +187,7 @@ function asHealthReport(value: unknown): HealthReport {
  * collapsing to "offline" whenever the deployment is unwell.
  */
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthReport> {
-  const { ok, status, body } = await request("/health", signal);
+  const { ok, status, body } = await request("/health", { signal });
   const isReport =
     typeof body === "object" &&
     body !== null &&

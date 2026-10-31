@@ -1397,6 +1397,18 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
     "x-filter-keys": _filter_key_extension(),
     "x-filter-alias-count": len(_FILTER_ALIASES),
     "x-filter-aliases": _FILTER_ALIASES,
+    # The view catalogue travels with the document itself, not in a copy the
+    # route makes on the way out. `schemas/stock_selection_request_v1.json` is
+    # this object, and a key that existed only in the route's return value was
+    # F3: the served document and the published artifact differed by exactly
+    # this key, so "the contract" was two documents with one name. It is an
+    # annotation, not an input — `properties` does not name it, so a body that
+    # carries `views` is still refused, and a JSON Schema validator ignores a
+    # keyword it does not know (it sits beside `x-filter-keys`, which is how
+    # this document already publishes non-instance metadata). The client builds
+    # its tab strip and its column lists from it instead of hardcoding names the
+    # server had already renamed (Phase 0's F1).
+    "views": screen_views.view_catalogue(),
 }
 
 __all__ = [

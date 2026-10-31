@@ -1,30 +1,43 @@
 import * as React from "react";
 
-import type { SymbolHit } from "@/lib/api";
-import { GridPlaceholder } from "@/shell/GridPlaceholder";
+import { useViewCatalogue, type ViewDefinition } from "@/data/screens";
+import { ErrorBoundary } from "@/grid/ErrorBoundary";
+import { ScreenPanel } from "@/grid/ScreenPanel";
+import { ViewTabs } from "@/grid/ViewTabs";
 import { StatusLine } from "@/shell/StatusLine";
 import { TopBar } from "@/shell/TopBar";
 import { useHealth } from "@/shell/useHealth";
-import { VIEWS, ViewTabs, type ViewId } from "@/shell/ViewTabs";
 
 /**
  * The shell: one screen, four bands, no routing.
  *
  *   top bar     identity + the global search (the only control that writes)
- *   tab strip   the nine views of plan §6.1 — a placeholder with real
- *               keyboard semantics so Phase 4 inherits a settled contract
+ *   tab strip   the views `GET /screens/select/schema` served — nine panels,
+ *               never a hardcoded list
  *   status line breadcrumb + GET /health
- *   content     the grid's exact box, empty and labelled
+ *   content     the grid: 100 rows, widths solved to this container
  *
- * State is view + selected symbol; everything else is read from the API. No
- * client-side store, because there is nothing yet worth caching and a store
- * would become a second source of truth the moment the grid lands.
+ * State is view + selected symbol. Rows, columns and the ETag belong to
+ * `useScreens`, which is the only place that talks to `POST /screens/select`.
  */
 export function App() {
-  const [view, setView] = React.useState<ViewId>("today");
-  const [symbol, setSymbol] = React.useState<SymbolHit | null>(null);
+  const catalogue = useViewCatalogue();
+  const [view, setView] = React.useState("today");
+  const [symbol, setSymbol] = React.useState<string | null>(null);
   const health = useHealth();
   const searchRef = React.useRef<HTMLInputElement>(null);
+
+  // `all` is a destination (2 200 px, explicit horizontal scroll), not a tab:
+  // the nine scannable panels are the strip. The schema serves both.
+  const views = React.useMemo<ViewDefinition[]>(
+    () => catalogue.views.filter((entry) => entry.name !== "all"),
+    [catalogue.views],
+  );
+
+  React.useEffect(() => {
+    if (views.length === 0) return;
+    if (!views.some((entry) => entry.name === view)) setView(views[0]?.name ?? "today");
+  }, [views, view]);
 
   // "/" and ⌘K/ctrl-K focus the search box, the two chords every terminal
   // user already has in their hands. Ignored while typing so a "/" inside the
@@ -52,28 +65,71 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const active = VIEWS.find((entry) => entry.id === view) ?? VIEWS[0];
+  const active = views.find((entry) => entry.name === view) ?? views[0] ?? null;
 
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-bg">
-      <TopBar onSelect={setSymbol} inputRef={searchRef} />
+      <TopBar onSelect={(hit) => setSymbol(hit.symbol)} inputRef={searchRef} />
 
       <div className="border-b border-line bg-surface px-3 pt-0.5">
-        <ViewTabs active={view} onChange={setView} />
+        {views.length > 0 && active ? (
+          <ViewTabs views={views} active={active.name} onChange={setView} />
+        ) : (
+          <div className="h-8" aria-hidden="true" />
+        )}
       </div>
 
-      <StatusLine
-        viewLabel={active.label}
-        symbol={symbol?.symbol ?? null}
-        health={health}
-      />
+      <StatusLine viewLabel={active?.label ?? "Views"} symbol={symbol} health={health} />
 
       <main className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-        <GridPlaceholder
-          view={view}
-          viewLabel={active.label}
-          symbol={symbol?.symbol ?? null}
-        />
+        {catalogue.status === "error" ? (
+          <section
+            role="alert"
+            className="flex min-h-0 flex-1 flex-col justify-center rounded-md border border-line border-l-2 border-l-alert bg-surface p-6"
+          >
+            <p className="text-ui font-medium text-fg">The view catalogue did not load</p>
+            <p className="mt-1 max-w-[60ch] text-data text-fg-muted">{catalogue.error}</p>
+            <p className="mt-1 max-w-[60ch] text-data text-fg-subtle">
+              The grid renders columns the server names; without the catalogue there is
+              nothing honest to draw.
+            </p>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={catalogue.retry}
+                className="rounded-sm border border-line-strong px-2 py-1 text-ui text-fg-muted hover:text-fg"
+              >
+                Retry
+              </button>
+            </div>
+          </section>
+        ) : active ? (
+          // A render fault in the grid costs the panel, never the shell: the
+          // top bar, tabs and status line stay, and the boundary offers a way
+          // back. API errors never arrive here — the hook renders those.
+          <ErrorBoundary resetKey={active.name} label={`${active.label} panel`}>
+            <ScreenPanel
+              view={active}
+              selectedSymbol={symbol}
+              onActivate={setSymbol}
+              onClear={() => setSymbol(null)}
+            />
+          </ErrorBoundary>
+        ) : (
+          <section
+            aria-busy="true"
+            aria-label="Loading views"
+            className="flex min-h-0 flex-1 flex-col gap-1 rounded-md border border-line bg-surface p-3"
+          >
+            <div className="h-6 w-40 rounded-[1px] bg-surface-raised" />
+            {Array.from({ length: 12 }, (_, index) => (
+              <div
+                key={index}
+                className={`h-7 rounded-[1px] ${index % 2 === 0 ? "bg-row" : "bg-row-alt"}`}
+              />
+            ))}
+          </section>
+        )}
       </main>
 
       <footer className="flex h-6 shrink-0 items-center justify-between border-t border-line bg-surface-sunken px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">

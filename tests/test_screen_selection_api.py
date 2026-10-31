@@ -19,8 +19,9 @@ those ways:
 
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -510,3 +511,338 @@ async def test_the_schema_route_serves_the_repo_artifact(
     assert "fa_pc" in mapped and "fa_evsales" in mapped, (
         "the two ratios computed from the fundamentals snapshot are published too"
     )
+
+
+# ---------------------------------------------------------------------------
+# The scan cache — one scan serves a burst, and not one request longer
+# ---------------------------------------------------------------------------
+
+
+#: Five panels a user can click through in a second. The scan does not depend on
+#: the view (the view only projects the parity columns), so all five are one
+#: question to the provider and five different answers to the client.
+BURST_VIEWS = ("today", "value", "quality", "growth", "momentum")
+
+
+def view_body(view: str, **criteria: Any) -> dict[str, Any]:
+    """A criteria selection rendered as ``view`` — the panel a tab click asks for."""
+
+    return {
+        "mode": "criteria",
+        "region": "us",
+        "view": view,
+        "criteria": {"filters": [], "sort": "market_cap", "limit": 20, **criteria},
+    }
+
+
+def fundamentals_row(symbol: str, **cells: Any) -> Any:
+    """One fresh stored fundamentals snapshot, full width, only ``cells`` filled."""
+
+    from app.fundamentals.snapshot import FUNDAMENTAL_FIELDS, FundamentalsSnapshot
+
+    now = datetime.now(UTC)
+    fields: dict[str, Any] = {name: None for name in FUNDAMENTAL_FIELDS}
+    fields.update(cells)
+    return FundamentalsSnapshot(
+        symbol=symbol,
+        instrument_id=f"test:{symbol}",
+        fields=fields,
+        source="yahoo",
+        as_of=now,
+        fetched_at=now,
+        expires_at=now + timedelta(hours=24),
+    )
+
+
+async def test_five_view_switches_inside_the_window_cost_one_scan(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The panel used to pay 12.5 s per tab click; a burst must pay it once.
+
+    The five bodies are five different questions (five ETags, five column sets)
+    and one scan: the universe is keyed by what the *provider* was asked, not by
+    what the panel renders.
+    """
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        responses = [
+            await harness.client.post("/screens/select", json=view_body(view))
+            for view in BURST_VIEWS
+        ]
+        requests = S.provider_requests(harness.web)
+
+    assert [response.status_code for response in responses] == [200] * 5, [
+        response.text for response in responses
+    ]
+    assert requests == 1, (
+        f"five view switches inside one TTL must cost one scan, not {requests}"
+    )
+    roles = [response.headers.get("x-scan-cache") for response in responses]
+    assert roles == ["miss", "hit", "hit", "hit", "hit"], (
+        f"the first panel scans and the rest are served from it, got {roles}"
+    )
+    panels = [response.json()["rows"] for response in responses]
+    assert all(len(rows) == 20 for rows in panels), "every view answers the same 20 rows"
+    assert set(panels[0][0]) != set(panels[1][0]), (
+        "the panels must actually differ, or five cached copies of one view would "
+        "pass this test for the wrong reason"
+    )
+    tags = {response.headers["etag"] for response in responses}
+    assert len(tags) == 5, "five different questions cannot share a validator"
+
+
+async def test_the_first_request_after_the_ttl_scans_again(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A cache that outlives its TTL by even one request is a bug."""
+
+    from app.api import screens as screens_api
+
+    monkeypatch.setattr(screens_api, "SCAN_CACHE_TTL_S", 0.4)
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        first = await harness.client.post("/screens/select", json=view_body("today"))
+        second = await harness.client.post("/screens/select", json=view_body("today"))
+        inside = S.provider_requests(harness.web)
+
+        await asyncio.sleep(0.45)
+        third = await harness.client.post("/screens/select", json=view_body("today"))
+        after = S.provider_requests(harness.web)
+
+    assert inside == 1, "the second request is inside the window and must not re-scan"
+    assert second.headers.get("x-scan-cache") == "hit"
+    assert after == 2, (
+        "the first request after the TTL must re-scan — an entry that answered one "
+        f"request past its expiry is exactly the bug; provider calls: {after}"
+    )
+    assert third.headers.get("x-scan-cache") == "miss"
+    assert third.status_code == 200 and third.json()["rows"]
+
+
+async def test_concurrent_cold_requests_share_one_scan(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Single-flight: N cold requests cost one scan, not N."""
+
+    from app.api import screens as screens_api
+
+    calls = {"n": 0}
+    real = screens_api.fetch_scan
+
+    async def slow(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        await asyncio.sleep(0.05)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(screens_api, "fetch_scan", slow)
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        responses = await asyncio.gather(
+            *(
+                harness.client.post("/screens/select", json=view_body(view))
+                for view in BURST_VIEWS
+            )
+        )
+
+    assert [response.status_code for response in responses] == [200] * 5
+    assert calls["n"] == 1, (
+        f"five requests that arrive before the scan returns are one scan, got {calls['n']}"
+    )
+    roles = sorted(response.headers["x-scan-cache"] for response in responses)
+    assert roles == ["miss", "shared", "shared", "shared", "shared"], roles
+
+
+async def test_a_store_change_still_moves_the_tag_behind_a_warm_cache(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The scan is cached; the stores are not. A changed store moves the tag.
+
+    The 304 in the middle is what a warm cache makes cheap. The replay after the
+    store change must be a ``200`` with the new cell, because the tag names the
+    answer — and the answer changed.
+    """
+
+    body = {
+        "mode": "criteria",
+        "region": "us",
+        "columns": ["symbol", "pe_forward"],
+        "criteria": {"filters": [], "sort": "market_cap", "limit": 3},
+    }
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        first = await harness.client.post("/screens/select", json=body)
+        assert first.status_code == 200, first.text
+        tag = first.headers["etag"]
+
+        warm = await harness.client.post(
+            "/screens/select", json=body, headers={"if-none-match": tag}
+        )
+        assert warm.status_code == 304, warm.text
+
+        symbol = first.json()["rows"][0]["symbol"]
+        await harness.runtime.fundamentals_store.upsert(
+            fundamentals_row(symbol, pe_forward=41.0)
+        )
+        fresh = await harness.client.post("/screens/select", json=body)
+        replay = await harness.client.post(
+            "/screens/select", json=body, headers={"if-none-match": tag}
+        )
+        scans = S.provider_requests(harness.web)
+
+    assert scans == 1, (
+        "the scan did not change; the three later requests must be served by the "
+        f"cache, so the store is what moved the tag (scans: {scans})"
+    )
+    assert fresh.headers["etag"] != tag, (
+        "a store cell changed the body; a tag that stood still would 304 the new answer"
+    )
+    assert replay.status_code == 200, "a stale validator is answered with the document"
+    assert replay.json()["rows"][0]["pe_forward"] == 41.0
+
+
+async def test_a_filter_change_is_not_answered_from_another_filters_rows(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The cache is in front of the *scan*, not in front of the answer."""
+
+    technology = criteria({"key": "sec", "op": "eq", "value": "Technology"}, limit=100)
+    healthcare = criteria({"key": "sec", "op": "eq", "value": "Healthcare"}, limit=100)
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        left = await harness.client.post("/screens/select", json=technology)
+        right = await harness.client.post("/screens/select", json=healthcare)
+        scans = S.provider_requests(harness.web)
+
+    assert left.status_code == right.status_code == 200
+    assert scans == 1, "both filters read one universe — that is the only thing shared"
+    left_rows = {row["symbol"] for row in left.json()["rows"]}
+    right_rows = {row["symbol"] for row in right.json()["rows"]}
+    assert left_rows == set(US_TECHNOLOGY), (
+        f"the Technology panel must be the Technology rows, got {sorted(left_rows)}"
+    )
+    assert right_rows and not (left_rows & right_rows), (
+        "one filter's rows must never answer another filter"
+    )
+    assert left.headers["etag"] != right.headers["etag"]
+
+
+async def test_two_asset_classes_never_share_a_scan(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The key names the universe: same region, same feed, different family."""
+
+    stock = {"mode": "criteria", "region": "us", "criteria": {"filters": [], "limit": 5}}
+    fund = {
+        "mode": "criteria",
+        "region": "us",
+        "asset_class": "etf",
+        "criteria": {"filters": [], "limit": 5},
+    }
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        first = await harness.client.post("/screens/select", json=stock)
+        second = await harness.client.post("/screens/select", json=fund)
+        scans = S.provider_requests(harness.web)
+
+    assert first.status_code == second.status_code == 200, (first.text, second.text)
+    assert scans == 2, (
+        "the stock and ETF universes are different provider questions; one entry "
+        f"cannot answer both (scans: {scans})"
+    )
+
+
+async def test_a_scanner_failure_is_never_cached(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A failure is not an answer, and it is not a cached one either."""
+
+    from app.api import screens as screens_api
+    from app.screen.scanner import ScanError
+
+    calls = {"n": 0}
+    real = screens_api.fetch_scan
+
+    async def flaky(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ScanError("the scanner is down")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(screens_api, "fetch_scan", flaky)
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        failed = await harness.client.post("/screens/select", json=view_body("today"))
+        recovered = await harness.client.post("/screens/select", json=view_body("today"))
+
+    assert failed.status_code == 503, failed.text
+    assert failed.json()["error"] == "scanner_unavailable"
+    assert calls["n"] == 2, (
+        "a failed scan must not be remembered: the next request has to try again"
+    )
+    assert recovered.status_code == 200 and recovered.json()["rows"]
+    assert recovered.headers["x-scan-cache"] == "miss"
+
+
+async def test_an_expired_entry_is_never_served_as_a_stale_200(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """No stale-on-error: past the TTL a failed scan is a 503, not old rows."""
+
+    from app.api import screens as screens_api
+    from app.screen.scanner import ScanError
+
+    monkeypatch.setattr(screens_api, "SCAN_CACHE_TTL_S", 0.4)
+    real = screens_api.fetch_scan
+    state = {"broken": False}
+
+    async def breaker(*args: Any, **kwargs: Any) -> Any:
+        if state["broken"]:
+            raise ScanError("the scanner went away")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(screens_api, "fetch_scan", breaker)
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        warm = await harness.client.post("/screens/select", json=view_body("today"))
+        assert warm.status_code == 200, warm.text
+
+        state["broken"] = True
+        await asyncio.sleep(0.45)
+        cold = await harness.client.post("/screens/select", json=view_body("today"))
+
+        state["broken"] = False
+        back = await harness.client.post("/screens/select", json=view_body("today"))
+
+    assert cold.status_code == 503, (
+        "an expired page is not a fallback: the caller must be told the scan failed"
+    )
+    assert set(cold.json()) == {"error", "errorMessage"}
+    assert "scanner" in cold.json()["errorMessage"]
+    assert back.status_code == 200 and back.json()["rows"]
+
+
+async def test_the_key_names_the_scan_and_not_the_question(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A key is what the provider was asked, field by field."""
+
+    from app.api import screens as screens_api
+
+    base = dict(
+        region="us",
+        asset_class="stock",
+        source="tradingview",
+        columns=("close", "market_cap"),
+        limit=100,
+        min_market_cap=None,
+        subtype=None,
+        offset=0,
+    )
+    assert screens_api._scan_key(**base) == screens_api._scan_key(**base)
+    for field, other in (
+        ("region", "global"),
+        ("asset_class", "etf"),
+        ("source", "multi"),
+        ("columns", ("close",)),
+        ("limit", 50),
+        ("min_market_cap", 100.0),
+        ("subtype", "common"),
+        ("offset", 5),
+    ):
+        assert screens_api._scan_key(**{**base, field: other}) != screens_api._scan_key(**base), (
+            f"{field} is part of the scan's identity; two different scans cannot share a key"
+        )
