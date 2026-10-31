@@ -413,3 +413,9 @@ For every phase, in order, with no prompt needed:
 A phase that cannot pass its own gate is reported as blocked with the failing evidence, never
 as done.
 
+**Hard rule for every builder (learned 2026-10-31):** the production service on `127.0.0.1:8099`
+and its systemd unit are off-limits. A Phase 2 builder stopped `ztockz.service` to free the port
+for its own probe and never restarted it, so the public site answered 502 for the length of the
+build. Builders use `:8098` or an ephemeral port. The parent checks `systemctl is-active ztockz`
+and the public `/app` after every batch, before anything else.
+
