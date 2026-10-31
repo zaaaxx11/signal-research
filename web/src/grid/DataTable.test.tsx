@@ -293,7 +293,47 @@ describe("keyboard", () => {
     renderGrid({ view, selectedSymbol: "NVDA", rows: TODAY_ROWS.slice(0, 3), rowCount: 3 });
     const selected = screen.getByTestId("grid-table").querySelector("tbody tr[data-selected=true]");
     expect(selected?.getAttribute("data-symbol")).toBe("NVDA");
-    expect(selected?.getAttribute("aria-selected")).toBe("true");
+    // F3: `aria-selected` on a `<tr>` inside `role=table` is dropped from the
+    // accessibility tree (Chrome exposes no `selected` property on the row);
+    // `aria-current` is valid there and survives.
+    expect(selected?.getAttribute("aria-current")).toBe("true");
+    expect(selected?.hasAttribute("aria-selected")).toBe(false);
+  });
+});
+
+/**
+ * F3 — the open row must be announced, and it must be the only thing claiming
+ * `aria-current`. A Chromium AX dump showed the selected `<tr>` carrying
+ * `aria-selected="true"` and *no* `selected` property: the table's role is
+ * `table`, where the attribute is not mapped. `aria-current` is valid on any
+ * element inside a table and lands on the row node.
+ */
+describe("the selected row is announced (F3)", () => {
+  it("puts aria-current on the role=table row, and nowhere else", () => {
+    const view: ViewDefinition = { ...TODAY_VIEW, columns: ["price"] };
+    renderGrid({ view, selectedSymbol: "NVDA", rows: TODAY_ROWS.slice(0, 3), rowCount: 3 });
+
+    const table = screen.getByTestId("grid-table");
+    expect(table.getAttribute("role")).toBeNull(); // implicit role=table
+    const rows = screen.getAllByRole("row");
+    const selected = rows.filter((row) => row.getAttribute("aria-current") === "true");
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.getAttribute("data-symbol")).toBe("NVDA");
+    expect(screen.getByTestId("grid-table").getAttribute("aria-label")).toBe("Today screen");
+
+    // One current item per document: the tab strip marks itself with
+    // `aria-selected` (role=tab), so a row cursor cannot be mistaken for it.
+    expect(document.querySelectorAll("[aria-current]")).toHaveLength(1);
+    expect(document.querySelector("[aria-current]")?.getAttribute("data-symbol")).toBe("NVDA");
+  });
+
+  it("keeps the attribute off every other row", () => {
+    const view: ViewDefinition = { ...TODAY_VIEW, columns: ["price"] };
+    renderGrid({ view, selectedSymbol: "AAPL", rows: TODAY_ROWS.slice(0, 3), rowCount: 3 });
+
+    const rows = screen.getAllByRole("row").filter((row) => row.hasAttribute("data-symbol"));
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.getAttribute("aria-current"))).toEqual(["true", null, null]);
   });
 });
 

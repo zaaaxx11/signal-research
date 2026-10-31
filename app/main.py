@@ -29,6 +29,7 @@ from starlette.types import Scope
 from app import __version__
 from app.api import discovery, health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
+from app.api import logos as logos_api
 from app.auth import ApiError
 from app.config import Settings, get_settings
 from app.config_guard import check_startup
@@ -742,6 +743,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     mount_router(application, screens.router)
     mount_router(application, discovery.router)
     mount_router(application, news.router)
+    #: ``GET /logos/{symbol}``: the brand mark on its own URL, so a 100-row
+    #: projection carries none of its bytes and every row still has a ``src``.
+    mount_router(application, logos_api.router)
     mount_router(application, sources_router)
     mount_router(application, engine_api.router)
 

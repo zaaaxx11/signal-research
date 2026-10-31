@@ -35,6 +35,12 @@ export function ViewTabs({ views, active, onChange }: ViewTabsProps) {
     0,
     views.findIndex((view) => view.name === active),
   );
+  /**
+   * A tablist with no selected tab (the all-columns destination is open) still
+   * owes the keyboard one stop: otherwise the strip becomes unreachable by Tab
+   * exactly while it is the way back to the nine views.
+   */
+  const anySelected = views.some((view) => view.name === active);
 
   const focusAt = (index: number) => {
     if (views.length === 0) return;
@@ -86,7 +92,7 @@ export function ViewTabs({ views, active, onChange }: ViewTabsProps) {
             role="tab"
             aria-selected={selected}
             aria-controls={VIEW_PANEL_ID}
-            tabIndex={selected ? 0 : -1}
+            tabIndex={selected || (!anySelected && index === 0) ? 0 : -1}
             onClick={() => onChange(view.name)}
             onKeyDown={onKeyDown}
             className={cn(

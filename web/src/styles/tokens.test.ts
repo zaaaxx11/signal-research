@@ -76,6 +76,38 @@ export function contrastRatio(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/**
+ * Hue in the HSL/HSV sense — the number CSS `hsl()`, every design tool and
+ * `hotpink` itself report (330°). OKLCH would put the same rose at ~353°: the
+ * two spaces disagree by a fifth of a turn in this region, so the contract
+ * below pins one and says which.
+ */
+export function hueOf(hex: string): number {
+  const value = hex.replace("#", "");
+  const r = Number.parseInt(value.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(value.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(value.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const span = max - min;
+  if (span === 0) return 0;
+  const raw = max === r ? ((g - b) / span) % 6 : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
+  return (raw * 60 + 360) % 360;
+}
+
+/** Shortest arc between two hues, so 350° and 10° are 20° apart, not 340°. */
+export function hueDistance(a: number, b: number): number {
+  const delta = Math.abs(a - b) % 360;
+  return Math.min(delta, 360 - delta);
+}
+
+/** Largest channel spread in 0–255. A plane above ~12 is a colour, not a tint. */
+export function channelSpread(hex: string): number {
+  const value = hex.replace("#", "");
+  const channels = [0, 2, 4].map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16));
+  return Math.max(...channels) - Math.min(...channels);
+}
+
 interface Pair {
   /** Token the text is painted with. */
   fg: string;
@@ -87,9 +119,12 @@ interface Pair {
 
 /**
  * Every pair the shell or the grid actually paints. Row backgrounds only:
- * `--row-bg` (even), `--row-bg-alt` (zebra) and `--row-hover` are the three
- * surfaces a data cell can land on, and a token that passes on one and fails
- * on the zebra is a bug that only appears on every second row.
+ * `--row-bg` (even), `--row-bg-alt` (zebra), `--row-hover` and
+ * `--row-selected` are the four surfaces a data cell can land on, and a token
+ * that passes on one and fails on the zebra is a bug that only appears on
+ * every second row. The accent pairs are chrome, not data: a link on every
+ * surface it can land on, the ink on a filled control, and the ink on a
+ * destructive one.
  */
 const PAIRS: readonly Pair[] = [
   { fg: "--up", bg: "--row-bg", sizePx: 12, weight: 500 },
@@ -110,6 +145,31 @@ const PAIRS: readonly Pair[] = [
   { fg: "--fg-muted", bg: "--row-bg-alt", sizePx: 12, weight: 400 },
   { fg: "--fg-subtle", bg: "--row-bg", sizePx: 10, weight: 400 },
   { fg: "--fg-subtle", bg: "--row-bg-alt", sizePx: 10, weight: 400 },
+
+  /* A selected row still prints its numbers, so every tone it can carry is
+   * measured on --row-selected too — the lightest plane a datum lands on. */
+  { fg: "--up", bg: "--row-selected", sizePx: 12, weight: 500 },
+  { fg: "--down", bg: "--row-selected", sizePx: 12, weight: 500 },
+  { fg: "--flat", bg: "--row-selected", sizePx: 12, weight: 400 },
+  { fg: "--alert", bg: "--row-selected", sizePx: 12, weight: 500 },
+  { fg: "--fg", bg: "--row-selected", sizePx: 12, weight: 400 },
+  { fg: "--fg-muted", bg: "--row-selected", sizePx: 12, weight: 400 },
+  { fg: "--fg-subtle", bg: "--row-selected", sizePx: 10, weight: 400 },
+
+  /* Chrome: a link is text, so 4.5:1 on every plane it can be printed on. */
+  { fg: "--accent-text", bg: "--bg", sizePx: 13, weight: 400 },
+  { fg: "--accent-text", bg: "--surface", sizePx: 13, weight: 400 },
+  { fg: "--accent-text", bg: "--surface-raised", sizePx: 13, weight: 400 },
+  { fg: "--accent-text", bg: "--surface-sunken", sizePx: 13, weight: 400 },
+  { fg: "--accent-text", bg: "--row-bg", sizePx: 13, weight: 400 },
+  { fg: "--accent-text", bg: "--row-bg-alt", sizePx: 13, weight: 400 },
+  { fg: "--accent-text", bg: "--row-hover", sizePx: 13, weight: 400 },
+  { fg: "--accent", bg: "--surface-sunken", sizePx: 13, weight: 400 },
+  { fg: "--brand", bg: "--surface-sunken", sizePx: 10, weight: 400 },
+
+  /* Ink on a fill. 12–13 px, so the button label is normal text too. */
+  { fg: "--accent-fg", bg: "--accent-strong", sizePx: 13, weight: 500 },
+  { fg: "--destructive-foreground", bg: "--destructive", sizePx: 13, weight: 500 },
 ];
 
 /**
@@ -151,7 +211,22 @@ const BOUNDARIES: readonly Boundary[] = [
   { fg: "--focus", bg: "--surface" },
   { fg: "--focus", bg: "--surface-raised" },
   { fg: "--focus", bg: "--row-bg" },
+  { fg: "--focus", bg: "--row-bg-alt" },
   { fg: "--focus", bg: "--row-hover" },
+  /* The active tab's 2 px edge and a chip's border are the accent carrying
+   * state without text, so they are boundaries at 3:1, on every plane the
+   * strip or a chip can sit on. */
+  { fg: "--accent", bg: "--bg" },
+  { fg: "--accent", bg: "--surface" },
+  { fg: "--accent", bg: "--surface-raised" },
+  { fg: "--accent", bg: "--surface-sunken" },
+  { fg: "--accent", bg: "--row-bg" },
+  { fg: "--accent", bg: "--row-bg-alt" },
+  { fg: "--accent", bg: "--row-hover" },
+  /* A filled control's own area is what identifies it: no border, so the fill
+   * must clear 3:1 against the planes it is dropped on. */
+  { fg: "--accent-strong", bg: "--surface" },
+  { fg: "--accent-strong", bg: "--row-hover" },
 ];
 
 export interface Measurement {
@@ -253,7 +328,7 @@ describe("dark token set", () => {
     }
   });
 
-  it("meets AA on every pair the data grid paints", () => {
+  it("meets AA on every pair the shell and the grid paint", () => {
     const measurements = assertContrast(tokens);
     // Printed on success too: a gate that only speaks when it fails gives the
     // operator no evidence that it ran.
@@ -290,6 +365,74 @@ describe("dark token set", () => {
   });
 });
 
+/**
+ * The palette's *shape*, not its ratios.
+ *
+ * "Pink theme" plus "red means loss" is the trap this ramp exists to avoid:
+ * the old accent was a blue (#7aa2ff) and the old negative was a pink-red
+ * (#ff6b81), so moving the accent into pink could have made a clickable
+ * control and a falling number the same colour. These assertions are what
+ * stops the next edit from melting them back together — a hue, a lightness
+ * and a chroma budget, measured from the same file the app ships.
+ */
+describe("the rose contract", () => {
+  const token = (name: string): string => {
+    const value = tokens[name];
+    if (value === undefined) throw new Error(`token ${name} is missing or not a hex colour`);
+    return value;
+  };
+
+  it("keeps every weight of the accent in the pink band", () => {
+    for (const name of ["--accent", "--accent-strong", "--accent-text", "--brand", "--focus"]) {
+      const hue = hueOf(token(name));
+      expect(hue, `${name} is ${hue.toFixed(1)}° — outside the 320–340° rose band`).toBeGreaterThanOrEqual(320);
+      expect(hue, `${name} is ${hue.toFixed(1)}° — outside the 320–340° rose band`).toBeLessThanOrEqual(340);
+    }
+  });
+
+  it("keeps the negative a red, not a second rose", () => {
+    const hue = hueOf(token("--down"));
+    expect(hue, `--down is ${hue.toFixed(1)}°, outside the 0–8° red band`).toBeGreaterThanOrEqual(0);
+    expect(hue, `--down is ${hue.toFixed(1)}°, outside the 0–8° red band`).toBeLessThanOrEqual(8);
+  });
+
+  it("separates the accent from the negative by hue and by lightness", () => {
+    const accent = token("--accent");
+    const down = token("--down");
+    expect(accent).not.toBe(down);
+    expect(hueDistance(hueOf(accent), hueOf(down))).toBeGreaterThanOrEqual(25);
+    // Hue is the channel a deuteranope loses, so the rose must also be the
+    // lighter of the two: the pair has to survive as a value difference.
+    expect(luminance(accent)).toBeGreaterThan(luminance(down));
+    expect(luminance(accent) - luminance(down)).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it("keeps every plane the table paints a tint, not a colour", () => {
+    // A 100-row table is read at 12 px; a plane whose channels differ by more
+    // than 12/255 starts competing with the data ink printed on it.
+    for (const name of [
+      "--bg",
+      "--surface",
+      "--surface-raised",
+      "--surface-sunken",
+      "--row-bg",
+      "--row-bg-alt",
+      "--row-hover",
+    ]) {
+      expect(channelSpread(token(name)), `${name} is too chromatic to be a plane`).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it("lets the selected row carry state, but not a poster", () => {
+    expect(channelSpread(token("--row-selected"))).toBeGreaterThan(channelSpread(token("--row-bg")));
+    expect(channelSpread(token("--row-selected"))).toBeLessThanOrEqual(24);
+  });
+
+  it("leaves --flat achromatic so 'unchanged' owns no hue", () => {
+    expect(channelSpread(token("--flat"))).toBeLessThanOrEqual(8);
+  });
+});
+
 describe("the gate itself", () => {
   it("treats 18.66 px bold as large and 18 px bold as normal", () => {
     expect(isLargeText(18.66, 700)).toBe(true);
@@ -300,7 +443,7 @@ describe("the gate itself", () => {
 
   it("computes known WCAG ratios", () => {
     // Reference values: identical colours are 1:1, black on white is 21:1.
-    expect(contrastRatio("#10141c", "#10141c")).toBeCloseTo(1, 5);
+    expect(contrastRatio("#181215", "#181215")).toBeCloseTo(1, 5);
     expect(contrastRatio("#ffffff", "#000000")).toBeCloseTo(21, 5);
     // A mid grey on white, cross-checked by hand: 0.46 luminance-ish pair.
     expect(contrastRatio("#767676", "#ffffff")).toBeCloseTo(4.54, 1);
@@ -322,12 +465,13 @@ describe("the gate itself", () => {
     expect(() => assertContrast(broken)).toThrow(/contrast failure/);
   });
 
-  it("fails when --border-control is the 2.67:1 value the file used to ship", () => {
+  it("rejects the #4a5b75 control edge the file shipped before F3", () => {
     // The exact regression F3 found: the old token passed every text test it
-    // was never in, because only text pairs were measured.
+    // was never in, because only text pairs were measured. It is still below
+    // 3:1 against today's --surface-sunken, and the message names the pair.
     const broken = { ...tokens, "--border-control": "#4a5b75" };
     expect(() => assertBoundaries(broken)).toThrow(/--border-control on --surface-sunken/);
-    expect(() => assertBoundaries(broken)).toThrow(/2\.7[0-9]:1 < 3\.0:1/);
+    expect(() => assertBoundaries(broken)).toThrow(/2\.\d{2}:1 < 3\.0:1/);
   });
 
   it("applies the non-text threshold, not the text one, to boundaries", () => {

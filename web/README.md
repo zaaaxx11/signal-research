@@ -70,36 +70,101 @@ JavaScript.
 `@theme inline` maps every token to a utility so no component invents one.
 Dark ships alone (D11); a light theme is a second block for the same names.
 
+The palette is rose. The interesting decision is not the pink — it is that the
+negative colour had to stop being pink at the same moment. The previous ramp
+paired a blue accent (`#7aa2ff`) with a pink-red loss (`#ff6b81`), so moving the
+accent into pink without moving `--down` would have made a falling number and a
+clickable control the same colour at 12 px. The accent family therefore ships at
+three weights, and the loss moved to red:
+
+| Token | Value | Role | Hue (HSL) | Hue (OKLCH) |
+|---|---|---|---:|---:|
+| `--accent` | `#ff8ec4` | chrome: active-tab edge, focus ring, chip border | 331.3° | 351.0° |
+| `--accent-text` | `#ffa8cf` | links and secondary chrome on dark | 333.1° | 351.4° |
+| `--accent-strong` | `#e8528f` | fill: primary button / active tab, ink `#1f0a14` | 335.6° | 358.8° |
+| `--down` | `#ff5f4d` | a loss, always with its sign and arrow | 6.1° | 29.4° |
+
+**34.7° of hue** (38.4° in OKLCH) and **0.146 of relative luminance** separate
+the brand rose from the loss red: `--accent` is the lighter of the two, so the
+pair survives as a value difference even when hue is gone. Both numbers are
+asserted — `--accent` must land in 320–340°, `--down` in 0–8°, the arc between
+them ≥25°, and `luminance(accent) − luminance(down) ≥ 0.1`. Hue is quoted in HSL
+because that is the number `hsl()`, every design tool and CSS `hotpink` report;
+OKLCH puts the same rose ~20° higher, which is the standard sRGB→OKLab warp, and
+the contract test pins one space instead of letting the two drift apart.
+
+The fill weight is not decoration: `--accent-strong` measures 5.31:1 against
+`--surface` and 4.60:1 against `--row-hover`, so a filled control clears
+WCAG 1.4.11 without a border, and its ink clears 4.5:1. `--accent-soft`
+(`#31262c`) is the *surface* the vendored primitives mean by `accent`
+(`hover:bg-accent`, the skeleton pulse); `index.css` maps `--color-accent` to it
+while `--accent` itself stays the rose the focus ring and the native checkbox
+use. A pink skeleton would have been the first casualty of not separating them.
+
 Measured by `src/styles/tokens.test.ts` (WCAG 2.1 relative luminance), never by
 eye:
 
-| Token | Value | `--row-bg` | `--row-bg-alt` | `--row-hover` |
-|---|---|---:|---:|---:|
-| `--up` | `#3ddc97` | 10.43 | 9.95 | 9.01 |
-| `--down` | `#ff6b81` | 6.74 | 6.42 | 5.82 |
-| `--flat` | `#9fb0c8` | 8.36 | 7.97 | 7.22 |
-| `--alert` | `#ffb454` | 10.46 | 9.97 | 9.03 |
-| `--fg` | `#e6ebf4` | 15.41 | 14.70 | 13.32 |
-| `--fg-muted` | `#a8b3c6` | 8.72 | 8.31 | 7.53 |
-| `--fg-subtle` | `#8b97a9` | 6.23 | 5.94 | 5.38 |
+| Token | Value | `--row-bg` | `--row-bg-alt` | `--row-hover` | `--row-selected` |
+|---|---|---:|---:|---:|---:|
+| `--up` | `#3ddc97` | 10.46 | 9.96 | 9.06 | 8.56 |
+| `--down` | `#ff5f4d` | 6.16 | 5.86 | 5.33 | 5.04 |
+| `--flat` | `#a6a2a4` | 7.33 | 6.98 | 6.35 | 6.00 |
+| `--alert` | `#ffb454` | 10.48 | 9.98 | 9.08 | 8.58 |
+| `--fg` | `#efe9ec` | 15.43 | 14.69 | 13.37 | 12.64 |
+| `--fg-muted` | `#b9afb4` | 8.67 | 8.26 | 7.51 | 7.10 |
+| `--fg-subtle` | `#9d9398` | 6.21 | 5.92 | 5.38 | 5.09 |
+| `--accent-text` | `#ffa8cf` | 10.35 | 9.85 | 8.96 | 8.47 |
 
 Every data pair is 10–12 px at 400–600 weight — normal text, so the 4.5:1
-threshold applies and none of them is excused as "large". `--fg-disabled`
-(3.26 on `--row-bg`, 3.37 on `--surface-sunken`) is exempt by WCAG 1.4.3
-(inactive controls) and is used only for disabled labels.
+threshold applies and none of them is excused as "large". `--row-selected` is in
+the table because a selected row still prints its numbers: the tones are measured
+on the lightest plane a datum can land on, not just the two zebra stripes.
+`--fg-disabled` (`#6d6569`, 3.27 on `--row-bg`, 3.38 on `--surface-sunken`) is
+exempt by WCAG 1.4.3 (inactive controls) and is used only for disabled labels.
+It is a grey with no rose in it on purpose: a disabled control must not read as a
+half-strength active pink one.
 
-Borders are decorative hairlines; the boundary that carries meaning — a
-control's edge — is measured separately, at the 3:1 of WCAG 1.4.11:
+`--flat` (`#a6a2a4`) is the only achromatic semantic in the file — channel spread
+4/255 — so "unchanged" owns no hue and cannot be mistaken for chrome.
+
+Borders are decorative hairlines; the boundaries that carry meaning — a control's
+edge, the focus ring, the active tab's 2 px edge — are measured separately, at
+the 3:1 of WCAG 1.4.11:
 
 | Token | Value | sunken | surface | raised | row-bg | row-alt | hover | page |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| `--border-control` | `#5f7189` | 3.82 | 3.70 | 3.49 | 3.70 | 3.53 | 3.19 | 3.90 |
-| `--focus` | `#6ea8ff` | 7.90 | 7.65 | 7.23 | 7.65 | 7.29 | 6.61 | 8.06 |
+| `--border-control` | `#7b6e75` | 3.94 | 3.81 | 3.59 | 3.81 | 3.63 | 3.30 | 4.01 |
+| `--focus` | `#ff8ec4` | 9.03 | 8.73 | 8.23 | 8.73 | 8.31 | 7.56 | 9.18 |
+| `--accent` | `#ff8ec4` | 9.03 | 8.73 | 8.23 | 8.73 | 8.31 | 7.56 | 9.18 |
+| `--accent-strong` | `#e8528f` | 5.49 | 5.31 | 5.01 | 5.31 | 5.06 | 4.60 | 5.58 |
 
-The search box is why the table exists: `SymbolSearch` paints a 1 px
+The focus row is the adversarial one: a rose ring drawn on a rose-tinted zebra
+row. It measures 8.31:1 there against a 3:1 floor — the tint costs 0.42 of ratio,
+not the margin. `--border-control` keeps 0.30 of headroom at its worst case
+(`--row-hover`), which is why it moved up to `#7b6e75` rather than staying at the
+old value's 3.19.
+
+The surfaces are a tint, not a colour: page `#100c0e`, surface/row `#181215`,
+zebra `#1e171b`, hover `#281f24` — hue 324–330°, OKLCH chroma 0.008–0.016, at
+most 9/255 of channel spread, and **1.14 ΔE from neutral** for `--row-bg`. The
+accent is 15 ΔE away. That is the whole "calm at 100 rows" argument: the rose
+lives in the chrome, and the table is warm charcoal. `--row-selected`
+(`#34202b`, spread 20/255) and `--selection` (`#49293c`) are states, and they are
+the only fills allowed more chroma than a plane — both still print `--fg` at
+12.64:1 and 10.53:1.
+
+Colour is never the only channel. The delta renderer prints `▲`/`▼` and a signed
+percent, and carries an `sr-only` word ("up"/"down"/"unchanged"); a cell's tone is
+redundant with its text. Under deuteranopia (`#ff8ec4` simulates to `#b7bac1`,
+`#ff5f4d` to `#b3a248`) the two land 14.6 ΔE apart with 8 L* of separation — a
+grey-blue versus an olive — and the accent's role (a 2 px edge, a ring, a link)
+differs from the number's (a right-aligned tabular figure with an arrow) even
+where the hues converge.
+
+The search box is why the boundary table exists: `SymbolSearch` paints a 1 px
 `border-line-control` on `bg-surface-sunken`, and that fill differs from the
 header surface by 1.03:1 — the border *is* the control, so it is information,
-not decoration. The value this replaces, `#4a5b75`, measured **2.67:1** on
+not decoration. The value before F3, `#4a5b75`, measured **2.67:1** on
 `--row-bg` and **2.76:1** where it is used while this file claimed 3.77:1. The
 gate never saw it because `PAIRS` only held text pairs; `BOUNDARIES` now
 computes the table above from `tokens.css` on every run and fails on the old
@@ -249,12 +314,12 @@ to bite.
 ## Tests
 
 ```bash
-npm test                                   # 38 Vitest tests: contrast, search, API client
+npm test                                   # the Vitest suite: contrast, tokens, grid, filters, API
 .venv/bin/python -m pytest tests/test_web_app_mount.py -q
 ```
 
-The contrast test parses `tokens.css` and computes WCAG ratios itself — 18
-text pairs at 4.5:1 and 12 control boundaries at 3:1 — so darkening a token
+The contrast test parses `tokens.css` and computes WCAG ratios itself — 36
+text pairs at 4.5:1 and 22 control boundaries at 3:1 — so darkening a token
 fails the build with the exact pair and ratio named. The search test drives the
 real component with fake timers and a mocked `fetch`: one request per typing
 burst, arrow keys move `aria-activedescendant`, Enter commits **only a list

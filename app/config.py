@@ -21,6 +21,22 @@ class Settings(BaseSettings):
 
     db_path: Path = Path("ztockz.db")
     export_dir: Path = Path("out")
+    #: Brand marks (``GET /logos/{symbol}``). ``logo_dir`` is the on-disk store
+    #: the route reads first and writes a fetched mark into; ``None`` means the
+    #: data root's ``logos`` (``MEE_DATA_DIR``), so a deployment that moves its
+    #: data does not leave the cache behind in the working directory.
+    #: ``logo_upstream`` is the one switch that permits the outbound fetch: on by
+    #: default, because this repo vendors 35 mostly-foreign assets and would
+    #: otherwise show nothing but monograms; off for a box with no egress or a
+    #: policy against a third party. The timeout bounds that one call,
+    #: ``logo_max_bytes`` refuses an answer that is not a small icon, and
+    #: ``logo_store_max_bytes`` is the budget older marks are evicted to keep
+    #: (``0`` disables the on-disk cache: every request re-fetches).
+    logo_dir: Path | None = None
+    logo_upstream: bool = True
+    logo_upstream_timeout_s: float = Field(default=5.0, gt=0.0, le=30.0)
+    logo_max_bytes: int = Field(default=262_144, ge=1_024, le=4_194_304)
+    logo_store_max_bytes: int = Field(default=33_554_432, ge=0)
     #: Reference master (02 §3.3). ``None`` → the repo seed at
     #: ``reference/venue_master.json``; ``MEE_REFERENCE_PATH`` overrides it.
     #: Not defaulted to a path here so a missing file is an explicit error at

@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+import { API_PREFIXES } from "./vite.prefixes";
+
 const pkg = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
@@ -17,9 +19,6 @@ const pkg = JSON.parse(
  */
 const BASE = "/app/";
 const API_ORIGIN = "http://127.0.0.1:8099";
-
-/** Same-origin prefixes the shell talks to; proxied in dev, native in prod. */
-const API_PREFIXES = ["/screens", "/market", "/symbols", "/engine", "/health"];
 
 export default defineConfig({
   base: BASE,

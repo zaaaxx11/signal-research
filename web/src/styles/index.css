@@ -44,6 +44,22 @@
  * pointing at the CSS variable instead of copying the resolved value, which is
  * what lets a future light block repaint every utility by redeclaring :root.
  */
+/*
+ * The rose theme, and the one rename it forced.
+ *
+ * The brand accent is pink, so `--accent` (the brand) and `--accent-soft` (a
+ * raised surface) can no longer be the same variable: the vendored primitives
+ * say `hover:bg-accent` and `animate-pulse bg-accent`, which must stay a
+ * quiet surface, while the shell's chrome needs a rose edge. Tailwind's
+ * `--color-accent` therefore points at `--accent-soft`; `--accent` itself is
+ * available to hand-written CSS and to `accent-[var(--accent)]` on the native
+ * checkbox, where a pink tick is the point.
+ *
+ * `--accent-strong` and `--accent-text` are declared but not yet used by a
+ * component: they are the fill and text weights the next card/button work
+ * needs, and declaring them here keeps the three weights measurable by
+ * tokens.test.ts instead of appearing later as three improvised hexes.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -57,7 +73,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
+  --color-accent: var(--accent-soft);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -87,6 +103,9 @@
   --color-alert: var(--alert);
   --color-focus: var(--focus);
   --color-brand: var(--brand);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-text: var(--accent-text);
+  --color-selection: var(--selection);
 
   /* Type scale: 12 px is the data size, 13 px the chrome size (D5). */
   --text-data: 0.75rem;
@@ -124,8 +143,12 @@
     /* No external font request: the stack above resolves locally. */
   }
 
+  /* Text selection is a rose fill of its own, not the row-selected surface:
+   * selecting a cell in the sticky header (which never takes a row state) and
+   * selecting it in a zebra row must look the same, and both must keep --fg
+   * at 10.53:1. --selection is the one token a text colour is drawn *on*. */
   ::selection {
-    background-color: var(--row-selected);
+    background-color: var(--selection);
     color: var(--fg);
   }
 

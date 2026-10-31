@@ -28,3 +28,6 @@ research/finviz-ui-raw/*.css
 research/finviz-ui-raw/*.js
 research/finviz-ui-raw/*.html
 research/finviz-ui-raw/**/*.html
+
+# Runtime caches that must never be committed
+/data/

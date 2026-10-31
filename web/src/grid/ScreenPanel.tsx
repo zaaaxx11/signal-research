@@ -7,7 +7,11 @@
  * * **where the numbers came from** — `as of`, how many matched, how many this
  *   page shows, and whether the API's 60 KB budget cut anything;
  * * **whether the last refresh actually refreshed** — a `304` is a success, but
- *   it did not bring new rows, so it says so instead of pretending.
+ *   it did not bring new rows, so it says so instead of pretending;
+ * * **whether a page turn is still on its way** — the rows stay, the table
+ *   fades, a rose bar sweeps the panel's top edge and the footer names the
+ *   range being fetched. A three-second answer must look like work in
+ *   progress, not like a click that did nothing.
  */
 
 import * as React from "react";
@@ -16,12 +20,19 @@ import {
   MAX_COLUMNS,
   PANEL_LIMIT,
   SORTS,
+  queryKey,
   useScreens,
   type ScreenSort,
   type ViewDefinition,
 } from "@/data/screens";
 
 import { DataTable } from "./DataTable";
+import { ColumnPicker } from "./ColumnPicker";
+import { PendingBar } from "./PendingBar";
+import { pendingLabel, useDelayedFlag, useReducedMotion } from "./pending";
+import { sameColumns } from "./columnSelection";
+import { SectorChip, SectorSelect, type SectorSource } from "./SectorSelect";
+import { activeSector, isSectorChoice, sectorNamesFromRows } from "./sectors";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
 
 import type { ActiveFilter } from "@/filters/types";
@@ -49,6 +60,34 @@ export interface ScreenPanelProps {
   onOpenFilters?: () => void;
   filterNotice?: string | null;
   onDismissFilterNotice?: () => void;
+  /** Every key the schema serves; the picker offers exactly these. */
+  catalogue?: readonly string[];
+  /** The selection to draw; the view's own columns when omitted. */
+  columns?: readonly string[];
+  onToggleColumn?: (key: string) => void;
+  onResetColumns?: () => void;
+  /** The cap sentence from the shell, shown above the grid and in the picker. */
+  columnNotice?: string | null;
+  onDismissColumnNotice?: () => void;
+  /**
+   * The market's sector labels, from the shell's `GET /market/breadth` read.
+   *
+   * The shell owns that read so this panel stays a pure renderer of what it was
+   * given (and so a panel test never spends a request on a menu). When the list
+   * is empty the panel derives one from the `sector` cells of its own rows and
+   * says so — a page is not the market.
+   */
+  sectorOptions?: readonly string[];
+  /** Whether those names are the market's, still loading, or unavailable. */
+  sectorSource?: "breadth" | "loading" | "unavailable";
+  /**
+   * Choosing a sector, or clearing one (`null`).
+   *
+   * Supplying this is what mounts the control: the panel writes `sec eq name`
+   * into the *one* filter list through this callback, so the chip bar, the URL
+   * and the request body all keep reading a single state.
+   */
+  onSectorChange?: (name: string | null) => void;
 }
 
 const SORT_LABELS: Record<ScreenSort, string> = {
@@ -81,46 +120,77 @@ export function ScreenPanel({
   onOpenFilters,
   filterNotice,
   onDismissFilterNotice,
+  catalogue,
+  columns,
+  onToggleColumn,
+  onResetColumns,
+  columnNotice,
+  onDismissColumnNotice,
+  sectorOptions,
+  sectorSource,
+  onSectorChange,
 }: ScreenPanelProps) {
-  const [internalPage, setInternalPage] = React.useState(0);
-  const [internalSort, setInternalSort] = React.useState<ScreenSort>("market_cap");
-  const pageIndex = pageProp ?? internalPage;
-  const sort = sortProp ?? internalSort;
   const activeFilters = filters ?? [];
   const filterKey = filtersSignature(activeFilters);
+  const [internalSort, setInternalSort] = React.useState<ScreenSort>("market_cap");
+  const sort = sortProp ?? internalSort;
+  const [pickerOpen, setPickerOpen] = React.useState(false);
 
-  React.useEffect(() => {
-    if (pageProp === undefined) setInternalPage(0);
-  }, [view.name, sort, filterKey, pageProp]);
+  /**
+   * Per-view page state.
+   *
+   * A page belongs to the screen it was chosen on. Keeping the number in a
+   * plain `useState` and resetting it in an effect meant the commit that
+   * switched view still carried the old page — the panel asked for the new
+   * view at the previous view's offset, then corrected itself: one request too
+   * many, and the auditor saw it. The page is therefore *derived* against the
+   * state key it belongs to, so a view (or sort, or filter) switch reads page 0
+   * in the very render that changed the view, and exactly one request is sent.
+   */
+  const pageKey = `${view.name}\u0000${sort}\u0000${filterKey}`;
+  const [cursor, setCursor] = React.useState<{ key: string; page: number }>({ key: pageKey, page: 0 });
+  const internalPage = cursor.key === pageKey ? cursor.page : 0;
+  const pageIndex = pageProp ?? internalPage;
 
-  const changePage = (next: number) => {
-    if (pageProp === undefined) setInternalPage(next);
-    onPageChange?.(next);
-  };
+  /**
+   * The columns this panel may ask for.
+   *
+   * `logo` is removed here, once, at the boundary every request crosses. The
+   * identity lane draws the mark from `/logos/{SYMBOL}` (see `logo.ts`); a row
+   * that also carried the monogram as a base64 data URI would spend ~640 B per
+   * row — 64 KB per hundred rows — against the API's 60 KB panel budget, and
+   * the API pays for it by dropping rows. A link that names `logo` therefore
+   * asks for nothing: the lane already has its mark.
+   */
+  const selection = React.useMemo(
+    () => (columns && columns.length > 0 ? columns : view.columns).filter((key) => key !== "logo"),
+    [columns, view.columns],
+  );
+  const effective = React.useMemo(
+    () => (sameColumns(selection, view.columns) ? view.columns : [...selection]),
+    [selection, view.columns],
+  );
+  const custom = !sameColumns(effective, view.columns);
+  const panelView = React.useMemo<ViewDefinition>(
+    () => (custom ? { ...view, columns: [...effective] } : view),
+    [custom, effective, view],
+  );
 
-  const changeSort = (next: ScreenSort) => {
-    if (sortProp === undefined) {
-      setInternalSort(next);
-      setInternalPage(0);
-    }
-    onSortChange?.(next);
-  };
-
-  const supported = view.columns.length <= MAX_COLUMNS;
+  const supported = effective.length > 0 && effective.length <= MAX_COLUMNS;
 
   const query = React.useMemo(
     () =>
       supported
         ? {
-            view: view.name,
-            columns: view.columns,
+            view: panelView.name,
+            columns: panelView.columns,
             limit: PANEL_LIMIT,
             offset: pageIndex * PANEL_LIMIT,
             sort,
             filters: toWire(activeFilters),
           }
         : null,
-    [supported, view.name, view.columns, pageIndex, sort, filterKey],
+    [supported, panelView.name, panelView.columns, pageIndex, sort, filterKey],
   );
 
   const screens = useScreens(query);
@@ -139,7 +209,117 @@ export function ScreenPanel({
   const first = rows.length > 0 ? (meta?.offset ?? 0) + 1 : 0;
   const last = (meta?.offset ?? 0) + rows.length;
   const status = sameView && screens.status !== "idle" ? screens.status : "loading";
-  const checking = status === "loading" && rows.length > 0;
+
+  /**
+   * Is a selection in flight? — a different question from `status`, which is
+   * the *table's* state.
+   *
+   * `status` is "loading" only once the hook's effect has run and blanked its
+   * own answer; between the click that turned the page and that effect there
+   * is one committed frame where the hook still says "ready" while a request
+   * is already owed. The rows are not the answer to the current query in that
+   * frame, and the paging controls must already be shut — otherwise a fast
+   * second click queues page 3 behind page 2.
+   *
+   * So the state is derived from two facts that cannot drift, because neither
+   * is stored here: the hook is loading, or the rows it holds answer a query
+   * other than the one this render asks for. An error is excluded on purpose:
+   * a failed request has settled, and a bar that keeps sweeping over a failure
+   * is a lie the reader would wait on forever.
+   *
+   * It is true from the click to the settle — a `304` settles it (the hook
+   * returns to "ready"), and an aborted request settles it too (the abort
+   * belongs to a query that is no longer current, and the query that replaced
+   * it owns the flag from its own first render).
+   */
+  const currentKey = React.useMemo(() => (query ? queryKey(query) : null), [query]);
+  const isFetching =
+    query !== null &&
+    (screens.status === "loading" ||
+      (screens.status !== "error" && screens.queryKey !== currentKey));
+
+  /**
+   * The chrome waits; the controls do not.
+   *
+   * `isFetching` shuts Next/Prev on the click itself. The bar, the fade and
+   * the sentence are held back by `PENDING_FLASH_DELAY_MS` so a fast answer
+   * never paints them — see `pending.ts` for the threshold and why 120 ms.
+   */
+  const pending = isFetching && status !== "error";
+  const showPending = useDelayedFlag(pending);
+  const reducedMotion = useReducedMotion();
+  /** Only rows that exist can be dimmed; a first load keeps its skeleton. */
+  const stale = showPending && rows.length > 0;
+
+  /**
+   * The page change itself. Unguarded, because the reconciliation effect below
+   * is not a click: a page named by the URL that cannot exist must still be
+   * corrected on the answer that proves it.
+   */
+  const goToPage = (next: number) => {
+    if (pageProp === undefined) setCursor({ key: pageKey, page: next });
+    onPageChange?.(next);
+  };
+
+  const changePage = (next: number) => {
+    // The button is disabled while a request is out, but a synthetic click (or
+    // a double-tap that lands inside one commit) must not queue a second
+    // request either. The target page is derived from `pageIndex`, so two
+    // clicks in one batch ask for the same page and collapse into one request.
+    if (isFetching) return;
+    goToPage(next);
+  };
+
+  const changeSort = (next: ScreenSort) => {
+    // A sort is not queued behind the page turn: it replaces it, and the hook
+    // aborts the request it supersedes.
+    if (sortProp === undefined) {
+      setInternalSort(next);
+      setCursor({ key: pageKey, page: 0 });
+    }
+    onSortChange?.(next);
+  };
+
+  const label =
+    showPending
+      ? pendingLabel({
+          // A re-ask of the page already on screen is a refresh; anything else
+          // names the rows that are on their way.
+          refreshing: screens.queryKey === currentKey,
+          pageIndex,
+          limit,
+          total: meta?.total ?? null,
+        })
+      : null;
+
+  // --- the sector menu ----------------------------------------------------
+  //
+  // The menu's population is the shell's breadth read: 21 labels counted over
+  // the whole universe. When that read has not landed (or failed) the fallback
+  // is the `sector` cell of the rows on this page, and the control prints which
+  // of the two it is showing — a page is not the market, and the reader must be
+  // able to tell.
+  const sectorCapable = onSectorChange !== undefined;
+  const offeredSectors = React.useMemo(
+    () => (sectorOptions ?? []).filter((name) => typeof name === "string" && name.trim().length > 0),
+    [sectorOptions],
+  );
+  const derivedSectors = React.useMemo(() => sectorNamesFromRows(rows), [rows]);
+  const sectorNames = offeredSectors.length > 0 ? offeredSectors : derivedSectors;
+  const sectorValue = sectorCapable ? activeSector(activeFilters) : null;
+  const sectorPopulation: SectorSource =
+    offeredSectors.length > 0
+      ? "breadth"
+      : derivedSectors.length > 0
+        ? "rows"
+        : sectorSource === "loading"
+          ? "loading"
+          : "none";
+  // The selector draws the one predicate it owns; the chip bar draws the rest.
+  // A panel with no selector hides nothing.
+  const barFilters = sectorCapable
+    ? activeFilters.filter((filter) => !isSectorChoice(filter))
+    : activeFilters;
 
   // A page is a request, and the URL may name one that cannot exist (a shared
   // link, a stale tab, a filter that shrank the result set). `parseScreenState`
@@ -152,8 +332,10 @@ export function ScreenPanel({
   React.useEffect(() => {
     if (!meta) return;
     if (pageIndex <= maxPage) return;
-    changePage(maxPage);
-    // `changePage` closes over the controlled/uncontrolled switch, not over
+    // Deliberately not `changePage`: this correction is not a click, and it
+    // must not be dropped because a request happens to be in flight.
+    goToPage(maxPage);
+    // `goToPage` closes over the controlled/uncontrolled switch, not over
     // `pageIndex`; re-running on a new page is what stops the loop at maxPage.
   }, [meta, pageIndex, maxPage]);
 
@@ -172,10 +354,11 @@ export function ScreenPanel({
         className="flex min-h-0 flex-1 flex-col rounded-md border border-line bg-surface"
       >
         <div role="alert" className="m-3 rounded-md border border-line border-l-2 border-l-alert bg-surface-raised p-4">
-          <p className="text-ui font-medium text-fg">This view is too wide for one panel</p>
+          <p className="text-ui font-medium text-fg">This selection is too wide for one panel</p>
           <p className="mt-1 text-data text-fg-muted">
-            {view.label} asks for {view.columns.length} columns; the API accepts at most{" "}
-            {MAX_COLUMNS} per selection. The all-columns destination is Phase 4.
+            {view.label} asks for {effective.length} columns; the API accepts at most{" "}
+            {MAX_COLUMNS} per selection. The wide catalogue still exists — it is the
+            all-columns destination, not a tab.
           </p>
         </div>
       </section>
@@ -185,8 +368,12 @@ export function ScreenPanel({
   return (
     <section
       {...panel}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-surface"
+      // `relative` is for the pending bar, which is positioned on the top edge
+      // so that appearing and disappearing costs no layout.
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-surface"
     >
+      {showPending ? <PendingBar reducedMotion={reducedMotion} /> : null}
+
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-line-strong px-3">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-ui font-medium text-fg">{view.label}</h2>
@@ -194,12 +381,6 @@ export function ScreenPanel({
         </div>
 
         <div className="flex shrink-0 items-center gap-3">
-          {checking ? (
-            <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-              checking…
-            </span>
-          ) : null}
-
           {sameView && screens.revalidated ? (
             <span
               data-testid="stale-badge"
@@ -220,6 +401,27 @@ export function ScreenPanel({
           >
             Filters{activeFilters.length > 0 ? ` · ${activeFilters.length}` : ""}
           </button>
+
+          {catalogue && catalogue.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              aria-label="Columns"
+              data-testid="columns-button"
+              className="rounded-sm border border-line px-2 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
+            >
+              Columns{custom ? ` · ${effective.length}` : ""}
+            </button>
+          ) : null}
+
+          {sectorCapable ? (
+            <SectorSelect
+              names={sectorNames}
+              source={sectorPopulation}
+              value={sectorValue}
+              onChange={(name) => onSectorChange?.(name)}
+            />
+          ) : null}
 
           <label className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
             sort
@@ -247,10 +449,14 @@ export function ScreenPanel({
         </div>
       </div>
 
+      {sectorCapable && sectorValue !== null ? (
+        <SectorChip name={sectorValue} onClear={() => onSectorChange?.(null)} />
+      ) : null}
+
       {registry ? (
         <ChipBar
           registry={registry}
-          filters={activeFilters}
+          filters={barFilters}
           onRemove={onRemoveFilter ?? (() => undefined)}
           onClear={onClearFilters ?? (() => undefined)}
           notice={filterNotice}
@@ -258,9 +464,27 @@ export function ScreenPanel({
         />
       ) : null}
 
+      {columnNotice !== null && columnNotice !== undefined ? (
+        <div
+          role="status"
+          data-testid="column-notice"
+          className="flex shrink-0 items-start justify-between gap-3 border-b border-line bg-surface-raised px-3 py-1.5"
+        >
+          <p className="text-data text-alert">{columnNotice}</p>
+          <button
+            type="button"
+            onClick={onDismissColumnNotice}
+            aria-label="Dismiss column notice"
+            className="shrink-0 rounded-sm border border-line px-1 text-label text-fg-muted hover:text-fg"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex h-6 shrink-0 items-center justify-between gap-3 border-b border-line px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-        <span className="truncate">
-          {view.columns.length} columns · {rows.length} rows
+        <span className="truncate" data-testid="column-count">
+          {effective.length} columns{custom ? " · custom" : ""} · {rows.length} rows
         </span>
         <span className="truncate" data-testid="as-of">
           {meta ? `as of ${timeOf(meta.asOf)}` : "waiting for the engine"}
@@ -269,7 +493,7 @@ export function ScreenPanel({
       </div>
 
       <DataTable
-        view={view}
+        view={panelView}
         rows={rows}
         status={status}
         error={sameView ? screens.error : null}
@@ -282,17 +506,37 @@ export function ScreenPanel({
         onClear={onClear}
         selectedSymbol={selectedSymbol}
         containerWidth={containerWidth}
+        stale={stale}
+        busy={isFetching}
       />
 
       <div className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-line bg-surface-sunken px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-        <span data-testid="range">
-          {total > 0 ? `${first}–${last} of ${total.toLocaleString("en-US")}` : "—"}
+        <span className="flex min-w-0 items-center gap-2">
+          <span data-testid="range" className="shrink-0">
+            {total > 0 ? `${first}–${last} of ${total.toLocaleString("en-US")}` : "—"}
+          </span>
+          {/*
+            The one live region. It is mounted empty and filled by a state
+            change, because a region that appears *with* its sentence is not
+            reliably announced. `aria-atomic` re-reads the whole sentence
+            rather than a diff of it, and nothing else in the panel carries a
+            live role for this text, so it is said once.
+          */}
+          <span
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            data-testid="fetch-status"
+            className="min-w-0 truncate normal-case tracking-normal text-accent-text"
+          >
+            {label}
+          </span>
         </span>
-        <span className="flex items-center gap-1">
+        <span className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={() => changePage(Math.max(0, pageIndex - 1))}
-            disabled={pageIndex === 0}
+            disabled={pageIndex === 0 || isFetching}
             className="rounded-sm border border-line px-1.5 py-0.5 transition-colors hover:text-fg disabled:opacity-40"
           >
             Prev
@@ -303,13 +547,26 @@ export function ScreenPanel({
           <button
             type="button"
             onClick={() => changePage(Math.min(pageCount - 1, pageIndex + 1))}
-            disabled={pageIndex + 1 >= pageCount}
+            disabled={pageIndex + 1 >= pageCount || isFetching}
             className="rounded-sm border border-line px-1.5 py-0.5 transition-colors hover:text-fg disabled:opacity-40"
           >
             Next
           </button>
         </span>
       </div>
+
+      {catalogue && catalogue.length > 0 ? (
+        <ColumnPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          keys={catalogue}
+          selected={effective}
+          onToggle={(key) => onToggleColumn?.(key)}
+          onReset={() => onResetColumns?.()}
+          custom={custom}
+          notice={columnNotice ?? null}
+        />
+      ) : null}
     </section>
   );
 }

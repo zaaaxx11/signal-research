@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 import { CellValue, IdentityCell } from "./cellRenderers";
 import { columnSpec, labelFor, type ColumnSpec } from "./columnMeta";
+import { visibleRange } from "./window";
 import { solveView } from "./solver";
 
 /** The CSS contract the browser is given; exported so a test can assert it. */
@@ -50,6 +51,22 @@ const features = tableFeatures({
 const HEADER_HEIGHT = 24;
 const ROW_HEIGHT = 28;
 
+/**
+ * How far the table fades while a page turn is in flight.
+ *
+ * The number is the deepest fade that still keeps every data colour at or
+ * above 4:1 on an ordinary row, computed (not eyeballed) against the tokens:
+ * at 0.78 over `--surface`, a `--fg` cell reads 9.65:1, `--up` 6.70:1,
+ * `--flat` 4.90:1 and a `--down` loss 4.17:1 — so 0.78 is the last step before
+ * a falling number drops through 4:1. Dimming further is what would make the
+ * grid read as *disabled* rather than *stale*, and the rows on screen are
+ * exactly the rows the reader is still reading.
+ *
+ * It is also the reason the dim is not the only signal: a 22 % fade is a depth
+ * cue, and the bar and the label are what say "new numbers are on the way".
+ */
+export const STALE_OPACITY = 0.78;
+
 export interface DataTableProps {
   view: ViewDefinition;
   rows: ScreenRow[];
@@ -66,6 +83,43 @@ export interface DataTableProps {
   selectedSymbol?: string | null;
   /** Test seam: jsdom has no layout. Production measures the scroll box. */
   containerWidth?: number;
+  /**
+   * Why a cell was never answered, or null when it was.
+   *
+   * The all-columns destination is assembled from three requests; when one
+   * chunk fails, the cells it owned are not "null from the API" — they are
+   * missing, and the sentence plus the `title` says which chunk. The grid
+   * renders an em dash either way; the difference is that this one names the
+   * gap instead of shrugging at it.
+   */
+  absent?: (symbol: string, key: string) => string | null;
+  /**
+   * Render only the columns the viewport can see, with fixed-width spacers
+   * standing in for the rest (the wide destination: 116 columns × 20 rows).
+   *
+   * The `<colgroup>` still declares every width, so the table keeps its full
+   * 9 639 px, the scrollbar is the same, and the sticky lanes are untouched —
+   * what changes is how many cells exist. Without this, Chrome spends ~330 ms
+   * laying out columns nobody can see.
+   */
+  windowed?: boolean;
+  /**
+   * A selection is in flight and these rows are the previous answer: the table
+   * fades to `STALE_OPACITY` and says so in its `data-stale` attribute.
+   *
+   * The rows are kept — never blanked — because the reader is mid-sentence on
+   * them; dimming is the smallest honest signal that they are about to be
+   * replaced. They stay operable: a stale row still hovers, focuses and opens.
+   */
+  stale?: boolean;
+  /**
+   * Whether the region is being updated, for `aria-busy`.
+   *
+   * Defaults to the first-load status so an existing caller is unchanged; a
+   * page turn sets it while the *previous* rows are still on screen, which is
+   * exactly the state `status` alone cannot describe.
+   */
+  busy?: boolean;
 }
 
 function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>, override?: number) {
@@ -126,10 +180,15 @@ export function DataTable({
   onClear,
   selectedSymbol,
   containerWidth,
+  absent,
+  windowed = false,
+  stale = false,
+  busy,
 }: DataTableProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const width = useContainerWidth(scrollRef, containerWidth);
   const [focused, setFocused] = React.useState(-1);
+  const [scrollLeft, setScrollLeft] = React.useState(0);
   const rowRefs = React.useRef<Array<HTMLTableRowElement | null>>([]);
 
   const solved = React.useMemo(
@@ -145,6 +204,34 @@ export function DataTable({
     for (const key of view.columns) map.set(key, columnSpec(key));
     return map;
   }, [view.columns]);
+
+
+  /**
+   * The column window: identity is always drawn (it is pinned, so it is on
+   * screen at every scroll offset), and the rest follow the viewport. `null`
+   * means "every column" — the ordinary view, or a container not yet measured.
+   */
+  const range = React.useMemo(() => {
+    if (!windowed || !solved) return null;
+    const columns = visibleRange(solved.widths.slice(1), scrollLeft, width);
+    if (columns.start === 0 && columns.end === view.columns.length - 1) return null;
+    return columns;
+  }, [windowed, solved, scrollLeft, width, view.columns.length]);
+
+  const columns = React.useMemo(
+    () => (range ? view.columns.slice(range.start, range.end + 1) : view.columns),
+    [range, view.columns],
+  );
+  const lead = range ? range.start : 0;
+  const trail = range ? view.columns.length - range.end - 1 : 0;
+
+
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    if (!windowed) return;
+    // One state update per scroll event: browsers fire these at most once a
+    // frame, and the window that changes is ~12 cells, not 116.
+    setScrollLeft(event.currentTarget.scrollLeft);
+  };
 
   const headers = React.useMemo(() => {
     const map = new Map<string, { text: string; short: boolean; full: string }>();
@@ -194,54 +281,95 @@ export function DataTable({
     },
   });
 
-  const focusRow = (index: number) => {
-    const bounded = Math.max(0, Math.min(rows.length - 1, index));
+  /**
+   * Stable row callbacks.
+   *
+   * The wide view renders 20 rows × 117 cells; a re-render of every row on
+   * every hover, focus or selection is a measured 110 ms of jank in Chrome.
+   * Rows are memoised, so the callbacks they receive must keep their identity
+   * across renders — the latest values live in refs, not in closures.
+   */
+  const rowsRef = React.useRef(rows);
+  rowsRef.current = rows;
+  const activateRef = React.useRef(onActivate);
+  activateRef.current = onActivate;
+  const clearRef = React.useRef(onClear);
+  clearRef.current = onClear;
+  // Read inside the stable row key handler, so "is a panel open?" is the
+  // latest selection rather than the one captured at row creation.
+  const selectedRef = React.useRef(selectedSymbol);
+  selectedRef.current = selectedSymbol;
+
+  const activate = React.useCallback((symbol: string) => activateRef.current?.(symbol), []);
+  const setRowRef = React.useCallback((index: number, element: HTMLTableRowElement | null) => {
+    rowRefs.current[index] = element;
+  }, []);
+
+  const focusRow = React.useCallback((index: number) => {
+    const bounded = Math.max(0, Math.min(rowsRef.current.length - 1, index));
     setFocused(bounded);
     rowRefs.current[bounded]?.focus();
-  };
+  }, []);
 
-  const onRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => {
-    const row = rows[index];
-    if (!row) return;
-    switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault();
-        focusRow(index + 1);
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        focusRow(index - 1);
-        break;
-      case "PageDown":
-        event.preventDefault();
-        focusRow(index + 10);
-        break;
-      case "PageUp":
-        event.preventDefault();
-        focusRow(index - 10);
-        break;
-      case "Home":
-        event.preventDefault();
-        focusRow(0);
-        break;
-      case "End":
-        event.preventDefault();
-        focusRow(rows.length - 1);
-        break;
-      case "Enter":
-        event.preventDefault();
-        onActivate?.(row.symbol);
-        break;
-      case "Escape":
-        event.preventDefault();
-        setFocused(-1);
-        onClear?.();
-        event.currentTarget.blur();
-        break;
-      default:
-        break;
-    }
-  };
+  const onRowKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => {
+      const row = rowsRef.current[index];
+      if (!row) return;
+      switch (event.key) {
+        case "ArrowDown":
+          event.preventDefault();
+          focusRow(index + 1);
+          break;
+        case "ArrowUp":
+          event.preventDefault();
+          focusRow(index - 1);
+          break;
+        case "PageDown":
+          event.preventDefault();
+          focusRow(index + 10);
+          break;
+        case "PageUp":
+          event.preventDefault();
+          focusRow(index - 10);
+          break;
+        case "Home":
+          event.preventDefault();
+          focusRow(0);
+          break;
+        case "End":
+          event.preventDefault();
+          focusRow(rowsRef.current.length - 1);
+          break;
+        case "Enter":
+          event.preventDefault();
+          activateRef.current?.(row.symbol);
+          break;
+        case "Escape": {
+          event.preventDefault();
+          // F6: when a panel is open, Escape is the panel's key. The panel
+          // closes through the same `onClear` the parent owns, and focus stays
+          // on this row — where the reader was, and where the panel's own
+          // handler would have put it. Blurring here used to drop focus to
+          // `<body>`: the row blurred itself before the panel's document
+          // listener ran, and that listener then stood down on the row's
+          // `defaultPrevented`.
+          const panelOpen = Boolean(selectedRef.current);
+          clearRef.current?.();
+          if (panelOpen) {
+            event.currentTarget.focus();
+            break;
+          }
+          // No panel: Escape clears the roving cursor, as it always has.
+          setFocused(-1);
+          event.currentTarget.blur();
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [focusRow],
+  );
 
   React.useEffect(() => {
     setFocused(-1);
@@ -272,7 +400,9 @@ export function DataTable({
       // once 100 rows make the scrollbar appear — and the table, solved once,
       // would overflow by exactly that much.
       style={{ scrollbarGutter: "stable" }}
-      aria-busy={status === "loading"}
+      onScroll={onScroll}
+      data-window={range ? `${range.start}:${range.end}` : "every"}
+      aria-busy={busy ?? status === "loading"}
     >
       {!solved ? (
         <div className="space-y-1 p-2" aria-hidden="true">
@@ -286,6 +416,7 @@ export function DataTable({
       ) : (
         <table
           data-testid="grid-table"
+          data-stale={stale ? "true" : "false"}
           aria-label={`${view.label} screen`}
           aria-rowcount={hasRows ? announcedRows : undefined}
           aria-colcount={columnCount}
@@ -299,6 +430,13 @@ export function DataTable({
             tableLayout: "fixed",
             borderCollapse: "separate",
             borderSpacing: 0,
+            // The stale fade, inline rather than a utility so the effective
+            // value is readable from the DOM (and so it cannot be confused
+            // with the `disabled:` treatment of a control). The transition is
+            // the crossing only — the global reduced-motion rule collapses it
+            // to 0.01 ms for a reader who asked for that.
+            opacity: stale ? STALE_OPACITY : 1,
+            transition: "opacity 120ms linear",
           }}
           className="w-full text-data text-fg"
         >
@@ -309,35 +447,62 @@ export function DataTable({
           </colgroup>
 
           <thead>
-            {table.getHeaderGroups().map((group) => (
-              <tr key={group.id}>
-                {group.headers.map((header) => {
-                  const key = header.column.id;
-                  const meta = headers.get(key);
-                  const pinned = header.column.getIsPinned() === "start";
-                  return (
+            {table.getHeaderGroups().map((group) => {
+              const identityHeader = group.headers.find((header) => header.column.id === "identity");
+              const rest = group.headers.filter(
+                (header) =>
+                  header.column.id !== "identity" &&
+                  (!range || columns.includes(header.column.id)),
+              );
+              const draw = (header: (typeof group.headers)[number]) => {
+                const key = header.column.id;
+                const meta = headers.get(key);
+                const pinned = header.column.getIsPinned() === "start";
+                return (
+                  <th
+                    key={header.id}
+                    scope="col"
+                    data-key={key}
+                    style={{
+                      ...STICKY_HEADER,
+                      ...(pinned ? STICKY_LANE : {}),
+                      height: HEADER_HEIGHT,
+                      zIndex: pinned ? 40 : 20,
+                    }}
+                    className={cn(
+                      "border-b border-line-strong bg-surface-raised px-2 py-0 text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted",
+                      pinned && "bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]",
+                      key !== "identity" && "text-right",
+                    )}
+                    title={meta?.full ?? key}
+                  >
+                    <span className="block truncate">{meta?.text ?? key}</span>
+                  </th>
+                );
+              };
+              return (
+                <tr key={group.id}>
+                  {identityHeader ? draw(identityHeader) : null}
+                  {lead > 0 ? (
                     <th
-                      key={header.id}
-                      scope="col"
-                      style={{
-                        ...STICKY_HEADER,
-                        ...(pinned ? STICKY_LANE : {}),
-                        height: HEADER_HEIGHT,
-                        zIndex: pinned ? 40 : 20,
-                      }}
-                      className={cn(
-                        "border-b border-line-strong bg-surface-raised px-2 py-0 text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted",
-                        pinned && "bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]",
-                        key !== "identity" && "text-right",
-                      )}
-                      title={meta?.full ?? key}
-                    >
-                      <span className="block truncate">{meta?.text ?? key}</span>
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
+                      aria-hidden="true"
+                      colSpan={lead}
+                      style={{ ...STICKY_HEADER, height: HEADER_HEIGHT, zIndex: 20 }}
+                      className="border-b border-line-strong bg-surface-raised"
+                    />
+                  ) : null}
+                  {rest.map(draw)}
+                  {trail > 0 ? (
+                    <th
+                      aria-hidden="true"
+                      colSpan={trail}
+                      style={{ ...STICKY_HEADER, height: HEADER_HEIGHT, zIndex: 20 }}
+                      className="border-b border-line-strong bg-surface-raised"
+                    />
+                  ) : null}
+                </tr>
+              );
+            })}
           </thead>
 
           <tbody>
@@ -366,64 +531,27 @@ export function DataTable({
               </tr>
             ) : null}
 
-            {table.getRowModel().rows.map((row, index) => {
-              const symbol = row.original.symbol;
-              const selected = selectedSymbol === symbol;
-              const tabbable = focused === index || (focused === -1 && index === 0);
+            {rows.map((row, index) => {
+              const symbol = row.symbol;
               return (
-                <tr
-                  key={row.id}
-                  ref={(element) => {
-                    rowRefs.current[index] = element;
-                  }}
-                  data-symbol={symbol}
-                  data-row-id={row.id}
-                  data-selected={selected ? "true" : "false"}
-                  aria-selected={selected}
-                  tabIndex={tabbable ? 0 : -1}
-                  onFocus={() => setFocused(index)}
-                  onKeyDown={(event) => onRowKeyDown(event, index)}
-                  onClick={() => onActivate?.(symbol)}
-                  className={cn(
-                    "h-7 cursor-default outline-offset-[-2px] odd:bg-row even:bg-row-alt",
-                    "hover:bg-row-hover focus-visible:outline-2 focus-visible:outline-focus",
-                    "data-[selected=true]:bg-row-selected",
-                  )}
-                  style={{ height: ROW_HEIGHT }}
-                >
-                  {row.getAllCells().map((cell) => {
-                    const key = cell.column.id;
-                    const pinned = cell.column.getIsPinned() === "start";
-                    const identity = key === "identity";
-                    return (
-                      <td
-                        key={cell.id}
-                        style={{
-                          ...(pinned ? { ...STICKY_LANE, zIndex: 2 } : {}),
-                          height: ROW_HEIGHT,
-                        }}
-                        className={cn(
-                          "overflow-hidden px-2 py-0 align-middle",
-                          pinned && "bg-inherit shadow-[inset_-1px_0_0_var(--border-strong)]",
-                          identity && "text-left",
-                        )}
-                      >
-                        {identity ? (
-                          <IdentityCell
-                            symbol={symbol}
-                            company={typeof row.original["company"] === "string" ? row.original["company"] : null}
-                            logo={typeof row.original["logo"] === "string" ? row.original["logo"] : null}
-                          />
-                        ) : (
-                          <CellValue
-                            spec={specs.get(key) ?? columnSpec(key)}
-                            value={row.original[key]}
-                          />
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
+                <GridRow
+                  key={rowIds[index] ?? String(index)}
+                  symbol={symbol}
+                  data={row}
+                  rowId={rowIds[index] ?? String(index)}
+                  cells={columns}
+                  lead={lead}
+                  trail={trail}
+                  index={index}
+                  selected={selectedSymbol === symbol}
+                  tabbable={focused === index || (focused === -1 && index === 0)}
+                  specs={specs}
+                  absent={absent}
+                  onActivate={activate}
+                  onFocusRow={focusRow}
+                  onKeyDown={onRowKeyDown}
+                  setRowRef={setRowRef}
+                />
               );
             })}
           </tbody>
@@ -443,6 +571,133 @@ export function DataTable({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One memoised body row.
+ *
+ * It exists for the wide view: 116 columns × 20 rows is 2 340 cells, and
+ * re-rendering all of them because one row's selection changed measured at
+ * ~110 ms in Chrome — a visible stall on a click. With identity-stable
+ * callbacks and a shallow comparison, a click re-renders the row that gained
+ * the selection and the row that lost it, and nothing else.
+ *
+ * It reads the cells from the view's column list rather than from TanStack's
+ * cell model: the same order, without allocating 2 340 cell objects per paint.
+ */
+interface GridRowProps {
+  symbol: string;
+  data: ScreenRow;
+  rowId: string;
+  cells: readonly string[];
+  /** Hidden columns before and after the window, as colspan spacers. */
+  lead: number;
+  trail: number;
+  index: number;
+  selected: boolean;
+  tabbable: boolean;
+  specs: Map<string, ColumnSpec>;
+  absent?: (symbol: string, key: string) => string | null;
+  onActivate: (symbol: string) => void;
+  onFocusRow: (index: number) => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => void;
+  setRowRef: (index: number, element: HTMLTableRowElement | null) => void;
+}
+
+const GridRow = React.memo(function GridRow({
+  symbol,
+  data,
+  rowId,
+  cells,
+  lead,
+  trail,
+  index,
+  selected,
+  tabbable,
+  specs,
+  absent,
+  onActivate,
+  onFocusRow,
+  onKeyDown,
+  setRowRef,
+}: GridRowProps) {
+  return (
+    <tr
+      ref={(element) => setRowRef(index, element)}
+      data-symbol={symbol}
+      data-row-id={rowId}
+      data-selected={selected ? "true" : "false"}
+      // F3: `aria-selected` on a `<tr>` is only mapped inside `role=grid` /
+      // `treegrid`; this table is a plain `table`, so Chrome dropped it and the
+      // open row reached assistive tech with no state at all. `aria-current`
+      // is valid on any element in a table and is what the browser's AX tree
+      // keeps — one current item per document, and the tab strip marks itself
+      // with `aria-selected` (role=tab), so the two cannot be confused.
+      aria-current={selected ? "true" : undefined}
+      tabIndex={tabbable ? 0 : -1}
+      onFocus={() => onFocusRow(index)}
+      onKeyDown={(event) => onKeyDown(event, index)}
+      onClick={() => onActivate(symbol)}
+      className={cn(
+        "h-7 cursor-default outline-offset-[-2px] odd:bg-row even:bg-row-alt",
+        "hover:bg-row-hover focus-visible:outline-2 focus-visible:outline-focus",
+        "data-[selected=true]:bg-row-selected",
+      )}
+      style={{ height: ROW_HEIGHT }}
+    >
+      <td
+        style={{ ...STICKY_LANE, height: ROW_HEIGHT, zIndex: 2 }}
+        className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle shadow-[inset_-1px_0_0_var(--border-strong)]"
+      >
+        <IdentityCell
+          symbol={symbol}
+          company={typeof data["company"] === "string" ? data["company"] : null}
+        />
+      </td>
+      {lead > 0 ? (
+        <td aria-hidden="true" colSpan={lead} style={{ height: ROW_HEIGHT }} className="p-0" />
+      ) : null}
+      {cells.map((key) => {
+        const gap = absent?.(symbol, key) ?? null;
+        return (
+          <td
+            key={`${rowId}:${key}`}
+            style={{ height: ROW_HEIGHT }}
+            className="overflow-hidden px-2 py-0 align-middle"
+          >
+            {gap !== null ? (
+              <AbsentCell reason={gap} />
+            ) : (
+              <CellValue spec={specs.get(key) ?? columnSpec(key)} value={data[key]} />
+            )}
+          </td>
+        );
+      })}
+      {trail > 0 ? (
+        <td aria-hidden="true" colSpan={trail} style={{ height: ROW_HEIGHT }} className="p-0" />
+      ) : null}
+    </tr>
+  );
+});
+
+/**
+ * A cell the merge could not fill, with the reason attached.
+ *
+ * It looks like `CellValue`'s absent state (a muted em dash) but carries
+ * `data-absent` and the chunk sentence, so "we never got chunk 2" is not
+ * mistakable for "the company has no P/E".
+ */
+function AbsentCell({ reason }: { reason: string }) {
+  return (
+    <span
+      className="block text-right text-fg-subtle"
+      data-absent="true"
+      aria-label={`Absent: ${reason}`}
+      title={reason}
+    >
+      —
+    </span>
   );
 }
 

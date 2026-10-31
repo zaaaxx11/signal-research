@@ -10,9 +10,17 @@
  * `useScreens` catches it and the table renders the API's own sentence inside
  * the grid, so a 422 still reads as a 422. This boundary must never be the
  * thing that hides an error from the reader.
+ *
+ * It also catches the one fault that is neither: a **lazy chunk that never
+ * arrives**. `React.lazy` rejects when its `import()` rejects (a deploy rotated
+ * the hash while the tab was open), React throws that rejection during render,
+ * and the nearest boundary is where it lands. `app.tsx` wraps the detail panel
+ * in one for exactly that reason, with a bounded retry inside the import.
  */
 
 import * as React from "react";
+
+import { cn } from "@/lib/utils";
 
 export interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -20,6 +28,18 @@ export interface ErrorBoundaryProps {
   resetKey?: string | number;
   /** What failed, in the reader's words: "Today panel", "the grid". */
   label?: string;
+  /**
+   * The sentence under the label. The default speaks about rendering, which is
+   * wrong for a chunk that never downloaded; a caller that knows better says so.
+   */
+  hint?: React.ReactNode;
+  /**
+   * Called *before* the boundary clears itself, so the owner can re-attempt
+   * whatever failed — a fresh `React.lazy` type re-runs the dynamic import.
+   */
+  onRetry?: () => void;
+  /** Geometry of the slot this boundary stands in (e.g. the 420 px dock). */
+  className?: string;
 }
 
 interface ErrorBoundaryState {
@@ -45,7 +65,12 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     }
   }
 
-  private retry = () => this.setState({ error: null });
+  private retry = () => {
+    // The owner first: it can hand back a new lazy type, and the cleared error
+    // then lands on a component that has not already rejected.
+    this.props.onRetry?.();
+    this.setState({ error: null });
+  };
 
   render(): React.ReactNode {
     const { error } = this.state;
@@ -55,14 +80,18 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       <section
         role="alert"
         data-testid="grid-crash"
-        className="flex min-h-0 flex-1 flex-col justify-center rounded-md border border-line border-l-2 border-l-alert bg-surface p-6"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col justify-center rounded-md border border-line border-l-2 border-l-alert bg-surface p-6",
+          this.props.className,
+        )}
       >
         <p className="text-ui font-medium text-fg">
           {this.props.label ? `${this.props.label} could not be drawn` : "This panel could not be drawn"}
         </p>
         <p className="mt-1 max-w-[70ch] break-words text-data text-fg-muted">
-          The rest of the page is still here. The failure was in rendering, not in the data:
-          {" "}
+          {this.props.hint ?? (
+            <>The rest of the page is still here. The failure was in rendering, not in the data:</>
+          )}{" "}
           <span className="font-mono text-label text-fg-subtle">{error.message}</span>
         </p>
         <div className="mt-3">

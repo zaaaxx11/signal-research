@@ -13,60 +13,108 @@
  *   variable names (a `[data-theme="light"]` scope), not a second layout. Do
  *   not add one until cutover (plan §11).
  *
+ * The rose ramp
+ *   The product is pink. That is a brand decision, and it is also a trap: a
+ *   pink accent next to a pink "down" makes a falling number and a clickable
+ *   control look like the same kind of object. So the palette separates them
+ *   by role *and* by hue, and the separation is a test, not a taste:
+ *
+ *   * Chrome is rose. --accent is hue 331° (HSL/HSV; 353° in OKLCH — the two
+ *     spaces disagree by ~21° in this region, which is why the contract test
+ *     pins the HSL number every design tool reports). It is used for the
+ *     active tab's edge, the focus ring, chips, link text and the primary
+ *     fill's neighbour, never for a datum.
+ *   * The datum is red. --down is hue 6°, a red-orange 35° away from the
+ *     accent in HSL and 37° in OKLCH, and 8 L* darker. Rose chrome and red
+ *     loss are different colours at 12 px, not two shades of the same one.
+ *   * Nothing in between. --up stays green, --alert stays amber, --flat is
+ *     the only achromatic token in the file (C 0.005, hue nominal) so
+ *     "unchanged" never inherits a direction from the chrome.
+ *
+ *   The neutrals are a low-chroma rose: every plane sits at hue 324–330° with
+ *   OKLCH chroma 0.008–0.019 and a channel spread of at most 9/255. That is a
+ *   warm cast, not a colour — the row background is ~1.3 ΔE from a pure
+ *   neutral of the same lightness, while the accent is 15 ΔE away. A hundred
+ *   rows of this read as warm charcoal; they do not read as pink zebra. The
+ *   spread is asserted in tokens.test.ts so a future "pinker" edit has to
+ *   argue with the gate.
+ *
+ * The accent at three weights
+ *   chrome  --accent        #ff8ec4  borders, focus ring, tab edge, chip edge
+ *   fill    --accent-strong #e8528f  active tab / primary button, with
+ *                                    --accent-fg ink (5.43:1), and 5.31:1
+ *                                    against --surface so the control's own
+ *                                    area clears 1.4.11 without a border
+ *   text    --accent-text   #ffa8cf  links and secondary chrome on dark
+ *   --accent-soft is the *surface* the vendored shadcn primitives mean by
+ *   `accent` (`hover:bg-accent`, the skeleton pulse). It is not a brand
+ *   colour: index.css maps --color-accent to it, while --accent itself stays
+ *   the rose the native checkbox and the focus ring use.
+ *
  * Measured contrast (WCAG 2.1 §1.4.3, computed by src/styles/tokens.test.ts —
- * never eyeballed). Row surfaces are the only backgrounds data text sits on:
+ * never eyeballed). Row surfaces are the only backgrounds data text sits on;
+ * --row-selected is included because a selected row still prints its numbers:
  *
- *   token          value      on --row-bg  on --row-bg-alt  on --row-hover
- *   --up           #3ddc97       10.43          9.95            9.01
- *   --down         #ff6b81        6.74          6.42            5.82
- *   --flat         #9fb0c8        8.36          7.97            7.22
- *   --alert        #ffb454       10.46          9.97            9.03
- *   --fg           #e6ebf4       15.41         14.70           13.32
- *   --fg-muted     #a8b3c6        8.72          8.31            7.53
- *   --fg-subtle    #8b97a9        6.23          5.94            5.38
+ *   token          value      on --row-bg  on --row-bg-alt  on --row-hover  on --row-selected
+ *   --up           #3ddc97       10.46          9.96            9.06            8.56
+ *   --down         #ff5f4d        6.16          5.86            5.33            5.04
+ *   --flat         #a6a2a4        7.33          6.98            6.35            6.00
+ *   --alert        #ffb454       10.48          9.98            9.08            8.58
+ *   --fg           #efe9ec       15.43         14.69           13.37           12.64
+ *   --fg-muted     #b9afb4        8.67          8.26            7.51            7.10
+ *   --fg-subtle    #9d9398        6.21          5.92            5.38            5.09
+ *   --accent-text  #ffa8cf       10.35          9.85            8.96            8.47
  *
- *   All eight clear 4.5:1 at 12 px / 400–600 weight, so none of them is being
- *   excused as "large text" (18.66 px bold or 24 px regular). --fg-disabled
- *   (3.26) is exempt: WCAG 1.4.3 excludes inactive controls, and it is used
- *   only for disabled labels.
+ *   All eight clear 4.5:1 at 10–12 px / 400–600 weight, so none of them is
+ *   being excused as "large text" (18.66 px bold or 24 px regular).
+ *   --fg-disabled (3.27) is exempt: WCAG 1.4.3 excludes inactive controls, and
+ *   it is used only for disabled labels. It is a *grey*, not a dimmed rose: a
+ *   disabled control must not read as an active pink one at 50 % opacity.
  *
- *   Borders are decorative hairlines, not information. The one boundary that
- *   carries meaning — a focusable control's edge — uses --border-control,
- *   measured against every surface a control sits on (WCAG 1.4.11, 3:1):
+ *   Borders are decorative hairlines, not information. The boundaries that
+ *   carry meaning — a focusable control's edge, the focus ring, the active
+ *   tab's 2 px edge — are measured against every surface they sit on
+ *   (WCAG 1.4.11, 3:1):
  *
- *     token             value      sunken  surface  raised  row-bg  hover
- *     --border-control  #5f7189     3.82    3.70    3.49    3.70   3.19
- *     --focus           #6ea8ff     7.90    7.65    7.23    7.65   6.61
+ *     token             value      sunken  surface  raised  row-bg  row-alt  hover   page
+ *     --border-control  #7b6e75     3.94    3.81    3.59    3.81   3.63    3.30   4.01
+ *     --focus           #ff8ec4     9.03    8.73    8.23    8.73   8.31    7.56   9.18
+ *     --accent          #ff8ec4     9.03    8.73    8.23    8.73   8.31    7.56   9.18
+ *     --accent-strong   #e8528f     5.49    5.31    5.01    5.31   5.06    4.60   5.58
  *
- *   The 0.19 of headroom under --border-control's worst case is deliberate:
- *   the value this replaced shipped at 2.67 believing it was 3.77. A token
- *   that only just clears the line is one palette edit from failing silently.
+ *   The focus ring has 5.56 of headroom over the 3:1 floor even on the lightest
+ *   surface it is drawn on: a rose ring on a rose-tinted row is the adversarial
+ *   case, and it is not close to the line.
  */
 
 :root {
   color-scheme: dark;
 
   /* ---- surfaces ------------------------------------------------------- */
-  --bg: #0a0d13; /* page; the darkest plane */
-  --surface: #10141c; /* panels: top bar, table body, empty state */
-  --surface-raised: #151a24; /* menus, popovers, sticky header */
-  --surface-sunken: #0c1017; /* inset wells, code, footer strip */
-  --row-bg: #10141c; /* data row, even */
-  --row-bg-alt: #141924; /* data row, odd (zebra) */
-  --row-hover: #1b2230; /* row hover */
-  --row-selected: #1e2a40; /* selected row / active view */
+  /* Hue 324–330°, chroma 0.008–0.019 OKLCH, channel spread ≤ 9/255: the page
+   * is warm charcoal. --row-bg is #181215, six steps of red over green — the
+   * tint is visible next to the pink chrome and invisible across 100 rows. */
+  --bg: #100c0e; /* page; the darkest plane */
+  --surface: #181215; /* panels: top bar, table body, empty state */
+  --surface-raised: #1f181c; /* menus, popovers, sticky header */
+  --surface-sunken: #130e11; /* inset wells, code, footer strip */
+  --row-bg: #181215; /* data row, even */
+  --row-bg-alt: #1e171b; /* data row, odd (zebra) */
+  --row-hover: #281f24; /* row hover */
+  --row-selected: #34202b; /* selected row; still dark enough for --down */
+  --selection: #49293c; /* ::selection; the one rose fill text is drawn *on* */
 
   /* ---- borders -------------------------------------------------------- */
-  --border: #242d3c; /* hairline separators */
-  --border-strong: #364357; /* panel edge, sticky-header underline */
-  --border-control: #5f7189; /* control edge: 3.70 on --row-bg, 3.82 on --surface-sunken, 3.19 worst case */
-  --focus: #6ea8ff; /* focus ring: 7.65:1 on --surface */
+  --border: #332a2f; /* hairline separators */
+  --border-strong: #4b3e45; /* panel edge, sticky-header underline */
+  --border-control: #7b6e75; /* control edge: 3.30 worst case (--row-hover), 3.94 on --surface-sunken */
+  --focus: #ff8ec4; /* focus ring: 7.56:1 on --row-hover, 9.03 on --surface-sunken */
 
   /* ---- text tiers ----------------------------------------------------- */
-  --fg: #e6ebf4; /* primary: cells, headings */
-  --fg-muted: #a8b3c6; /* secondary: header labels, units */
-  --fg-subtle: #8b97a9; /* tertiary: metadata in the status line */
-  --fg-disabled: #5d6878; /* disabled only — exempt from 1.4.3 */
+  --fg: #efe9ec; /* primary: cells, headings */
+  --fg-muted: #b9afb4; /* secondary: header labels, units */
+  --fg-subtle: #9d9398; /* tertiary: metadata in the status line */
+  --fg-disabled: #6d6569; /* disabled only — exempt from 1.4.3, and grey on purpose */
 
   /* ---- structural neutrals -------------------------------------------- */
   /* Not ramp colours: the modal scrim and the ink that sits on --destructive.
@@ -75,14 +123,24 @@
   --on-destructive: #ffffff;
 
   /* ---- finance semantics ---------------------------------------------- */
-  /* Always paired with a sign or arrow: colour is never the only channel. */
+  /* Always paired with a sign or arrow: colour is never the only channel.
+   * --down sits at hue 6°, 35° of hue and 8 L* away from --accent, so a loss
+   * is a red and never a rose. --flat is the one achromatic token here. */
   --up: #3ddc97;
-  --down: #ff6b81;
-  --flat: #9fb0c8;
+  --down: #ff5f4d;
+  --flat: #a6a2a4;
   --alert: #ffb454;
 
   /* ---- brand / interactive -------------------------------------------- */
-  --brand: #7aa2ff;
+  /* Three weights of one rose: chrome (edge, ring), fill (button, tab),
+   * text (links on dark). --brand is the chrome value under the name the
+   * shell already uses (`border-brand`, `text-brand`). */
+  --brand: #ff8ec4;
+  --accent: #ff8ec4; /* chrome: 8.73 on --surface, 7.56 on --row-hover */
+  --accent-strong: #e8528f; /* fill: ink 5.43:1, fill-vs-surface 5.31:1 */
+  --accent-text: #ffa8cf; /* text on dark: 10.35 on --row-bg */
+  --accent-fg: #1f0a14; /* ink on the fill: 5.43:1 */
+  --accent-soft: #31262c; /* shadcn `accent` surface: menu hover, skeleton pulse */
 
   /* ---- density -------------------------------------------------------- */
   /* Row pitch and type size are decisions D5, not per-component choices. */
@@ -99,18 +157,17 @@
   --foreground: var(--fg);
   --card: var(--surface);
   --card-foreground: var(--fg);
-  --popover: #171d29;
+  --popover: #221b1f;
   --popover-foreground: var(--fg);
-  --primary: #e8eef8;
-  --primary-foreground: #0a0d13;
-  --secondary: #1c2331;
+  --primary: #e8528f; /* the fill weight */
+  --primary-foreground: #1f0a14; /* --accent-fg */
+  --secondary: #292025;
   --secondary-foreground: var(--fg);
-  --muted: #1a212e;
+  --muted: #261e23;
   --muted-foreground: var(--fg-muted);
-  --accent: #212a3a;
   --accent-foreground: var(--fg);
-  --destructive: #ff5c72;
-  --destructive-foreground: #14070a;
+  --destructive: #cf3b2e; /* red, not rose: 4.86:1 under white */
+  --destructive-foreground: #ffffff;
   --input: var(--border-control);
   --ring: var(--focus);
 }

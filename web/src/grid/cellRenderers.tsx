@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 import type { ColumnSpec } from "./columnMeta";
 import { formatCell } from "./format";
+import { LogoMark } from "./LogoMark";
 
 export interface CellValueProps {
   spec: ColumnSpec;
@@ -109,37 +110,22 @@ export function CellValue({ spec, value }: CellValueProps) {
 export interface IdentityCellProps {
   symbol: string;
   company?: string | null;
-  logo?: string | null;
 }
 
 /**
- * The pinned lane's contents. `min-w-0` on the flex row and `truncate` on the
- * symbol keep a pathological symbol from pushing the lane past its column;
- * the company name never enters the flow at all.
+ * The pinned lane's contents: the brand mark, then the symbol.
+ *
+ * The mark comes from `/logos/{SYMBOL}` as an image — the row payload never
+ * carries it (see `logo.ts`). `min-w-0` on the flex row and `truncate` on the
+ * symbol keep a pathological symbol from pushing the lane past its column; the
+ * company name never enters the flow at all.
  */
-export function IdentityCell({ symbol, company, logo }: IdentityCellProps) {
+export function IdentityCell({ symbol, company }: IdentityCellProps) {
   const title = company ? `${symbol} — ${company}` : symbol;
-  const initial = symbol.slice(0, 1).toUpperCase();
 
   return (
     <span className="flex min-w-0 items-center gap-1.5" title={title}>
-      {logo ? (
-        <img
-          src={logo}
-          alt=""
-          width={16}
-          height={16}
-          loading="lazy"
-          className="size-4 shrink-0 rounded-[2px] object-contain"
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className="flex size-4 shrink-0 items-center justify-center rounded-[2px] border border-line bg-surface-raised font-mono text-[9px] leading-none text-fg-muted"
-        >
-          {initial}
-        </span>
-      )}
+      <LogoMark symbol={symbol} />
       <span className="min-w-0 truncate font-mono text-data font-medium text-fg">
         {symbol}
       </span>
