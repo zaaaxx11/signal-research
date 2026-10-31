@@ -56,7 +56,7 @@ function answer(list: ScreenRow[], total = 5_600): Response {
   return new Response(
     JSON.stringify({
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total,
       universe_total: 5_600,
       returned: list.length,
@@ -125,7 +125,7 @@ function Harness({
 
 describe("the sector menu", () => {
   it("lists All sectors plus the 21 sectors breadth counted, and names its source", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(<Harness sectorOptions={MARKET_SECTORS} sectorSource="breadth" />);
 
     const select = (await screen.findByLabelText("Sector")) as HTMLSelectElement;
@@ -137,13 +137,13 @@ describe("the sector menu", () => {
     expect(options.slice(1)).toEqual(MARKET_SECTORS);
     expect(options).toContain(CHOSEN);
 
-    expect(screen.getByTestId("sector-source").textContent).toBe("from breadth");
+    expect(screen.getByTestId("sector-source").getAttribute("data-source")).toBe("breadth");
     // The count is the menu itself: 21 labels, named in the tooltip.
     expect(screen.getByTestId("sector-source").getAttribute("title")).toContain("21 sector names");
   });
 
   it("(c) does not offer a name the payload could not give", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(
       <Harness
         sectorOptions={["Finance", "", "   ", CHOSEN]}
@@ -154,7 +154,7 @@ describe("the sector menu", () => {
     const select = (await screen.findByLabelText("Sector")) as HTMLSelectElement;
     const options = [...select.options].map((option) => option.value);
     expect(options).toEqual(["", "Finance", CHOSEN]);
-    expect(screen.getByTestId("sector-source").textContent).toBe("from breadth");
+    expect(screen.getByTestId("sector-source").getAttribute("data-source")).toBe("breadth");
   });
 
   it("says when the names are the rows on screen rather than the market", async () => {
@@ -177,7 +177,7 @@ describe("the sector menu", () => {
       "Finance",
     ]);
     await waitFor(() =>
-      expect(screen.getByTestId("sector-source").textContent).toBe("from rows on screen"),
+      expect(screen.getByTestId("sector-source").getAttribute("data-source")).toBe("rows"),
     );
     expect(screen.getByTestId("sector-source").getAttribute("data-source")).toBe("rows");
   });
@@ -189,8 +189,8 @@ describe("choosing a sector", () => {
     const cap: ActiveFilter = { id: "f1", key: "cap", op: "gte", value: 2_000_000_000 };
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(answer(rows(100)))
-      .mockResolvedValueOnce(answer(rows(100)));
+      .mockResolvedValueOnce(answer(rows(20)))
+      .mockResolvedValueOnce(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -202,7 +202,7 @@ describe("choosing a sector", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("301–400 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("61–80 of 5,600"));
     expect(filtersOf(fetchMock.mock.calls[0])).toEqual([
       { key: "cap", op: "gte", value: 2_000_000_000 },
     ]);
@@ -246,7 +246,7 @@ describe("choosing a sector", () => {
     const parsed = parseScreenState(route, registry, [VIEW.name]);
     expect(parsed.dropped).toEqual([]);
 
-    const fetchMock = vi.fn().mockResolvedValue(answer(rows(100)));
+    const fetchMock = vi.fn().mockResolvedValue(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -296,7 +296,7 @@ describe("clearing the sector", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(answer(rows(40, "B", "Finance"), 40))
-      .mockResolvedValueOnce(answer(rows(100)));
+      .mockResolvedValueOnce(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -315,7 +315,7 @@ describe("clearing the sector", () => {
     expect(filtersOf(fetchMock.mock.calls[1])).toEqual([]);
     expect(screen.queryByTestId("sector-chip")).toBeNull();
     expect((screen.getByLabelText("Sector") as HTMLSelectElement).value).toBe("");
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
   });
 
   it("(d) leaves the reader's other filters in place", async () => {
@@ -405,7 +405,7 @@ function stubApp() {
 describe("the sector choice in the shell", () => {
   beforeEach(() => {
     resetFilterSchemaCache();
-    window.history.replaceState(null, "", "/app/");
+    window.history.replaceState(null, "", "/app/screener");
   });
 
   it("writes the sector to the URL at page 1 and reads it back on a reload", async () => {
@@ -414,14 +414,14 @@ describe("the sector choice in the shell", () => {
 
     const first = render(<App />);
     await waitFor(
-      () => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"),
+      () => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"),
       { timeout: 3_000 },
     );
 
     // The menu is the served breadth document's 21 labels.
     const select = (await screen.findByLabelText("Sector")) as HTMLSelectElement;
     expect(select.options).toHaveLength(22);
-    expect(screen.getByTestId("sector-source").textContent).toBe("from breadth");
+    expect(screen.getByTestId("sector-source").getAttribute("data-source")).toBe("breadth");
 
     api.selects.length = 0;
     await user.selectOptions(select, CHOSEN);

@@ -2,7 +2,7 @@
  * Cell renderers. One component per kind, one rule per component:
  *
  * * numbers are right aligned and tabular (`nums`), so decimal points line up
- *   down a 100-row panel;
+ *   down a panel of rows;
  * * a delta carries its direction three ways — arrow glyph, explicit sign and
  *   colour — because colour alone is not information;
  * * an absent value is a muted em dash with an accessible name, never a blank

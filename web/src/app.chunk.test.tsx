@@ -31,7 +31,7 @@ function json(body: unknown, status = 200): Response {
 function page(count: number) {
   return {
     as_of: "2026-10-31T01:28:01Z",
-    limit: 100,
+    limit: 20,
     total: 5_600,
     universe_total: 5_600,
     returned: count,
@@ -41,7 +41,7 @@ function page(count: number) {
   };
 }
 
-/** Everything the shell needs to reach a 100-row grid, and nothing else. */
+/** Everything the shell needs to reach a one-page grid, and nothing else. */
 function shellApi() {
   const selects: Array<Record<string, unknown>> = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,7 +59,7 @@ function shellApi() {
     }
     if (url === "/screens/select" && init?.method === "POST") {
       selects.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json(page(100));
+      return json(page(20));
     }
     return json({ errorMessage: `no route for ${url}` }, 404);
   });
@@ -98,7 +98,7 @@ beforeEach(() => {
     toJSON: () => ({}),
   } as DOMRect);
   resetFilterSchemaCache();
-  window.history.replaceState(null, "", "/app/");
+  window.history.replaceState(null, "", "/app/screener");
 });
 
 afterEach(() => {
@@ -120,7 +120,7 @@ describe("F1 — a failed detail chunk", () => {
     await waitFor(() => expect(screen.getByTestId("range")).toBeTruthy());
 
     const grid = await screen.findByTestId("grid-table");
-    expect(grid.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(100);
+    expect(grid.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
 
     await user.click(rowFor("S0"));
 
@@ -136,12 +136,12 @@ describe("F1 — a failed detail chunk", () => {
     // The session survived: the same grid node, all its rows, the tabs, the
     // top bar and the footer are still in the DOM.
     expect(screen.getByTestId("grid-table")).toBe(grid);
-    expect(grid.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(100);
+    expect(grid.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
     expect(screen.getAllByRole("tab").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("combobox", { name: "Search symbols and companies" }),
     ).toBeTruthy();
-    expect(screen.getByText(/same-origin api only/)).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
 
     // And it is still a working page: a view tab is one more selection.
     const before = api.selects.length;
@@ -168,7 +168,7 @@ describe("F1 — a failed detail chunk", () => {
     // Adversarial (c): the open row marks itself with `aria-current`; the view
     // strip marks itself with `aria-selected` (role=tab). One current item in
     // the document, so nothing can mistake the row cursor for the tab strip.
-    const current = document.querySelectorAll("[aria-current]");
+    const current = screen.getByTestId("grid-table").querySelectorAll("[aria-current]");
     expect(current).toHaveLength(1);
     expect(current[0]?.getAttribute("data-symbol")).toBe("S0");
     const selectedTab = document.querySelector('[role="tab"][aria-selected="true"]');

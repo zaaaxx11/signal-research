@@ -19,7 +19,7 @@ import { MAX_PAGE } from "./urlState";
 function page(count: number) {
   return {
     as_of: "2026-10-31T01:28:01Z",
-    limit: 100,
+    limit: 20,
     total: 5_600,
     universe_total: 5_600,
     returned: count,
@@ -58,7 +58,7 @@ function stubApi(): Harness {
     }
     if (url === "/screens/select" && init?.method === "POST") {
       selects.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return new Response(JSON.stringify(page(100)), {
+      return new Response(JSON.stringify(page(20)), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -71,7 +71,7 @@ function stubApi(): Harness {
 
 beforeEach(() => {
   resetFilterSchemaCache();
-  window.history.replaceState(null, "", "/app/");
+  window.history.replaceState(null, "", "/app/screener");
 });
 
 afterEach(() => {
@@ -84,17 +84,17 @@ describe("the shell and its filters", () => {
     window.history.replaceState(
       null,
       "",
-      "/app/?view=momentum&sort=gainers&page=3&f=cap%3Agte%3A2000000000&f=idx%3Aeq%3A1",
+      "/app/screener?view=momentum&sort=gainers&page=3&f=cap%3Agte%3A2000000000&f=idx%3Aeq%3A1",
     );
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("201–300 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("41–60 of 5,600"));
     expect(api.selects).toHaveLength(1);
     const body = api.selects[0] as {
       criteria: { offset: number; sort: string; filters: unknown[] };
     };
-    expect(body.criteria.offset).toBe(200);
+    expect(body.criteria.offset).toBe(40);
     expect(body.criteria.sort).toBe("gainers");
     expect(body.criteria.filters).toEqual([{ key: "cap", op: "gte", value: 2_000_000_000 }]);
 
@@ -149,36 +149,36 @@ describe("the shell and its filters", () => {
 
   it("F3: page=999999999999999 is clamped, sent bounded, and reconciled to the last page", async () => {
     const api = stubApi();
-    window.history.replaceState(null, "", "/app/?page=999999999999999");
+    window.history.replaceState(null, "", "/app/screener?page=999999999999999");
 
     render(<App />);
 
     await waitFor(() => expect(api.selects.length).toBeGreaterThan(0));
     const firstBody = api.selects[0] as { criteria: { offset: number } };
-    expect(firstBody.criteria.offset).toBeLessThanOrEqual(MAX_PAGE * 100);
+    expect(firstBody.criteria.offset).toBeLessThanOrEqual(MAX_PAGE * 20);
     expect(Number.isSafeInteger(firstBody.criteria.offset)).toBe(true);
 
-    // 5,600 rows at 100 a page is 56 pages: once the total is known the panel
-    // moves itself to page 56 instead of showing "…999999/56" with Next dead.
+    // 5,600 rows at 20 a page is 280 pages: once the total is known the panel
+    // moves itself to page 280 instead of showing "…999999/280" with Next dead.
     await waitFor(() =>
-      expect(screen.getByTestId("range").textContent).toBe("5501–5600 of 5,600"),
+      expect(screen.getByTestId("range").textContent).toBe("5581–5600 of 5,600"),
     );
-    expect(screen.getByText("56/56")).toBeTruthy();
+    expect(screen.getByText("280/280")).toBeTruthy();
     const reconciled = api.selects.at(-1) as { criteria: { offset: number } };
-    expect(reconciled.criteria.offset).toBe(5_500);
-    expect(new URLSearchParams(window.location.search).get("page")).toBe("56");
+    expect(reconciled.criteria.offset).toBe(5_580);
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("280");
     expect(new URLSearchParams(window.location.search).get("page")).not.toBe("999999999999999");
   });
 
   it("F3: ordinary paging and the last page still work", async () => {
     const api = stubApi();
-    window.history.replaceState(null, "", "/app/?page=56");
+    window.history.replaceState(null, "", "/app/screener?page=280");
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("56/56")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("280/280")).toBeTruthy());
     const body = api.selects[0] as { criteria: { offset: number } };
-    expect(body.criteria.offset).toBe(5_500);
+    expect(body.criteria.offset).toBe(5_580);
     // Exactly one request: a valid last page is not "reconciled" into another.
     expect(api.selects).toHaveLength(1);
   });
@@ -193,7 +193,7 @@ describe("the shell and its filters", () => {
     window.history.replaceState(
       null,
       "",
-      "/app/?f=idx%3Aeq%3Asp500&f=cap%3Agte%3A2000000000",
+      "/app/screener?f=idx%3Aeq%3Asp500&f=cap%3Agte%3A2000000000",
     );
 
     render(<App />);

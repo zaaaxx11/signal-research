@@ -1,5 +1,5 @@
 /**
- * Ownership: the cells a 100-row grid cannot afford to show.
+ * Ownership: the cells a dense grid cannot afford to show.
  *
  * These six values come from `POST /screens/select` in symbols mode — the same
  * row the grid paints, read for one ticker — because the fundamentals endpoint

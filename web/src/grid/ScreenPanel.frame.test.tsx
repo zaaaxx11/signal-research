@@ -52,7 +52,7 @@ function page(view: string, count = 2): Response {
   return new Response(
     JSON.stringify({
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total: 5600,
       universe_total: 5600,
       returned: count,

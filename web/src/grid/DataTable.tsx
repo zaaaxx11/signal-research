@@ -6,7 +6,7 @@
  * a company name was long, and no amount of CSS would put them back together.
  * The `<colgroup>` is the single source of geometry.
  *
- * Why the identity lane is sticky: at 100 rows the symbol must remain visible
+ * Why the identity lane is sticky: once the rows scroll, the symbol must stay visible
  * while the eye travels right. It is column 1, pinned through TanStack's
  * `columnPinning` state, and pinned again in CSS with `position: sticky; left:0`
  * — the state is what a later "unpin" control will read, the CSS is what the
@@ -413,7 +413,7 @@ export function DataTable({
       data-overflow={solved ? (solved.overflow ? "true" : "false") : undefined}
       // Reserve the vertical scrollbar's width at all times. Without this the
       // first paint measures a container 15 px wider than the one that exists
-      // once 100 rows make the scrollbar appear — and the table, solved once,
+      // once the rows make the scrollbar appear — and the table, solved once,
       // would overflow by exactly that much.
       style={{ scrollbarGutter: "stable" }}
       onScroll={onScroll}

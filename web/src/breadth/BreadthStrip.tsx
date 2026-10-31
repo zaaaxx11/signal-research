@@ -13,6 +13,14 @@ import { useBreadth, type BreadthView } from "./useBreadth";
 /**
  * The market-wide strip above the grid.
  *
+ * **Not mounted.** Home's signal cards replaced it as the market summary, and
+ * the screener now opens directly on its page of rows — the operator's read was
+ * that a strip of counts, a bar and twenty-one sector rows is noise above a
+ * table that already answers "what is moving". The component is kept because
+ * its per-sector blocks are the Groups page's material (one sector per line,
+ * counts and averages), and its tests still pin that behaviour. Nothing imports
+ * it, so it costs the bundle nothing; when Groups ships, it mounts there.
+ *
  * It reads `GET /market/breadth` — the server's one-pass count over the whole
  * scanned universe — instead of counting the ≤20 rows the grid happens to
  * show. Those are different populations with different denominators, and the

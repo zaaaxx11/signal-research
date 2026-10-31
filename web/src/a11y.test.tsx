@@ -3,7 +3,7 @@
  *
  * This file proves the keyboard and screen-reader claims against the real
  * shell, not against a sketch of it: `App` is rendered with the whole chrome
- * (top bar, view strip, status line, breadth, toolbar, 100-row grid, drawer,
+ * (nav, view strip, toolbar, one page of rows, drawer,
  * detail panel) and the assertions are made on `document.activeElement` and on
  * the DOM a screen reader would read.
  *
@@ -39,6 +39,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App, GRID_REGION_ID } from "@/app";
+import { NAV_ITEMS } from "@/shell/nav";
 import { LIVE_BREADTH } from "@/breadth/__fixtures__/breadth";
 import {
   fundamentalsPayload,
@@ -68,7 +69,7 @@ function json(body: unknown, status = 200): Response {
 function page(count: number) {
   return {
     as_of: "2026-10-31T01:28:01Z",
-    limit: 100,
+    limit: 20,
     total: 5_600,
     universe_total: 5_600,
     returned: count,
@@ -118,7 +119,7 @@ function stubShell() {
     if (url.startsWith("/news/")) return json(newsPayload());
     if (url === "/screens/select" && init?.method === "POST") {
       selects.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json(page(100));
+      return json(page(20));
     }
     if (url.startsWith("/engine/") || url.startsWith("/screens/select")) {
       return json(selectPayload());
@@ -144,7 +145,7 @@ beforeEach(() => {
     toJSON: () => ({}),
   } as DOMRect);
   resetFilterSchemaCache();
-  window.history.replaceState(null, "", "/app/");
+  window.history.replaceState(null, "", "/app/screener");
 });
 
 afterEach(() => {
@@ -279,7 +280,7 @@ describe("the keyboard path", () => {
     const user = userEvent.setup();
 
     const trace: string[] = [];
-    for (let press = 0; press < 40; press += 1) {
+    for (let press = 0; press < 80; press += 1) {
       await user.tab();
       const active = document.activeElement;
       if (!active || active === document.body) break;
@@ -316,10 +317,17 @@ describe("the keyboard path", () => {
 
     const rowAt = trace.findIndex((entry) => entry.startsWith("row "));
     expect(rowAt).toBeGreaterThan(0);
-    expect(rowAt).toBeLessThan(30);
+    expect(rowAt).toBeLessThan(60);
+
+    // The nav is in the path, all fourteen items, before the grid: the shell's
+    // front door is reachable from the keyboard like any other product surface.
+    const beforeRow = trace.slice(0, rowAt).join(" | ");
+    for (const item of NAV_ITEMS) {
+      expect(beforeRow, `${item.label} is not reachable before the grid`).toContain(item.label);
+    }
     // The whole forward pass is shorter than the goal's ceiling, so a reader
     // can reach the last control and start again with room to spare.
-    expect(trace.length).toBeLessThanOrEqual(30);
+    expect(trace.length).toBeLessThanOrEqual(80);
 
     // The pinned lane adds no stop of its own (adversarial a): one stop per
     // row is the row, and nothing inside it can be tabbed to.
@@ -517,7 +525,7 @@ describe("the detail panel", () => {
     await screen.findByTestId("detail-panel", undefined, { timeout: DETAIL_TIMEOUT });
 
     const rows = [...table.querySelectorAll<HTMLElement>("tbody tr[data-symbol]")];
-    expect(rows).toHaveLength(100);
+    expect(rows).toHaveLength(20);
     expect(rows.filter((element) => element.tabIndex === 0)).toEqual([row]);
     for (const element of rows) {
       // The identity lane is a `<td>` with a mark and a symbol — no link, no
@@ -541,7 +549,7 @@ describe("the table's semantics", () => {
     expect(caption).not.toBeNull();
     const text = (caption?.textContent ?? "").replace(/\s+/g, " ");
     expect(text).toContain("Today");
-    expect(text).toContain("rows 1–100 of 5,600");
+    expect(text).toContain("rows 1–20 of 5,600");
     // Adversarial (c): the ordering is said, in words. No arrow, no colour.
     expect(text.toLowerCase()).toContain("sorted by market cap, highest first");
 

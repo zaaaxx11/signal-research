@@ -49,6 +49,8 @@ import { filtersSignature, toWire } from "@/filters/state";
 
 export interface ScreenPanelProps {
   view: ViewDefinition;
+  /** `etf` on `/screener/etf`; every request carries it. */
+  assetClass?: "stock" | "etf";
   selectedSymbol: string | null;
   onActivate: (symbol: string) => void;
   onClear: () => void;
@@ -131,6 +133,7 @@ function timeOf(iso: string): string {
 
 export function ScreenPanel({
   view,
+  assetClass = "stock",
   selectedSymbol,
   onActivate,
   onClear,
@@ -216,10 +219,11 @@ export function ScreenPanel({
             limit: PANEL_LIMIT,
             offset: pageIndex * PANEL_LIMIT,
             sort,
+            assetClass,
             filters: toWire(activeFilters),
           }
         : null,
-    [supported, panelView.name, panelView.columns, pageIndex, sort, filterKey],
+    [supported, panelView.name, panelView.columns, pageIndex, sort, assetClass, filterKey],
   );
 
   const screens = useScreens(query);
@@ -592,15 +596,16 @@ export function ScreenPanel({
         </div>
       ) : null}
 
-      <div className="flex h-6 shrink-0 items-center justify-between gap-3 border-b border-line px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-        <span className="truncate" data-testid="column-count">
-          {effective.length} columns{custom ? " · custom" : ""} · {rows.length} rows
-        </span>
-        <span className="truncate" data-testid="as-of">
-          {meta ? `as of ${timeOf(meta.asOf)}` : "waiting for the engine"}
-          {meta?.truncated ? " · budget cut rows" : ""}
-        </span>
-      </div>
+      {meta?.truncated ? (
+        // Only said when it is true: the byte budget is an implementation
+        // detail until the page is short because of it.
+        <p
+          data-testid="truncated-notice"
+          className="shrink-0 border-b border-line bg-surface-raised px-3 py-1 text-data text-alert"
+        >
+          The API's byte budget cut rows from this page.
+        </p>
+      ) : null}
 
       <DataTable
         view={panelView}

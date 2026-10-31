@@ -31,23 +31,26 @@ export interface SectorSelectProps {
 
 export const ALL_SECTORS = "All sectors";
 
-function sourceLabel(source: SectorSource, count: number): { text: string; title: string } {
+/**
+ * Where the menu's names came from — a tooltip, never a line of text.
+ *
+ * "from breadth" beside a control is chrome the reader has to parse on every
+ * glance; the fact is still one hover away, which is the right cost for it.
+ */
+function sourceLabel(source: SectorSource, count: number): { title: string } {
   switch (source) {
     case "breadth":
       return {
-        text: "from breadth",
         title: `The ${count} sector names are the ones GET /market/breadth counted over the whole universe.`,
       };
     case "rows":
       return {
-        text: "from rows on screen",
         title: `Market breadth is unavailable: these ${count} names come from the sector cells of the rows on screen, not from the whole market.`,
       };
     case "loading":
-      return { text: "sector list loading", title: "Reading the sector list from GET /market/breadth." };
+      return { title: "Reading the sector list from GET /market/breadth." };
     case "none":
       return {
-        text: "no sector list",
         title: "No sector names are available yet: breadth did not answer and these rows carry no sector cell.",
       };
   }
@@ -62,7 +65,14 @@ export function SectorSelect({ names, source, value, onChange }: SectorSelectPro
 
   return (
     <span className="flex min-w-0 items-center gap-1">
-      <label className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
+      {/* Provenance is a title, never a second line of text: "from breadth" is
+          a fact for the reader who asks, not chrome the toolbar recites. */}
+      <label
+        data-testid="sector-source"
+        data-source={source}
+        title={label.title}
+        className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
+      >
         sector
         <select
           aria-label="Sector"
@@ -83,14 +93,6 @@ export function SectorSelect({ names, source, value, onChange }: SectorSelectPro
           ))}
         </select>
       </label>
-      <span
-        data-testid="sector-source"
-        data-source={source}
-        title={label.title}
-        className="hidden shrink-0 font-mono text-label tracking-[0.04em] text-fg-subtle xl:inline"
-      >
-        {label.text}
-      </span>
     </span>
   );
 }

@@ -87,7 +87,7 @@ const TODAY_KEYS = Array.from({ length: todayColumns }, (_, index) => `column_${
 
 beforeEach(() => {
   resetFilterSchemaCache();
-  window.history.replaceState(null, "", "/app/");
+  window.history.replaceState(null, "", "/app/screener");
 });
 
 afterEach(() => {
@@ -97,12 +97,12 @@ afterEach(() => {
 describe("a view switch", () => {
   it("issues exactly one request, for the new view, at the first page", async () => {
     const api = stubApi();
-    window.history.replaceState(null, "", "/app/?view=today&page=3");
+    window.history.replaceState(null, "", "/app/screener?view=today&page=3");
     const user = userEvent.setup();
 
     render(<App />);
     await waitFor(
-      () => expect(screen.getByTestId("range").textContent).toBe("201–300 of 5,600"),
+      () => expect(screen.getByTestId("range").textContent).toBe("41–60 of 5,600"),
       { timeout: 3_000 },
     );
 
@@ -223,13 +223,13 @@ describe("a custom column selection", () => {
 
   it("round-trips through the URL and is the only thing requested", async () => {
     const api = stubApi();
-    window.history.replaceState(null, "", `/app/?view=today&cols=${encodeURIComponent(colsParam)}`);
+    window.history.replaceState(null, "", `/app/screener?view=today&cols=${encodeURIComponent(colsParam)}`);
 
     const first = render(<App />);
     await waitFor(() => expect(api.selects.length).toBe(1), { timeout: 3_000 });
 
     expect(api.selects[0]?.columns).toEqual(custom);
-    expect(screen.getByTestId("column-count").textContent).toContain("12 columns · custom");
+    expect(screen.getByTestId("columns-button").textContent).toContain("Columns · 12");
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get("cols")).toBe(colsParam),
     );
@@ -245,7 +245,7 @@ describe("a custom column selection", () => {
 
   it("stays with its view and does not apply to the next one", async () => {
     const api = stubApi();
-    window.history.replaceState(null, "", `/app/?view=today&cols=${encodeURIComponent(colsParam)}`);
+    window.history.replaceState(null, "", `/app/screener?view=today&cols=${encodeURIComponent(colsParam)}`);
     const user = userEvent.setup();
 
     render(<App />);
@@ -260,7 +260,7 @@ describe("a custom column selection", () => {
       Array.from({ length: 13 }, (_, index) => `column_${index}`),
     );
     expect(api.selects[1]?.columns).not.toEqual(custom);
-    expect(screen.getByTestId("column-count").textContent).not.toContain("custom");
+    expect(screen.getByTestId("columns-button").textContent).toBe("Columns");
     // The selection is still in the address bar, waiting for its view.
     expect(new URLSearchParams(window.location.search).get("cols")).toBe(colsParam);
   });
@@ -271,7 +271,7 @@ describe("a custom column selection", () => {
     window.history.replaceState(
       null,
       "",
-      `/app/?view=today&cols=${encodeURIComponent(`today:${twoHundred}`)}`,
+      `/app/screener?view=today&cols=${encodeURIComponent(`today:${twoHundred}`)}`,
     );
 
     render(<App />);
@@ -289,7 +289,7 @@ describe("a custom column selection", () => {
     window.history.replaceState(
       null,
       "",
-      `/app/?view=today&cols=${encodeURIComponent(`today:${forty.join(",")}`)}`,
+      `/app/screener?view=today&cols=${encodeURIComponent(`today:${forty.join(",")}`)}`,
     );
     const user = userEvent.setup();
 
@@ -307,7 +307,7 @@ describe("a custom column selection", () => {
     const notice = await screen.findByTestId("column-picker-notice");
     expect(notice.textContent).toMatch(/at most 40/);
     expect(api.selects.length).toBe(before);
-    expect(screen.getByTestId("column-count").textContent).toContain("40 columns");
+    expect(screen.getByTestId("columns-button").textContent).toContain("Columns · 40");
   });
 });
 
@@ -323,7 +323,7 @@ describe("the all-columns destination", () => {
     expect(toggle.getAttribute("role")).not.toBe("tab");
     expect(screen.queryByRole("tabpanel")).not.toBeNull();
 
-    const wide = () => api.selects.filter((body) => body.criteria.limit === 20);
+    const wide = () => api.selects.filter((body) => body.columns.length > 20);
 
     await user.click(toggle);
 
@@ -345,7 +345,7 @@ describe("the all-columns destination", () => {
     // The wide table itself (117 header cells, sticky lane, scroll) is proved
     // in `allColumns.test.tsx`, where the container width is a seam; jsdom
     // reports every box as 0 px, so the shell cannot draw one here.
-    expect(screen.getByTestId("all-columns-requests").textContent).toContain("40 + 40 + 36");
+    expect(wide().map((body) => body.columns.length)).toEqual([40, 40, 36]);
   });
 });
 

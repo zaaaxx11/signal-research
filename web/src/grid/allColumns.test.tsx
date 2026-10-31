@@ -125,7 +125,7 @@ describe("the column window", () => {
 
 describe("the all-columns panel", () => {
   it("draws 116 keys on 20 symbols, wider than the panel, with the lane pinned", async () => {
-    stub((columns) => answer(columns));
+    const calls = stub((columns) => answer(columns));
 
     const started = performance.now();
     render(<AllColumnsPanel {...props} />);
@@ -135,7 +135,7 @@ describe("the all-columns panel", () => {
     expect(screen.getByTestId("all-columns-title").textContent).toBe(
       "All columns — 116, wide view, 20 rows",
     );
-    expect(screen.getByTestId("all-columns-requests").textContent).toContain("3 requests");
+    expect(calls).toHaveLength(3);
     expect(table.getAttribute("aria-colcount")).toBe("117");
 
     // The colgroup carries every key's width — that is the scroll range.

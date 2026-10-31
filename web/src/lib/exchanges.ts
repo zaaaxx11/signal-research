@@ -26,7 +26,7 @@
  * * **Cheap.** One `Map` lookup per call — see the cost guard in
  *   `lib/exchanges.test.ts`. A formatter runs once per exchange cell per render,
  *   so anything with an allocation or an `Intl` constructor inside it would tax
- *   the 100-row format pass that everything else in the grid is tuned around.
+ *   the format pass that everything else in the grid is tuned around.
  */
 
 /**

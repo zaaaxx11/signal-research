@@ -26,7 +26,7 @@ import * as React from "react";
 import { ApiError, getJson, postJsonConditional, readErrorMessage } from "@/lib/api";
 
 /** The panel's hard limits, mirrored from the API contract. */
-export const PANEL_LIMIT = 100;
+export const PANEL_LIMIT = 20;
 export const MAX_COLUMNS = 40;
 
 /** The three transparent sorts `POST /screens/select` accepts. */
@@ -209,8 +209,8 @@ export async function selectScreens(
 /** Normalise a wire body into the grid's shape, dropping rows it cannot key.
  *
  * `offset` is the one field the API does not always echo. The request's offset
- * is the honest fallback: without it a second page would label itself 1–100
- * while showing rows 101–200.
+ * is the honest fallback: without it a second page would label itself 1–20
+ * while showing rows 21–40.
  */
 export function readResponse(
   body: WireResponse,

@@ -34,13 +34,6 @@ export interface AllColumnsPanelProps {
   containerWidth?: number;
 }
 
-function timeOf(iso: string): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return `${date.toISOString().slice(11, 19)}Z`;
-}
-
 export function AllColumnsPanel({
   destination,
   keys,
@@ -90,7 +83,6 @@ export function AllColumnsPanel({
 
   const notices = mergeNotices(all.merged);
   const missing = absentCells(all.merged, keys);
-  const chunkShape = all.chunks.map((chunk) => chunk.length).join(" + ");
   const failures = all.merged.failures.length > 0;
 
   return (
@@ -127,12 +119,9 @@ export function AllColumnsPanel({
         </div>
       </div>
 
-      <div className="flex h-6 shrink-0 items-center justify-between gap-3 border-b border-line px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-        <span data-testid="all-columns-requests" className="truncate">
-          {all.chunks.length} requests · {chunkShape} columns
-        </span>
+      <div className="flex h-6 shrink-0 items-center justify-end gap-3 border-b border-line px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
         <span data-testid="all-columns-as-of" className="truncate">
-          {all.meta ? `${all.rows.length} of ${all.meta.total.toLocaleString("en-US")} symbols · as of ${timeOf(all.meta.asOf)}` : "waiting for the engine"}
+          {all.meta ? `${all.rows.length > 0 ? `1–${all.rows.length}` : "0"} of ${all.meta.total.toLocaleString("en-US")}` : "—"}
           {missing > 0 ? ` · ${missing} cells absent` : ""}
         </span>
       </div>
@@ -177,7 +166,7 @@ export function AllColumnsPanel({
         <span data-testid="all-columns-wide-note">
           every key the schema serves · scrolls sideways · identity lane pinned
         </span>
-        <span>{all.meta?.truncated ? "budget cut cells" : "within the 60 kb panel budget"}</span>
+        <span>{all.meta?.truncated ? "budget cut cells" : ""}</span>
       </div>
     </section>
   );

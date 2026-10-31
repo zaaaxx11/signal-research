@@ -16,7 +16,7 @@ import { requestBody, useScreens, useViewCatalogue, type ScreensQuery } from "./
 const TODAY: ScreensQuery = {
   view: "today",
   columns: ["price", "change"],
-  limit: 100,
+  limit: 20,
   offset: 0,
   sort: "market_cap",
 };
@@ -24,7 +24,7 @@ const TODAY: ScreensQuery = {
 const VALUE: ScreensQuery = {
   view: "value",
   columns: ["market_cap", "pe"],
-  limit: 100,
+  limit: 20,
   offset: 0,
   sort: "market_cap",
 };
@@ -36,7 +36,7 @@ function payload(rows: Array<Record<string, unknown>>, overrides: Record<string,
     source: "tradingview",
     as_of: "2026-10-31T01:28:01.997369+00:00",
     sort: "market_cap",
-    limit: 100,
+    limit: 20,
     universe_total: 5600,
     total: 5600,
     returned: rows.length,
@@ -85,23 +85,23 @@ describe("useScreens", () => {
       region: "us",
       asset_class: "stock",
       columns: ["price", "change"],
-      criteria: { limit: 100, offset: 0, filters: [], sort: "market_cap" },
+      criteria: { limit: 20, offset: 0, filters: [], sort: "market_cap" },
     });
     expect((init.headers as Record<string, string>)["if-none-match"]).toBeUndefined();
   });
 
   it("labels a page with the offset it asked for when the wire omits it", async () => {
     // The live route does not echo `offset`. A second page that trusted the
-    // body would print "1–100" while showing rows 101–200.
+    // body would print "1–20" while showing rows 21–40.
     const fetchMock = vi.fn(async () => answer(payload([{ symbol: "ADI", price: 250.1 }])));
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result } = renderHook(() => useScreens({ ...TODAY, offset: 100 }));
+    const { result } = renderHook(() => useScreens({ ...TODAY, offset: 20 }));
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
-    expect(result.current.meta?.offset).toBe(100);
+    expect(result.current.meta?.offset).toBe(20);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).criteria.offset).toBe(100);
+    expect(JSON.parse(String(init.body)).criteria.offset).toBe(20);
   });
 
   it("treats a 304 as 'keep the rows', sends If-None-Match and marks the page unrefreshed", async () => {
@@ -358,7 +358,7 @@ describe("useScreens — the tag belongs to the rows (F1)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const page1: ScreensQuery = { ...TODAY, offset: 0 };
-    const page2: ScreensQuery = { ...TODAY, offset: 100 };
+    const page2: ScreensQuery = { ...TODAY, offset: 20 };
 
     const { result, rerender } = renderHook(({ query }) => useScreens(query), {
       initialProps: { query: page1 as ScreensQuery | null },
@@ -366,8 +366,8 @@ describe("useScreens — the tag belongs to the rows (F1)", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
     rerender({ query: page2 });
-    await waitFor(() => expect(result.current.meta?.offset).toBe(100));
-    expect(result.current.rows[0]?.symbol).toBe("market_cap@100");
+    await waitFor(() => expect(result.current.meta?.offset).toBe(20));
+    expect(result.current.rows[0]?.symbol).toBe("market_cap@20");
 
     rerender({ query: page1 });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));

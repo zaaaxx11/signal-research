@@ -28,9 +28,17 @@ export type LogoState = "loading" | "loaded" | "failed";
 export interface LogoMarkProps {
   symbol: string;
   className?: string;
+  /**
+   * The box, in px. Defaults to the grid lane's 20; Home's signal cards draw a
+   * 16 px mark because their rows are 20 px tall. The box is still reserved at
+   * the same size in all three states, so the lane does not depend on the
+   * network.
+   */
+  size?: number;
 }
 
-export function LogoMark({ symbol, className }: LogoMarkProps) {
+export function LogoMark({ symbol, className, size }: LogoMarkProps) {
+  const box = size ?? LOGO_SIZE;
   const [state, setState] = React.useState<LogoState>("loading");
 
   // A row may be re-used for another symbol (a page turn keeps the DOM nodes);
@@ -44,7 +52,7 @@ export function LogoMark({ symbol, className }: LogoMarkProps) {
     <span
       data-logo={symbol}
       data-logo-state={state}
-      style={{ width: LOGO_SIZE, height: LOGO_SIZE }}
+      style={{ width: box, height: box }}
       className={cn(
         "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[2px] border border-line bg-surface-raised",
         className,
@@ -54,7 +62,8 @@ export function LogoMark({ symbol, className }: LogoMarkProps) {
         <span
           aria-hidden="true"
           data-testid={`monogram-${symbol}`}
-          className="font-mono text-[9px] leading-none text-fg-muted"
+          style={{ fontSize: box <= 16 ? 8 : 9 }}
+          className="font-mono leading-none text-fg-muted"
         >
           {symbol.slice(0, 1).toUpperCase()}
         </span>
@@ -64,8 +73,8 @@ export function LogoMark({ symbol, className }: LogoMarkProps) {
         <img
           src={logoPath(symbol)}
           alt=""
-          width={LOGO_SIZE}
-          height={LOGO_SIZE}
+          width={box}
+          height={box}
           loading="lazy"
           decoding="async"
           data-testid={`logo-img-${symbol}`}

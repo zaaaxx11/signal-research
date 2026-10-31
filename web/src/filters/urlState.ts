@@ -37,9 +37,9 @@ export const DEFAULT_SORT: ScreenSort = "market_cap";
  * `page` is user-controlled and shared in links. Without a bound,
  * `?page=999999999999999` was multiplied into an offset of 999 999 999 999 998
  * within the JS safe-integer range, the API answered `200` with zero rows, the
- * pager rendered "999999999999999/56" and the poison was written back into the
- * address bar — a link you could not recover from. 10 000 pages is 1 000 000
- * rows at the panel's 100-row limit: far past anything this store holds, and
+ * pager rendered "999999999999999/280" and the poison was written back into
+ * the address bar — a link you could not recover from. 10 000 pages is 200 000
+ * rows at the panel's 20-row page: far past anything this store holds, and
  * small enough that `page × limit` is an exact, sane integer. The panel also
  * reconciles the page against the answer's `total` once it knows it.
  */

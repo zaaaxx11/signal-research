@@ -66,7 +66,7 @@ function answer(list: ScreenRow[], total = 5_600): Response {
   return new Response(
     JSON.stringify({
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total,
       universe_total: 5_600,
       returned: list.length,
@@ -147,7 +147,7 @@ async function openMenu(testId = "exchange-trigger") {
 
 describe("the exchange menu", () => {
   it("lists the market's venues with label, count and code, and names its source", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(<Harness venues={MARKET_VENUES} source="market" />);
 
     const trigger = await screen.findByTestId("exchange-trigger");
@@ -175,10 +175,9 @@ describe("the exchange menu", () => {
       expect(option.getAttribute("aria-selected")).toBe("false");
     }
 
-    const source = screen.getByTestId("exchange-source");
-    expect(source.textContent).toBe("from /market/exchanges");
+    const source = screen.getByTestId("exchange-trigger");
+    expect(source.getAttribute("title")).toContain("from /market/exchanges");
     expect(source.getAttribute("data-source")).toBe("market");
-    expect(source.getAttribute("title")).toContain("4 exchange codes");
   });
 
   it("falls back to the page's own exchange cells when the route has no list", async () => {
@@ -196,9 +195,9 @@ describe("the exchange menu", () => {
     render(<Harness venues={[]} source="unavailable" />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("exchange-source").textContent).toBe("from rows on screen"),
+      expect(screen.getByTestId("exchange-trigger").getAttribute("data-source")).toBe("rows"),
     );
-    expect(screen.getByTestId("exchange-source").getAttribute("data-source")).toBe("rows");
+    expect(screen.getByTestId("exchange-trigger").getAttribute("data-source")).toBe("rows");
 
     const { menu } = await openMenu();
     const options = within(menu).getAllByRole("option");
@@ -261,14 +260,14 @@ describe("the exchange menu", () => {
 
 describe("choosing exchanges", () => {
   it("sends one exch in for two venues, at page 1, keeping the other filters", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(rows(100)));
+    const fetchMock = vi.fn().mockResolvedValue(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
       <Harness initialFilters={[CAP]} initialPage={3} venues={MARKET_VENUES} source="market" />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("301–400 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("61–80 of 5,600"));
     expect(filtersOf(fetchMock.mock.calls[0])).toEqual([{ key: "cap", op: "gte", value: 2_000_000_000 }]);
 
     const { user, menu } = await openMenu();
@@ -303,7 +302,7 @@ describe("choosing exchanges", () => {
   });
 
   it("switches to an equality when one venue is left", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(rows(100)));
+    const fetchMock = vi.fn().mockResolvedValue(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -327,7 +326,7 @@ describe("choosing exchanges", () => {
   });
 
   it("removes the predicate and the chip when the last venue is unchecked", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(rows(100)));
+    const fetchMock = vi.fn().mockResolvedValue(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -351,7 +350,7 @@ describe("choosing exchanges", () => {
   it("keeps the chip when the answer is zero rows", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(answer(rows(100)))
+      .mockResolvedValueOnce(answer(rows(20)))
       .mockResolvedValue(answer([], 0));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -370,7 +369,7 @@ describe("choosing exchanges", () => {
 
 describe("a link that already names an exchange", () => {
   it("arrives checked, and is sent unchanged", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(rows(100)));
+    const fetchMock = vi.fn().mockResolvedValue(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -441,7 +440,7 @@ describe("a link that already names an exchange", () => {
 
 describe("the keyboard", () => {
   it("opens on ArrowDown at the first checked option and keeps one tab stop", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(
       <Harness
         initialFilters={[{ id: "f1", key: "exch", op: "eq", value: "XNYS" }]}
@@ -466,7 +465,7 @@ describe("the keyboard", () => {
   });
 
   it("toggles with Space and stays open, toggles with Enter and closes", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(rows(100)));
+    const fetchMock = vi.fn().mockResolvedValue(answer(rows(20)));
     vi.stubGlobal("fetch", fetchMock);
     render(<Harness venues={MARKET_VENUES} source="market" />);
 
@@ -496,7 +495,7 @@ describe("the keyboard", () => {
   });
 
   it("closes on Escape and returns focus to the trigger", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(<Harness venues={MARKET_VENUES} source="market" />);
 
     const { user, trigger } = await openMenu();
@@ -508,7 +507,7 @@ describe("the keyboard", () => {
   });
 
   it("closes on Tab and lets the browser move on", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(<Harness venues={MARKET_VENUES} source="market" />);
 
     const { user, trigger } = await openMenu();
@@ -521,7 +520,7 @@ describe("the keyboard", () => {
   });
 
   it("type-ahead jumps over the labels", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(100))));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(20))));
     render(<Harness venues={MARKET_VENUES} source="market" />);
 
     const { user, menu } = await openMenu();
@@ -628,7 +627,7 @@ function stubApp() {
 describe("the exchange choice in the shell", () => {
   beforeEach(() => {
     resetFilterSchemaCache();
-    window.history.replaceState(null, "", "/app/");
+    window.history.replaceState(null, "", "/app/screener");
   });
 
   it("sends one in predicate, writes the set to the URL, and reads it back on reload", async () => {
@@ -637,13 +636,13 @@ describe("the exchange choice in the shell", () => {
 
     const first = render(<App />);
     await waitFor(
-      () => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"),
+      () => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"),
       { timeout: 3_000 },
     );
 
     // The menu is the served route's four venues, in menu order.
     const trigger = await screen.findByTestId("exchange-trigger");
-    expect(screen.getByTestId("exchange-source").textContent).toBe("from /market/exchanges");
+    expect(screen.getByTestId("exchange-trigger").getAttribute("title")).toContain("from /market/exchanges");
     // Two readers already share the breadth document (the strip and the sector
     // menu). The exchange control must not add a third — it has its own route.
     const breadthBefore = api.urls.filter((url) => url.startsWith("/market/breadth")).length;
@@ -713,7 +712,7 @@ describe("the exchange choice in the shell", () => {
 
     render(<App />);
 
-    const source = await screen.findByTestId("exchange-source");
+    const source = await screen.findByTestId("exchange-trigger");
     await waitFor(() => expect(source.getAttribute("data-source")).not.toBe("loading"));
     expect(["rows", "none"]).toContain(source.getAttribute("data-source"));
     // The control is still there and still usable: the panel is not the route.

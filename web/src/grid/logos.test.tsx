@@ -28,15 +28,15 @@ function rows(symbols: readonly string[]): ScreenRow[] {
   return symbols.map((symbol, index) => ({ symbol, price: 100 + index }));
 }
 
-function hundred(prefix = "A"): ScreenRow[] {
-  return rows(Array.from({ length: 100 }, (_, index) => `${prefix}${index}`));
+function twenty(prefix = "A"): ScreenRow[] {
+  return rows(Array.from({ length: 20 }, (_, index) => `${prefix}${index}`));
 }
 
 function answer(list: ScreenRow[], budgetBytes = 58_112): Response {
   return new Response(
     JSON.stringify({
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total: 5_600,
       universe_total: 5_600,
       returned: list.length,
@@ -74,8 +74,8 @@ describe("logoPath", () => {
 });
 
 describe("the identity lane", () => {
-  it("gives every one of 100 rows an image whose src is exactly /logos/<symbol>", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(hundred())));
+  it("gives every row on the page an image whose src is exactly /logos/<symbol>", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(twenty())));
     render(
       <ScreenPanel
         view={VIEW}
@@ -88,12 +88,12 @@ describe("the identity lane", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(
-        100,
+        20,
       ),
     );
 
     const images = screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol] img");
-    expect(images).toHaveLength(100);
+    expect(images).toHaveLength(20);
 
     const cells = screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]");
     cells.forEach((cell, index) => {
@@ -202,7 +202,7 @@ describe("the identity lane", () => {
 
 describe("the panel budget", () => {
   it("never asks the API for the logo column, even when a selection names it", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(hundred()));
+    const fetchMock = vi.fn().mockResolvedValue(answer(twenty()));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -225,8 +225,8 @@ describe("the panel budget", () => {
     expect(JSON.stringify(body)).not.toContain("logo");
   });
 
-  it("sends exactly the canonical body for a 100-row panel — no extra field, no growth", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(hundred()));
+  it("sends exactly the canonical body for a twenty-row panel — no extra field, no growth", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(answer(twenty()));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -247,7 +247,7 @@ describe("the panel budget", () => {
       requestBody({
         view: VIEW.name,
         columns: VIEW.columns,
-        limit: 100,
+        limit: 20,
         offset: 0,
         sort: "market_cap",
         filters: [],
@@ -263,10 +263,10 @@ describe("the panel budget", () => {
     const PANEL_BUDGET_BYTES = 60_000;
     expect(100 * MONOGRAM_BYTES).toBeGreaterThan(PANEL_BUDGET_BYTES);
 
-    // And the answer the panel draws is untouched: 100 rows, no budget cut.
+    // And the answer the panel draws is untouched: a full page, no budget cut.
     expect(
       screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]"),
-    ).toHaveLength(100);
+    ).toHaveLength(20);
     expect(screen.queryByText(/budget cut rows/)).toBeNull();
   });
 });

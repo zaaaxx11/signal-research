@@ -41,6 +41,14 @@ export interface SymbolSearchProps {
   className?: string;
   /** Owned by the shell so "/" and ⌘K can focus the one search box. */
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  /**
+   * The field's hint text. The default is the shell's original wording; the
+   * nav passes the product's wider phrasing because it is the front door and
+   * the search also opens a company or a profile page.
+   */
+  placeholder?: string;
+  /** The decorative "/" key hint; the nav hides it to keep the field wide. */
+  showHint?: boolean;
 }
 
 /**
@@ -52,7 +60,13 @@ export interface SymbolSearchProps {
  * that with 422, and a UI that asks a question it knows is invalid is a bug
  * that looks like a feature.
  */
-export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProps) {
+export function SymbolSearch({
+  onSelect,
+  className,
+  inputRef,
+  placeholder = "Symbol or company",
+  showHint = true,
+}: SymbolSearchProps) {
   const [query, setQuery] = React.useState("");
   const [state, setState] = React.useState<State>(IDLE);
   const [open, setOpen] = React.useState(false);
@@ -266,7 +280,7 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder="Symbol or company"
+          placeholder={placeholder}
           value={query}
           onChange={(event) => {
             committedRef.current = null;
@@ -284,14 +298,14 @@ export function SymbolSearch({ onSelect, className, inputRef }: SymbolSearchProp
           >
             <XIcon aria-hidden="true" className="size-3.5" />
           </button>
-        ) : (
+        ) : showHint ? (
           <kbd
             aria-hidden="true"
             className="hidden shrink-0 rounded-sm border border-line px-1 font-mono text-label text-fg-subtle sm:block"
           >
             /
           </kbd>
-        )}
+        ) : null}
       </div>
 
       <p id={HINT_ID} className="sr-only">

@@ -30,6 +30,7 @@ from app import __version__
 from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
 from app.api import engine as engine_api
 from app.api import logos as logos_api
+from app.api import signals
 from app.api.cache import matches
 from app.auth import ApiError
 from app.config import Settings, get_settings
@@ -790,6 +791,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: ``GET /market/exchanges``: the venue vocabulary and its counts, over the
     #: selector's own universe and sharing its scan cache.
     mount_router(application, exchanges.router)
+    #: ``GET /market/signals``: the home page's thirteen tables (eleven
+    #: computable today), from one pass over the selector's universe and the
+    #: same scan cache — so the page and a screen describe one population.
+    mount_router(application, signals.router)
     mount_router(application, news.router)
     #: ``GET /logos/{symbol}``: the brand mark on its own URL, so a 100-row
     #: projection carries none of its bytes and every row still has a ``src``.

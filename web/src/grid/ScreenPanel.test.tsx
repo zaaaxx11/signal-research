@@ -41,7 +41,7 @@ function page(count: number, prefix: string, etag: string) {
   return answer(
     {
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total: 5600,
       universe_total: 5600,
       returned: count,
@@ -58,23 +58,50 @@ afterEach(() => {
 });
 
 describe("ScreenPanel", () => {
+  it("asks the API for twenty rows, and the pager's arithmetic follows", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(page(20, "A", 'W/"p1"'));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ScreenPanel
+        view={VIEW}
+        selectedSymbol={null}
+        onActivate={vi.fn()}
+        onClear={vi.fn()}
+        containerWidth={1280}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      criteria: { limit: number; offset: number };
+    };
+    // The request body is the contract: never 100, and the page step is 20.
+    expect(body.criteria.limit).toBe(20);
+    expect(body.criteria.offset).toBe(0);
+    expect(screen.getByRole("button", { name: "Next" })).toBeTruthy();
+    expect(screen.getByText("1/280")).toBeTruthy();
+  });
+
   it("asks for the next page by offset and prints the range the API answered", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
-      .mockResolvedValueOnce(page(100, "B", 'W/"p2"'));
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "B", 'W/"p2"'));
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("101–200 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
 
     const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).criteria.offset).toBe(100);
+    expect(JSON.parse(String(init.body)).criteria.offset).toBe(20);
     // The second page really shows the second page's rows.
     expect(screen.getByTestId("grid-table").querySelector("tbody tr[data-symbol]")?.getAttribute("data-symbol")).toBe("B0");
   });
@@ -82,32 +109,32 @@ describe("ScreenPanel", () => {
   it("keeps the grid and shows the badge when a refresh is answered 304", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockResolvedValueOnce(new Response(null, { status: 304, headers: { etag: 'W/"p1"' } }));
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
-    await waitFor(() => expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(100));
+    await waitFor(() => expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20));
 
     await user.click(screen.getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(screen.getByTestId("stale-badge")).toBeTruthy());
 
     expect(screen.getByTestId("stale-badge").textContent).toContain("304");
-    expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(100);
-    expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600");
+    expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
+    expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600");
   });
 
   it("sends the chosen sort and returns to the first page", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
-      .mockResolvedValueOnce(page(100, "T", 'W/"p2"'));
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "T", 'W/"p2"'));
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     // The toolbar's sort is three toggle buttons now; pressing one is the
     // choice, and `aria-pressed` says which one is on.

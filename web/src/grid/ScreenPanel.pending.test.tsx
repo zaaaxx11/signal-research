@@ -59,7 +59,7 @@ function page(count: number, prefix: string, etag: string, total = TOTAL): Respo
   return new Response(
     JSON.stringify({
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total,
       universe_total: total,
       returned: count,
@@ -115,18 +115,18 @@ describe("a page turn in flight", () => {
     const turn = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => turn.promise);
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     const table = screen.getByTestId("grid-table");
     const grid = screen.getByTestId("grid-scroll");
     const before = bodyRows(table);
-    expect(before).toHaveLength(100);
+    expect(before).toHaveLength(20);
     expect(table.style.opacity).toBe("1");
     expect(table.getAttribute("data-stale")).toBe("false");
 
@@ -163,26 +163,26 @@ describe("a page turn in flight", () => {
 
     expect(table.style.opacity).toBe(String(STALE_OPACITY));
     expect(table.getAttribute("data-stale")).toBe("true");
-    expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 101–200…");
-    expect(announcers("Loading 101–200…")).toHaveLength(1);
+    expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 21–40…");
+    expect(announcers("Loading 21–40…")).toHaveLength(1);
 
     // One click, one request — and it is the next page, not the one after it.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).criteria.offset).toBe(100);
+    expect(JSON.parse(String(init.body)).criteria.offset).toBe(20);
 
     // The reader keeps the rows they were on: same nodes, same order.
     const during = bodyRows(table);
-    expect(during).toHaveLength(100);
+    expect(during).toHaveLength(20);
     during.forEach((row, index) => expect(row).toBe(before[index]));
     expect(screen.getByTestId("grid-table")).toBe(table);
 
     // --- the answer lands ---------------------------------------------------
     await act(async () => {
-      turn.resolve(page(100, "B", 'W/"p2"'));
+      turn.resolve(page(20, "B", 'W/"p2"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("101–200 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
 
     expect(screen.queryByTestId("fetch-bar")).toBeNull();
     expect(screen.getByTestId("fetch-status").textContent).toBe("");
@@ -202,20 +202,20 @@ describe("a page turn in flight", () => {
     // 10 ms: the reader's model of the click is "it already happened".
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(async () => {
         await sleep(10);
-        return page(100, "B", 'W/"p2"');
+        return page(20, "B", 'W/"p2"');
       });
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     const table = screen.getByTestId("grid-table");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("101–200 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
 
     // Past the window: the timer was cancelled, not merely masked.
     await sleep(PENDING_FLASH_DELAY_MS + 120);
@@ -229,28 +229,28 @@ describe("a page turn in flight", () => {
     const turn = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => turn.promise)
-      .mockResolvedValueOnce(page(100, "C", 'W/"p3"'));
+      .mockResolvedValueOnce(page(20, "C", 'W/"p3"'));
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     await user.dblClick(screen.getByRole("button", { name: "Next" }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [, first] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(first.body)).criteria.offset).toBe(100);
+    expect(JSON.parse(String(first.body)).criteria.offset).toBe(20);
 
     await act(async () => {
-      turn.resolve(page(100, "B", 'W/"p2"'));
+      turn.resolve(page(20, "B", 'W/"p2"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("101–200 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
 
-    // The second click of the double must not have queued 201–300 behind it.
+    // The second click of the double must not have queued 41–60 behind it.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("grid-table").querySelector("tbody tr[data-symbol]")?.getAttribute("data-symbol")).toBe("B0");
   });
@@ -259,13 +259,13 @@ describe("a page turn in flight", () => {
     const turn = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => turn.promise)
-      .mockResolvedValueOnce(page(100, "C", 'W/"p3"'));
+      .mockResolvedValueOnce(page(20, "C", 'W/"p3"'));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
     act(() => {
@@ -275,7 +275,7 @@ describe("a page turn in flight", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).criteria.offset).toBe(100);
+    expect(JSON.parse(String(init.body)).criteria.offset).toBe(20);
   });
 });
 
@@ -284,13 +284,13 @@ describe("a refresh", () => {
     const refresh = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => refresh.promise);
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     const table = screen.getByTestId("grid-table");
     const before = bodyRows(table);
@@ -313,9 +313,9 @@ describe("a refresh", () => {
     expect(table.getAttribute("data-stale")).toBe("false");
 
     const after = bodyRows(table);
-    expect(after).toHaveLength(100);
+    expect(after).toHaveLength(20);
     after.forEach((row, index) => expect(row).toBe(before[index]));
-    expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600");
+    expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600");
     expect(announcers("Loading")).toHaveLength(0);
   });
 });
@@ -336,18 +336,18 @@ describe("a first load", () => {
     expect(table.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(0);
     expect(table.style.opacity).toBe("1");
     expect(table.getAttribute("data-stale")).toBe("false");
-    expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 1–100…");
+    expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 1–20…");
     expect(screen.getByTestId("range").textContent).toBe("—");
     expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Prev" }) as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => {
-      first.resolve(page(100, "A", 'W/"p1"'));
+      first.resolve(page(20, "A", 'W/"p1"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
     expect(screen.queryByTestId("fetch-bar")).toBeNull();
-    expect(table.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(100);
+    expect(table.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
   });
 });
 
@@ -356,13 +356,13 @@ describe("a request that fails", () => {
     const turn = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => turn.promise);
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
     const table = screen.getByTestId("grid-table");
 
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -402,13 +402,13 @@ describe("reduced motion", () => {
     const turn = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => turn.promise);
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     const table = screen.getByTestId("grid-table");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -421,7 +421,7 @@ describe("reduced motion", () => {
     expect(sweep.className).toContain("w-full");
 
     // The signals that carry the meaning survive the preference.
-    expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 101–200…");
+    expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 21–40…");
     expect(table.style.opacity).toBe(String(STALE_OPACITY));
     expect(table.getAttribute("data-stale")).toBe("true");
     expect(
@@ -436,14 +436,14 @@ describe("a view switch", () => {
     const valueTurn = deferred<Response>();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(page(100, "A", 'W/"p1"'))
+      .mockResolvedValueOnce(page(20, "A", 'W/"p1"'))
       .mockImplementationOnce(() => never)
       .mockImplementationOnce(() => valueTurn.promise);
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     const { rerender } = render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByTestId("fetch-bar")).toBeTruthy());
@@ -473,16 +473,16 @@ describe("a view switch", () => {
 
 describe("pendingLabel", () => {
   it("names the page, clamps the last one, and says 'Refreshing…' for a re-ask", () => {
-    expect(pendingLabel({ refreshing: false, pageIndex: 1, limit: 100, total: TOTAL })).toBe(
-      "Loading 101–200…",
+    expect(pendingLabel({ refreshing: false, pageIndex: 1, limit: 20, total: TOTAL })).toBe(
+      "Loading 21–40…",
     );
-    expect(pendingLabel({ refreshing: false, pageIndex: 55, limit: 100, total: TOTAL })).toBe(
-      "Loading 5501–5600…",
+    expect(pendingLabel({ refreshing: false, pageIndex: 55, limit: 20, total: TOTAL })).toBe(
+      "Loading 1101–1120…",
     );
-    expect(pendingLabel({ refreshing: false, pageIndex: 0, limit: 100, total: 42 })).toBe(
-      "Loading 1–42…",
+    expect(pendingLabel({ refreshing: false, pageIndex: 0, limit: 20, total: 42 })).toBe(
+      "Loading 1–20…",
     );
-    expect(pendingLabel({ refreshing: true, pageIndex: 3, limit: 100, total: TOTAL })).toBe(
+    expect(pendingLabel({ refreshing: true, pageIndex: 3, limit: 20, total: TOTAL })).toBe(
       "Refreshing…",
     );
   });

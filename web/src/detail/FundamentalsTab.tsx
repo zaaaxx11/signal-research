@@ -58,16 +58,20 @@ export function FundamentalsTab({
     );
   }
 
-  const rows = sections.flatMap((section) => section.rows);
-  const reported = rows.filter((row) => !metricCell(row.value, row.unit).absent).length;
-  const facts = [`${rows.length} fields`, `${reported} reported`];
-  if (state.data.asOf) facts.push(`as of ${formatDate(state.data.asOf)}`);
+  // The reader wants the date, not our bookkeeping. "38 fields · 38 reported"
+  // is engine telemetry: it says how complete our data is, which is our
+  // problem, not theirs. Keep the one fact that changes how they read a number
+  // — when the fiscal data is from — and say nothing when we do not know.
+  const facts: string[] = [];
+  if (state.data.asOf) facts.push(`Data as of ${formatDate(state.data.asOf)}`);
 
   return (
     <div data-testid="fundamentals-loaded" className="flex flex-col gap-3">
-      <p className="nums text-label uppercase tracking-[0.08em] text-fg-subtle">
-        {facts.join(" · ")}
-      </p>
+      {facts.length > 0 && (
+        <p className="nums text-label uppercase tracking-[0.08em] text-fg-subtle">
+          {facts.join(" · ")}
+        </p>
+      )}
 
       {sections.map((section) => {
         const headingId = `${baseId}-${section.group}`;

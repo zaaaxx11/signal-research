@@ -35,7 +35,7 @@ function answer(count: number, prefix: string, total = 5_600): Response {
   return new Response(
     JSON.stringify({
       as_of: "2026-10-31T01:28:01Z",
-      limit: 100,
+      limit: 20,
       total,
       universe_total: 5_600,
       returned: count,
@@ -80,11 +80,11 @@ function Harness({ initial }: { initial: ActiveFilter[] }) {
 }
 
 describe("ScreenPanel filters", () => {
-  it("sends the chip's predicate and shows 100 rows after a filter change", async () => {
+  it("sends the chip's predicate and shows the first page after a filter change", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(answer(100, "A"))
-      .mockResolvedValueOnce(answer(100, "B"));
+      .mockResolvedValueOnce(answer(20, "A"))
+      .mockResolvedValueOnce(answer(20, "B"));
     vi.stubGlobal("fetch", fetchMock);
 
     const { rerender } = render(
@@ -101,7 +101,7 @@ describe("ScreenPanel filters", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
     expect(filtersOf(fetchMock.mock.calls[0])).toEqual([]);
 
     rerender(
@@ -124,18 +124,18 @@ describe("ScreenPanel filters", () => {
     ]);
     await waitFor(() =>
       expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(
-        100,
+        20,
       ),
     );
-    expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600");
+    expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600");
   });
 
   it("a chip's × is the request, and the grid follows", async () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(answer(100, "A"))
-      .mockResolvedValueOnce(answer(100, "B"));
+      .mockResolvedValueOnce(answer(20, "A"))
+      .mockResolvedValueOnce(answer(20, "B"));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Harness initial={[{ id: "f1", key: "cap", op: "gte", value: 2_000_000_000 }]} />);
@@ -161,7 +161,7 @@ describe("ScreenPanel filters", () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(answer(100, "A"))
+      .mockResolvedValueOnce(answer(20, "A"))
       .mockResolvedValueOnce(answer(50, "B", 50));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -194,7 +194,7 @@ describe("ScreenPanel filters", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(answer(0, "Z", 0))
-      .mockResolvedValueOnce(answer(100, "A"));
+      .mockResolvedValueOnce(answer(20, "A"));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Harness initial={[{ id: "f1", key: "sec", op: "eq", value: "Nothing Inc." }]} />);
@@ -207,15 +207,15 @@ describe("ScreenPanel filters", () => {
     await user.click(screen.getByRole("button", { name: /Remove filter: Sector/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(filtersOf(fetchMock.mock.calls[1])).toEqual([]);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–100 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
   });
 
   it("Clear all restores the unfiltered panel", async () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(answer(100, "A"))
-      .mockResolvedValueOnce(answer(100, "B"));
+      .mockResolvedValueOnce(answer(20, "A"))
+      .mockResolvedValueOnce(answer(20, "B"));
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -246,7 +246,7 @@ describe("ScreenPanel filters", () => {
   // -------------------------------------------------------------------------
 
   it("F3: reconciles a page past the last one against meta.total", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(100, "A"));
+    const fetchMock = vi.fn().mockResolvedValue(answer(20, "A"));
     vi.stubGlobal("fetch", fetchMock);
     const onPageChange = vi.fn();
 
@@ -266,14 +266,14 @@ describe("ScreenPanel filters", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const body = bodyOf(fetchMock.mock.calls[0]);
-    expect((body["criteria"] as { offset: number }).offset).toBe(999_900);
+    expect((body["criteria"] as { offset: number }).offset).toBe(199_980);
 
-    // 5,600 rows at 100 a page is 56 pages: page index 9,999 cannot exist.
-    await waitFor(() => expect(onPageChange).toHaveBeenCalledWith(55));
+    // 5,600 rows at 20 a page is 280 pages: page index 9,999 cannot exist.
+    await waitFor(() => expect(onPageChange).toHaveBeenCalledWith(279));
   });
 
   it("F3: the real last page is left alone (no reconcile loop)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(answer(100, "A"));
+    const fetchMock = vi.fn().mockResolvedValue(answer(20, "A"));
     vi.stubGlobal("fetch", fetchMock);
     const onPageChange = vi.fn();
 
@@ -284,14 +284,14 @@ describe("ScreenPanel filters", () => {
         onActivate={vi.fn()}
         onClear={vi.fn()}
         containerWidth={1280}
-        page={55}
+        page={279}
         onPageChange={onPageChange}
         filters={[]}
         registry={registry}
       />,
     );
 
-    await waitFor(() => expect(screen.getByText("56/56")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("280/280")).toBeTruthy());
     expect(onPageChange).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

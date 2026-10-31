@@ -37,7 +37,10 @@ describe("Fundamentals tab", () => {
       expect(screen.getByRole("heading", { name: group })).toBeTruthy();
     }
 
-    expect(screen.getByText(/43 fields · 43 reported/)).toBeTruthy();
+    // The row count is asserted by the metric list below; the header must NOT
+    // narrate our bookkeeping. A reader does not need "43 fields · 43 reported".
+    expect(screen.queryByText(/\bfields?\b/i)).toBeNull();
+    expect(screen.queryByText(/\breported\b/i)).toBeNull();
 
     const revenue = screen.getByTestId("metric-revenue");
     expect(revenue.textContent).toContain("466.82B");
@@ -72,7 +75,7 @@ describe("Fundamentals tab", () => {
     expect(company.textContent).toContain("<img src=x onerror=alert(1)>");
   });
 
-  it("draws 43 rows for a symbol that reports only three fields", () => {
+  it("draws every row for a symbol that reports only three cells", () => {
     render(
       <FundamentalsTab
         symbol="ASML"
@@ -85,7 +88,7 @@ describe("Fundamentals tab", () => {
       .getByTestId("fundamentals-loaded")
       .querySelectorAll<HTMLElement>('[data-testid^="metric-"]');
     expect(rows).toHaveLength(43);
-    expect(screen.getByText(/43 fields · 3 reported/)).toBeTruthy();
+    expect(screen.queryByText(/\breported\b/i)).toBeNull();
     expect(screen.getByTestId("metric-company").textContent).toContain("ASML HOLDING NV");
     expect(screen.getByTestId("metric-assets").textContent).toContain("—");
   });

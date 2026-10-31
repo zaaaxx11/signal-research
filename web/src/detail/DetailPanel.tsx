@@ -77,6 +77,14 @@ export interface DetailPanelProps {
   symbol: string | null;
   /** Called by Escape and the close button; the parent owns the selection. */
   onClose: () => void;
+  /**
+   * `"docked"` (the default) is the 360–560 px panel beside the grid, with its
+   * resize handle. `"page"` is the same panel filling `/stock/{symbol}`: no
+   * resizer (a full page has nothing to resize against) and no fixed width.
+   * Everything else — the tabs, the reads, the keyboard contract — is shared,
+   * which is why the route reuses this component instead of a copy of it.
+   */
+  variant?: "docked" | "page";
 }
 
 /** The grid row for a symbol, without building a selector from user data. */
@@ -100,7 +108,12 @@ function dialogIsOpen(): boolean {
   return false;
 }
 
-export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactElement | null {
+export function DetailPanel({
+  symbol,
+  onClose,
+  variant = "docked",
+}: DetailPanelProps): React.ReactElement | null {
+  const page = variant === "page";
   const [width, setWidth] = React.useState(DEFAULT_PANEL_WIDTH);
   const [dragging, setDragging] = React.useState(false);
   const panelRef = React.useRef<HTMLElement | null>(null);
@@ -342,20 +355,35 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
       aria-label={`Details for ${symbol}`}
       data-testid="detail-panel"
       data-symbol={symbol}
-      data-docked="right"
+      data-docked={page ? "page" : "right"}
+      data-variant={variant}
       onKeyDown={onPanelKeyDown}
-      style={{
-        width: `${width}px`,
-        minWidth: `${MIN_PANEL_WIDTH}px`,
-        maxWidth: `${MAX_PANEL_WIDTH}px`,
-      }}
-      className="relative flex h-full min-h-0 flex-none flex-col border-l border-line-strong bg-surface"
+      style={
+        page
+          ? { width: "100%" }
+          : {
+              width: `${width}px`,
+              minWidth: `${MIN_PANEL_WIDTH}px`,
+              maxWidth: `${MAX_PANEL_WIDTH}px`,
+            }
+      }
+      className={
+        page
+          ? "relative flex h-full min-h-0 flex-1 flex-col bg-surface"
+          : "relative flex h-full min-h-0 flex-none flex-col border-l border-line-strong bg-surface"
+      }
     >
 
       <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <h2 className="min-w-0 truncate text-ui font-semibold text-fg" title={symbol}>
-          {symbol}
-        </h2>
+        {variant === "page" ? (
+          <h1 className="min-w-0 truncate text-ui font-semibold text-fg" title={symbol}>
+            {symbol}
+          </h1>
+        ) : (
+          <h2 className="min-w-0 truncate text-ui font-semibold text-fg" title={symbol}>
+            {symbol}
+          </h2>
+        )}
         <button
           ref={closeRef}
           type="button"
@@ -368,22 +396,24 @@ export function DetailPanel({ symbol, onClose }: DetailPanelProps): React.ReactE
         </button>
       </header>
 
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize details panel"
-        aria-controls={panelId}
-        aria-valuemin={MIN_PANEL_WIDTH}
-        aria-valuemax={MAX_PANEL_WIDTH}
-        aria-valuenow={width}
-        aria-valuetext={`${width} pixels`}
-        tabIndex={0}
-        data-testid="detail-resizer"
-        data-dragging={dragging ? "true" : "false"}
-        onPointerDown={onResizeStart}
-        onKeyDown={onResizeKeyDown}
-        className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize bg-transparent hover:bg-surface-raised focus-visible:bg-surface-raised"
-      />
+      {page ? null : (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize details panel"
+          aria-controls={panelId}
+          aria-valuemin={MIN_PANEL_WIDTH}
+          aria-valuemax={MAX_PANEL_WIDTH}
+          aria-valuenow={width}
+          aria-valuetext={`${width} pixels`}
+          tabIndex={0}
+          data-testid="detail-resizer"
+          data-dragging={dragging ? "true" : "false"}
+          onPointerDown={onResizeStart}
+          onKeyDown={onResizeKeyDown}
+          className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize bg-transparent hover:bg-surface-raised focus-visible:bg-surface-raised"
+        />
+      )}
 
       <Tabs defaultValue="fundamentals" className="flex min-h-0 flex-1 flex-col gap-0">
         <div className="shrink-0 border-b border-line px-2 py-1">

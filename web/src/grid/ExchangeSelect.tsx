@@ -289,7 +289,8 @@ export function ExchangeSelect({ venues, source, value, onChange }: ExchangeSele
           aria-expanded={open}
           aria-controls={open ? `${baseId}-menu` : undefined}
           aria-label={`Exchange: ${triggerText}`}
-          title={count === 0 ? "Any exchange" : selected.map((code) => exchangeTitle(code)).join(", ")}
+          data-source={source}
+          title={`${count === 0 ? "Any exchange" : selected.map((code) => exchangeTitle(code)).join(", ")} — ${SOURCE_TEXT[source]}.`}
           onClick={() => (open ? closeMenu(false) : openMenu())}
           onKeyDown={onTriggerKeyDown}
           className="flex max-w-[9rem] items-center truncate rounded-sm border border-line bg-surface-sunken px-1 py-0.5 font-mono text-label tracking-[0.06em] text-fg-muted"
@@ -301,15 +302,6 @@ export function ExchangeSelect({ venues, source, value, onChange }: ExchangeSele
             ▾
           </span>
         </button>
-      </span>
-
-      <span
-        data-testid="exchange-source"
-        data-source={source}
-        title={`${options.length} exchange codes, ${SOURCE_TEXT[source]}.`}
-        className="hidden shrink-0 font-mono text-label tracking-[0.04em] text-fg-subtle xl:inline"
-      >
-        {SOURCE_TEXT[source]}
       </span>
 
       {open ? (
