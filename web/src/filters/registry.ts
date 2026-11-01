@@ -66,6 +66,15 @@ export interface AliasIndexEntry {
   targetKey: string;
 }
 
+/** One filter key the panel document publishes, with the values it accepts. */
+export interface PublishedFilter {
+  key: string;
+  label: string;
+  op: FilterOp;
+  /** Value (the API's token) → the label the document gave it. */
+  values: Map<string, string>;
+}
+
 export interface FilterRegistry {
   entries: RegistryEntry[];
   byKey: Map<string, RegistryEntry>;
@@ -75,6 +84,18 @@ export interface FilterRegistry {
   /** Refused keys and the schema's reason, for a hand-typed key's message. */
   refused: Record<string, string>;
   usableKeys: Set<string>;
+  /**
+   * Filters the *served document* publishes but the *schema* does not carry.
+   *
+   * The two documents are read from one deployment and can disagree for a
+   * release: `GET /screens/filters` may offer a control the schema still marks
+   * refused (or not at all). The document is the surface that says what runs
+   * today, so a link naming one of its keys must survive a reload. These
+   * entries are kept apart from `entries`/`byKey` — the picker and the palette
+   * stay exactly the schema's vocabulary — and are consulted only where a
+   * document-published value needs a name or a validation.
+   */
+  published: Map<string, PublishedFilter>;
 }
 
 const NUMERIC_OPS: FilterOp[] = ["eq", "ne", "gt", "gte", "lt", "lte", "between", "in"];
@@ -245,7 +266,10 @@ function optionList(entry: FilterKeyEntry, key: string): ChoiceOption[] {
  * `isUsableEntry`, which is the same predicate the schema uses to mean "a row
  * column exists" or "this key compiles its option vocabulary".
  */
-export function buildRegistry(schema: FilterSchema): FilterRegistry {
+export function buildRegistry(
+  schema: FilterSchema,
+  published: Map<string, PublishedFilter> = new Map(),
+): FilterRegistry {
   const entries: RegistryEntry[] = [];
   const byKey = new Map<string, RegistryEntry>();
   const byField = new Map<string, string>();
@@ -314,6 +338,7 @@ export function buildRegistry(schema: FilterSchema): FilterRegistry {
     tabs,
     refused: refusedKeys(schema),
     usableKeys: new Set(entries.map((entry) => entry.key)),
+    published,
   };
 }
 
@@ -321,7 +346,10 @@ export function buildRegistry(schema: FilterSchema): FilterRegistry {
 export function resolveKey(registry: FilterRegistry, name: string): string | null {
   if (registry.byKey.has(name)) return name;
   const alias = registry.aliases.find((entry) => entry.name === name);
-  return alias?.targetKey ?? null;
+  if (alias) return alias.targetKey;
+  // A key the panel document publishes is a key the API answers, even when the
+  // schema has not caught up with it yet.
+  return registry.published.has(name) ? name : null;
 }
 
 /** The label a chip shows; a raw key is better than an empty chip. */

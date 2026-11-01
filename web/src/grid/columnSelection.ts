@@ -21,6 +21,8 @@ import * as React from "react";
 
 import { MAX_COLUMNS } from "@/data/screens";
 
+import { CLIENT_COLUMNS } from "./columnMeta";
+
 /** The panel cap, named once so the message and the guard cannot drift. */
 export const COLUMN_CAP = MAX_COLUMNS;
 
@@ -56,7 +58,9 @@ export function parseColumnSelection(
 ): ParsedColumns {
   const query = search.includes("?") ? search.slice(search.indexOf("?") + 1) : search.replace(/^\?/, "");
   const params = new URLSearchParams(query);
-  const known = new Set(catalogue);
+  // Client columns are real columns on screen even though no request carries
+  // them, so a link that names one round-trips instead of losing it.
+  const known = new Set([...catalogue, ...CLIENT_COLUMNS]);
   const names = new Set(viewNames);
   const byView: Record<string, string[]> = {};
   const notices: string[] = [];
@@ -178,6 +182,16 @@ export interface ColumnSelectionApi {
   /** A view's custom keys, or null when it still shows its own columns. */
   columnsFor: (view: string) => readonly string[] | null;
   toggle: (view: string, key: string) => void;
+  /**
+   * Replace a view's selection with a whole list — one preset click.
+   *
+   * The list is filtered against the served catalogue, deduplicated and cut to
+   * the panel cap, so a preset can never ask for a key this build does not
+   * carry. A list identical to the view's own columns clears the overrides
+   * instead of storing a copy: the URL says "no custom selection", which is
+   * what the table is showing.
+   */
+  select: (view: string, keys: readonly string[]) => void;
   reset: (view: string) => void;
   /** The last refusal or link-trim sentence, until it is dismissed. */
   notice: string | null;
@@ -264,6 +278,30 @@ export function useColumnSelection({
   byViewRef.current = byView;
   const defaultsRef = React.useRef(defaults);
   defaultsRef.current = defaults;
+  const catalogueRef = React.useRef(catalogue);
+  catalogueRef.current = catalogue;
+
+  const select = React.useCallback((view: string, keys: readonly string[]) => {
+    const known = new Set([...catalogueRef.current, ...CLIENT_COLUMNS]);
+    const seen = new Set<string>();
+    const kept: string[] = [];
+    for (const key of keys) {
+      if (!known.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      if (kept.length >= COLUMN_CAP) break;
+      kept.push(key);
+    }
+    setNotice(null);
+    setByView((previous) => {
+      const next = { ...previous };
+      if (kept.length === 0 || sameColumns(kept, defaultsRef.current[view] ?? [])) {
+        delete next[view];
+      } else {
+        next[view] = kept;
+      }
+      return next;
+    });
+  }, []);
 
   const toggle = React.useCallback((view: string, key: string) => {
     const base = byViewRef.current[view] ?? defaultsRef.current[view] ?? [];
@@ -297,5 +335,5 @@ export function useColumnSelection({
 
   const dismiss = React.useCallback(() => setNotice(null), []);
 
-  return { ready: parsed, columnsFor, toggle, reset, notice, dismiss };
+  return { ready: parsed, columnsFor, toggle, select, reset, notice, dismiss };
 }

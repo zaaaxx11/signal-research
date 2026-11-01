@@ -149,7 +149,11 @@ export function formatValue(registry: FilterRegistry, key: string, value: Filter
       // same option the drawer's `<select>` names, or the two controls describe
       // one request in two languages.
       const option = entry?.options.find((candidate) => candidate.token === item);
-      return option?.label ?? item;
+      return (
+        option?.label ??
+        registry.published.get(key)?.values.get(item) ??
+        item
+      );
     }
     if (typeof item !== "number") return String(item);
     if (unit === "usd") return `$${compactNumber(item)}`;
@@ -171,7 +175,9 @@ export interface DescribedFilter {
 /** The chip: human label, human value, and the one-line sentence. */
 export function describeFilter(registry: FilterRegistry, filter: ActiveFilter): DescribedFilter {
   const entry = registry.byKey.get(filter.key);
-  const label = entry?.label ?? filter.key;
+  // A key only the panel document publishes still gets its published name: the
+  // chip and the select that wrote it must describe one request in one language.
+  const label = entry?.label ?? registry.published.get(filter.key)?.label ?? filter.key;
   let value: string;
   if (filter.op === "between") {
     const bounds = Array.isArray(filter.value) ? filter.value : [];

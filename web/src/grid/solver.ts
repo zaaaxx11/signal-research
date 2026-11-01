@@ -24,7 +24,7 @@
  * a throw here happens inside `render` and takes the whole SPA down with it.
  */
 
-import { IDENTITY_WIDTH, columnSpec, type ColumnSpec } from "./columnMeta";
+import { IDENTITY_WIDTH, ROW_NUMBER_KEY, columnSpec, type ColumnSpec } from "./columnMeta";
 
 export interface SolverColumn {
   key: string;
@@ -177,8 +177,23 @@ export function solveWidths(
   return { widths, total, container: target, floor, overflow: total > target };
 }
 
-/** Identity lane first, then the view's columns in the order the server gave. */
+/**
+ * The pinned lanes first — the row number when the view draws it, then the
+ * identity lane — and then the view's columns in the order the server gave.
+ */
 export function solverColumns(viewColumns: readonly string[]): SolverColumn[] {
+  const hasNumber = viewColumns.includes(ROW_NUMBER_KEY);
+  const lead: SolverColumn[] = [];
+  if (hasNumber) {
+    const number = columnSpec(ROW_NUMBER_KEY);
+    lead.push({
+      key: number.key,
+      weight: 0,
+      min: number.min,
+      fixed: number.min,
+      kind: number.kind,
+    });
+  }
   const identity: SolverColumn = {
     key: "identity",
     weight: 0,
@@ -187,16 +202,19 @@ export function solverColumns(viewColumns: readonly string[]): SolverColumn[] {
     kind: "text",
   };
   return [
+    ...lead,
     identity,
-    ...viewColumns.map((key) => {
-      const spec = columnSpec(key);
-      return {
-        key: spec.key,
-        weight: spec.weight,
-        min: spec.min,
-        kind: spec.kind,
-      } satisfies SolverColumn;
-    }),
+    ...viewColumns
+      .filter((key) => key !== ROW_NUMBER_KEY)
+      .map((key) => {
+        const spec = columnSpec(key);
+        return {
+          key: spec.key,
+          weight: spec.weight,
+          min: spec.min,
+          kind: spec.kind,
+        } satisfies SolverColumn;
+      }),
   ];
 }
 

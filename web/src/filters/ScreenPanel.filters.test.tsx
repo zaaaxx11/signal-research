@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -74,7 +74,6 @@ function Harness({ initial }: { initial: ActiveFilter[] }) {
       registry={registry}
       onRemoveFilter={(id) => setFilters((current) => current.filter((filter) => filter.id !== id))}
       onClearFilters={() => setFilters([])}
-      onOpenFilters={vi.fn()}
     />
   );
 }
@@ -101,7 +100,7 @@ describe("ScreenPanel filters", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
     expect(filtersOf(fetchMock.mock.calls[0])).toEqual([]);
 
     rerender(
@@ -127,7 +126,7 @@ describe("ScreenPanel filters", () => {
         20,
       ),
     );
-    expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600");
+    expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total");
   });
 
   it("a chip's × is the request, and the grid follows", async () => {
@@ -179,14 +178,16 @@ describe("ScreenPanel filters", () => {
       { key: "cap", op: "gte", value: 2_000_000_000 },
       { key: "cap", op: "lt", value: 10_000_000_000 },
     ]);
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    // The chips, not every `<li>` on the page: the pager is a list too.
+    const chips = () => within(screen.getByTestId("chip-bar")).getAllByRole("listitem");
+    expect(chips()).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: /Remove filter: Market Cap.*≥ \$2B/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(filtersOf(fetchMock.mock.calls[1])).toEqual([
       { key: "cap", op: "lt", value: 10_000_000_000 },
     ]);
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(chips()).toHaveLength(1);
   });
 
   it("(c) a zero-row answer keeps the chips visible so the filter can be undone", async () => {
@@ -207,7 +208,7 @@ describe("ScreenPanel filters", () => {
     await user.click(screen.getByRole("button", { name: /Remove filter: Sector/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(filtersOf(fetchMock.mock.calls[1])).toEqual([]);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
   });
 
   it("Clear all restores the unfiltered panel", async () => {

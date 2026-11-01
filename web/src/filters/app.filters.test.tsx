@@ -89,7 +89,7 @@ describe("the shell and its filters", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("41–60 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("3/5,600 Total"));
     expect(api.selects).toHaveLength(1);
     const body = api.selects[0] as {
       criteria: { offset: number; sort: string; filters: unknown[] };
@@ -161,7 +161,7 @@ describe("the shell and its filters", () => {
     // 5,600 rows at 20 a page is 280 pages: once the total is known the panel
     // moves itself to page 280 instead of showing "…999999/280" with Next dead.
     await waitFor(() =>
-      expect(screen.getByTestId("range").textContent).toBe("5581–5600 of 5,600"),
+      expect(screen.getByTestId("range").textContent).toBe("280/5,600 Total"),
     );
     expect(screen.getByText("280/280")).toBeTruthy();
     const reconciled = api.selects.at(-1) as { criteria: { offset: number } };
@@ -205,13 +205,18 @@ describe("the shell and its filters", () => {
         .filter((element) => /Ignored 1 filter/.test(element.textContent ?? ""));
     expect(notices()).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: /^Filters/ }));
-    await screen.findByRole("dialog", { name: "Filters" });
+    // A dialog opening must not add a second live region. The drawer is
+    // reachable only through ⌘K now, so that is the path taken.
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const palette = await screen.findByRole("dialog", { name: "Find a filter" });
     expect(notices()).toHaveLength(1);
+
+    await user.type(within(palette).getByRole("combobox"), "market cap");
+    await user.keyboard("{Enter}");
 
     // A bucket press is a new screen: the sentence about the old link is no
     // longer describing anything on display.
-    const drawer = screen.getByRole("dialog", { name: "Filters" });
+    const drawer = await screen.findByRole("dialog", { name: "Filters" });
     await user.click(within(drawer).getByRole("button", { name: "$2–10B" }));
     await waitFor(() => expect(screen.queryByText(/Ignored 1 filter/)).toBeNull());
   });

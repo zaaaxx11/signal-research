@@ -121,7 +121,7 @@ describe("a page turn in flight", () => {
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     const table = screen.getByTestId("grid-table");
     const grid = screen.getByTestId("grid-scroll");
@@ -130,8 +130,8 @@ describe("a page turn in flight", () => {
     expect(table.style.opacity).toBe("1");
     expect(table.getAttribute("data-stale")).toBe("false");
 
-    const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
-    const prev = screen.getByRole("button", { name: "Prev" }) as HTMLButtonElement;
+    const next = screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement;
+    const prev = screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement;
     expect(next.disabled).toBe(false);
 
     const clickedAt = performance.now();
@@ -182,7 +182,7 @@ describe("a page turn in flight", () => {
       turn.resolve(page(20, "B", 'W/"p2"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("2/5,600 Total"));
 
     expect(screen.queryByTestId("fetch-bar")).toBeNull();
     expect(screen.getByTestId("fetch-status").textContent).toBe("");
@@ -211,11 +211,11 @@ describe("a page turn in flight", () => {
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     const table = screen.getByTestId("grid-table");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("2/5,600 Total"));
 
     // Past the window: the timer was cancelled, not merely masked.
     await sleep(PENDING_FLASH_DELAY_MS + 120);
@@ -236,9 +236,9 @@ describe("a page turn in flight", () => {
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
-    await user.dblClick(screen.getByRole("button", { name: "Next" }));
+    await user.dblClick(screen.getByRole("button", { name: "Next page" }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [, first] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
@@ -248,7 +248,7 @@ describe("a page turn in flight", () => {
       turn.resolve(page(20, "B", 'W/"p2"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("2/5,600 Total"));
 
     // The second click of the double must not have queued 41–60 behind it.
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -265,9 +265,9 @@ describe("a page turn in flight", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
-    const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+    const next = screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement;
     act(() => {
       next.click();
       next.click();
@@ -290,12 +290,12 @@ describe("a refresh", () => {
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     const table = screen.getByTestId("grid-table");
     const before = bodyRows(table);
 
-    await user.click(screen.getByRole("button", { name: "Check again" }));
+    await user.click(screen.getByRole("button", { name: "Refresh the screen" }));
     await waitFor(() => expect(screen.getByTestId("fetch-bar")).toBeTruthy());
     expect(screen.getByTestId("fetch-status").textContent).toBe("Refreshing…");
     expect(table.style.opacity).toBe(String(STALE_OPACITY));
@@ -315,7 +315,7 @@ describe("a refresh", () => {
     const after = bodyRows(table);
     expect(after).toHaveLength(20);
     after.forEach((row, index) => expect(row).toBe(before[index]));
-    expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600");
+    expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total");
     expect(announcers("Loading")).toHaveLength(0);
   });
 });
@@ -338,14 +338,14 @@ describe("a first load", () => {
     expect(table.getAttribute("data-stale")).toBe("false");
     expect(screen.getByTestId("fetch-status").textContent).toBe("Loading 1–20…");
     expect(screen.getByTestId("range").textContent).toBe("—");
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Prev" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => {
       first.resolve(page(20, "A", 'W/"p1"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
     expect(screen.queryByTestId("fetch-bar")).toBeNull();
     expect(table.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
   });
@@ -362,10 +362,10 @@ describe("a request that fails", () => {
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
     const table = screen.getByTestId("grid-table");
 
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
     await waitFor(() => expect(screen.getByTestId("fetch-bar")).toBeTruthy());
 
     await act(async () => {
@@ -408,10 +408,10 @@ describe("reduced motion", () => {
 
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     const table = screen.getByTestId("grid-table");
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
     await waitFor(() => expect(screen.getByTestId("fetch-bar")).toBeTruthy());
 
     const bar = screen.getByTestId("fetch-bar");
@@ -425,7 +425,7 @@ describe("reduced motion", () => {
     expect(table.style.opacity).toBe(String(STALE_OPACITY));
     expect(table.getAttribute("data-stale")).toBe("true");
     expect(
-      (screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 });
@@ -443,9 +443,9 @@ describe("a view switch", () => {
 
     const user = userEvent.setup();
     const { rerender } = render(<ScreenPanel view={VIEW} {...PANEL} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
     await waitFor(() => expect(screen.getByTestId("fetch-bar")).toBeTruthy());
 
     const abandoned = (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1];
@@ -462,7 +462,7 @@ describe("a view switch", () => {
       valueTurn.resolve(page(2, "V", 'W/"v1"'));
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–2 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     expect(screen.queryByTestId("fetch-bar")).toBeNull();
     expect(screen.getByTestId("fetch-status").textContent).toBe("");

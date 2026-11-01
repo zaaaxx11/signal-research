@@ -28,12 +28,9 @@ interface State {
 }
 
 const IDLE: State = { phase: "idle", hits: [], message: null, query: null };
-const LISTBOX_ID = "symbol-search-listbox";
-/** The keys this combobox answers to, said once instead of guessed at. */
-const HINT_ID = "symbol-search-hint";
 
-function optionId(index: number): string {
-  return `symbol-search-option-${index}`;
+function optionId(prefix: string, index: number): string {
+  return `${prefix}-option-${index}`;
 }
 
 export interface SymbolSearchProps {
@@ -49,6 +46,22 @@ export interface SymbolSearchProps {
   placeholder?: string;
   /** The decorative "/" key hint; the nav hides it to keep the field wide. */
   showHint?: boolean;
+  /**
+   * The box's accessible name.
+   *
+   * Two search boxes can be on screen at once — the nav's and the screener
+   * header's ticker lookup — and a shared name would make "combobox" ambiguous
+   * to a screen reader and to a test. Each instance names itself.
+   */
+  label?: string;
+  /**
+   * The prefix of this instance's element ids.
+   *
+   * `aria-controls` and `aria-activedescendant` point at ids; two instances
+   * with the same ids describe the wrong list. The default keeps the nav's
+   * historical spelling so a link, a test or a screen reader sees no change.
+   */
+  idPrefix?: string;
 }
 
 /**
@@ -66,7 +79,11 @@ export function SymbolSearch({
   inputRef,
   placeholder = "Symbol or company",
   showHint = true,
+  label = "Search symbols and companies",
+  idPrefix = "symbol-search",
 }: SymbolSearchProps) {
+  const listboxId = `${idPrefix}-listbox`;
+  const hintId = `${idPrefix}-hint`;
   const [query, setQuery] = React.useState("");
   const [state, setState] = React.useState<State>(IDLE);
   const [open, setOpen] = React.useState(false);
@@ -239,7 +256,7 @@ export function SymbolSearch({
   const highlighted = fresh && state.phase === "ready" ? active : -1;
   const activeId =
     showList && highlighted >= 0 && state.hits[highlighted]
-      ? optionId(highlighted)
+      ? optionId(idPrefix, highlighted)
       : undefined;
   const statusText =
     state.phase === "loading"
@@ -268,13 +285,13 @@ export function SymbolSearch({
           ref={boxRef}
           type="text"
           role="combobox"
-          aria-label="Search symbols and companies"
+          aria-label={label}
           // The listbox is the input's popup; without `aria-haspopup` the
           // relationship was only declared once the list was already open.
           aria-haspopup="listbox"
-          aria-describedby={HINT_ID}
+          aria-describedby={hintId}
           aria-expanded={showList}
-          aria-controls={showList ? LISTBOX_ID : undefined}
+          aria-controls={showList ? listboxId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={activeId}
           autoComplete="off"
@@ -308,7 +325,7 @@ export function SymbolSearch({
         ) : null}
       </div>
 
-      <p id={HINT_ID} className="sr-only">
+      <p id={hintId} className="sr-only">
         Type a symbol or company name. Use Up and Down to move through the
         results, Enter to open the highlighted one, Escape to close the list.
       </p>
@@ -319,7 +336,7 @@ export function SymbolSearch({
       {showList ? (
         <div className="absolute inset-x-0 top-[calc(100%+6px)] z-40 overflow-hidden rounded-md border border-line-strong bg-popover shadow-[0_16px_40px_-12px_rgba(0,0,0,0.85)]">
           <ul
-            id={LISTBOX_ID}
+            id={listboxId}
             role="listbox"
             aria-label="Symbol results"
             className="max-h-[320px] overflow-y-auto py-1"
@@ -335,7 +352,7 @@ export function SymbolSearch({
             {state.hits.map((hit, index) => (
               <li
                 key={hit.symbol}
-                id={optionId(index)}
+                id={optionId(idPrefix, index)}
                 role="option"
                 aria-selected={index === highlighted}
                 onMouseEnter={() => setActive(index)}

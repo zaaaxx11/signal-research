@@ -34,7 +34,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { configure, render, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -185,7 +185,7 @@ async function renderShell() {
   await screen.findByTestId("grid-table", undefined, { timeout: SHELL_TIMEOUT });
   // The breadcrumb is the last band to settle; waiting on it means the tab
   // order below is the stable one, not a snapshot mid-load.
-  await waitFor(() => expect(screen.getByTestId("range").textContent).toContain("of 5,600"));
+  await waitFor(() => expect(screen.getByTestId("range").textContent).toContain("/5,600 Total"));
   return api;
 }
 
@@ -275,7 +275,7 @@ describe("the skip link", () => {
  * ---------------------------------------------------------------------- */
 
 describe("the keyboard path", () => {
-  it("reaches every control, and the first row, well inside 30 Tab presses", async () => {
+  it("reaches every control, and the first row, inside 60 Tab presses", async () => {
     await renderShell();
     const user = userEvent.setup();
 
@@ -287,20 +287,30 @@ describe("the keyboard path", () => {
       trace.push(describeFocus(active));
     }
 
-    // The order the shell promises: skip link, search, the view strip, the wide
-    // destination, then the toolbar, then the grid, then paging.
+    // The order the shell promises: skip link, the masthead's controls (the
+    // reader's column sets, the ordering, the signal, the ticker and the
+    // filter disclosure), the built-in preset strip, the table toolbar, the
+    // sortable headers, then the grid.
     expect(trace[0]).toContain("Skip to the stock grid");
     for (const expected of [
+      "Your column presets",
+      "Manage",
+      "Order by",
+      "Signal",
       "combobox",
-      "Filters",
-      "Columns",
-      "Sector",
-      // The exchange control is one more tab stop in the toolbar, and it is
-      // listed here on purpose: the promise is the ordered list, not the count.
-      "Exchange",
-      "Check again",
+      "Filter",
+      "Today",
+      "Refresh the screen",
+      "Auto refresh",
+      "Add to watchlist",
+      "Compare rows",
+      "Set alert",
+      "Export",
+      "Rows per page",
+      // Prev is disabled on page 1, so it is not a tab stop yet — the promise
+      // is about the controls a reader can reach from here.
+      "Next page",
       "row S000",
-      "Next",
     ]) {
       expect(trace.some((entry) => entry.includes(expected)), `${expected} is unreachable`).toBe(
         true,
@@ -325,14 +335,19 @@ describe("the keyboard path", () => {
     // can reach the last control and start again with room to spare.
     expect(trace.length).toBeLessThanOrEqual(80);
 
-    // The pinned lane adds no stop of its own (adversarial a): one stop per
-    // row is the row, and nothing inside it can be tabbed to.
-    const rows = [...screen.getByTestId("grid-table").querySelectorAll<HTMLElement>("tr[data-symbol]")];
+    // One stop per row, plus one per sortable header: the headers are real
+    // controls now, and nothing inside a body cell is tabbable.
+    const table = screen.getByTestId("grid-table");
+    const rows = [...table.querySelectorAll<HTMLElement>("tr[data-symbol]")];
     expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
     expect(rows.every((row) => row.querySelectorAll("button, a[href], input, select, [tabindex]").length === 0)).toBe(
       true,
     );
-    expect(tabbables(screen.getByTestId("grid-scroll"))).toHaveLength(rows.length === 0 ? 0 : 1);
+    const headerButtons = table.querySelectorAll("thead th button");
+    expect(headerButtons.length).toBeGreaterThan(0);
+    expect(tabbables(screen.getByTestId("grid-scroll"))).toHaveLength(
+      headerButtons.length + (rows.length === 0 ? 0 : 1),
+    );
   });
 
   it("moves the roving cursor with the arrow keys and reads the row as its symbol", async () => {
@@ -428,15 +443,22 @@ describe("the symbol search", () => {
  * ---------------------------------------------------------------------- */
 
 describe("the filter drawer", () => {
-  it("traps Tab inside the dialog and gives focus back to the control that opened it", async () => {
+  it("traps Tab inside the dialog after ⌘K opens it, and Escape closes it", async () => {
     await renderShell();
     const user = userEvent.setup();
 
-    const opener = screen.getByRole("button", { name: /^Filters/ });
-    await user.click(opener);
+    // The drawer's only door is the palette: the toolbar's own "Filters"
+    // button is gone, and the masthead's Filter control is a disclosure, not a
+    // dialog. A dialog is still a dialog once it is open, and that is what this
+    // proves.
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const palette = await screen.findByRole("dialog", { name: "Find a filter" });
+    await user.click(within(palette).getByRole("option", { name: /Market Cap/i }));
 
     const dialog = await screen.findByRole("dialog", { name: "Filters" }, { timeout: STEP_TIMEOUT });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).not.toBe(document.body);
+    expect(dialog.contains(document.activeElement)).toBe(true);
 
     const stops = tabbables(dialog);
     expect(stops.length).toBeGreaterThan(20);
@@ -457,10 +479,10 @@ describe("the filter drawer", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     }
 
-    // Escape closes it and the opener has the caret again.
+    // Escape closes it. The opener was the palette, which closed itself when
+    // the drawer opened, so there is no control left to hand focus back to.
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull());
-    expect(document.activeElement).toBe(opener);
   });
 });
 
@@ -560,7 +582,7 @@ describe("the table's semantics", () => {
     );
   });
 
-  it("scopes every header and declines to fake a sortable one", async () => {
+  it("scopes every header, and every header that sorts is a button with aria-sort", async () => {
     await renderShell();
     const table = screen.getByTestId("grid-table");
 
@@ -572,47 +594,53 @@ describe("the table's semantics", () => {
     expect(scoped).toHaveLength(columns);
     expect(columns).toBeGreaterThan(1);
 
-    // `aria-sort` is not applied, and that is the honest answer: no header is
-    // a sort control here (`enableSorting` is false on every column, the
-    // toolbar owns the ordering), and one of the three sorts — "gainers" —
-    // names no column at all. A `th[aria-sort]` would announce a sort button
-    // that does not exist. The ordering is spoken by the caption instead.
-    expect(table.querySelectorAll("th[aria-sort]")).toHaveLength(0);
-    expect(table.querySelectorAll("thead th[aria-sort]")).toHaveLength(0);
+    // The pattern for a table whose rows are ordered by pressing a header:
+    // every sortable `th` carries `aria-sort` ("none" until it is the one in
+    // force) and holds a real button. The ordering is server-side, but the
+    // affordance and its state are in the header, where the reader looks.
+    const sortable = headers.filter((header) => header.hasAttribute("aria-sort"));
+    expect(sortable).toHaveLength(headers.length);
+    for (const header of sortable) {
+      expect(header.getAttribute("aria-sort")).toBe("none");
+      expect(header.querySelector("button")).not.toBeNull();
+    }
+    // No header claims a direction it does not have: with the default market
+    // cap sort and a view that does not draw that column, nothing is marked.
+    expect(table.querySelectorAll('[aria-sort="ascending"], [aria-sort="descending"]')).toHaveLength(0);
   });
 
-  it("marks the toolbar's sort with aria-pressed, exactly one at a time", async () => {
+  it("marks exactly one header at a time, and moves the mark with the Order by select", async () => {
     await renderShell();
     const user = userEvent.setup();
 
-    const group = screen.getByRole("group", { name: "Sort by" });
-    const buttons = within(group).getAllByRole("button");
-    expect(buttons.map((button) => button.textContent)).toEqual([
-      "Market cap",
-      "Turnover",
-      "Gainers",
-    ]);
-    expect(buttons.filter((button) => button.getAttribute("aria-pressed") === "true")).toHaveLength(
-      1,
-    );
-    expect(within(group).getByRole("button", { name: "Market cap" }).getAttribute("aria-pressed")).toBe(
-      "true",
-    );
+    // The masthead's select is the second view of the same state: it writes the
+    // one sort token, and the header the token names is the one that says so.
+    const order = screen.getByTestId("order-select") as HTMLSelectElement;
+    expect(order.value).toBe("market_cap");
 
-    await user.click(within(group).getByRole("button", { name: "Gainers" }));
-    await waitFor(() =>
-      expect(
-        within(group).getByRole("button", { name: "Gainers" }).getAttribute("aria-pressed"),
-      ).toBe("true"),
+    const headerFor = (key: string) =>
+      screen.getByTestId("grid-table").querySelector<HTMLElement>(`thead th[data-key="${key}"]`);
+
+    // The fixture's views are spelled `column_N`, so pick a column that exists
+    // in the served view rather than a name this test invented.
+    const chosen = [...order.options].map((option) => option.value).find((value) => value.startsWith("column_"));
+    expect(chosen).toBeTruthy();
+
+    await user.selectOptions(order, chosen as string);
+    await waitFor(() => expect(headerFor(chosen as string)?.getAttribute("aria-sort")).toBe("descending"));
+    expect(order.value).toBe(chosen);
+
+    const marked = [...screen.getByTestId("grid-table").querySelectorAll("thead th[aria-sort]")].filter(
+      (header) => header.getAttribute("aria-sort") !== "none",
     );
-    expect(within(group).getByRole("button", { name: "Market cap" }).getAttribute("aria-pressed")).toBe(
-      "false",
-    );
-    // And the caption follows the choice, so the table is never named with a
-    // stale ordering.
+    expect(marked).toHaveLength(1);
+    expect(marked[0]?.getAttribute("data-key")).toBe(chosen);
+
+    // The caption follows the choice, so the table is never named with a stale
+    // ordering.
     await waitFor(() =>
       expect(screen.getByTestId("grid-caption").textContent?.toLowerCase()).toContain(
-        "sorted by gainers",
+        "highest first",
       ),
     );
   });
@@ -634,8 +662,11 @@ describe("live regions", () => {
     expect(statuses[0]?.getAttribute("aria-atomic")).toBe("true");
 
     // Opening the drawer (a second live region would live there) and the detail
-    // panel (whose skeletons announce) must not add a second status role.
-    await user.click(screen.getByRole("button", { name: /^Filters/ }));
+    // panel (whose skeletons announce) must not add a second status role. The
+    // drawer's only door is ⌘K now.
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const palette = await screen.findByRole("dialog", { name: "Find a filter" });
+    await user.click(within(palette).getByRole("option", { name: /Market Cap/i }));
     await screen.findByRole("dialog", { name: "Filters" }, { timeout: STEP_TIMEOUT });
     expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
     await user.keyboard("{Escape}");
@@ -654,7 +685,9 @@ describe("live regions", () => {
     // The count above is a rendered fact; this is the source invariant behind
     // it, so a fourth view cannot reintroduce one quietly.
     const files = [
+      "src/grid/TableToolbar.tsx",
       "src/grid/ScreenPanel.tsx",
+      "src/grid/Pager.tsx",
       "src/breadth/BreadthStrip.tsx",
       "src/filters/ChipBar.tsx",
       "src/filters/CommandPalette.tsx",
@@ -665,8 +698,11 @@ describe("live regions", () => {
       const text = stripComments(readFileSync(resolve(process.cwd(), file), "utf8"));
       return { file, status: (text.match(/role="status"/g) ?? []).length };
     });
+    // The toolbar owns the one status region now — the pending sentence and,
+    // once a page lands, the count readout — so it is the only file allowed to
+    // spell the role.
     expect(counts.filter((entry) => entry.status > 0).map((entry) => entry.file)).toEqual([
-      "src/grid/ScreenPanel.tsx",
+      "src/grid/TableToolbar.tsx",
     ]);
   });
 });

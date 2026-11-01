@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ViewDefinition } from "@/data/screens";
@@ -57,6 +58,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * The shell's half of the sort contract: one sort state, passed down and
+ * written back. The panel itself is a renderer — it marks the header and asks
+ * for the change; the owner decides.
+ */
+function SortHarness() {
+  const [sort, setSort] = React.useState("market_cap");
+  return (
+    <ScreenPanel
+      view={VIEW}
+      selectedSymbol={null}
+      onActivate={vi.fn()}
+      onClear={vi.fn()}
+      containerWidth={1280}
+      sort={sort}
+      onSortChange={setSort}
+    />
+  );
+}
+
 describe("ScreenPanel", () => {
   it("asks the API for twenty rows, and the pager's arithmetic follows", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(page(20, "A", 'W/"p1"'));
@@ -72,7 +93,7 @@ describe("ScreenPanel", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as {
@@ -81,7 +102,7 @@ describe("ScreenPanel", () => {
     // The request body is the contract: never 100, and the page step is 20.
     expect(body.criteria.limit).toBe(20);
     expect(body.criteria.offset).toBe(0);
-    expect(screen.getByRole("button", { name: "Next" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeTruthy();
     expect(screen.getByText("1/280")).toBeTruthy();
   });
 
@@ -95,10 +116,10 @@ describe("ScreenPanel", () => {
     const user = userEvent.setup();
     render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("21–40 of 5,600"));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("2/5,600 Total"));
 
     const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body)).criteria.offset).toBe(20);
@@ -117,12 +138,12 @@ describe("ScreenPanel", () => {
     render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
     await waitFor(() => expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20));
 
-    await user.click(screen.getByRole("button", { name: "Check again" }));
+    await user.click(screen.getByRole("button", { name: "Refresh the screen" }));
     await waitFor(() => expect(screen.getByTestId("stale-badge")).toBeTruthy());
 
     expect(screen.getByTestId("stale-badge").textContent).toContain("304");
     expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
-    expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600");
+    expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total");
   });
 
   it("sends the chosen sort and returns to the first page", async () => {
@@ -133,26 +154,22 @@ describe("ScreenPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
-    render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    render(<SortHarness />);
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
-    // The toolbar's sort is three toggle buttons now; pressing one is the
-    // choice, and `aria-pressed` says which one is on.
-    const group = screen.getByRole("group", { name: "Sort by" });
-    expect(within(group).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "Market cap",
-      "Turnover",
-      "Gainers",
-    ]);
-    await user.click(within(group).getByRole("button", { name: "Turnover" }));
+    // The grid's own header is the sort control: pressing "Volume" asks the
+    // server to rank the whole screen by volume, and `aria-sort` says so.
+    const header = () => screen.getByRole("columnheader", { name: /Volume/ });
+    expect(header().getAttribute("aria-sort")).toBe("none");
+    await user.click(within(header()).getByRole("button", { name: /Volume/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.criteria.sort).toBe("turnover");
+    expect(body.criteria.sort).toBe("volume");
     expect(body.criteria.offset).toBe(0);
-    expect(within(group).getByRole("button", { name: "Turnover" }).getAttribute("aria-pressed")).toBe(
-      "true",
+    expect(header().getAttribute("aria-sort")).toBe(
+      "descending",
     );
   });
 

@@ -58,12 +58,15 @@ def test_order_by_accepts_any_numeric_catalog_field(name: str) -> None:
     assert order_metric(name) == (name, False)
 
 
-def test_a_text_field_is_not_an_order() -> None:
+def test_a_text_field_is_an_order_too() -> None:
+    """Text columns sort A-Z / Z-A; a typo is still refused."""
+
     for name in ("sector", "country", "symbol"):
-        with pytest.raises(SelectionError) as caught:
-            parse_selection(request(name))
-        assert caught.value.code == "unknown_sort"
-        assert name in str(caught.value)
+        assert parse_selection(request(name)).sort == name
+
+    with pytest.raises(SelectionError) as caught:
+        parse_selection(request("countri"))
+    assert caught.value.code == "unknown_sort"
 
 
 def test_a_leading_minus_is_ascending() -> None:
@@ -136,3 +139,24 @@ def test_an_unknown_sort_names_the_accepted_ones() -> None:
     message = str(caught.value)
     assert "marketcap" in message
     assert "market_cap_usd" in message, "the message lists the catalog names"
+
+
+def test_text_columns_sort_alphabetically_both_ways() -> None:
+    """A country is not a number, but A-Z and Z-A are still orders."""
+
+    rows = [
+        {"symbol": "AAA", "country": "United States", "sector": "Finance"},
+        {"symbol": "BBB", "country": "Japan", "sector": "Energy"},
+        {"symbol": "CCC", "country": "Canada", "sector": "Finance"},
+        {"symbol": "DDD", "country": None, "sector": "Energy"},
+    ]
+
+    desc = rank_rows(rows, "country")
+    # Descending text: United States > Japan > Canada.
+    assert [row["symbol"] for row in desc] == ["AAA", "BBB", "CCC", "DDD"]
+    assert [row["rank"] for row in desc] == [1, 2, 3, 4]
+
+    asc = rank_rows(rows, "-country")
+    assert [row["symbol"] for row in asc] == ["CCC", "BBB", "AAA", "DDD"]
+    # Missing stays last in both directions.
+    assert asc[-1]["symbol"] == "DDD"

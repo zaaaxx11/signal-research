@@ -1,26 +1,29 @@
 /**
- * The screener: one screen, three bands, no page chrome of its own.
+ * The screener: a masthead, one content band, and the docked detail.
  *
- *   tab strip   the views the schema served — never a hardcoded list
+ *   masthead    the h1, Column preset / Order by / Signal / ticker, the Filter
+ *               disclosure (five server-driven group selects) and the
+ *               always-present column-preset bar
  *   content     the chip bar (when filters exist) and the 20-row grid
  *   detail      the docked panel, passed in by the shell so the shell owns the
  *               selection and the lazy chunk's boundary
  *
- * One schema read at boot feeds the view catalogue and the filter registry; one
- * `useScreenState` owns view + sort + page + filters and writes them to the
- * query string. The drawer, the chips and the request body all read that one
- * state — there is no second copy to drift.
+ * Two boot reads feed it — `GET /screens/select/schema` for views and filter
+ * keys, `GET /screens/filters` for the panel's vocabulary — and one
+ * `useScreenState` owns view + sort + signal + page + filters and writes them
+ * to the query string. The header, the chips and the request body all read that
+ * one state; there is no second copy to drift.
  *
- * The top bar, the nav and the clock live in `shell/SiteNav`; this component is
- * the content of `/screener` and `/screener/etf`, and the only difference
- * between those two routes is the `asset_class` every request carries.
+ * The nav and the clock live in `shell/SiteNav`; this component is the content
+ * of `/screener` and `/screener/etf`, and the only difference between those two
+ * routes is the `asset_class` every request carries.
  *
  * Two destinations share the content band:
  *
- * * a **view** — a tab, at most 40 columns, one request;
+ * * a **view** — what the preset bar selects, at most 40 columns, one request;
  * * the **all-columns** mode — the served wide view, 116 keys, three chunked
- *   requests, reachable from a control beside the strip and never from it. It
- *   is not a tab because the API cannot answer it as one.
+ *   requests, reachable from a control beside the presets and never from them.
+ *   It is not a preset because the API cannot answer it as one.
  */
 
 import * as React from "react";
@@ -34,12 +37,15 @@ import { AllColumnsPanel } from "@/grid/AllColumnsPanel";
 import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { ScreenPanel } from "@/grid/ScreenPanel";
 import { splitCatalogue } from "@/grid/catalogue";
+import { CLIENT_COLUMNS } from "@/grid/columnMeta";
 import { useColumnSelection } from "@/grid/columnSelection";
-import { withExchange } from "@/grid/exchanges";
-import { withSector } from "@/grid/sectors";
-import { useExchangeOptions } from "@/grid/useExchanges";
-import { useSectorOptions } from "@/grid/useSectors";
 import { GRID_REGION_ID } from "@/shell/ids";
+
+import { ScreenerHeader } from "./ScreenerHeader";
+import type { ResolvedPreset } from "./columnPresets";
+import { defaultColumns } from "./defaultColumns";
+import { publishedFilters, useFiltersDocument } from "./filtersDocument";
+import { useUserColumnPresets } from "./userPresets";
 
 export interface ScreenerScreenProps {
   /** `stock` for `/screener`, `etf` for `/screener/etf`. */
@@ -58,9 +64,16 @@ export function ScreenerScreen({
   detail,
 }: ScreenerScreenProps) {
   const schema = useFilterSchema();
+  // The filter document is one more boot read. It is memoised in its module, so
+  // this hook, a StrictMode double-effect and a retry share one request; the
+  // vocabulary it carries also names the values a chip prints.
+  const vocabulary = useFiltersDocument();
   const registry = React.useMemo(
-    () => (schema.schema ? buildRegistry(schema.schema) : null),
-    [schema.schema],
+    () =>
+      schema.schema
+        ? buildRegistry(schema.schema, publishedFilters(vocabulary.doc))
+        : null,
+    [schema.schema, vocabulary.doc],
   );
 
   // The catalogue is split structurally, never by name: a view the API cannot
@@ -74,31 +87,49 @@ export function ScreenerScreen({
     [catalogue.views],
   );
 
-  const screen = useScreenState(registry, viewNames);
-  // The sector menu's population: the 21 labels `GET /market/breadth` counted
-  // over the whole universe. Read here, not in the panel, so the panel stays a
-  // renderer — and so the menu survives a panel that has not loaded yet.
-  const sectors = useSectorOptions();
-  // The exchange menu's population: the venues `GET /market/exchanges` counted
-  // over the same universe the selection filters. A route of its own, read once
-  // per mount — breadth keeps its two consumers and its reconcilable counts.
-  const exchanges = useExchangeOptions();
+  const screen = useScreenState(
+    registry,
+    viewNames,
+    // The link's filters are checked against both boot documents; see the
+    // hook's third parameter.
+    vocabulary.status !== "loading",
+  );
+  // The picker offers every column on screen — including the client-drawn row
+  // number — so one vocabulary names everything the table can draw.
+  const pickerColumns = React.useMemo(
+    () => [...catalogue.keys, ...CLIENT_COLUMNS],
+    [catalogue.keys],
+  );
+  /**
+   * Each view's own columns, with the *first* view replaced by the product's
+   * default set. The first view is what a reader who has chosen nothing sees;
+   * every tab they press afterwards is a preset and brings its own columns.
+   */
+  const defaults = React.useMemo(() => {
+    const byView = Object.fromEntries(
+      catalogue.views.map((entry) => [entry.name, entry.columns]),
+    ) as Record<string, readonly string[]>;
+    const first = catalogue.views[0];
+    if (first) byView[first.name] = defaultColumns(first.columns, catalogue.keys);
+    return byView;
+  }, [catalogue.views, catalogue.keys]);
   const columnSelection = useColumnSelection({
     viewNames,
-    catalogue: catalogue.keys,
-    defaults: React.useMemo(
-      () => Object.fromEntries(catalogue.views.map((entry) => [entry.name, entry.columns])),
-      [catalogue.views],
-    ),
+    catalogue: pickerColumns,
+    defaults,
     ready: screen.ready,
     // Declared after `useScreenState` on purpose: its writer runs first and
     // replaces the whole query string, and this hook's writer then merges the
     // `cols` parameters back in. See `useColumnSelection`.
     revision: screen.state,
   });
+  // The reader's own column sets live in this browser; the screen only applies
+  // the one they pick.
+  const userPresets = useUserColumnPresets();
   const [wide, setWide] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
 
   // ⌘K is the filter palette. "/" belongs to the nav's symbol search and is
@@ -125,44 +156,76 @@ export function ScreenerScreen({
   // be two requests for one screen.
   const columnsReady = columnSelection.ready || catalogue.keys.length === 0;
 
-  const openDrawer = () => {
-    setFocusKey(null);
-    setDrawerOpen(true);
-  };
-
   const closeDrawer = () => {
     setDrawerOpen(false);
     setFocusKey(null);
   };
 
+  /**
+   * One preset click, applied to the one state.
+   *
+   * A view preset is `?view=`; a preset with its own columns is `?cols=` for
+   * the view already on screen. Neither touches `?f=`, which is the whole
+   * promise of the bar: columns change, rows do not. A preset whose view has
+   * been withdrawn falls back to the current view's own columns, which is what
+   * its title says it will do.
+   */
+  const applyPreset = (entry: ResolvedPreset) => {
+    if (entry.viewName !== null) {
+      // The tab promises this view's columns; a custom selection stored for it
+      // would silently show a different set under the same label.
+      if (columnSelection.columnsFor(entry.viewName) !== null) {
+        columnSelection.reset(entry.viewName);
+      }
+      screen.setView(entry.viewName);
+      return;
+    }
+    if (entry.columns !== null) {
+      columnSelection.select(screen.state.view, entry.columns);
+      return;
+    }
+    columnSelection.reset(screen.state.view);
+  };
+
+  const currentColumns = active
+    ? columnSelection.columnsFor(active.name) ?? defaults[active.name] ?? active.columns
+    : [];
+
   return (
     <>
-      <div className="flex items-stretch justify-between gap-2 border-b border-line bg-surface px-3 pt-0.5">
-        <div className="min-w-0 flex-1" />
+      <ScreenerHeader
+        title={assetClass === "etf" ? "ETF screener" : "Stock screener"}
+        views={catalogue.views}
+        catalogue={pickerColumns}
+        view={active?.name ?? ""}
+        columns={currentColumns}
+        onSelectPreset={applyPreset}
+        userPresets={userPresets}
+        onApplyColumns={(keys) => columnSelection.select(screen.state.view, keys)}
+        onOpenColumnPicker={() => setPickerOpen(true)}
+        sort={screen.state.sort}
+        onSortChange={screen.setSort}
+        signal={screen.state.signal ?? null}
+        onSignalChange={screen.setSignal}
+        filters={screen.state.filters}
+        onAddFilter={screen.addFilter}
+        onClearFilters={screen.clearFilters}
+        vocabulary={vocabulary}
+        onSelectSymbol={(symbol) => onSelectSymbol(symbol)}
+        wide={
+          destination
+            ? {
+                label: destination.label,
+                count: catalogue.keys.length,
+                active: wideActive,
+                onToggle: () => setWide((value) => !value),
+              }
+            : null
+        }
+      />
 
-        {destination ? (
-          <button
-            type="button"
-            onClick={() => setWide((value) => !value)}
-            aria-pressed={wideActive}
-            data-testid="all-columns-toggle"
-            title={`${destination.job} ${catalogue.keys.length} keys, fetched in chunks of at most 40 columns.`}
-            className={`-mb-px shrink-0 border-b-2 px-2.5 pb-1.5 pt-2 text-ui transition-colors ${
-              wideActive
-                ? "border-brand text-fg"
-                : "border-transparent text-fg-muted hover:text-fg"
-            }`}
-          >
-            {destination.label}
-            <span className="ml-1.5 font-mono text-label text-fg-subtle">
-              {catalogue.keys.length}
-            </span>
-          </button>
-        ) : null}
-      </div>
-
-      <main className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-        <div className="flex min-h-0 flex-1 gap-2">
+      <main className="flex flex-1 flex-col gap-2 p-3">
+        <div className="flex flex-1 gap-2">
           <div
             id={GRID_REGION_ID}
             // The skip link's destination. `tabIndex={-1}` makes it a programmatic
@@ -173,7 +236,7 @@ export function ScreenerScreen({
             role="region"
             aria-label="Stock grid"
             tabIndex={-1}
-            className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
+            className="flex min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
           >
             {schema.status === "error" ? (
               <section
@@ -219,6 +282,7 @@ export function ScreenerScreen({
                   onActivate={onSelectSymbol}
                   onClear={() => onSelectSymbol(null)}
                   sort={screen.state.sort}
+                  signal={screen.state.signal ?? null}
                   page={screen.state.page}
                   onSortChange={screen.setSort}
                   onPageChange={screen.setPage}
@@ -226,45 +290,20 @@ export function ScreenerScreen({
                   registry={registry}
                   onRemoveFilter={screen.removeFilter}
                   onClearFilters={screen.clearFilters}
-                  onOpenFilters={openDrawer}
                   filterNotice={screen.notice}
                   onDismissFilterNotice={screen.dismissDropped}
-                  catalogue={catalogue.keys}
-                  columns={columnSelection.columnsFor(active.name) ?? active.columns}
+                  catalogue={pickerColumns}
+                  columns={
+                    columnSelection.columnsFor(active.name) ??
+                    defaults[active.name] ??
+                    active.columns
+                  }
                   onToggleColumn={(key) => columnSelection.toggle(active.name, key)}
                   onResetColumns={() => columnSelection.reset(active.name)}
+                  pickerOpen={pickerOpen}
+                  onPickerOpenChange={setPickerOpen}
                   columnNotice={columnSelection.notice}
                   onDismissColumnNotice={columnSelection.dismiss}
-                  sectorOptions={sectors.names}
-                  sectorSource={
-                    sectors.status === "ready"
-                      ? "breadth"
-                      : sectors.status === "loading"
-                        ? "loading"
-                        : "unavailable"
-                  }
-                  // A sector is one more predicate in the one filter list, so
-                  // the menu, the chip, the URL and the request body read the
-                  // same state — and `setFilters` is what turns the page back
-                  // to 1.
-                  onSectorChange={(name) =>
-                    screen.setFilters(withSector(screen.state.filters, name))
-                  }
-                  exchangeOptions={exchanges.venues}
-                  exchangeSource={
-                    exchanges.status === "ready"
-                      ? "market"
-                      : exchanges.status === "loading"
-                        ? "loading"
-                        : "unavailable"
-                  }
-                  // One predicate per set: `eq` for a single venue, `in` for
-                  // several. `setFilters` turns the page back to 1, so a choice
-                  // is one request at offset 0, and the chip, the URL and the
-                  // body all read the same array.
-                  onExchangeChange={(codes) =>
-                    screen.setFilters(withExchange(screen.state.filters, codes))
-                  }
                 />
               </ErrorBoundary>
             ) : (

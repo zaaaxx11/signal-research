@@ -130,7 +130,7 @@ describe("a view switch (F8)", () => {
     );
 
     frames.length = 0;
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
 
     expect(frames.length).toBeGreaterThan(0);
     expect(frames.every((frame) => frame.rows === 2)).toBe(true);

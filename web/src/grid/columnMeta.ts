@@ -54,6 +54,25 @@ export interface ColumnSpec {
 /** The pinned identity lane. 101 px is the measured Finviz value. */
 export const IDENTITY_WIDTH = 101;
 
+/**
+ * The row-number column: `1..n` for the page, drawn by the client.
+ *
+ * It is not a catalogue key — the server has no per-row ordinal and would
+ * refuse `no` in a `columns` list — so every request builder removes it and
+ * every renderer derives it from the page offset. It is spelled here, once,
+ * because the column picker, the solver and the table all have to agree that
+ * it exists.
+ */
+export const ROW_NUMBER_KEY = "no";
+
+/** Columns the client draws but never asks the API for. */
+export const CLIENT_COLUMNS: readonly string[] = [ROW_NUMBER_KEY];
+
+/** Is this key drawn from the page's own geometry rather than a row cell? */
+export function isClientColumn(key: string): boolean {
+  return CLIENT_COLUMNS.includes(key);
+}
+
 type Meta = Omit<ColumnSpec, "key">;
 
 /**
@@ -76,13 +95,14 @@ const TEXT = { kind: "text" as const, weight: 1.5, min: 96 };
  * that can mean something else.
  */
 export const COLUMN_META: Record<string, Meta> = {
-  // The pinned lane's own header. Not a catalogue key, and not a view column:
-  // the solver always prepends it.
-  identity: { label: "Symbol", kind: "text", weight: 0, min: IDENTITY_WIDTH },
+  // The pinned lanes' own headers. Neither is a catalogue key: the solver
+  // prepends them, and `no` is derived from the page offset.
+  [ROW_NUMBER_KEY]: { label: "No", kind: "integer", weight: 0, min: 40 },
+  identity: { label: "Ticker", kind: "text", weight: 0, min: IDENTITY_WIDTH },
 
   // today ---------------------------------------------------------------
   price: { label: "Price", ...MONEY },
-  change: { label: "Change", ...DELTA, min: 70, weight: 0.9 },
+  change: { label: "Change %", short: "Change", ...DELTA, min: 70, weight: 0.9 },
   change_from_open: { label: "Change from Open", short: "Chg Open", ...DELTA, min: 84, weight: 0.95 },
   gap: { label: "Gap", ...DELTA, min: 66, weight: 0.85 },
   prev_close: { label: "Prev Close", ...MONEY, min: 100 },

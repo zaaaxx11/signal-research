@@ -200,7 +200,7 @@ export function App() {
     ) : null;
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-bg">
+    <div className="flex min-h-dvh flex-col bg-bg">
       {route.kind === "screener" ? <SkipLink /> : null}
 
       <HeaderBar

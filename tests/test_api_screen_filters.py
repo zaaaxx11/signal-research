@@ -392,7 +392,7 @@ async def test_sort_accepts_the_order_by_names(
 async def test_an_unknown_sort_is_422(tmp_path: Path, monkeypatch: Any) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
         response = await harness.client.post(
-            "/screens/select", json=select_body([], sort="sector")
+            "/screens/select", json=select_body([], sort="sectr")
         )
 
     assert response.status_code == 422, response.text

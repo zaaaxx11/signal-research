@@ -73,7 +73,10 @@ def order_metric(sort: str) -> tuple[str, bool]:
     text = sort if isinstance(sort, str) else str(sort)
     name = text[1:] if text.startswith("-") else text
     column = ALIASES.get(name, name)
-    if column not in FIELDS or FIELDS[column] != "number":
+    # Text columns sort too - a country list ordered A-Z is a legitimate order.
+    # A field we do not know is still refused, and so is a typo.
+    kind = FIELDS.get(column)
+    if kind not in ("number", "text") and column != "symbol":
         raise ValueError(
             f"unknown sort {sort!r}; expected one of {', '.join(ORDER_BY)} "
             f"(a leading '-' orders ascending)"
@@ -94,6 +97,16 @@ def _value(row: Mapping[str, Any], column: str) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _text(row: Mapping[str, Any], column: str) -> str | None:
+    """The cell as a comparable string, or ``None`` when it is not text."""
+
+    value = row.get(column)
+    if not isinstance(value, str):
+        return None
+    text = value.strip().casefold()
+    return text or None
+
+
 def _key(row: Mapping[str, Any], column: str, ascending: bool) -> tuple[int, float]:
     """``(0, ±value)`` for a present value and ``(1, 0.0)`` for a missing one.
 
@@ -102,10 +115,28 @@ def _key(row: Mapping[str, Any], column: str, ascending: bool) -> tuple[int, flo
     sign puts the present values in the requested order.
     """
 
+    if FIELDS.get(column) == "text" or column == "symbol":
+        text = _text(row, column)
+        if text is None:
+            return (1, "")
+        return (0, text if ascending else _ReversedText(text))
     value = _value(row, column)
     if value is None:
         return (1, 0.0)
     return (0, value if ascending else -value)
+
+
+class _ReversedText(str):
+    """A string that compares backwards, so descending text sorts without a
+    second code path: ``sorted`` sees ``str`` and the sign flips inside."""
+
+    __slots__ = ()
+
+    def __lt__(self, other: object) -> bool:
+        return str.__gt__(self, other)  # type: ignore[arg-type]
+
+    def __gt__(self, other: object) -> bool:
+        return str.__lt__(self, other)  # type: ignore[arg-type]
 
 
 def _symbol(row: Mapping[str, Any]) -> str:

@@ -1,17 +1,23 @@
 /**
- * One panel: toolbar, grid, footer. The data hook lives here so the table
- * stays a pure renderer of rows it was given.
+ * One panel: toolbar, grid, pager, and the dialogs the toolbar opens.
  *
- * Two visible truths the toolbar owes the reader:
+ * The data hook lives here so the table stays a pure renderer of rows it was
+ * given. Two visible truths the panel owes the reader:
  *
- * * **where the numbers came from** — `as of`, how many matched, how many this
- *   page shows, and whether the API's 60 KB budget cut anything;
+ * * **where the numbers came from** — the count readout, the page readout, and
+ *   whether the API's 60 KB budget cut anything;
  * * **whether the last refresh actually refreshed** — a `304` is a success, but
- *   it did not bring new rows, so it says so instead of pretending;
+ *   it did not bring new rows, so the badge says so instead of pretending;
  * * **whether a page turn is still on its way** — the rows stay, the table
- *   fades, a rose bar sweeps the panel's top edge and the footer names the
- *   range being fetched. A three-second answer must look like work in
- *   progress, not like a click that did nothing.
+ *   fades, a rose bar sweeps the panel's top edge and the status line names the
+ *   range being fetched. A three-second answer must look like work in progress,
+ *   not like a click that did nothing.
+ *
+ * The chrome is one toolbar and one pager, both minimal: no card wrapper, one
+ * border per control, centred on the content width. Everything the old toolbar
+ * carried (a view label, filter and column buttons, sector and exchange menus,
+ * a three-button sort, a refresh label) now lives in the header or in the
+ * toolbar's own controls.
  */
 
 import * as React from "react";
@@ -19,28 +25,29 @@ import * as React from "react";
 import {
   MAX_COLUMNS,
   PANEL_LIMIT,
-  SORTS,
   queryKey,
+  requestBody,
+  nextSort,
+  sortDirection,
+  sortLabel,
   useScreens,
-  type ScreenSort,
+  type ScreenRow,
   type ViewDefinition,
 } from "@/data/screens";
 
 import { DataTable } from "./DataTable";
+import { isClientColumn } from "./columnMeta";
 import { ColumnPicker } from "./ColumnPicker";
 import { PendingBar } from "./PendingBar";
 import { pendingLabel, useDelayedFlag, useReducedMotion } from "./pending";
 import { sameColumns } from "./columnSelection";
-import { SectorChip, SectorSelect, type SectorSource } from "./SectorSelect";
-import { activeSector, isSectorChoice, sectorNamesFromRows } from "./sectors";
-import { ExchangeChip, ExchangeSelect, type ExchangeSource } from "./ExchangeSelect";
-import {
-  activeExchanges,
-  exchangeVenuesFromRows,
-  isExchangeChoice,
-  type VenueBucket,
-} from "./exchanges";
+import { AlertDialog } from "./AlertDialog";
+import { CompareDialog } from "./CompareDialog";
+import { ExportDialog, type ExportChoice } from "./ExportDialog";
+import { Pager } from "./Pager";
+import { TableToolbar } from "./TableToolbar";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
+import { MAX_SYMBOLS, watchlistStore } from "@/lists/storage";
 
 import type { ActiveFilter } from "@/filters/types";
 import type { FilterRegistry } from "@/filters/registry";
@@ -56,17 +63,29 @@ export interface ScreenPanelProps {
   onClear: () => void;
   /** Test seam; production measures the scroll box. */
   containerWidth?: number;
-  /** Controlled when the shell keeps sort/page in the URL. */
-  sort?: ScreenSort;
+  /**
+   * The ordering the shell's Order by select (or a header press) chose: a
+   * catalogue key, `-key` for lowest first. One string, one state.
+   */
+  sort?: string;
+  /**
+   * The named screen the request asks the API to compile, or null.
+   *
+   * A signal is not one more predicate: it replaces the where-clause and the
+   * ordering with its own, so it travels beside `criteria` rather than inside
+   * it. It is part of the page key for the same reason a sort is — a new signal
+   * is a new screen, at the first page.
+   */
+  signal?: string | null;
   page?: number;
-  onSortChange?: (sort: ScreenSort) => void;
+  /** A grid header was pressed: the shell's one sort state changes. */
+  onSortChange?: (sort: string) => void;
   onPageChange?: (page: number) => void;
   /** The one filter state; this panel only renders it and sends it. */
   filters?: readonly ActiveFilter[];
   registry?: FilterRegistry | null;
   onRemoveFilter?: (id: string) => void;
   onClearFilters?: () => void;
-  onOpenFilters?: () => void;
   filterNotice?: string | null;
   onDismissFilterNotice?: () => void;
   /** Every key the schema serves; the picker offers exactly these. */
@@ -75,54 +94,18 @@ export interface ScreenPanelProps {
   columns?: readonly string[];
   onToggleColumn?: (key: string) => void;
   onResetColumns?: () => void;
+  /**
+   * The column picker's open state, when the shell owns the trigger.
+   *
+   * The header's Custom tab opens the same picker through this pair; the
+   * uncontrolled default keeps every existing panel test byte-identical.
+   */
+  pickerOpen?: boolean;
+  onPickerOpenChange?: (open: boolean) => void;
   /** The cap sentence from the shell, shown above the grid and in the picker. */
   columnNotice?: string | null;
   onDismissColumnNotice?: () => void;
-  /**
-   * The market's sector labels, from the shell's `GET /market/breadth` read.
-   *
-   * The shell owns that read so this panel stays a pure renderer of what it was
-   * given (and so a panel test never spends a request on a menu). When the list
-   * is empty the panel derives one from the `sector` cells of its own rows and
-   * says so — a page is not the market.
-   */
-  sectorOptions?: readonly string[];
-  /** Whether those names are the market's, still loading, or unavailable. */
-  sectorSource?: "breadth" | "loading" | "unavailable";
-  /**
-   * Choosing a sector, or clearing one (`null`).
-   *
-   * Supplying this is what mounts the control: the panel writes `sec eq name`
-   * into the *one* filter list through this callback, so the chip bar, the URL
-   * and the request body all keep reading a single state.
-   */
-  onSectorChange?: (name: string | null) => void;
-  /**
-   * The market's venues, from the shell's `GET /market/exchanges` read.
-   *
-   * Same split as `sectorOptions`: the shell owns the one request, the panel
-   * renders what it was given, and an empty list falls back to the `exchange`
-   * cells of the page — labelled as such, because a page is not the market.
-   */
-  exchangeOptions?: readonly VenueBucket[];
-  /** Whether that list is the market's, still loading, or unavailable. */
-  exchangeSource?: "market" | "loading" | "unavailable";
-  /**
-   * Choosing a set of exchange codes, or clearing it (`[]`).
-   *
-   * Supplying this is what mounts the control: the panel writes one `exch`
-   * predicate (`eq` for one code, `in` for many) into the *one* filter list
-   * through this callback, so the chip, the URL and the request body all keep
-   * reading a single state.
-   */
-  onExchangeChange?: (codes: string[]) => void;
 }
-
-const SORT_LABELS: Record<ScreenSort, string> = {
-  market_cap: "Market cap",
-  turnover: "Turnover",
-  gainers: "Gainers",
-};
 
 function timeOf(iso: string): string {
   if (!iso) return "—";
@@ -139,6 +122,7 @@ export function ScreenPanel({
   onClear,
   containerWidth,
   sort: sortProp,
+  signal,
   page: pageProp,
   onSortChange,
   onPageChange,
@@ -146,40 +130,48 @@ export function ScreenPanel({
   registry,
   onRemoveFilter,
   onClearFilters,
-  onOpenFilters,
   filterNotice,
   onDismissFilterNotice,
   catalogue,
   columns,
   onToggleColumn,
   onResetColumns,
+  pickerOpen,
+  onPickerOpenChange,
   columnNotice,
   onDismissColumnNotice,
-  sectorOptions,
-  sectorSource,
-  onSectorChange,
-  exchangeOptions,
-  exchangeSource,
-  onExchangeChange,
 }: ScreenPanelProps) {
   const activeFilters = filters ?? [];
   const filterKey = filtersSignature(activeFilters);
-  const [internalSort, setInternalSort] = React.useState<ScreenSort>("market_cap");
-  const sort = sortProp ?? internalSort;
-  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const sort = sortProp ?? "market_cap";
+  const [internalPickerOpen, setInternalPickerOpen] = React.useState(false);
+  const showPicker = pickerOpen ?? internalPickerOpen;
+  const setPicker = (next: boolean) => {
+    if (pickerOpen === undefined) setInternalPickerOpen(next);
+    onPickerOpenChange?.(next);
+  };
+
+  /** Rows per request: the toolbar's 20 / 50 / 100. */
+  const [limit, setLimit] = React.useState<number>(PANEL_LIMIT);
+  /** Auto-refresh cadence, or null when off. */
+  const [autoRefreshMs, setAutoRefreshMs] = React.useState<number | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [comparing, setComparing] = React.useState(false);
+  const [alerting, setAlerting] = React.useState(false);
+  const [exporting, setExporting] = React.useState<ExportChoice | null>(null);
 
   /**
-   * Per-view page state.
+   * Per-screen page state.
    *
    * A page belongs to the screen it was chosen on. Keeping the number in a
    * plain `useState` and resetting it in an effect meant the commit that
    * switched view still carried the old page — the panel asked for the new
    * view at the previous view's offset, then corrected itself: one request too
-   * many, and the auditor saw it. The page is therefore *derived* against the
-   * state key it belongs to, so a view (or sort, or filter) switch reads page 0
-   * in the very render that changed the view, and exactly one request is sent.
+   * many. The page is therefore *derived* against the state key it belongs to,
+   * so a view (or sort, or filter) switch reads page 0 in the very render that
+   * changed the view, and exactly one request is sent.
    */
-  const pageKey = `${view.name}\u0000${sort}\u0000${filterKey}`;
+  const pageKey = `${view.name}\u0000${sort}\u0000${signal ?? ""}\u0000${filterKey}\u0000${limit}`;
   const [cursor, setCursor] = React.useState<{ key: string; page: number }>({ key: pageKey, page: 0 });
   const internalPage = cursor.key === pageKey ? cursor.page : 0;
   const pageIndex = pageProp ?? internalPage;
@@ -191,12 +183,26 @@ export function ScreenPanel({
    * identity lane draws the mark from `/logos/{SYMBOL}` (see `logo.ts`); a row
    * that also carried the monogram as a base64 data URI would spend ~640 B per
    * row — 64 KB per hundred rows — against the API's 60 KB panel budget, and
-   * the API pays for it by dropping rows. A link that names `logo` therefore
-   * asks for nothing: the lane already has its mark.
+   * the API pays for it by dropping rows.
+   */
+  const chosen = React.useMemo(
+    () =>
+      (columns && columns.length > 0 ? columns : view.columns).filter(
+        // `logo` is drawn from `/logos/{SYMBOL}`, never requested.
+        (key) => key !== "logo",
+      ),
+    [columns, view.columns],
+  );
+  /**
+   * What the request asks for.
+   *
+   * The row number is drawn from the page offset and the ticker from the
+   * pinned lane: neither is a catalogue key, and sending one would be a 422.
+   * Everything else the reader selected travels as-is.
    */
   const selection = React.useMemo(
-    () => (columns && columns.length > 0 ? columns : view.columns).filter((key) => key !== "logo"),
-    [columns, view.columns],
+    () => chosen.filter((key) => !isClientColumn(key)),
+    [chosen],
   );
   const effective = React.useMemo(
     () => (sameColumns(selection, view.columns) ? view.columns : [...selection]),
@@ -204,8 +210,8 @@ export function ScreenPanel({
   );
   const custom = !sameColumns(effective, view.columns);
   const panelView = React.useMemo<ViewDefinition>(
-    () => (custom ? { ...view, columns: [...effective] } : view),
-    [custom, effective, view],
+    () => ({ ...view, columns: [...chosen] }),
+    [chosen, view],
   );
 
   const supported = effective.length > 0 && effective.length <= MAX_COLUMNS;
@@ -215,55 +221,40 @@ export function ScreenPanel({
       supported
         ? {
             view: panelView.name,
-            columns: panelView.columns,
-            limit: PANEL_LIMIT,
-            offset: pageIndex * PANEL_LIMIT,
+            // What the API is asked for (never the client-drawn lanes), while
+            // the table below draws every column the reader selected.
+            columns: effective,
+            limit,
+            offset: pageIndex * limit,
             sort,
             assetClass,
             filters: toWire(activeFilters),
+            signal: signal ?? null,
           }
         : null,
-    [supported, panelView.name, panelView.columns, pageIndex, sort, assetClass, filterKey],
+    [supported, panelView.name, effective, pageIndex, limit, sort, assetClass, filterKey, signal],
   );
 
   const screens = useScreens(query);
+  const refresh = screens.refresh;
 
   // F8: a view switch is answered by an effect, so for one committed frame the
   // hook still holds the previous view's rows. They may never be painted under
   // this view's headers — a switch shows the loading state, and the old rows
-  // are handed to the table only while the *query* is still this view's (a
-  // page turn, a sort change), where they are the same screen's rows.
+  // are handed to the table only while the *query* is still this view's.
   const sameView = screens.view === view.name;
   const rows = sameView ? screens.rows : [];
   const meta = sameView ? screens.meta : null;
-  const limit = meta?.limit ?? PANEL_LIMIT;
+  const rowLimit = meta?.limit ?? limit;
   const total = meta?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / limit));
-  const first = rows.length > 0 ? (meta?.offset ?? 0) + 1 : 0;
-  const last = (meta?.offset ?? 0) + rows.length;
+  const pageCount = Math.max(1, Math.ceil(total / rowLimit));
   const status = sameView && screens.status !== "idle" ? screens.status : "loading";
+  const firstRow = rows.length > 0 ? (meta?.offset ?? 0) + 1 : 0;
 
   /**
    * Is a selection in flight? — a different question from `status`, which is
-   * the *table's* state.
-   *
-   * `status` is "loading" only once the hook's effect has run and blanked its
-   * own answer; between the click that turned the page and that effect there
-   * is one committed frame where the hook still says "ready" while a request
-   * is already owed. The rows are not the answer to the current query in that
-   * frame, and the paging controls must already be shut — otherwise a fast
-   * second click queues page 3 behind page 2.
-   *
-   * So the state is derived from two facts that cannot drift, because neither
-   * is stored here: the hook is loading, or the rows it holds answer a query
-   * other than the one this render asks for. An error is excluded on purpose:
-   * a failed request has settled, and a bar that keeps sweeping over a failure
-   * is a lie the reader would wait on forever.
-   *
-   * It is true from the click to the settle — a `304` settles it (the hook
-   * returns to "ready"), and an aborted request settles it too (the abort
-   * belongs to a query that is no longer current, and the query that replaced
-   * it owns the flag from its own first render).
+   * the *table's* state. It is true from the click to the settle: a `304`
+   * settles it, and an aborted request settles it too.
    */
   const currentKey = React.useMemo(() => (query ? queryKey(query) : null), [query]);
   const isFetching =
@@ -271,13 +262,6 @@ export function ScreenPanel({
     (screens.status === "loading" ||
       (screens.status !== "error" && screens.queryKey !== currentKey));
 
-  /**
-   * The chrome waits; the controls do not.
-   *
-   * `isFetching` shuts Next/Prev on the click itself. The bar, the fade and
-   * the sentence are held back by `PENDING_FLASH_DELAY_MS` so a fast answer
-   * never paints them — see `pending.ts` for the threshold and why 120 ms.
-   */
   const pending = isFetching && status !== "error";
   const showPending = useDelayedFlag(pending);
   const reducedMotion = useReducedMotion();
@@ -297,20 +281,21 @@ export function ScreenPanel({
   const changePage = (next: number) => {
     // The button is disabled while a request is out, but a synthetic click (or
     // a double-tap that lands inside one commit) must not queue a second
-    // request either. The target page is derived from `pageIndex`, so two
-    // clicks in one batch ask for the same page and collapse into one request.
+    // request either.
     if (isFetching) return;
     goToPage(next);
   };
 
-  const changeSort = (next: ScreenSort) => {
-    // A sort is not queued behind the page turn: it replaces it, and the hook
-    // aborts the request it supersedes.
-    if (sortProp === undefined) {
-      setInternalSort(next);
-      setCursor({ key: pageKey, page: 0 });
-    }
-    onSortChange?.(next);
+  const changeLimit = (next: number) => {
+    const size = Math.max(1, Math.min(100, Math.floor(next)));
+    setLimit(size);
+    // A new page size is a new set of pages: the first page is the only one
+    // whose offset means the same thing at both sizes.
+    setCursor({
+      key: `${view.name}\u0000${sort}\u0000${signal ?? ""}\u0000${filterKey}\u0000${size}`,
+      page: 0,
+    });
+    onPageChange?.(0);
   };
 
   const label =
@@ -320,94 +305,58 @@ export function ScreenPanel({
           // names the rows that are on their way.
           refreshing: screens.queryKey === currentKey,
           pageIndex,
-          limit,
+          limit: rowLimit,
           total: meta?.total ?? null,
         })
       : null;
 
-  // --- the sector menu ----------------------------------------------------
-  //
-  // The menu's population is the shell's breadth read: 21 labels counted over
-  // the whole universe. When that read has not landed (or failed) the fallback
-  // is the `sector` cell of the rows on this page, and the control prints which
-  // of the two it is showing — a page is not the market, and the reader must be
-  // able to tell.
-  const sectorCapable = onSectorChange !== undefined;
-  const offeredSectors = React.useMemo(
-    () => (sectorOptions ?? []).filter((name) => typeof name === "string" && name.trim().length > 0),
-    [sectorOptions],
-  );
-  const derivedSectors = React.useMemo(() => sectorNamesFromRows(rows), [rows]);
-  const sectorNames = offeredSectors.length > 0 ? offeredSectors : derivedSectors;
-  const sectorValue = sectorCapable ? activeSector(activeFilters) : null;
-  const sectorPopulation: SectorSource =
-    offeredSectors.length > 0
-      ? "breadth"
-      : derivedSectors.length > 0
-        ? "rows"
-        : sectorSource === "loading"
-          ? "loading"
-          : "none";
-
-  // --- the exchange menu -------------------------------------------------
-  //
-  // Same five expressions as the sector menu, for the same reason: the
-  // population is the market's (`GET /market/exchanges`), the fallback is the
-  // page's own `exchange` cells, and the control says which one it is showing.
-  // The control mounts only when a callback was passed, so every panel test
-  // that does not wire one keeps its toolbar byte-identical — and no panel
-  // spends a request on a menu it does not draw.
-  const exchangeCapable = onExchangeChange !== undefined;
-  const offeredVenues = React.useMemo(
-    () =>
-      (exchangeOptions ?? []).filter(
-        (venue) => typeof venue?.code === "string" && venue.code.trim().length > 0,
-      ),
-    [exchangeOptions],
-  );
-  const derivedVenues = React.useMemo(() => exchangeVenuesFromRows(rows), [rows]);
-  const venues = offeredVenues.length > 0 ? offeredVenues : derivedVenues;
-  const exchangeValue = exchangeCapable ? activeExchanges(activeFilters) : [];
-  const exchangePopulation: ExchangeSource =
-    offeredVenues.length > 0
-      ? "market"
-      : derivedVenues.length > 0
-        ? "rows"
-        : exchangeSource === "loading"
-          ? "loading"
-          : "none";
-
-  const barFilters = activeFilters.filter(
-    (filter) =>
-      !(sectorCapable && isSectorChoice(filter)) &&
-      !(exchangeCapable && isExchangeChoice(filter)),
-  );
-
-  // The menus draw the one predicate each owns; the chip bar draws the rest.
-  // A panel with no controls hides nothing.
-  const showControlChips =
-    (sectorCapable && sectorValue !== null) || (exchangeCapable && exchangeValue.length > 0);
-
   // A page is a request, and the URL may name one that cannot exist (a shared
   // link, a stale tab, a filter that shrank the result set). `parseScreenState`
   // bounds the input to MAX_PAGE; this reconciles the page against the answer's
-  // own total once there is one, so the footer never reads "999999/56" with a
-  // dead Next. It runs only when the page is genuinely past the end: the last
-  // valid page (pageIndex === pageCount - 1) is left alone, so paging and the
-  // last-page case are exactly as they were.
+  // own total once there is one, so the position never reads "999999/56" with a
+  // dead Next.
   const maxPage = Math.max(0, pageCount - 1);
   React.useEffect(() => {
     if (!meta) return;
     if (pageIndex <= maxPage) return;
-    // Deliberately not `changePage`: this correction is not a click, and it
-    // must not be dropped because a request happens to be in flight.
     goToPage(maxPage);
     // `goToPage` closes over the controlled/uncontrolled switch, not over
     // `pageIndex`; re-running on a new page is what stops the loop at maxPage.
   }, [meta, pageIndex, maxPage]);
 
-  // The other half of the tablist contract: this is the panel the tabs control,
-  // and it names the tab that selected it.
+  // Auto refresh: one timer, cleared by the select, by a view change or by the
+  // panel unmounting. `refresh` is stable, so the interval does not restart on
+  // every render.
+  React.useEffect(() => {
+    if (autoRefreshMs === null) return;
+    const timer = window.setInterval(() => refresh(), autoRefreshMs);
+    return () => window.clearInterval(timer);
+  }, [autoRefreshMs, refresh]);
+
+  const addToWatchlist = () => {
+    const symbols =
+      selectedSymbol !== null
+        ? [selectedSymbol]
+        : rows.map((row) => row.symbol).filter((symbol) => typeof symbol === "string");
+    if (symbols.length === 0) {
+      setNotice("Nothing to add — this page has no rows.");
+      return;
+    }
+    const current = watchlistStore.read();
+    const merged = [...current];
+    for (const symbol of symbols) {
+      if (merged.length >= MAX_SYMBOLS) break;
+      if (!merged.includes(symbol)) merged.push(symbol);
+    }
+    watchlistStore.write(merged);
+    const added = merged.length - current.length;
+    setNotice(
+      added === 0
+        ? "Those symbols are already on the watchlist."
+        : `Added ${added} ${added === 1 ? "symbol" : "symbols"} to the watchlist.`,
+    );
+  };
+
   const panel = {
     role: "tabpanel" as const,
     id: VIEW_PANEL_ID,
@@ -418,7 +367,7 @@ export function ScreenPanel({
     return (
       <section
         {...panel}
-        className="flex min-h-0 flex-1 flex-col rounded-md border border-line bg-surface"
+        className="flex flex-col rounded-md border border-line bg-surface"
       >
         <div role="alert" className="m-3 rounded-md border border-line border-l-2 border-l-alert bg-surface-raised p-4">
           <p className="text-ui font-medium text-fg">This selection is too wide for one panel</p>
@@ -432,141 +381,58 @@ export function ScreenPanel({
     );
   }
 
+  const exportBody = query ? requestBody(query) : {};
+
   return (
     <section
       {...panel}
       // `relative` is for the pending bar, which is positioned on the top edge
       // so that appearing and disappearing costs no layout.
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-surface"
+      className="relative flex flex-col overflow-hidden rounded-md border border-line bg-surface"
     >
       {showPending ? <PendingBar reducedMotion={reducedMotion} /> : null}
 
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-line-strong px-3">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="truncate text-ui font-medium text-fg">{view.label}</h2>
-          <span className="hidden truncate text-data text-fg-subtle sm:inline">{view.job}</span>
-        </div>
+      <TableToolbar
+        pageIndex={pageIndex}
+        total={total}
+        pageCount={pageCount}
+        rowsPerPage={limit}
+        onRowsPerPage={changeLimit}
+        onPrev={() => changePage(Math.max(0, pageIndex - 1))}
+        onNext={() => changePage(Math.min(pageCount - 1, pageIndex + 1))}
+        canPrev={pageIndex > 0 && !isFetching}
+        canNext={pageIndex + 1 < pageCount && !isFetching}
+        onRefresh={refresh}
+        refreshing={isFetching}
+        autoRefreshMs={autoRefreshMs}
+        onAutoRefresh={(ms) => {
+          setAutoRefreshMs(ms);
+          setNotice(
+            ms === null ? "Auto refresh off." : `Auto refresh every ${Math.round(ms / 60_000)} min.`,
+          );
+        }}
+        onAddToWatchlist={addToWatchlist}
+        onCompare={() => setComparing(true)}
+        onAlert={() => setAlerting(true)}
+        onExport={(choice) => setExporting(choice)}
+        statusText={label ?? ""}
+        notice={notice}
+      />
 
-        <div className="flex shrink-0 items-center gap-3">
-          {sameView && screens.revalidated ? (
-            <span
-              data-testid="stale-badge"
-              title={`The server answered 304 Not Modified at ${timeOf(
-                screens.checkedAt ?? "",
-              )}: these rows are unchanged, not re-fetched.`}
-              className="rounded-sm border border-line px-1.5 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
-            >
-              not refreshed · 304
-            </span>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={onOpenFilters}
-            aria-label="Filters"
-            className="rounded-sm border border-line px-2 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
-          >
-            Filters{activeFilters.length > 0 ? ` · ${activeFilters.length}` : ""}
-          </button>
-
-          {catalogue && catalogue.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setPickerOpen(true)}
-              aria-label="Columns"
-              data-testid="columns-button"
-              className="rounded-sm border border-line px-2 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
-            >
-              Columns{custom ? ` · ${effective.length}` : ""}
-            </button>
-          ) : null}
-
-          {sectorCapable ? (
-            <SectorSelect
-              names={sectorNames}
-              source={sectorPopulation}
-              value={sectorValue}
-              onChange={(name) => onSectorChange?.(name)}
-            />
-          ) : null}
-
-          {exchangeCapable ? (
-            <ExchangeSelect
-              venues={venues}
-              source={exchangePopulation}
-              value={exchangeValue}
-              onChange={(codes) => onExchangeChange?.(codes)}
-            />
-          ) : null}
-
-          {/* Three toggle buttons, not a `<select>`.
-              The sort is a mode the toolbar is *in*, not a field being filled:
-              `aria-pressed` says which one is on, so a screen reader hears
-              "Market cap, pressed, button" without opening anything. A native
-              select has no pressed state — the only way to learn the current
-              ordering was to open it, and the control's own name ("Sort by")
-              never said what it was set to. The group is named once; each
-              button keeps its own label. */}
-          <div
-            role="group"
-            aria-label="Sort by"
-            data-testid="sort-group"
-            className="flex shrink-0 items-center gap-0.5"
-          >
-            <span
-              aria-hidden="true"
-              className="pr-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
-            >
-              sort
-            </span>
-            {SORTS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={sort === option}
-                data-sort={option}
-                onClick={() => changeSort(option)}
-                className="rounded-sm border border-transparent px-1.5 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-line-strong hover:text-fg aria-pressed:border-brand aria-pressed:bg-row-selected aria-pressed:text-fg"
-              >
-                {SORT_LABELS[option]}
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={screens.refresh}
-            className="rounded-sm border border-line px-2 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
-          >
-            Check again
-          </button>
-        </div>
-      </div>
-
-      {/* The toolbar's own chips, in one bar: the sector menu and the exchange
-          menu each own exactly one predicate, and neither is printed in
-          `ChipBar` — that bar draws what the controls do *not* own, and the same
-          filter in two places reads as two filters. */}
-      {showControlChips ? (
-        <div
-          data-testid="control-chip-bar"
-          role="group"
-          aria-label="Toolbar filters"
-          className="flex flex-wrap items-center gap-1 border-b border-line bg-surface-sunken px-2 py-1"
+      {sameView && screens.revalidated ? (
+        <p
+          data-testid="stale-badge"
+          title={`The server answered 304 Not Modified at ${timeOf(screens.checkedAt ?? "")}: these rows are unchanged, not re-fetched.`}
+          className="sr-only"
         >
-          {sectorCapable && sectorValue !== null ? (
-            <SectorChip bare name={sectorValue} onClear={() => onSectorChange?.(null)} />
-          ) : null}
-          {exchangeCapable && exchangeValue.length > 0 ? (
-            <ExchangeChip codes={exchangeValue} onClear={() => onExchangeChange?.([])} />
-          ) : null}
-        </div>
+          not refreshed · 304
+        </p>
       ) : null}
 
       {registry ? (
         <ChipBar
           registry={registry}
-          filters={barFilters}
+          filters={activeFilters}
           onRemove={onRemoveFilter ?? (() => undefined)}
           onClear={onClearFilters ?? (() => undefined)}
           notice={filterNotice}
@@ -577,8 +443,7 @@ export function ScreenPanel({
       {columnNotice !== null && columnNotice !== undefined ? (
         // An alert, not a status: this sentence appears only when the reader
         // asked for a column the panel cannot carry, and it must interrupt —
-        // the checkbox they just ticked is not going to stay ticked. The one
-        // `role="status"` in the app belongs to the row range below.
+        // the checkbox they just ticked is not going to stay ticked.
         <div
           role="alert"
           data-testid="column-notice"
@@ -614,21 +479,22 @@ export function ScreenPanel({
         error={sameView ? screens.error : null}
         revalidated={sameView && screens.revalidated}
         pageIndex={pageIndex}
-        pageSize={limit}
+        pageSize={rowLimit}
         rowCount={total}
-        // What the table is called, and the two facts that are not otherwise
-        // said anywhere: which slice is on screen and how it is ordered. The
-        // direction is in words because the grid never draws an arrow: the API
-        // sorts every one of the three descending (`app/screen/rank.py`), ties
-        // broken by symbol.
+        sort={sort}
+        onSort={(key) => onSortChange?.(nextSort(sort, key))}
         caption={
           `${view.label}: ` +
           (rows.length === 0
             ? "no rows on this page"
-            : `rows ${first}–${last} of ${total.toLocaleString("en-US")}`) +
-          `, sorted by ${SORT_LABELS[sort].toLowerCase()}, highest first.`
+            : `rows ${firstRow}–${firstRow + rows.length - 1} of ${total.toLocaleString("en-US")}`) +
+          (signal
+            ? `, ordered by the “${signal}” signal.`
+            : `, sorted by ${sortLabel(sort)}, ${
+                sortDirection(sort) === "desc" ? "highest first" : "lowest first"
+              }.`)
         }
-        onRetry={screens.refresh}
+        onRetry={refresh}
         onActivate={onActivate}
         onClear={onClear}
         selectedSymbol={selectedSymbol}
@@ -637,57 +503,12 @@ export function ScreenPanel({
         busy={isFetching}
       />
 
-      <div className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-line bg-surface-sunken px-3 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-        <span className="flex min-w-0 items-center gap-2">
-          <span data-testid="range" className="shrink-0">
-            {total > 0 ? `${first}–${last} of ${total.toLocaleString("en-US")}` : "—"}
-          </span>
-          {/*
-            The **one** `role="status"` in the document.
-            It is mounted empty and filled by a state change, because a region
-            that appears *with* its sentence is not reliably announced.
-            `aria-atomic` re-reads the whole sentence rather than a diff of it.
-            Every other announcement in the app is either a `role="alert"`
-            (a refusal or a warning) or a plain `aria-live="polite"` node — see
-            `a11y.test.tsx`, which counts them on the rendered shell.
-          */}
-          <span
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            data-testid="fetch-status"
-            className="min-w-0 truncate normal-case tracking-normal text-accent-text"
-          >
-            {label}
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => changePage(Math.max(0, pageIndex - 1))}
-            disabled={pageIndex === 0 || isFetching}
-            className="rounded-sm border border-line px-1.5 py-0.5 transition-colors hover:text-fg disabled:opacity-40"
-          >
-            Prev
-          </button>
-          <span className="px-1">
-            {pageIndex + 1}/{pageCount}
-          </span>
-          <button
-            type="button"
-            onClick={() => changePage(Math.min(pageCount - 1, pageIndex + 1))}
-            disabled={pageIndex + 1 >= pageCount || isFetching}
-            className="rounded-sm border border-line px-1.5 py-0.5 transition-colors hover:text-fg disabled:opacity-40"
-          >
-            Next
-          </button>
-        </span>
-      </div>
+      <Pager pageIndex={pageIndex} pageCount={pageCount} onPage={changePage} busy={isFetching} />
 
       {catalogue && catalogue.length > 0 ? (
         <ColumnPicker
-          open={pickerOpen}
-          onClose={() => setPickerOpen(false)}
+          open={showPicker}
+          onClose={() => setPicker(false)}
           keys={catalogue}
           selected={effective}
           onToggle={(key) => onToggleColumn?.(key)}
@@ -696,6 +517,31 @@ export function ScreenPanel({
           notice={columnNotice ?? null}
         />
       ) : null}
+
+      <CompareDialog
+        open={comparing}
+        onClose={() => setComparing(false)}
+        rows={rows as ScreenRow[]}
+        columns={effective}
+        viewLabel={view.label}
+        selectedSymbol={selectedSymbol}
+      />
+
+      <AlertDialog
+        open={alerting}
+        onClose={() => setAlerting(false)}
+        symbol={selectedSymbol ?? rows[0]?.symbol ?? null}
+      />
+
+      <ExportDialog
+        open={exporting !== null}
+        onClose={() => setExporting(null)}
+        choice={exporting ?? "csv"}
+        region="us"
+        sort={sort}
+        apiBody={exportBody}
+        scopeNote="The server writes this file from the saved screen for this market and ordering."
+      />
     </section>
   );
 }

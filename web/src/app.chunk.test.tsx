@@ -144,7 +144,7 @@ describe("F1 — a failed detail chunk", () => {
 
     // And it is still a working page: one more page of rows is one more read.
     const before = api.selects.length;
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
     await waitFor(() => expect(api.selects.length).toBe(before + 1));
   });
 

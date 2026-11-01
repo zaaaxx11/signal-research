@@ -7,11 +7,17 @@
  * The `<colgroup>` is the single source of geometry.
  *
  * Why the identity lane is sticky: once the rows scroll, the symbol must stay visible
- * while the eye travels right. It is column 1, pinned through TanStack's
- * `columnPinning` state, and pinned again in CSS with `position: sticky; left:0`
+ * while the eye travels right. It is the lead lane — the second one when the
+ * reader's set starts with the row number — pinned through TanStack's
+ * `columnPinning` state, and pinned again in CSS with `position: sticky; left`
  * — the state is what a later "unpin" control will read, the CSS is what the
  * browser paints. `bg-inherit` lets the zebra/hover colour of the `<tr>` show
  * through without a second background rule.
+ *
+ * The headers are the sort controls: each sortable column is a button that
+ * rewrites the one `criteria.sort` token, and `aria-sort` plus an arrow say
+ * which end of that column is on top. The rows themselves are the server's
+ * ordering, never a re-sort of the page.
  *
  * The states are body rows, not overlays: an error keeps the header's geometry
  * and says what the API said; an empty result says it matched nothing; loading
@@ -29,10 +35,17 @@ import {
 import * as React from "react";
 
 import type { ScreenError, ScreenRow, ScreenStatus, ViewDefinition } from "@/data/screens";
+import { sortDirection, sortKey } from "@/data/screens";
 import { cn } from "@/lib/utils";
 
 import { CellValue, IdentityCell } from "./cellRenderers";
-import { columnSpec, labelFor, type ColumnSpec } from "./columnMeta";
+import {
+  ROW_NUMBER_KEY,
+  columnSpec,
+  isClientColumn,
+  labelFor,
+  type ColumnSpec,
+} from "./columnMeta";
 import { visibleRange } from "./window";
 import { solveView } from "./solver";
 
@@ -95,7 +108,7 @@ export interface DataTableProps {
   absent?: (symbol: string, key: string) => string | null;
   /**
    * The table's accessible name, spoken once when a screen reader enters the
-   * grid: the view, the slice on screen and the ordering the toolbar chose.
+   * grid: the view, the slice on screen and the ordering in force.
    *
    * A `<caption>` rather than `aria-label` because a caption is what HTML says
    * a table is called, and Chrome exposes it as the table node's name in the AX
@@ -103,9 +116,9 @@ export interface DataTableProps {
    * reached in browse mode, and only the caption can be read as the table's
    * description without stealing the name slot.
    *
-   * It carries the sort in *words* ("sorted by market cap, highest first")
-   * because the ordering is not visible in the grid at all: no header is
-   * marked, no arrow is drawn, and colour is not used to say it (adversarial c).
+   * It carries the sort in *words* ("sorted by market cap, highest first") as
+   * well as the header's `aria-sort`: the header says which column, the caption
+   * says the ordering the whole page is in, and neither depends on colour.
    */
   caption?: string;
   /**
@@ -135,6 +148,18 @@ export interface DataTableProps {
    * exactly the state `status` alone cannot describe.
    */
   busy?: boolean;
+  /**
+   * The ordering in force, as the API's own token: `country` is highest first,
+   * `-country` lowest first.
+   *
+   * `aria-sort` and the arrow are read from it, and a header press writes it
+   * through `onSort` — one state with the masthead's Order by select, never a
+   * second copy. The rows are ordered by the server; the grid only marks which
+   * header asked for them.
+   */
+  sort?: string;
+  /** A column header was pressed: ask the shell's one sort state to change. */
+  onSort?: (key: string) => void;
 }
 
 function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>, override?: number) {
@@ -200,12 +225,23 @@ export function DataTable({
   windowed = false,
   stale = false,
   busy,
+  sort,
+  onSort,
 }: DataTableProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const width = useContainerWidth(scrollRef, containerWidth);
   const [focused, setFocused] = React.useState(-1);
   const [scrollLeft, setScrollLeft] = React.useState(0);
   const rowRefs = React.useRef<Array<HTMLTableRowElement | null>>([]);
+
+  /** The row number is drawn from the page offset; it is never requested. */
+  const showNumber = view.columns.includes(ROW_NUMBER_KEY);
+  const dataColumns = React.useMemo(
+    () => view.columns.filter((key) => !isClientColumn(key)),
+    [view.columns],
+  );
+  const sortedKey = sort ? sortKey(sort) : null;
+  const sortedDirection = sortDirection(sort ?? "market_cap");
 
   const solved = React.useMemo(
     () => (width > 0 ? solveView(view.columns, width) : null),
@@ -217,6 +253,7 @@ export function DataTable({
   const specs = React.useMemo(() => {
     const map = new Map<string, ColumnSpec>();
     map.set("identity", columnSpec("identity"));
+    map.set(ROW_NUMBER_KEY, columnSpec(ROW_NUMBER_KEY));
     for (const key of view.columns) map.set(key, columnSpec(key));
     return map;
   }, [view.columns]);
@@ -227,19 +264,20 @@ export function DataTable({
    * screen at every scroll offset), and the rest follow the viewport. `null`
    * means "every column" — the ordinary view, or a container not yet measured.
    */
+  const pinned = 1 + (showNumber ? 1 : 0);
   const range = React.useMemo(() => {
     if (!windowed || !solved) return null;
-    const columns = visibleRange(solved.widths.slice(1), scrollLeft, width);
-    if (columns.start === 0 && columns.end === view.columns.length - 1) return null;
+    const columns = visibleRange(solved.widths.slice(pinned), scrollLeft, width);
+    if (columns.start === 0 && columns.end === dataColumns.length - 1) return null;
     return columns;
-  }, [windowed, solved, scrollLeft, width, view.columns.length]);
+  }, [windowed, solved, scrollLeft, width, dataColumns.length, pinned]);
 
   const columns = React.useMemo(
-    () => (range ? view.columns.slice(range.start, range.end + 1) : view.columns),
-    [range, view.columns],
+    () => (range ? dataColumns.slice(range.start, range.end + 1) : dataColumns),
+    [range, dataColumns],
   );
   const lead = range ? range.start : 0;
-  const trail = range ? view.columns.length - range.end - 1 : 0;
+  const trail = range ? dataColumns.length - range.end - 1 : 0;
 
 
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -261,25 +299,34 @@ export function DataTable({
   }, [solved, specs]);
 
   const tanstackColumns = React.useMemo<ColumnDef<typeof features, ScreenRow>[]>(() => {
-    const identity: ColumnDef<typeof features, ScreenRow> = {
-      id: "identity",
-      accessorFn: (row) => row.symbol,
-      header: "Symbol",
+    const number: ColumnDef<typeof features, ScreenRow> = {
+      id: ROW_NUMBER_KEY,
+      accessorFn: () => null,
+      header: columnSpec(ROW_NUMBER_KEY).label,
       enableSorting: false,
       enablePinning: true,
     };
-    const rest = view.columns.map((key) => {
+    const identity: ColumnDef<typeof features, ScreenRow> = {
+      id: "identity",
+      accessorFn: (row) => row.symbol,
+      header: columnSpec("identity").label,
+      // The identity lane is the ticker column: pressing it sorts by `ticker`,
+      // the catalogue's own spelling for the row's symbol.
+      enableSorting: true,
+      enablePinning: true,
+    };
+    const rest = dataColumns.map((key) => {
       const spec = specs.get(key) ?? columnSpec(key);
       const column: ColumnDef<typeof features, ScreenRow> = {
         id: key,
         accessorFn: (row) => row[key],
         header: spec.label,
-        enableSorting: false,
+        enableSorting: true,
       };
       return column;
     });
-    return [identity, ...rest];
-  }, [view.columns, specs]);
+    return [...(showNumber ? [number] : []), identity, ...rest];
+  }, [dataColumns, specs, showNumber]);
 
   const table = useTable({
     features,
@@ -292,7 +339,7 @@ export function DataTable({
     manualPagination: true,
     pageCount: Math.max(1, Math.ceil(rowCount / pageSize)),
     state: {
-      columnPinning: { start: ["identity"], end: [] },
+      columnPinning: { start: showNumber ? [ROW_NUMBER_KEY, "identity"] : ["identity"], end: [] },
       pagination: { pageIndex, pageSize },
     },
   });
@@ -403,19 +450,18 @@ export function DataTable({
     <div
       ref={scrollRef}
       data-testid="grid-scroll"
+      // The grid is not a scroll box: the page owns the vertical scroll, so
+      // every row of the page keeps its natural height and nothing is clipped
+      // behind an inner viewport. Only a table wider than its panel scrolls
+      // sideways, and even then its height is its content's.
+      //
       // When the solver reports `overflow`, the table keeps its declared
-      // minimums and this box scrolls; otherwise the widths are exact and it
-      // has nothing to scroll (adversarial: no view scrolls at 1280).
-      className={cn(
-        "relative min-h-0 flex-1 overflow-auto bg-surface",
-        solved?.overflow && "overflow-x-auto",
-      )}
+      // minimums and this box scrolls horizontally; otherwise the widths are
+      // exact and it has nothing to scroll (adversarial: no view scrolls at
+      // 1280).
+      className={cn("relative bg-surface", solved?.overflow && "overflow-x-auto")}
       data-overflow={solved ? (solved.overflow ? "true" : "false") : undefined}
-      // Reserve the vertical scrollbar's width at all times. Without this the
-      // first paint measures a container 15 px wider than the one that exists
-      // once the rows make the scrollbar appear — and the table, solved once,
-      // would overflow by exactly that much.
-      style={{ scrollbarGutter: "stable" }}
+      data-scroll="page"
       onScroll={onScroll}
       data-window={range ? `${range.start}:${range.end}` : "every"}
       aria-busy={busy ?? status === "loading"}
@@ -430,20 +476,15 @@ export function DataTable({
           ))}
         </div>
       ) : (
-        // `aria-sort` is deliberately absent from every header.
+        // Every header is a sort control, and `aria-sort` says so.
         //
-        // `aria-sort` is the pattern for a table whose rows are ordered by
-        // *pressing that header*: it tells assistive tech "this column is the
-        // sort key" and pairs with `aria-sort` toggling on activation. Here no
-        // header is a sort control — every column is `enableSorting: false`,
-        // the toolbar owns the ordering, and the API's three sorts are
-        // whole-screen rankings rather than column sorts: "gainers" names *no
-        // column at all*, and the sorted column (market cap, turnover) may not
-        // even be in the reader's column selection. Marking a header would
-        // announce a sort affordance that does not exist — the accessibility
-        // equivalent of the Finviz dead-header problem this rebuild exists to
-        // fix. The ordering is said in the caption, in words, and as
-        // `aria-pressed` on the toolbar buttons that really do change it.
+        // Pressing a header rewrites the one ordering token the request carries
+        // (`criteria.sort`), so the server orders the whole filtered universe
+        // before the page is cut — never the 20 rows on screen. `descending`
+        // and `ascending` are the truth for the one column in force; `none`
+        // marks the others as sortable without claiming a direction. The
+        // caption still says the ordering in words, because a screen reader
+        // user who lands in the body has not necessarily heard a header.
         <table
           data-testid="grid-table"
           data-stale={stale ? "true" : "false"}
@@ -485,40 +526,94 @@ export function DataTable({
 
           <thead>
             {table.getHeaderGroups().map((group) => {
-              const identityHeader = group.headers.find((header) => header.column.id === "identity");
+              const byId = (id: string) =>
+                group.headers.find((header) => header.column.id === id);
+              const numberHeader = byId(ROW_NUMBER_KEY);
+              const identityHeader = byId("identity");
               const rest = group.headers.filter(
                 (header) =>
                   header.column.id !== "identity" &&
+                  header.column.id !== ROW_NUMBER_KEY &&
                   (!range || columns.includes(header.column.id)),
               );
               const draw = (header: (typeof group.headers)[number]) => {
                 const key = header.column.id;
                 const meta = headers.get(key);
-                const pinned = header.column.getIsPinned() === "start";
+                const sticky = header.column.getIsPinned() === "start";
+                // The identity lane draws the ticker, so its sort token is the
+                // catalogue's spelling for the symbol — never "identity". The
+                // row number is geometry, not a field, and cannot be sorted.
+                const token =
+                  key === "identity" ? "ticker" : isClientColumn(key) ? null : key;
+                const active = token !== null && sortedKey === token;
+                const ariaSort =
+                  token === null
+                    ? undefined
+                    : active
+                      ? sortedDirection === "desc"
+                        ? "descending"
+                        : "ascending"
+                      : "none";
+                const label = meta?.text ?? key;
+                const lane = key === "identity" || key === ROW_NUMBER_KEY;
                 return (
                   <th
                     key={header.id}
                     scope="col"
                     data-key={key}
+                    aria-sort={ariaSort}
                     style={{
                       ...STICKY_HEADER,
-                      ...(pinned ? STICKY_LANE : {}),
+                      ...(sticky ? STICKY_LANE : {}),
+                      ...(key === ROW_NUMBER_KEY ? { left: 0 } : {}),
+                      ...(key === "identity" && showNumber
+                        ? { left: columnSpec(ROW_NUMBER_KEY).min }
+                        : {}),
                       height: HEADER_HEIGHT,
-                      zIndex: pinned ? 40 : 20,
+                      zIndex: sticky ? 40 : 20,
+                      padding: 0,
                     }}
                     className={cn(
-                      "border-b border-line-strong bg-surface-raised px-2 py-0 text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted",
-                      pinned && "bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]",
-                      key !== "identity" && "text-right",
+                      "border-b border-line-strong bg-surface-raised text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted",
+                      sticky && "bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]",
                     )}
                     title={meta?.full ?? key}
                   >
-                    <span className="block truncate">{meta?.text ?? key}</span>
+                    {token !== null && onSort ? (
+                      <button
+                        type="button"
+                        data-testid={`sort-${token}`}
+                        onClick={() => onSort(token)}
+                        title={`Sort by ${meta?.full ?? key}, ${
+                          active && sortedDirection === "asc" ? "lowest" : "highest"
+                        } first.`}
+                        className={cn(
+                          "flex h-full w-full min-w-0 items-center gap-1 px-2 py-0 uppercase tracking-[0.08em] transition-colors hover:text-fg",
+                          lane ? "justify-start" : "justify-end",
+                          active && "text-fg",
+                        )}
+                      >
+                        <span className="block truncate">{label}</span>
+                        {active ? (
+                          <span
+                            aria-hidden="true"
+                            data-testid={`sort-arrow-${token}`}
+                            data-direction={sortedDirection}
+                            className="shrink-0 text-accent-text"
+                          >
+                            {sortedDirection === "desc" ? "▾" : "▴"}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      <span className="block truncate px-2">{label}</span>
+                    )}
                   </th>
                 );
               };
               return (
                 <tr key={group.id}>
+                  {numberHeader ? draw(numberHeader) : null}
                   {identityHeader ? draw(identityHeader) : null}
                   {lead > 0 ? (
                     <th
@@ -580,6 +675,8 @@ export function DataTable({
                   lead={lead}
                   trail={trail}
                   index={index}
+                  rowNumber={pageIndex * pageSize + index + 1}
+                  showNumber={showNumber}
                   selected={selectedSymbol === symbol}
                   tabbable={focused === index || (focused === -1 && index === 0)}
                   specs={specs}
@@ -632,6 +729,10 @@ interface GridRowProps {
   lead: number;
   trail: number;
   index: number;
+  /** The page-global ordinal: page offset + row index + 1. */
+  rowNumber: number;
+  /** Whether the view draws the row-number lane. */
+  showNumber: boolean;
   selected: boolean;
   tabbable: boolean;
   specs: Map<string, ColumnSpec>;
@@ -650,6 +751,8 @@ const GridRow = React.memo(function GridRow({
   lead,
   trail,
   index,
+  rowNumber,
+  showNumber,
   selected,
   tabbable,
   specs,
@@ -695,8 +798,22 @@ const GridRow = React.memo(function GridRow({
       )}
       style={{ height: ROW_HEIGHT }}
     >
+      {showNumber ? (
+        <td
+          data-row-number={rowNumber}
+          style={{ ...STICKY_LANE, left: 0, height: ROW_HEIGHT, zIndex: 3 }}
+          className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle tabular-nums text-fg-subtle"
+        >
+          {rowNumber}
+        </td>
+      ) : null}
       <td
-        style={{ ...STICKY_LANE, height: ROW_HEIGHT, zIndex: 2 }}
+        style={{
+          ...STICKY_LANE,
+          ...(showNumber ? { left: columnSpec(ROW_NUMBER_KEY).min } : { left: 0 }),
+          height: ROW_HEIGHT,
+          zIndex: 2,
+        }}
         className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle shadow-[inset_-1px_0_0_var(--border-strong)]"
       >
         <IdentityCell

@@ -14,22 +14,31 @@
  * link must never be able to 422 the panel in a loop.
  */
 
-import { SORTS, type ScreenSort } from "@/data/screens";
 import type { FilterOp, FilterValue, ActiveFilter } from "./types";
 import { makeFilter, toWire } from "./state";
 import { resolveKey } from "./registry";
-import type { FilterRegistry } from "./registry";
+import type { FilterRegistry, PublishedFilter } from "./registry";
 import { toFiniteNumber, validateDraft } from "./validation";
 
 export interface ScreenState {
   view: string;
-  sort: ScreenSort;
+  /** A catalogue key, or `-key` for lowest-first; see `data/screens`. */
+  sort: string;
   /** Zero-based, the API's `criteria.offset / limit`; the URL spells it 1-based. */
   page: number;
   filters: ActiveFilter[];
+  /**
+   * The named screen the request asks the API to compile, or null.
+   *
+   * Optional in the type because a state built by a caller (a test, a preset)
+   * may simply not have one; every reader treats absence as "no signal". It is
+   * in the URL (`?signal=top-gainers`) because a reload must reproduce the
+   * screen, and a signal changes which rows exist.
+   */
+  signal?: string | null;
 }
 
-export const DEFAULT_SORT: ScreenSort = "market_cap";
+export const DEFAULT_SORT = "market_cap";
 
 /**
  * The largest page a URL may name, 1-based.
@@ -46,7 +55,7 @@ export const DEFAULT_SORT: ScreenSort = "market_cap";
 export const MAX_PAGE = 10_000;
 
 export function emptyScreenState(): ScreenState {
-  return { view: "", sort: DEFAULT_SORT, page: 0, filters: [] };
+  return { view: "", sort: DEFAULT_SORT, page: 0, filters: [], signal: null };
 }
 
 function encodeValue(value: FilterValue): string {
@@ -61,6 +70,7 @@ export function encodeScreenState(state: ScreenState): string {
   if (state.view) params.set("view", state.view);
   params.set("sort", state.sort);
   params.set("page", String(state.page + 1));
+  if (state.signal) params.set("signal", state.signal);
   for (const filter of state.filters) {
     params.append("f", `${filter.key}:${filter.op}:${encodeValue(filter.value)}`);
   }
@@ -111,6 +121,29 @@ export interface ParsedScreenState {
   dropped: string[];
 }
 
+/**
+ * A value the panel document publishes for one of its own keys.
+ *
+ * `in` is a JSON array on the wire and every member must be published; a single
+ * value is the API's token. Anything else is `undefined`, which the caller
+ * treats exactly like a key it does not know.
+ */
+function publishedValue(
+  entry: PublishedFilter,
+  op: FilterOp,
+  raw: string,
+): FilterValue | undefined {
+  if (op === "in") {
+    const parsed = parseNumberList(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+    const values = parsed.filter(
+      (item): item is string => typeof item === "string" && entry.values.has(item),
+    );
+    return values.length === parsed.length ? values : undefined;
+  }
+  return entry.values.has(raw) ? raw : undefined;
+}
+
 export function parseScreenState(
   search: string,
   registry: FilterRegistry,
@@ -122,9 +155,8 @@ export function parseScreenState(
   const filters: ActiveFilter[] = [];
 
   const rawSort = params.get("sort");
-  const sort = (SORTS as readonly string[]).includes(rawSort ?? "")
-    ? (rawSort as ScreenSort)
-    : DEFAULT_SORT;
+  const sort =
+    rawSort !== null && /^-?[a-z0-9][a-z0-9_]{0,39}$/i.test(rawSort) ? rawSort : DEFAULT_SORT;
 
   const rawPage = params.get("page");
   const requestedPage = rawPage === null ? 1 : Number(rawPage);
@@ -136,6 +168,14 @@ export function parseScreenState(
 
   const rawView = params.get("view") ?? "";
   const view = viewNames.includes(rawView) ? rawView : "";
+
+  // A signal id is a short slug (`top-gainers`, `unusual-volume`). The shape is
+  // checked, not the vocabulary: this parse runs before the document that
+  // publishes the valid ids has arrived, and a link naming a signal this build
+  // does not know is the API's 403/422 to refuse, shown as a message — never a
+  // silent "no signal" that would answer a different screen than the link says.
+  const rawSignal = params.get("signal") ?? "";
+  const signal = /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(rawSignal) ? rawSignal : null;
 
   const seen = new Set<string>();
   const added = new Set<string>();
@@ -157,7 +197,33 @@ export function parseScreenState(
 
     const entry = registry.byKey.get(key);
     const op = parts.op as FilterOp;
-    if (!entry || !entry.ops.includes(op)) {
+
+    // A value the panel document publishes is the value its select wrote, even
+    // when the schema describes the same key as a number (`cap` is a numeric
+    // key whose options are the words `mega`, `micro`…). The document is the
+    // surface that offered the choice, so it is the surface that recognises it
+    // on the way back — otherwise every option the header writes would be
+    // dropped the moment the reader reloaded the link.
+    const published = registry.published.get(key);
+    const publishedToken =
+      published && published.op === op ? publishedValue(published, op, parts.raw) : undefined;
+    if (publishedToken !== undefined) {
+      const signature = JSON.stringify([key, op, publishedToken]);
+      if (!added.has(signature)) {
+        added.add(signature);
+        filters.push(makeFilter(key, op, publishedToken));
+      }
+      continue;
+    }
+
+    if (!entry) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        dropped.push(key);
+      }
+      continue;
+    }
+    if (!entry.ops.includes(op)) {
       if (!seen.has(key)) {
         seen.add(key);
         dropped.push(key);
@@ -181,7 +247,7 @@ export function parseScreenState(
     filters.push(makeFilter(result.key, result.op, result.value));
   }
   return {
-    state: { view, sort, page, filters },
+    state: { view, sort, page, filters, signal },
     dropped,
   };
 }

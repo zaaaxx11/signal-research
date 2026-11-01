@@ -118,8 +118,15 @@ describe("URL state", () => {
   it("defaults sort/page/view rather than refusing the link", () => {
     const parsed = parse("?view=nope&sort=sideways&page=0");
     expect(parsed.state.view).toBe("");
-    expect(parsed.state.sort).toBe("market_cap");
+    // A sort token is a catalogue key, and the parse does not hold the
+    // catalogue: an unknown-but-well-formed key travels as written, so the
+    // API's own `unknown_sort` refusal is what the reader sees — never a
+    // silently different ordering than the link named.
+    expect(parsed.state.sort).toBe("sideways");
     expect(parsed.state.page).toBe(0);
+    // A token that is not a key at all is a dead link, not a sort.
+    expect(parse("?sort=not%20a%20key!").state.sort).toBe("market_cap");
+    expect(parse("?sort=-country").state.sort).toBe("-country");
 
     expect(parse("?page=3").state.page).toBe(2);
     expect(parse("?page=abc").state.page).toBe(0);

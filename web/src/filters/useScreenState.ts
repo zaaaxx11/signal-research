@@ -15,7 +15,6 @@ import * as React from "react";
 
 import type { PresetBucket, PresetGroup, WireFilter } from "./types";
 import type { FilterRegistry } from "./registry";
-import type { ScreenSort } from "@/data/screens";
 import {
   droppedNotice,
   encodeScreenState,
@@ -34,7 +33,9 @@ export interface ScreenStateApi {
   notice: string | null;
   dismissDropped: () => void;
   setView: (name: string) => void;
-  setSort: (sort: ScreenSort) => void;
+  /** A catalogue sort token: `key` (highest first) or `-key` (lowest first). */
+  setSort: (sort: string) => void;
+  setSignal: (signal: string | null) => void;
   setPage: (page: number) => void;
   setFilters: (filters: ScreenState["filters"]) => void;
   addFilter: (draft: WireFilter) => void;
@@ -47,6 +48,17 @@ export interface ScreenStateApi {
 export function useScreenState(
   registry: FilterRegistry | null,
   viewNames: readonly string[],
+  /**
+   * False while the panel document is still in flight.
+   *
+   * The link's `f=` list is validated against two documents: the schema (keys,
+   * kinds, aliases) and the filter document (the values the panel offers). A
+   * parse that ran before the second one landed would drop exactly the filters
+   * the header writes, so the boot parse waits for it — and fails open when it
+   * errors, because a screen that will not load is worse than one filter
+   * ignored with a sentence.
+   */
+  vocabularyReady = true,
 ): ScreenStateApi {
   const [state, setState] = React.useState<ScreenState>(emptyScreenState);
   const [dropped, setDropped] = React.useState<string[]>([]);
@@ -58,12 +70,13 @@ export function useScreenState(
 
   React.useEffect(() => {
     if (registry === null || viewNames.length === 0 || initialised.current) return;
+    if (!vocabularyReady) return;
     initialised.current = true;
     const parsed = parseScreenState(window.location.search, registry, viewNames);
     setState({ ...parsed.state, view: parsed.state.view || viewNames[0] || "" });
     setDropped(parsed.dropped);
     setReady(true);
-  }, [registry, namesKey, viewNames]);
+  }, [registry, namesKey, viewNames, vocabularyReady]);
 
   React.useEffect(() => {
     if (!ready) return;
@@ -101,8 +114,16 @@ export function useScreenState(
     mutate((previous) => ({ ...previous, view: name, page: 0 }));
   }, [mutate]);
 
-  const setSort = React.useCallback((sort: ScreenSort) => {
+  const setSort = React.useCallback((sort: string) => {
     mutate((previous) => ({ ...previous, sort, page: 0 }));
+  }, [mutate]);
+
+  /**
+   * A signal is a whole screen, so it starts at the first page. Clearing it
+   * (`null`) is the same mutation: the request simply leaves the field out.
+   */
+  const setSignal = React.useCallback((signal: string | null) => {
+    mutate((previous) => ({ ...previous, signal, page: 0 }));
   }, [mutate]);
 
   const setPage = React.useCallback((page: number) => {
@@ -159,6 +180,7 @@ export function useScreenState(
     dismissDropped,
     setView,
     setSort,
+    setSignal,
     setPage,
     setFilters,
     addFilter,

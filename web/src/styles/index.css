@@ -104,6 +104,7 @@
   --color-focus: var(--focus);
   --color-brand: var(--brand);
   --color-accent-strong: var(--accent-strong);
+  --color-accent-fg: var(--accent-fg);
   --color-accent-text: var(--accent-text);
   --color-selection: var(--selection);
 

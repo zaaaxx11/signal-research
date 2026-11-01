@@ -148,7 +148,7 @@ describe("the all-columns panel", () => {
 
     // Only a window of columns is in the DOM; the identity lane always is.
     const headers = realHeaders(table);
-    expect(headers[0]?.textContent).toBe("Symbol");
+    expect(headers[0]?.textContent).toBe("Ticker");
     expect((headers[0] as HTMLElement).style.position).toBe("sticky");
     expect((headers[0] as HTMLElement).style.left).toBe("0px");
     const onScreen = keysOnScreen(table);

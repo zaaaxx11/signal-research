@@ -29,9 +29,66 @@ import { ApiError, getJson, postJsonConditional, readErrorMessage } from "@/lib/
 export const PANEL_LIMIT = 20;
 export const MAX_COLUMNS = 40;
 
-/** The three transparent sorts `POST /screens/select` accepts. */
+/** The three transparent sorts `POST /screens/select` has always offered. */
 export const SORTS = ["market_cap", "turnover", "gainers"] as const;
 export type ScreenSort = (typeof SORTS)[number];
+
+/** The name each sort wears in a control and in the grid's caption. */
+export const SORT_LABELS: Record<ScreenSort, string> = {
+  market_cap: "Market cap",
+  turnover: "Turnover",
+  gainers: "Gainers",
+};
+
+/**
+ * The order a page is ranked by: a catalogue key, and which end is first.
+ *
+ * The wire spelling is the API's own (`app/screen/rank.py`): a bare key orders
+ * **highest first** and a leading `-` orders **lowest first**. Keeping that
+ * spelling in the state — rather than a `{key, direction}` pair — means the
+ * address bar, the request body and the header control all speak the one token
+ * the server reads, and there is nothing to translate at any boundary.
+ */
+export type SortDirection = "desc" | "asc";
+
+/** `-country` → `asc`; `country` → `desc`. */
+export function sortDirection(sort: string): SortDirection {
+  return sort.startsWith("-") ? "asc" : "desc";
+}
+
+/** The bare catalogue key: `-country` → `country`. */
+export function sortKey(sort: string): string {
+  return sort.startsWith("-") ? sort.slice(1) : sort;
+}
+
+/** The wire token for a key and a direction. */
+export function encodeSort(key: string, direction: SortDirection): string {
+  return direction === "asc" ? `-${key}` : key;
+}
+
+/**
+ * One header click.
+ *
+ * A new column starts at its highest value (the reader asked "what is biggest
+ * here" first, which is the question a table is usually opened with); clicking
+ * the column already sorted flips the end. This is the whole rule, and it is a
+ * pure function so the header and its test cannot disagree about it.
+ */
+export function nextSort(current: string, key: string): string {
+  if (sortKey(current) !== key) return encodeSort(key, "desc");
+  return sortDirection(current) === "desc" ? encodeSort(key, "asc") : encodeSort(key, "desc");
+}
+
+/** A readable name for any sort token, for captions and select options. */
+export function sortLabel(sort: string): string {
+  const key = sortKey(sort);
+  if ((SORTS as readonly string[]).includes(key)) return SORT_LABELS[key as ScreenSort];
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(" ");
+}
 
 /** One canonical view, exactly as `GET /screens/select/schema` serves it. */
 export interface ViewDefinition {
@@ -69,7 +126,7 @@ export interface ScreenError {
 
 /**
  * One predicate, exactly as `criteria.filters` takes it: one of `key` (a
- * Finviz filter key) or `field` (a catalogue column), an operator and a value.
+ * published filter key) or `field` (a catalogue column), an operator and a value.
  */
 export interface ScreenFilter {
   key?: string;
@@ -83,10 +140,20 @@ export interface ScreensQuery {
   columns: readonly string[];
   limit?: number;
   offset?: number;
-  sort?: ScreenSort;
+  /** A catalogue key (`-key` for lowest first), exactly as the API reads it. */
+  sort?: string;
   region?: "us" | "global" | "us_etf";
   assetClass?: "stock" | "etf";
   filters?: readonly ScreenFilter[];
+  /**
+   * A named screen the API compiles itself (`top-gainers`, `unusual-volume`).
+   *
+   * A signal is not a filter: it replaces the where-clause *and* the ordering
+   * with its own, which is why it travels as a top-level body field rather than
+   * inside `criteria.filters`. Omitted when unset, so an unsignalled request is
+   * byte-identical to the one this client has always sent.
+   */
+  signal?: string | null;
 }
 
 export interface ScreensResult {
@@ -159,6 +226,7 @@ export function requestBody(query: ScreensQuery): Record<string, unknown> {
     region: query.region ?? "us",
     asset_class: query.assetClass ?? "stock",
     columns: [...query.columns],
+    ...(query.signal ? { signal: query.signal } : {}),
     criteria: {
       limit: query.limit ?? PANEL_LIMIT,
       offset: query.offset ?? 0,

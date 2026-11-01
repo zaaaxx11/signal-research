@@ -139,7 +139,7 @@ describe("the screener routes", () => {
     window.history.replaceState(null, "", "/app/screener");
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
     expect(api.selects).toHaveLength(1);
     const criteria = (api.selects[0] as { criteria: Record<string, unknown> }).criteria;
     expect(criteria["limit"]).toBe(20);
@@ -152,7 +152,7 @@ describe("the screener routes", () => {
     window.history.replaceState(null, "", "/app/screener/etf");
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
     expect(api.selects).toHaveLength(1);
     expect((api.selects[0] as { asset_class: string }).asset_class).toBe("etf");
     expect(
@@ -194,7 +194,7 @@ describe("no internal status chrome", () => {
     const api = stubApi();
     window.history.replaceState(null, "", "/app/screener");
     render(<App />);
-    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1–20 of 5,600"));
+    await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/v0\.1\.0/);
