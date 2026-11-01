@@ -231,6 +231,12 @@ def _non_negative(value: Any) -> float | None:
     return None if number is None or number < 0 else number
 
 
+def _signed(value: Any) -> float | None:
+    """A finite float that may be negative (a percentage change), or ``None``."""
+
+    return _number(value)
+
+
 def _epoch(value: Any) -> datetime | None:
     number = _number(value)
     if number is None:
@@ -306,6 +312,8 @@ def _yahoo_quote(row: Mapping[str, Any]) -> SourceQuote | None:
         ts_exchange=stamp,
         prev_close=previous,
         volume=_non_negative(row.get("regularMarketVolume")),
+        post_market_price=_positive(row.get("postMarketPrice")),
+        post_market_change_pct=_signed(row.get("postMarketChangePercent")),
     )
 
 

@@ -167,6 +167,10 @@ def test_tick_exposes_every_documented_field_when_dumped() -> None:
         "direction",
         "velocity",
         "stale",
+        # The extended session: carried through from the provider, ``None`` when
+        # it published no post-market print (never ``0``).
+        "post_market_price",
+        "post_market_change_pct",
     }
     assert payload["direction"] == "up"
 

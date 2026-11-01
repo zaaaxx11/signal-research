@@ -167,7 +167,7 @@ def controls() -> dict[str, dict[str, Any]]:
 def test_the_document_serves_five_tabs_and_descriptive_keeps_its_twenty_five() -> None:
     document = descriptive.document()
 
-    assert document["schema_version"] == "screener-2"
+    assert document["schema_version"] == "screener-3"
     assert [group["id"] for group in document["groups"]] == [
         "descriptive",
         "fundamental",

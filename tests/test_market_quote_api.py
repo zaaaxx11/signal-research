@@ -59,6 +59,11 @@ QUOTE_KEYS = {
     "volume",
     "direction",
     "velocity",
+    # The extended session: published null when the provider returned no
+    # post-market print, which is the same fact the screener's after-hours
+    # buckets read.
+    "post_market_price",
+    "post_market_change_pct",
     "ts_exchange",
     "ts_received",
     "source",

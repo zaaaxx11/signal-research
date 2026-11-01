@@ -75,7 +75,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
 
-from app.screen import buckets, choice_filters, index_membership
+from app.screen import (
+    after_hours,
+    buckets,
+    choice_filters,
+    entitlements,
+    etf_holdings,
+    index_membership,
+    news_index,
+)
 from app.screen.filters import FILTER_CATALOG, VALUE_ALIASES
 
 
@@ -627,7 +635,7 @@ def default_sort(item: Signal) -> str:
 #: The version a client keys its cache on. A shape change moves it. The id is
 #: the product's, not a vendor's: a client holding ``screener-2`` is holding
 #: *this* panel, and the name says nothing about where the idea came from.
-SCHEMA_VERSION = "screener-2"
+SCHEMA_VERSION = "screener-3"
 
 #: The five catalogue tabs, in Finviz's panel order, and the group each becomes.
 TAB_LABELS: Mapping[str, str] = MappingProxyType(
@@ -695,13 +703,6 @@ _DILUTION_REASON = (
     "invented — SEC `dei:EntityCommonStockSharesOutstanding` across filings "
     "would answer it"
 )
-_TRADES_REASON = (
-    "Elite-only in the source panel, and it needs a trade count (prints): the scan "
-    "carries volume in shares and turnover in currency, the depth store has no "
-    "print count and FINRA publishes short-sale volume, so a trade count cannot "
-    "be derived from anything ingested — no source is ingested (Polygon.io "
-    "aggregates, IEX HIST or Databento would answer it)"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -727,6 +728,11 @@ class Option:
     available: bool = True
     reason: str | None = None
     order: str | None = None
+    #: The plan this option needs, from ``app/screen/data/entitlements.json``.
+    #: Assigned by :func:`_published` (an option is gated with its control), and
+    #: always published: a client must be able to draw the lock without asking a
+    #: second endpoint.
+    tier: str = "free"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -737,6 +743,7 @@ class Option:
             "available": self.available,
             "reason": self.reason,
             "order": self.order,
+            "tier": self.tier,
         }
 
 
@@ -774,6 +781,14 @@ class Control:
     predicate_template: str | None = None
     tab: str | None = None
     disposition: str | None = None
+    #: The validated input pattern of a ``text`` control (``news_keywords``): the
+    #: alphabet and length a client may check before it sends. ``None`` for every
+    #: control whose values are options.
+    pattern: str | None = None
+    #: The plan this control needs, from ``app/screen/data/entitlements.json``.
+    #: **Tier is not availability**: a premium control is built, answerable and
+    #: published with a predicate; a free caller asking it is a 403, not a 422.
+    tier: str = "free"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -787,12 +802,14 @@ class Control:
             "op": self.op,
             "status": self.status,
             "available": self.available,
+            "tier": self.tier,
             "reason": self.reason,
             "unit": self.unit,
             "hint": self.hint,
             "note": self.note,
             "options_source": self.options_source,
             "predicate_template": self.predicate_template,
+            "pattern": self.pattern,
             "options": [option.as_dict() for option in self.options],
         }
 
@@ -852,7 +869,12 @@ def _disabled_options(
 
 
 def _bucket_control(
-    control: str, key: str, label: str, *, unit: str | None = None
+    control: str,
+    key: str,
+    label: str,
+    *,
+    unit: str | None = None,
+    note: str | None = None,
 ) -> Control:
     """A control whose every option is a named predicate in ``buckets``."""
 
@@ -884,6 +906,28 @@ def _bucket_control(
         reason=reason,
         status="available" if available else "unavailable",
         unit=unit,
+        note=note,
+    )
+
+
+def _after_hours_note() -> str:
+    """The measured sentence an after-hours control publishes as its ``note``.
+
+    The reason field is for a control that *cannot* run; this one can, and still
+    has to say what "matched" means: only a row the snapshot priced, and a
+    capture made while the regular session was open holds no post-market print at
+    all, so nothing matches until the extended session prints.
+    """
+
+    block = after_hours.coverage()
+    return (
+        f"reads the provider's post-market print from the after-hours snapshot "
+        f"({block['priced']} of {block['symbols']} symbol(s) priced, captured "
+        f"{block['captured_at']} in the {block['session']} session, as_of "
+        f"{block['as_of']}). A symbol the snapshot did not price carries no cell "
+        "and matches no bucket; a snapshot captured while the regular session was "
+        "open has no postMarketPrice at all, so the filter matches nothing and "
+        "says so in `reason`"
     )
 
 
@@ -1077,11 +1121,14 @@ def _controls() -> tuple[Control, ...]:
             control="number",
             form="single",
             op="gte",
+            # One owner for the sentence: `filter_fields.UNAVAILABLE` is what the
+            # 422 repeats, so the document reads the same string instead of a
+            # paraphrase that can drift (and did, when the tier moved out of it).
             options=_disabled_options(
-                "sh_trades", control="sh_trades", reason=_TRADES_REASON
+                "sh_trades", control="sh_trades", reason=_reason("sh_trades")
             ),
             available=False,
-            reason=_TRADES_REASON,
+            reason=_reason("sh_trades"),
             status="out_of_scope",
             unit="prints",
         ),
@@ -1181,16 +1228,20 @@ ANSWERABLE_DISPOSITIONS: frozenset[str] = frozenset({"scan_row", "join", "derive
 #:   compiled against depth spellings;
 #: * ``join`` — the value arrives from the depth store
 #:   (:data:`app.screen.universe.DEPTH_FIELDS`, the overlay's
-#:   ``SCAN_NULL_CELLS``) or from one of the two joins the row layer owns
+#:   ``SCAN_NULL_CELLS``) or from one of the joins the row layer owns
 #:   (:data:`app.screen.fundamentals.FUNDAMENTALS_ROW_FIELDS`,
 #:   :data:`app.screen.facts.FACTS_ROW_FIELDS`), or is a membership list
-#:   (``idx``);
+#:   (``idx``, ``etf_heldby``) or a corpus (``news_keywords``, the after-hours
+#:   snapshot's two cells). The word says *where the value comes from*; the
+#:   **tier** says whether the caller may ask for it, and the two are published
+#:   side by side because they are different questions;
 #: * ``derived`` — a formula over cells the row already carries: the SMA and
 #:   range *distances* (``(price / level − 1) × 100``), the Finviz 1..5
 #:   recommendation score, change-from-open and the signals;
 #: * ``new_source`` — nothing here measures it and the source that would is
-#:   named in the refusal (an Elite-only control is always this or
-#:   ``unavailable``);
+#:   named in the refusal (a control whose data nobody collects is this or
+#:   ``unavailable``; **tier is not a refusal** any more — a premium control the
+#:   code answers states ``join``/``scan_row`` like any other);
 #: * ``unavailable`` — the cells exist and cannot answer the control (a text
 #:   spelling, a vendor ``"Yes"``/``"No"`` string, a withdrawn insider flow) or
 #:   no source is named at all.
@@ -1283,13 +1334,19 @@ DISPOSITION_BY_KEY: Mapping[str, str] = MappingProxyType(
         # -- technical: out of scope ------------------------------------------
         "ta_highlow20d": "new_source",
         "ta_pattern": "new_source",
-        "ah_close": "new_source",
-        "ah_change": "new_source",
+        # The extended session: a real provider cell (`postMarketPrice`) copied
+        # onto the row by app.screen.after_hours, and gated by tier rather than
+        # refused — the reason is published under the control's `note`, not
+        # `reason`, because the code answers it.
+        "ah_close": "join",
+        "ah_change": "join",
         # -- news --------------------------------------------------------------
         "news_date": "join",
-        "news_keywords": "new_source",
+        # A corpus join (app.screen.news_index), like `idx` is a membership join.
+        "news_keywords": "join",
         # -- etf ---------------------------------------------------------------
-        "etf_heldby": "new_source",
+        # A holdings join (app.screen.etf_holdings): the fund's own file.
+        "etf_heldby": "join",
     }
 )
 
@@ -1380,6 +1437,91 @@ def _disabled_tab_control(key: str, label: str) -> Control:
     )
 
 
+def _news_keywords_control() -> Control:
+    """``news_keywords``: free text over the merged corpus, with its alphabet.
+
+    The control is a ``text`` box, not a select: a keyword is a value, and the
+    vocabulary is every headline the corpus holds. ``pattern`` is published so a
+    client can refuse a bad character before it costs a round trip — the same
+    regex the server enforces (:data:`app.screen.news_index.PATTERN`).
+    """
+
+    corpus = news_index.coverage()
+    available = bool(corpus["available"])
+    reason = None if available else (corpus["reason"] or news_index.REASON)
+    note = (
+        f"free text: letters, digits, spaces and hyphens, at most "
+        f"{news_index.MAX_LENGTH} characters; matched case-insensitively, whole "
+        f"word, every word of the query must appear in the headline. Corpus: "
+        f"{corpus['headlines']} headline(s) over {corpus['symbols']} symbol(s), "
+        f"as_of {corpus['as_of']}"
+        if available
+        else None
+    )
+    return Control(
+        id="news_keywords",
+        label="News Keywords",
+        key="news_keywords",
+        control="text",
+        form="single",
+        op="eq",
+        available=available,
+        reason=reason,
+        status="available" if available else "unavailable",
+        note=note,
+        pattern=news_index.PATTERN,
+    )
+
+
+def _heldby_control() -> Control:
+    """``etf_heldby``: one option per fund, each with its own availability.
+
+    A fund whose file did not answer keeps its option — the control offers four
+    tokens, not four-minus-whatever the last run fetched — with
+    ``available: false`` and the **measured** reason (the HTTP status and URL from
+    the snapshot's source block).
+    """
+
+    funds = etf_holdings.funds()
+    options = tuple(
+        Option(
+            id=f"heldby:{symbol.lower()}",
+            label=f"Held by {symbol} — {fund.label}",
+            token=symbol.lower(),
+            predicate=(
+                f"symbol in the {symbol} holdings file ({len(fund.members)} names)"
+                if fund.available
+                else None
+            ),
+            available=fund.available,
+            reason=fund.reason,
+        )
+        for symbol, fund in funds.items()
+    )
+    available = any(option.available for option in options)
+    reason = None if available else (
+        next((option.reason for option in options if option.reason), None)
+        or etf_holdings.REASON
+    )
+    return Control(
+        id="etf_heldby",
+        label="Held By",
+        key="etf_heldby",
+        control="select",
+        form="single",
+        op="eq",
+        options=options,
+        available=available,
+        reason=reason,
+        status="available" if available else "unavailable",
+        note=(
+            "one fund per request (`heldby:<etf>`); the members are the fund's own "
+            "published holdings, vendored per stamp — a fund nobody could fetch "
+            "answers `unavailable`, never a guessed list"
+        ),
+    )
+
+
 def _tab_control(key: str) -> Control:
     """One catalogue key as one control, in the strongest shape it supports."""
 
@@ -1387,9 +1529,14 @@ def _tab_control(key: str) -> Control:
     label = spec.label.replace("\n", " ")
     if key in choice_filters.CHOICES:
         return _choice_control(key, label)
+    if key == "news_keywords":
+        return _news_keywords_control()
+    if key == "etf_heldby":
+        return _heldby_control()
     control = buckets.control_for(key)
-    if control is not None and buckets.for_key(key):
-        return _bucket_control(control, key, label)
+    if control is not None and (buckets.for_key(key) or key in buckets.DYNAMIC_KEYS):
+        note = _after_hours_note() if key in ("ah_close", "ah_change") else None
+        return _bucket_control(control, key, label, note=note)
     return _disabled_tab_control(key, label)
 
 
@@ -1411,18 +1558,42 @@ def membership() -> dict[str, Any]:
     }
 
 
+def _feature_of(control: Control) -> str | None:
+    """The gateable feature this control is, or ``None`` for an ungated one."""
+
+    for candidate in (control.key, control.id):
+        if candidate in entitlements.FEATURES:
+            return candidate
+    return None
+
+
 def _published(control: Control, tab: str) -> dict[str, Any]:
-    """One control's published form: which tab, and how it is answered.
+    """One control's published form: which tab, how it is answered, its tier.
 
     Filled here rather than in every builder because the builders are shared
     across tabs — the same `_bucket_control` serves `cap` (descriptive) and `pe`
     (fundamental) — so the tab is a fact about *where* the control is published,
     and `disposition_for` keeps the provenance in one table.
+
+    The **tier** is read from ``app/screen/data/entitlements.json`` here, once per
+    build, and copied onto every option: one edit to that file moves the control
+    and all of its values, which is what makes a premium→free flip a data change.
     """
 
-    return replace(
-        control, tab=tab, disposition=disposition_for(control)
-    ).as_dict()
+    feature = _feature_of(control)
+    tier = (
+        entitlements.tier_for(feature)
+        if feature is not None
+        else entitlements.default_tier()
+    )
+    row = replace(control, tab=tab, disposition=disposition_for(control)).as_dict()
+    # Stamped on the published mapping rather than rebuilt per option: 2,197
+    # dataclass copies per build was most of the document's cost, and the mapping
+    # is the only shape a client ever sees.
+    row["tier"] = tier
+    for option in row["options"]:
+        option["tier"] = tier
+    return row
 
 
 def document() -> dict[str, Any]:
@@ -1456,6 +1627,10 @@ def document() -> dict[str, Any]:
             for tab in TAB_LABELS
         ],
         "membership": membership(),
+        "after_hours": after_hours.coverage(),
+        "news_corpus": news_index.coverage(),
+        "etf_holdings": etf_holdings.coverage(),
+        "entitlements": entitlements.describe(),
         "options_sources": {
             "/market/sectors": SECTORS_SOURCE,
             "/market/exchanges": EXCHANGES_SOURCE,
@@ -1614,7 +1789,7 @@ def _validate_groups() -> None:
             if control.key is None:
                 raise RuntimeError(f"filter control {control.id!r} names no key")
             if control.available:
-                if not control.options:
+                if not control.options and control.control not in ("text", "number"):
                     raise RuntimeError(f"available control {control.id!r} offers nothing")
                 for option in control.options:
                     if option.available and not option.predicate:
@@ -1640,6 +1815,18 @@ def _validate_groups() -> None:
 
 
 _validate_groups()
+
+
+#: The controls whose availability is a **snapshot** fact rather than a code
+#: fact: index membership, the after-hours capture, the news corpus and the ETF
+#: holdings file. They are answerable by design (disposition ``join``) and a
+#: build that ships without one of the files is not a broken disposition — it is
+#: a deployment with that snapshot missing, which the document reports as
+#: ``available: false`` with the snapshot's own sentence. Every other control's
+#: availability is its code's and is checked exactly.
+SNAPSHOT_KEYS: frozenset[str] = frozenset(
+    {"idx", "ah_close", "ah_change", "news_keywords", "etf_heldby"}
+)
 
 
 def _validate_dispositions() -> None:
@@ -1686,16 +1873,85 @@ def _validate_dispositions() -> None:
         controls = _controls() if tab == "descriptive" else _tab_controls(tab)
         for control in controls:
             word = disposition_for(control)
-            if control.available is not (word in ANSWERABLE_DISPOSITIONS):
-                raise RuntimeError(
-                    f"control {control.id!r} is available={control.available} but "
-                    f"states disposition {word!r}"
+            answerable = word in ANSWERABLE_DISPOSITIONS
+            if control.available is not answerable:
+                snapshot_missing = (
+                    not control.available
+                    and answerable
+                    and control.key in SNAPSHOT_KEYS
+                    and bool(control.reason)
                 )
+                if not snapshot_missing:
+                    raise RuntimeError(
+                        f"control {control.id!r} is available={control.available} but "
+                        f"states disposition {word!r}"
+                    )
             if not control.available and not control.reason:
                 raise RuntimeError(f"disabled control {control.id!r} has no reason")
 
 
 _validate_dispositions()
+
+
+def _validate_tiers() -> None:
+    """Fail at import: every published control and option states one tier.
+
+    Four claims, each one a way this could rot:
+
+    * the tier word is one of :data:`app.screen.entitlements.TIERS` — a typo in
+      the JSON is a boot error, never a control nobody can pass;
+    * an option's tier is its control's (an option is not sold separately);
+    * every gateable feature is a control in the document, so the config cannot
+      gate a key the panel does not draw;
+    * a **premium control the code answers is still `available`** — the whole
+      point of splitting tier from availability. Only ``sh_trades`` is both
+      premium and refused, and its refusal names the missing feed.
+    """
+
+    published: dict[str, dict[str, Any]] = {}
+    for tab in TAB_LABELS:
+        controls = _controls() if tab == "descriptive" else _tab_controls(tab)
+        for control in controls:
+            row = _published(control, tab)
+            published[row["id"]] = row
+            if row["tier"] not in entitlements.TIERS:
+                raise RuntimeError(
+                    f"control {row['id']!r} publishes tier {row['tier']!r}, which is "
+                    f"not one of {entitlements.TIERS}"
+                )
+            for option in row["options"]:
+                if option["tier"] != row["tier"]:
+                    raise RuntimeError(
+                        f"option {option['id']!r} publishes tier {option['tier']!r} "
+                        f"but its control {row['id']!r} is {row['tier']!r}"
+                    )
+    by_key = {row["key"]: row for row in published.values() if row["key"] is not None}
+    missing = sorted(feature for feature in entitlements.FEATURES if feature not in by_key)
+    if missing:
+        raise RuntimeError(
+            f"entitlements gates {missing}, but the document has no such control"
+        )
+    for feature in entitlements.FEATURES:
+        row = by_key[feature]
+        tier = entitlements.tier_for(feature)
+        if row["tier"] != tier:
+            raise RuntimeError(
+                f"control {row['id']!r} publishes tier {row['tier']!r} but the "
+                f"entitlements table says {tier!r}"
+            )
+        if (
+            tier == entitlements.PREMIUM
+            and row["disposition"] not in ANSWERABLE_DISPOSITIONS
+            and feature != "sh_trades"
+        ):
+            raise RuntimeError(
+                f"premium control {row['id']!r} is refused (disposition "
+                f"{row['disposition']!r}): a tier gate must not hide code that "
+                "answers — only a sourceless metric is unavailable"
+            )
+
+
+_validate_tiers()
 
 
 def _validate() -> None:

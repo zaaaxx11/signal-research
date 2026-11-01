@@ -164,7 +164,11 @@ CHOICE_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 #: (``{"key": "sh_price", "op": "eq", "value": "price:u5"}``). Derived from
 #: :mod:`app.screen.buckets`, so the vocabulary and the flag that publishes it
 #: cannot drift; ``idx`` is the one key that is **only** a bucket (no column).
-BUCKET_KEYS: frozenset[str] = frozenset(buckets.KEYS)
+#: :data:`app.screen.buckets.DYNAMIC_KEYS` are included: ``news_keywords`` and
+#: ``etf_heldby`` take a token this registry does not enumerate (a keyword, a
+#: fund), but the request shape is the same one and their resolver is the same
+#: :func:`app.screen.buckets.bucket`.
+BUCKET_KEYS: frozenset[str] = frozenset(buckets.KEYS) | frozenset(buckets.DYNAMIC_KEYS)
 
 #: Why a key cannot filter yet: one sentence per group of keys, naming the metric
 #: the deployment cannot compare — so a 422 can say *what* is absent instead of
@@ -185,11 +189,13 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("theme", "subtheme"),
     ),
     (
-        "Elite-only in the source panel, and it needs a trade-count column: the "
-        "scan carries volume in shares and turnover in currency, the depth store "
-        "has no print count and FINRA publishes short-sale volume, so a trade "
-        "count cannot be read from anything ingested — no source is ingested "
-        "(Polygon.io aggregates, IEX HIST or Databento would answer it)",
+        "no trade-count feed; Finra publishes short-sale volume, not trade "
+        "counts — the scan carries volume in shares and turnover in currency, "
+        "the depth store has no print count, and deriving a trade count from "
+        "volume would be a fabricated number (Polygon.io aggregates, IEX HIST "
+        "or Databento would answer it). The control is premium-tier like the "
+        "rest of the source panel's paid set; this refusal is about the "
+        "missing feed, not about the tier",
         ("sh_trades",),
     ),
     (
@@ -205,27 +211,6 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "bars "
         "store is ingested",
         ("ta_pattern",),
-    ),
-    (
-        "Elite-only in the source panel and no source: the scan covers the regular "
-        "session only, the provider returns `postmarket_close`/"
-        "`postmarket_change` but no collector ingests either, so no row carries an "
-        "after-hours price — no source is ingested",
-        ("ah_close", "ah_change"),
-    ),
-    (
-        "Elite-only, and it needs an article corpus: the product holds one "
-        "headline per symbol (4,141 `news_title` cells), so a keyword search "
-        "would search one title per company — not the source panel's 'titles from "
-        "the last "
-        "24 hours that contain any keyword' — no source is ingested",
-        ("news_keywords",),
-    ),
-    (
-        "Elite-only, and it needs ETF holdings data: no fund→constituent table "
-        "exists here — the ETF scan returns the funds themselves and the six "
-        "index member lists are not holdings — so no source is ingested",
-        ("etf_heldby",),
     ),
 )
 
@@ -480,11 +465,36 @@ def _validate() -> None:
     for key in BUCKET_KEYS:
         if key not in keys:
             raise RuntimeError(f"bucket key {key!r} is not one of the 82 filter keys")
+        if key in buckets.DYNAMIC_KEYS:
+            # A dynamic control has no enumerable vocabulary: `bucket()` asks its
+            # resolver, which validates the token (a keyword's alphabet, a fund's
+            # name). What it must still have is a control to resolve under.
+            if buckets.control_for(key) is None:  # pragma: no cover - boot gate
+                raise RuntimeError(f"dynamic bucket key {key!r} has no control")
+            continue
         if not buckets.for_key(key):
             raise RuntimeError(f"bucket key {key!r} has no bucket family")
         field = ROW_FIELDS.get(key)
         if field is not None and field not in FIELDS:
             raise RuntimeError(f"bucket key {key!r} names non-existent row field {field!r}")
+
+    # A gated feature must be **key-only**. The plan is enforced on the key a
+    # request names, so a feature that also had a `field` spelling could be asked
+    # for by column and skip the gate — one more reason `field` is not a filter
+    # vocabulary the panel publishes.
+    from app.screen import entitlements
+
+    leaked = sorted(key for key in entitlements.FEATURES if key in ROW_FIELDS)
+    if leaked:
+        raise RuntimeError(
+            "a tier-gated feature must not map to a row field, because the "
+            f"`field` spelling would bypass the plan: {leaked}"
+        )
+    unknown_features = sorted(key for key in entitlements.FEATURES if key not in keys)
+    if unknown_features:
+        raise RuntimeError(
+            f"entitlements gates keys the catalogue does not have: {unknown_features}"
+        )
 
     # The parity table is the other half of the same claim: a field a key filters
     # must be a field a row can carry — a light column, a parity metric, a

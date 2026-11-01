@@ -259,13 +259,13 @@ async def test_the_finviz_keys_resolve_to_the_joined_columns() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Disposition: 47 single-column keys + 3 option-driven, 32 refused
+# Disposition: 48 single-column keys + 3 option-driven + 25 bucket keys, 6 refused
 # ---------------------------------------------------------------------------
 
 
-def test_the_catalogue_moved_to_seventy_two_available_and_ten_refused() -> None:
-    assert len(mapped_keys()) == 72
-    assert len(unavailable_keys()) == 10
+def test_the_catalogue_moved_to_seventy_six_available_and_six_refused() -> None:
+    assert len(mapped_keys()) == 76
+    assert len(unavailable_keys()) == 6
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert not set(mapped_keys()) & set(unavailable_keys())
@@ -282,12 +282,23 @@ def test_the_three_keys_name_a_column_and_their_refusals_are_gone() -> None:
 
 
 def test_the_refusals_that_remain_still_name_a_missing_metric() -> None:
-    assert "Elite-only" in (reason_for("ah_close") or "")
+    """A refusal is about a missing source; a tier is a different fact.
+
+    ``ah_close``/``ah_change``/``news_keywords``/``etf_heldby`` used to be
+    refused here. They are answered now (the post-market print, the merged news
+    corpus, the funds' holdings) and gated by the plan, so asking for their
+    reason would be asking a premium feature to justify itself as missing data.
+    """
+
     assert "mixture of ownership levels and junk" in (reason_for("sh_insidertrans") or "")
+    assert "no trade-count feed" in (reason_for("sh_trades") or "")
     assert reason_for("fa_divgrowth") is None, (
         "dividend growth reads the depth store's 1y/3y/5y columns now"
     )
-    assert reason_for("news_keywords"), "a keyword index is still not a date"
+    for key in ("ah_close", "ah_change", "news_keywords", "etf_heldby"):
+        assert reason_for(key) is None, (
+            f"{key} is built and gated by tier; a refusal would hide working code"
+        )
     for key, reason in UNAVAILABLE.items():
         assert reason.strip() and len(reason) > 20, f"{key}: {reason!r}"
 
@@ -357,7 +368,7 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 10
+    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 6
     assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
     assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
     assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
@@ -370,8 +381,8 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
     description = predicate["key"]["description"]
     assert "The 48 that resolve to one row column" in description
     assert "the 3 that filter through their option vocabulary" in description
-    assert "the 10 that are refused" in description
-    assert "21 bucket-only key" in description and "idx" in description
+    assert "the 6 that are refused" in description
+    assert "25 bucket-only key" in description and "idx" in description
 
 
 # ---------------------------------------------------------------------------

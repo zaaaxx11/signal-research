@@ -234,15 +234,32 @@ def test_a_disposition_follows_the_row_field_it_reads() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_elite_only_controls_name_the_tier_and_the_source() -> None:
+def test_the_five_premium_controls_say_their_tier_and_only_one_is_refused() -> None:
+    """Elite is a plan, not a source: four are built, one has no feed.
+
+    The document must say both facts for every one of them: ``tier`` (premium,
+    from the config) and ``available`` (true for the four the code answers,
+    false for ``sh_trades``) — plus the reason the refused one gives, which is
+    about the missing feed and never about the tier.
+    """
+
+    from app.screen import entitlements
+
     by_id = _by_id()
     for control_id in ("sh_trades", "ah_close", "ah_change", "news_keywords", "etf_heldby"):
         control = by_id[control_id]
-        assert control["available"] is False, control_id
-        assert control["disposition"] in {"new_source", "unavailable"}, control_id
-        reason = control["reason"] or ""
-        assert "Elite" in reason, (control_id, reason)
-        assert "no source" in reason or "not ingested" in reason, (control_id, reason)
+        assert control["tier"] == "premium", control_id
+        if control_id == "sh_trades":
+            assert control["available"] is False, control_id
+            assert control["disposition"] in {"new_source", "unavailable"}, control_id
+            reason = control["reason"] or ""
+            assert "no trade-count feed" in reason, (control_id, reason)
+            assert "Finra publishes short-sale volume, not trade counts" in reason, reason
+        else:
+            assert control["available"] is True, control_id
+            assert control["disposition"] in descriptive.ANSWERABLE_DISPOSITIONS, control_id
+            assert control["reason"] is None, control_id
+        assert entitlements.tier_for(control_id) == "premium"
 
 
 def test_the_five_elite_controls_are_the_five_the_probe_flags() -> None:
@@ -272,7 +289,7 @@ async def test_the_served_document_carries_the_same_metadata(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["schema_version"] == "screener-2"
+    assert body["schema_version"] == "screener-3"
     seen: set[str] = set()
     for group in body["groups"]:
         for control in group["controls"]:

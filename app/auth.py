@@ -20,6 +20,12 @@ from fastapi import Request
 API_KEY_HEADER = "x-api-key"
 ANONYMOUS = ""
 
+#: The plan an anonymous caller holds. It lives beside the identity, not in
+#: :mod:`app.screen.entitlements`, because it is a statement about *who is
+#: asking* rather than about what a feature costs: the screen module imports it
+#: and never redefines it.
+DEFAULT_PLAN = "free"
+
 
 class ApiError(Exception):
     """An HTTP error rendered with the zcrapers envelope ``{error, errorMessage}``."""
@@ -43,4 +49,4 @@ def owner_fingerprint(request: Request) -> str:
     return fingerprint(request.headers.get(API_KEY_HEADER))
 
 
-__all__ = ["ANONYMOUS", "API_KEY_HEADER", "ApiError", "fingerprint", "owner_fingerprint"]
+__all__ = ["ANONYMOUS", "API_KEY_HEADER", "ApiError", "DEFAULT_PLAN", "fingerprint", "owner_fingerprint"]

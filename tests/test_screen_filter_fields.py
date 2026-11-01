@@ -138,14 +138,14 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_seventy_two_available_and_ten_refused() -> None:
-    # 72 = 48 single-column keys + 3 option-driven keys + 21 bucket-only keys.
-    # The bucket-only set is the technical/fundamental vocabulary whose cells
-    # arrive from the depth overlay under catalogue names
-    # (app.screen.universe.DEPTH_FIELDS), so those keys answer tokens and no
-    # single column — the same shape ``idx`` has had since T6.
-    assert len(mapped_keys()) == 72
-    assert len(unavailable_keys()) == 10
+def test_the_disposition_is_seventy_six_available_and_six_refused() -> None:
+    # 76 = 48 single-column keys + 3 option-driven keys + 25 bucket-driven keys
+    # (the technical/fundamental vocabulary whose cells arrive from the depth
+    # overlay under catalogue names, plus ``idx``, the two after-hours controls,
+    # ``news_keywords`` and ``etf_heldby`` — the five the source panel charges
+    # for, now built and gated by tier instead of refused).
+    assert len(mapped_keys()) == 76
+    assert len(unavailable_keys()) == 6
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
@@ -186,20 +186,24 @@ def test_the_index_key_is_a_bucket_and_not_a_column() -> None:
     assert found.as_dict()["bucket"] is True
     assert "idx" not in ROW_FIELDS
     assert "idx" in mapped_keys() and "idx" not in unavailable_keys()
-    assert BUCKET_KEYS == frozenset(buckets.KEYS)
+    assert BUCKET_KEYS == frozenset(buckets.KEYS) | frozenset(buckets.DYNAMIC_KEYS)
 
     family = buckets.for_key("idx")
     assert [item.id for item in family] == ["idx:sp500", "idx:ndx", "idx:dji", "idx:rut"]
     assert all(item.key == "idx" for item in family)
 
 
-#: The ten keys this deployment still refuses, and why each one is refused.
+#: The six keys this deployment still refuses, and why each one is refused.
 #: Every one names a metric nothing in the deployment measures — no theme
 #: taxonomy, no print count, a withdrawn insider flow, no 20-day window, no
-#: pattern engine, no after-hours session, no article corpus, no fund holdings.
-#: ``ipodate`` and ``sh_opt`` left this table when the depth store's own
-#: ``ipo_date`` and ``optionable``/``shortable`` cells were wired to real
-#: bucket families (``sh_opt:*`` and ``ipodate:*``).
+#: pattern engine.
+#:
+#: ``ah_close``, ``ah_change``, ``news_keywords`` and ``etf_heldby`` **left**
+#: this table when tier was separated from availability: the code answers them
+#: (the provider's post-market print, the merged news corpus, the funds' own
+#: holdings files) and the plan gates them, so they are premium, not refused.
+#: ``sh_trades`` stayed: its tier is premium *and* its feed does not exist, and
+#: the sentence says which of the two the refusal is about.
 STILL_REFUSED: dict[str, str] = {
     "theme": "theme",
     "subtheme": "theme/sub-theme",
@@ -207,22 +211,28 @@ STILL_REFUSED: dict[str, str] = {
     "sh_insidertrans": "mixture of ownership levels and junk",
     "ta_highlow20d": "20-day",
     "ta_pattern": "chart-pattern",
-    "ah_close": "after-hours",
-    "ah_change": "after-hours",
-    "news_keywords": "keyword",
-    "etf_heldby": "ETF holdings",
 }
+
+#: The four keys a tier gate answers today: built, shipped, published with a
+#: predicate, and refused only to a caller whose plan does not reach them.
+GATED_KEYS: frozenset[str] = frozenset(
+    {"ah_close", "ah_change", "news_keywords", "etf_heldby"}
+)
 
 
 def test_only_the_declared_keys_left_the_refusal_list() -> None:
     """No other key became available by accident."""
 
-    moved = set(P11B) | set(P11G) | set(P11H) | set(P11I) | set(P11J)
+    moved = set(P11B) | set(P11G) | set(P11H) | set(P11I) | set(P11J) | GATED_KEYS
     assert moved.isdisjoint(unavailable_keys())
     refused = set(unavailable_keys())
-    assert refused == set(STILL_REFUSED), "the ten refusals are exactly the ten"
+    assert refused == set(STILL_REFUSED), "the six refusals are exactly the six"
     for key, fragment in STILL_REFUSED.items():
         assert fragment in (reason_for(key) or ""), key
+    for key in GATED_KEYS:
+        assert reason_for(key) is None, key
+        assert binding(key).is_available is True, key
+        assert binding(key).bucket is True, key
 
 
 def test_the_three_fact_keys_point_at_columns_the_join_really_writes() -> None:
@@ -402,8 +412,17 @@ def test_the_published_choice_options_are_the_compiled_predicates() -> None:
 def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> None:
     """One shape of refusal survives: a metric nothing here measures."""
 
-    for key in ("theme", "sh_insidertrans", "ah_close", "ta_pattern", "etf_heldby"):
+    for key in ("theme", "subtheme", "sh_insidertrans", "sh_trades", "ta_highlow20d", "ta_pattern"):
         assert reason_for(key), f"{key} has no metric; it must stay refused"
+    # The four former "Elite-only" refusals are filters now: the provider's
+    # post-market print, the merged news corpus and the funds' own holdings files
+    # answer them, and the *tier* gate (app.screen.entitlements) decides who may
+    # ask. A refusal here would hide working code behind a plan.
+    for key in ("ah_close", "ah_change", "news_keywords", "etf_heldby"):
+        assert reason_for(key) is None, (
+            f"{key} is answered now (app.screen.buckets); its tier is the gate, "
+            "not a refusal"
+        )
     # Both former "the column is always null" refusals are filters now: the
     # depth store answers the cell the scan cannot (app.screen.buckets).
     for key in ("ipodate", "sh_opt"):

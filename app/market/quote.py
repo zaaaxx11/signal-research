@@ -141,12 +141,20 @@ class SourceQuote:
     prev_close: float | None = None
     volume: float | None = None
     realtime: bool | None = None
+    #: The extended session's print, when the provider publishes one. Absent is
+    #: absent: a regular-session quote carries no post-market price, and a `0` is
+    #: never a stand-in (it is rejected like any other non-positive price).
+    post_market_price: float | None = None
+    post_market_change_pct: float | None = None
 
     def __post_init__(self) -> None:
         _positive(self.last, "last")
         _optional_positive(self.prev_close, "prev_close")
         _optional_non_negative(self.volume, "volume")
         _aware(self.ts_exchange, "ts_exchange")
+        _optional_positive(self.post_market_price, "post_market_price")
+        if self.post_market_change_pct is not None:
+            _finite(self.post_market_change_pct, "post_market_change_pct")
         if self.realtime is not None and not isinstance(self.realtime, bool):
             raise TypeError(f"realtime must be a bool or None, got {self.realtime!r}")
 
@@ -170,6 +178,10 @@ class QuoteTick:
     source: str
     velocity: float | None = None
     stale: bool = False
+    #: The provider's post-market print, carried through unchanged. ``None``
+    #: means the provider published none (a regular session) — never ``0``.
+    post_market_price: float | None = None
+    post_market_change_pct: float | None = None
     change: float | None = field(init=False, default=None)
     change_pct: float | None = field(init=False, default=None)
     direction: Direction = field(init=False, default=Direction.UNKNOWN)
@@ -190,6 +202,15 @@ class QuoteTick:
         object.__setattr__(self, "source", self.source.strip())
         velocity = None if self.velocity is None else _finite(self.velocity, "velocity")
         object.__setattr__(self, "velocity", velocity)
+        object.__setattr__(
+            self, "post_market_price", _optional_positive(self.post_market_price, "post_market_price")
+        )
+        if self.post_market_change_pct is not None:
+            object.__setattr__(
+                self,
+                "post_market_change_pct",
+                _finite(self.post_market_change_pct, "post_market_change_pct"),
+            )
 
         if previous is None:
             change: float | None = None
@@ -678,6 +699,8 @@ class QuoteEngine:
             source=source_name,
             velocity=self._velocity(state, raw.last, now),
             stale=(now - raw.ts_exchange).total_seconds() > self._stale_after_s,
+            post_market_price=raw.post_market_price,
+            post_market_change_pct=raw.post_market_change_pct,
         )
 
     def _velocity(self, state: _SymbolState, last: float, now: datetime) -> float | None:

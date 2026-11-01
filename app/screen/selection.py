@@ -136,6 +136,7 @@ from app.screen import buckets
 from app.screen import choice_filters
 from app.screen import columns as column_map
 from app.screen import descriptive
+from app.screen import entitlements
 from app.screen import rank as ranking
 from app.screen import views as screen_views
 from app.screen.filter_fields import (
@@ -206,7 +207,9 @@ SELECTION_KEYS: frozenset[str] = frozenset(
 #: columns, not the whole catalog; the ceiling keeps a request from turning the
 #: response into an export.
 COLUMN_LIMIT = 40
-CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "limit", "offset", "common_only"})
+CRITERIA_KEYS: frozenset[str] = frozenset(
+    {"filters", "sort", "limit", "offset", "common_only", "entitlement"}
+)
 FILTER_KEYS: frozenset[str] = frozenset({"key", "field", "op", "value"})
 
 #: View column → the row field that holds its value — **derived**, never written
@@ -294,6 +297,19 @@ class SelectionError(ValueError):
         super().__init__(message)
         if code is not None:
             self.code = code
+
+
+class PremiumRequired(SelectionError):
+    """A filter this caller's plan does not reach — 403, never an empty 200.
+
+    Deliberately a different status from every other :class:`SelectionError`:
+    the request is well-formed and the deployment can answer it, so a 422 would
+    blame the syntax and a 200 with zero rows would blame the market. What the
+    caller has to change is the plan, and the code says exactly that.
+    """
+
+    status_code = 403
+    code = "premium_required"
 
 
 @dataclass(frozen=True, slots=True)
@@ -567,7 +583,10 @@ def _bucket_criterion(
     if control is None or not isinstance(raw, str):
         return None
     text = raw.strip()
-    if not text:
+    if not text and buckets.example_token(key) is None:
+        # A static bucket key refuses an empty value here; a dynamic one lets its
+        # resolver name the rule it broke (``invalid_news_keyword``, not a generic
+        # ``invalid_filter``).
         return None
     if ":" in text:
         namespace, _, token = text.partition(":")
@@ -585,11 +604,14 @@ def _bucket_criterion(
 
     try:
         found = buckets.bucket(identifier)
-    except buckets.UnavailableBucket as exc:
-        raise SelectionError(f"{where} (key {key!r}): {exc}", code=exc.code) from exc
     except buckets.UnknownBucket as exc:
         if ":" not in text and _numeric_literal(text):
             return None
+        raise SelectionError(f"{where} (key {key!r}): {exc}", code=exc.code) from exc
+    except buckets.BucketError as exc:
+        # ``InvalidBucketToken`` (a keyword outside its alphabet, a fund the
+        # control does not offer) and ``UnavailableBucket`` (a snapshot that
+        # cannot answer) carry their own stable codes.
         raise SelectionError(f"{where} (key {key!r}): {exc}", code=exc.code) from exc
 
     op = item["op"].strip().casefold() if isinstance(item["op"], str) else None
@@ -678,12 +700,19 @@ def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion
             if column_value is None:
                 # A bucket-only key (``idx``) has no column and no numeric form:
                 # the value must be one of its tokens, so the refusal names them.
+                # A **dynamic** key has no enumerable family; it shows one
+                # accepted shape instead (an empty value gets here too).
                 family = buckets.for_key(key_text)
-                accepted = ", ".join(item.id for item in family)
+                if family:
+                    accepted = ", ".join(item.id for item in family)
+                    example = family[0].id
+                else:
+                    accepted = "a value this control resolves"
+                    example = buckets.example_token(key_text) or f"{key_text}:<value>"
                 raise SelectionError(
                     f"{where} (key {key_text!r}) takes a bucket token as its value "
                     f"(e.g. {{'key': {key_text!r}, 'op': 'eq', 'value': "
-                    f"{family[0].id!r}}}); accepted ids: {accepted}",
+                    f"{example!r}}}); accepted: {accepted}",
                     code="invalid_filter",
                 )
             prefix = f"{where} (key {key!r})"
@@ -720,6 +749,73 @@ def _filters(raw: Any, *, region: str | None = None) -> tuple[Criterion, ...]:
             "'criteria.filters' must be an array of {key|field, op, value} objects"
         )
     return tuple(_criterion(item, index, region=region) for index, item in enumerate(raw))
+
+
+def _entitlement(raw: Any) -> str | None:
+    """``criteria.entitlement`` → a tier, or a 422 naming the two tiers.
+
+    Absent is ``None`` — the request is judged at the caller's plan. The field
+    can only **lower** that plan: a premium caller may ask for the free view, and
+    a free caller naming ``premium`` is overreach, not a grant.
+    """
+
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw.strip().casefold() not in entitlements.TIERS:
+        raise SelectionError(
+            f"'criteria.entitlement' must be one of {', '.join(entitlements.TIERS)}, "
+            f"got {raw!r}",
+            code="unknown_entitlement",
+        )
+    return raw.strip().casefold()
+
+
+def _gate(
+    filters: Sequence[Criterion], *, plan: str | None, declared: str | None
+) -> None:
+    """Refuse a request whose filters this plan does not reach — 403.
+
+    Two ways to be over the plan, one answer:
+
+    * the **body** declares a tier above the caller's plan (``entitlement:
+      premium`` from an anonymous caller) — refused, because honouring it would
+      make the field a self-issued licence and ignoring it would be the silent
+      downgrade this endpoint exists to avoid;
+    * a **filter key** is configured ``premium`` in
+      ``app/screen/data/entitlements.json`` and the request's entitlement is
+      ``free`` — refused by name, before a scan is spent.
+
+    The gate reads the **key** the request named, which is why
+    :mod:`app.screen.filter_fields` refuses to map a gated feature to a row
+    field: a ``field`` spelling would be the same question with the gate skipped.
+    """
+
+    resolved = plan or entitlements.DEFAULT_PLAN
+    if entitlements.overreach(resolved, declared):
+        raise PremiumRequired(
+            f"this request declares entitlement {declared!r} but the caller's plan "
+            f"is {resolved!r}: the plan comes from the "
+            f"{entitlements.PLAN_HEADER} header or the "
+            f"{entitlements.API_KEY_HEADER} key, and a body field cannot raise it"
+        )
+    entitlement = entitlements.narrow(resolved, declared)
+    requested = {
+        str(criterion.key)
+        for criterion in filters
+        if criterion.key is not None and criterion.key in entitlements.FEATURES
+    }
+    blocked = entitlements.blocked(requested, entitlement)
+    if not blocked:
+        return
+    names = ", ".join(repr(key) for key in blocked)
+    raise PremiumRequired(
+        f"filter key(s) {names} are premium features in "
+        f"{entitlements.config_label()}, and this request's plan is "
+        f"{entitlement!r}: send a {entitlements.API_KEY_HEADER} carrying a premium "
+        f"key, or declare the plan in the {entitlements.PLAN_HEADER} header. The "
+        "request is refused instead of answered, because a premium filter served "
+        "as an empty page reads as 'no company matches'"
+    )
 
 
 def _criteria_block(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -814,7 +910,7 @@ def _columns(raw: Any) -> tuple[str, ...]:
     return tuple(ordered)
 
 
-def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
+def _parse_criteria(payload: Mapping[str, Any], *, plan: str | None = None) -> SelectionRequest:
     block = _criteria_block(payload)
     region = payload.get("region")
     if region is None:
@@ -844,10 +940,15 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
     sort = _sort(block.get("sort"))
     if sort is None:
         sort = descriptive.default_sort(chosen) if chosen is not None else DEFAULT_SORT
+    # The filters are compiled first (so an unknown key is a 422 with its own
+    # message) and then gated: a *premium* key this plan cannot ask is a 403
+    # naming it, decided before a scan, a universe or a store is touched.
+    filters = _filters(block.get("filters"), region=str(region))
+    _gate(filters, plan=plan, declared=_entitlement(block.get("entitlement")))
     return SelectionRequest(
         mode="criteria",
         region=str(region),
-        filters=_filters(block.get("filters"), region=str(region)),
+        filters=filters,
         sort=sort,
         limit=_limit(block.get("limit")),
         offset=_offset(block.get("offset")),
@@ -937,13 +1038,18 @@ def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
     )
 
 
-def parse_selection(payload: Any) -> SelectionRequest:
+def parse_selection(payload: Any, *, plan: str | None = None) -> SelectionRequest:
     """Validate a selection document and return the request the executor runs.
 
     Raises :class:`SelectionError` (always a 422) for anything that cannot be
     executed: a non-object body, an unknown or missing mode, a knob that belongs
     to the other mode, an unknown filter field or operator, a Finviz key with no
     light column, an unknown region/source/sort, or a non-positive limit.
+
+    ``plan`` is the caller's plan, resolved by the route from the request headers
+    (:func:`app.screen.entitlements.resolve_plan`); ``None`` is an anonymous
+    caller, which is the free plan. A premium filter on a plan that does not
+    reach it raises :class:`PremiumRequired` — a **403**, not a 422.
     """
 
     if not isinstance(payload, Mapping):
@@ -960,7 +1066,9 @@ def parse_selection(payload: Any) -> SelectionRequest:
             f"unknown selection mode {mode!r}; expected one of {', '.join(MODES)}"
         )
     _reject_extra(payload, SELECTION_KEYS, "selection")
-    return _parse_criteria(payload) if mode == "criteria" else _parse_symbols(payload)
+    if mode == "criteria":
+        return _parse_criteria(payload, plan=plan)
+    return _parse_symbols(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -1356,10 +1464,13 @@ def _filter_alias_extension() -> dict[str, dict[str, object]]:
     return aliases
 
 
-#: The keys that are **only** a bucket (``idx``): no column, no option vocabulary.
-#: Derived so the published disposition cannot outlive the table it counts.
+#: The keys that are **only** a bucket (``idx``, ``news_keywords``,
+#: ``etf_heldby``): no column, no option vocabulary. Derived so the published
+#: disposition cannot outlive the table it counts; the dynamic controls are
+#: included because a client reading this sentence must see every key whose value
+#: is a bucket token.
 _BUCKET_ONLY: tuple[str, ...] = tuple(
-    key for key in buckets.KEYS if key not in ROW_FIELDS
+    key for key in (*buckets.KEYS, *buckets.DYNAMIC_KEYS) if key not in ROW_FIELDS
 )
 
 #: The alias half of the published vocabulary, built once at import: it is a pure
@@ -1585,6 +1696,22 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                         "leave preferred/warrant lines out of the page."
                     ),
                 },
+                "entitlement": {
+                    "enum": list(entitlements.TIERS),
+                    "description": (
+                        "The tier this request asks to be judged at. It can only "
+                        "**narrow** the caller's plan — resolved from the "
+                        f"`{entitlements.PLAN_HEADER}` header or from the plan the "
+                        f"`{entitlements.API_KEY_HEADER}` key carries, with "
+                        f"`{entitlements.DEFAULT_PLAN}` for an anonymous caller. A "
+                        "request naming a tier above its plan is a 403 "
+                        "`premium_required`, and so is any filter key whose tier in "
+                        "app/screen/data/entitlements.json is `premium` while the "
+                        "request's entitlement is `free`: refused by name, never "
+                        "answered with an empty page and never silently downgraded. "
+                        "Omit it to be judged at the plan."
+                    ),
+                },
             },
         },
         "symbols": {
@@ -1693,6 +1820,25 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
     "x-filter-keys": _filter_key_extension(),
     "x-filter-alias-count": len(_FILTER_ALIASES),
     "x-filter-aliases": _FILTER_ALIASES,
+    # The tier policy, beside the key tables: a client can say *why* a key is
+    # locked without a second request, and the same table says which keys a
+    # `free` plan may ask. `criteria.entitlement` is the field a request narrows
+    # its plan with; the two headers are how the plan itself is presented.
+    "x-entitlement": {
+        "tiers": list(entitlements.TIERS),
+        "default_plan": entitlements.DEFAULT_PLAN,
+        "plan_header": entitlements.PLAN_HEADER,
+        "api_key_header": entitlements.API_KEY_HEADER,
+        "request_field": "criteria.entitlement",
+        "features": dict(entitlements.feature_tiers()),
+        "note": (
+            "Tier is configured in app/screen/data/entitlements.json, not in code: "
+            "a feature set to `free` there is answered to every caller on the next "
+            "request. A premium feature the deployment cannot source is still "
+            "refused by its own reason (x-filter-keys.<key>.reason) — tier and "
+            "availability are different facts."
+        ),
+    },
     # The view catalogue travels with the document itself, not in a copy the
     # route makes on the way out. `schemas/stock_selection_request_v1.json` is
     # this object, and a key that existed only in the route's return value was
@@ -1721,6 +1867,7 @@ __all__ = [
     "VIEW_FIELDS",
     "VIEW_FACT_FIELDS",
     "Criterion",
+    "PremiumRequired",
     "Selection",
     "SelectionError",
     "SelectionRequest",

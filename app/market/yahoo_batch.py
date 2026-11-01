@@ -133,6 +133,14 @@ YAHOO_BATCH_MAP: dict[str, str] = {
     "firstTradeDateMilliseconds": "ipo_date",
     "earningsTimestamp": "earnings_date",
     "dividendDate": "dividend_ex_date",
+    # -- the extended session (the two cells `ah_close`/`ah_change` read) ------
+    # Same response, same request: a quote carries the post-market print when one
+    # exists and omits the keys when it does not (a regular session), which is
+    # exactly the "absent is absent" contract the collector records.
+    "postMarketPrice": "post_market_price",
+    "postMarketChange": "post_market_change",
+    "postMarketChangePercent": "post_market_change_pct",
+    "postMarketTime": "post_market_time",
 }
 
 

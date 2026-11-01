@@ -87,7 +87,7 @@ async def test_a_gzip_client_receives_gzip(tmp_path: Path, monkeypatch: Any) -> 
     )
 
     document = json.loads(gzip.decompress(raw))
-    assert document["schema_version"] == "screener-2"
+    assert document["schema_version"] == "screener-3"
     assert len(document["groups"]) == 5
 
 

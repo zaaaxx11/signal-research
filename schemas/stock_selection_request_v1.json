@@ -321,6 +321,13 @@
           "type": "boolean",
           "default": false,
           "description": "Display-only switch: keep the common-stock universe and leave preferred/warrant lines out of the page."
+        },
+        "entitlement": {
+          "enum": [
+            "free",
+            "premium"
+          ],
+          "description": "The tier this request asks to be judged at. It can only **narrow** the caller's plan — resolved from the `x-plan` header or from the plan the `x-api-key` key carries, with `free` for an anonymous caller. A request naming a tier above its plan is a 403 `premium_required`, and so is any filter key whose tier in app/screen/data/entitlements.json is `premium` while the request's entitlement is `free`: refused by name, never answered with an empty page and never silently downgraded. Omit it to be judged at the plan."
         }
       }
     },
@@ -452,7 +459,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 21 bucket-only key (sh_opt, ipodate, idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, news_date) that filters through a named bucket, and the 10 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 128 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 210 keys a filter may name, and any other key is a 422 that names it."
+          "description": "One of the 82 filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 25 bucket-only key (sh_opt, ipodate, idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, ah_close, ah_change, news_date, news_keywords, etf_heldby) that filters through a named bucket, and the 6 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 128 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 210 keys a filter may name, and any other key is a 422 that names it."
         },
         "field": {
           "enum": [
@@ -707,7 +714,7 @@
       "label": "Trades",
       "tab": "descriptive",
       "field": null,
-      "reason": "Elite-only in the source panel, and it needs a trade-count column: the scan carries volume in shares and turnover in currency, the depth store has no print count and FINRA publishes short-sale volume, so a trade count cannot be read from anything ingested — no source is ingested (Polygon.io aggregates, IEX HIST or Databento would answer it)"
+      "reason": "no trade-count feed; Finra publishes short-sale volume, not trade counts — the scan carries volume in shares and turnover in currency, the depth store has no print count, and deriving a trade count from volume would be a fabricated number (Polygon.io aggregates, IEX HIST or Databento would answer it). The control is premium-tier like the rest of the source panel's paid set; this refusal is about the missing feed, not about the tier"
     },
     "sh_price": {
       "label": "Price $",
@@ -1470,13 +1477,13 @@
       "label": "After-Hours Close",
       "tab": "technical",
       "field": null,
-      "reason": "Elite-only in the source panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
+      "bucket": true
     },
     "ah_change": {
       "label": "After-Hours Change",
       "tab": "technical",
       "field": null,
-      "reason": "Elite-only in the source panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
+      "bucket": true
     },
     "news_date": {
       "label": "Latest News",
@@ -1488,13 +1495,13 @@
       "label": "News Keywords",
       "tab": "news",
       "field": null,
-      "reason": "Elite-only, and it needs an article corpus: the product holds one headline per symbol (4,141 `news_title` cells), so a keyword search would search one title per company — not the source panel's 'titles from the last 24 hours that contain any keyword' — no source is ingested"
+      "bucket": true
     },
     "etf_heldby": {
       "label": "Held By",
       "tab": "etf",
       "field": null,
-      "reason": "Elite-only, and it needs ETF holdings data: no fund→constituent table exists here — the ETF scan returns the funds themselves and the six index member lists are not holdings — so no source is ingested"
+      "bucket": true
     }
   },
   "x-filter-alias-count": 128,
@@ -2095,6 +2102,24 @@
       "kind": "number",
       "label": "Volume"
     }
+  },
+  "x-entitlement": {
+    "tiers": [
+      "free",
+      "premium"
+    ],
+    "default_plan": "free",
+    "plan_header": "x-plan",
+    "api_key_header": "x-api-key",
+    "request_field": "criteria.entitlement",
+    "features": {
+      "ah_close": "premium",
+      "ah_change": "premium",
+      "news_keywords": "premium",
+      "etf_heldby": "premium",
+      "sh_trades": "premium"
+    },
+    "note": "Tier is configured in app/screen/data/entitlements.json, not in code: a feature set to `free` there is answered to every caller on the next request. A premium feature the deployment cannot source is still refused by its own reason (x-filter-keys.<key>.reason) — tier and availability are different facts."
   },
   "views": [
     {

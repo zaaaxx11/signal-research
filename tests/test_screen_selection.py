@@ -142,16 +142,17 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 72, (
+    assert len(mapped_keys()) == 76, (
         "seven light columns, the parity metrics a bulk scan copies, the three "
         "derived columns computed from those cells, the three fundamentals joined "
         "from the snapshot store, the two ratios computed from that snapshot, the "
         "three short/ownership cells joined from the facts store, the three "
-        "option-driven keys, and the nineteen keys whose cells arrive from the "
-        "depth overlay (app.screen.universe.DEPTH_FIELDS) and answer their bucket "
-        "vocabulary rather than one column"
+        "option-driven keys, the nineteen keys whose cells arrive from the depth "
+        "overlay (app.screen.universe.DEPTH_FIELDS) and answer their bucket "
+        "vocabulary rather than one column, plus the four bucket-driven keys a "
+        "tier gate now answers (ah_close, ah_change, news_keywords, etf_heldby)"
     )
-    assert len(unavailable_keys()) == 10
+    assert len(unavailable_keys()) == 6
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -253,7 +254,10 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
     assert reason_for("fa_divgrowth") is None, (
         "dividend growth reads the depth store's 1y/3y/5y cells now"
     )
-    assert "keyword" in (reason_for("news_keywords") or "")
+    assert reason_for("news_keywords") is None, (
+        "the keyword search reads the merged news corpus now (app.screen.news_index); "
+        "its tier, not a refusal, is what gates it"
+    )
     for key in ("ta_perf", "ta_perf2", "ta_volatility"):
         assert reason_for(key) is None, (
             f"{key} filters through its option tokens now (app.screen.choice_filters); "
@@ -282,7 +286,10 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
             f"{key} filters a column joined from fundamentals_snapshots "
             "(app.screen.fundamentals); a refusal here would be a stale disposition"
         )
-    assert "ETF holdings" in (reason_for("etf_heldby") or "")
+    assert reason_for("etf_heldby") is None, (
+        "held-by reads the funds' own holdings files now (app.screen.etf_holdings); "
+        "its tier, not a refusal, is what gates it"
+    )
     for key in unavailable_keys():
         reason = reason_for(key)
         assert reason and reason.strip(), f"{key} needs a reason"

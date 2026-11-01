@@ -45,27 +45,37 @@ from tests import _screen as S
 ROOT = Path(__file__).resolve().parents[1]
 DEPTH = Path("/home/ubuntu/ztockz-data/depth.json")
 
-#: The ten, in panel order — the assertion that ends the argument. The order is
-#: the catalogue's (`filter_fields.CATALOGUE`), not the plan's prose order:
-#: `unavailable_keys()` promises panel order, so the test pins it.
+#: The six keys that are still **refused**, in panel order — the assertion that
+#: ends the argument. The order is the catalogue's
+#: (`filter_fields.CATALOGUE`), not the plan's prose order: `unavailable_keys()`
+#: promises panel order, so the test pins it.
 #:
-#: ``sh_opt`` and ``ipodate`` used to head this list. Both were refusals whose
-#: metric the deployment *did* hold, in the depth store, in shapes a filter can
-#: read (``optionable``/``shortable`` as Yes/No, ``ipo_date`` in two spellings);
-#: they are bucket families now (``sh_opt:*``, ``ipodate:*``) and this list is the
-#: ten that still name a metric nothing here measures.
-TEN = (
+#: This list used to have ten members. ``ah_close``, ``ah_change``,
+#: ``news_keywords`` and ``etf_heldby`` left it when **tier** was separated from
+#: **availability**: the code answers them (the provider's post-market print, the
+#: merged news corpus, the funds' own holdings files) and the plan gates them.
+#: What remains is what nobody measures — no theme taxonomy, no print count, a
+#: withdrawn insider flow, no 20-day window, no pattern engine.
+REFUSED = (
     "sh_trades",
     "theme",
     "subtheme",
     "sh_insidertrans",
     "ta_highlow20d",
     "ta_pattern",
-    "ah_close",
-    "ah_change",
-    "news_keywords",
-    "etf_heldby",
 )
+
+#: The four keys that are built, published with a predicate, and gated by tier.
+#: A free plan gets a 403 naming them; a premium one gets rows.
+GATED = ("ah_close", "ah_change", "news_keywords", "etf_heldby")
+
+#: A request value each gated key accepts (the panel's own vocabulary shape).
+GATED_VALUES = {
+    "ah_close": "ah_close:u1",
+    "ah_change": "ah_change:u",
+    "news_keywords": "news_kw:earnings",
+    "etf_heldby": "heldby:spy",
+}
 
 #: The codes a refusal may carry. Anything else is a bug wearing a 422.
 REFUSAL_CODES = {"unavailable_filter_key", "unavailable_bucket", "unknown_bucket"}
@@ -142,13 +152,13 @@ async def test_an_unavailable_token_is_422_and_never_an_unfiltered_page(
     assert "total" not in body, "a refusal is never an empty page"
 
 
-async def test_every_one_of_the_ten_is_a_422_and_names_itself(
+async def test_every_one_of_the_six_is_a_422_and_names_itself(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     """The document supplies the request: this is the panel's own vocabulary."""
 
     async with S.screen_client(tmp_path, monkeypatch) as harness:
-        for key in TEN:
+        for key in REFUSED:
             control = _document_control(key)
             value = control["options"][0]["id"] if control["options"] else key
             response = await harness.client.post(
@@ -162,9 +172,32 @@ async def test_every_one_of_the_ten_is_a_422_and_names_itself(
             assert key in body["errorMessage"], (key, value, body)
 
 
-def test_the_ten_refusals_are_exactly_the_ten() -> None:
-    assert set(filter_fields.unavailable_keys()) == set(TEN)
-    assert filter_fields.unavailable_keys() == TEN, "panel order, not set order"
+async def test_every_gated_key_is_403_without_a_plan_and_answers_with_one(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Tier is not a refusal: the same request is a 403 or a 200, never a 422."""
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        for key in GATED:
+            request = _select_body([{"key": key, "op": "eq", "value": GATED_VALUES[key]}])
+            denied = await harness.client.post("/screens/select", json=request)
+            allowed = await harness.client.post(
+                "/screens/select", json=request, headers={"X-Plan": "premium"}
+            )
+            assert denied.status_code == 403, (key, denied.text)
+            assert denied.json()["error"] == "premium_required", (key, denied.json())
+            assert key in denied.json()["errorMessage"], key
+            assert "total" not in denied.json(), (key, "a 403 is never an empty page")
+            assert allowed.status_code == 200, (key, allowed.text)
+
+
+def test_the_six_refusals_are_exactly_the_six() -> None:
+    assert set(filter_fields.unavailable_keys()) == set(REFUSED)
+    assert filter_fields.unavailable_keys() == REFUSED, "panel order, not set order"
+    for key in GATED:
+        assert filter_fields.reason_for(key) is None, key
+        assert filter_fields.binding(key).is_available is True, key
+        assert _document_control(key)["available"] is True, key
 
 
 # ---------------------------------------------------------------------------
@@ -281,15 +314,26 @@ def test_the_three_stale_refusal_sentences_are_gone() -> None:
 
 
 def test_every_refusal_names_a_gap_a_reader_can_act_on() -> None:
-    for key in TEN:
+    for key in REFUSED:
         reason = filter_fields.reason_for(key) or ""
         assert len(reason) > 60, (key, reason)
         assert any(
-            marker in reason for marker in ("needs", "withdrew", "junk", "Elite")
+            marker in reason
+            for marker in ("needs", "withdrew", "junk", "no trade-count feed")
         ), (key, reason)
 
 
-def test_the_elite_refusals_are_the_five_the_probe_flags() -> None:
+def test_the_five_the_probe_flags_are_the_five_gated_features() -> None:
+    """Elite is a **tier**: measured from the probe, assigned in one config file.
+
+    The five controls the source panel flags ``isEliteOnly`` are exactly the five
+    feature ids ``app/screen/data/entitlements.json`` can gate. Four are answered
+    and gated; ``sh_trades`` is gated *and* refused, because its feed does not
+    exist — and its sentence says the refusal is about the feed, not the tier.
+    """
+
+    from app.screen import entitlements
+
     probe = json.loads(
         (ROOT / "research" / "finviz-ui-raw" / "views" / "v111-filters.json").read_text(
             encoding="utf-8"
@@ -298,13 +342,17 @@ def test_the_elite_refusals_are_the_five_the_probe_flags() -> None:
     elite = {
         key for key, spec in probe.items() if isinstance(spec, dict) and spec.get("isEliteOnly")
     }
-    for key in elite:
-        assert "Elite" in (filter_fields.reason_for(key) or ""), key
-    for key in set(TEN) - elite:
+    assert elite == set(entitlements.FEATURES)
+    for key in set(REFUSED) - elite:
         assert "Elite" not in (filter_fields.reason_for(key) or ""), (
             key,
             "only the five the probe flags may claim the tier",
         )
+    assert "Elite" not in (filter_fields.reason_for("sh_trades") or ""), (
+        "the tier lives in the config now; the refusal is about the missing feed"
+    )
+    for key in GATED:
+        assert entitlements.tier_for(key) in entitlements.TIERS, key
 
 
 # ---------------------------------------------------------------------------

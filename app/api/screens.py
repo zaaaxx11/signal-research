@@ -131,7 +131,7 @@ from app.auth import ApiError, owner_fingerprint
 from app.branding import logo_for
 from app.export.manifest import file_sha256
 from app.runtime import Runtime
-from app.screen import buckets, descriptive, index_membership
+from app.screen import after_hours, buckets, descriptive, entitlements, index_membership
 from app.screen.export import (
     DATA_FORMATS,
     EXPORT_FORMATS,
@@ -1188,7 +1188,14 @@ async def select(request: Request) -> Any:
     payload = _integral_numbers(payload)
 
     try:
-        selection = parse_selection(payload)
+        # The plan is the caller's, not the body's: it comes from the API key the
+        # request carries (its sha256 is looked up in app/screen/data/entitlements
+        # .json) or from the X-Plan declaration, and an anonymous caller is free.
+        # A premium filter on a free plan is a 403 `premium_required` — refused by
+        # name, never served as an empty page.
+        selection = parse_selection(
+            payload, plan=entitlements.resolve_plan(request.headers)
+        )
     except SelectionError as exc:
         raise ApiError(
             status_code=exc.status_code, error=exc.code, message=str(exc)
@@ -1348,6 +1355,15 @@ async def select(request: Request) -> Any:
     # answer to a question nobody asked, which is exactly what T10 exists to
     # prevent.
     universe = index_membership.enrich_rows(universe)
+
+    # `ah_close` / `ah_change` read two internal cells (`post_market_close`,
+    # `post_market_change`) that no scan and no store carries: the provider's
+    # post-market print is collected into one stamped snapshot
+    # (app.screen.after_hours) and attached here, once per selection, after every
+    # join. A symbol the snapshot did not price keeps no cell, so a bucket matches
+    # nothing for it — the honest answer during a regular session, never a value
+    # inferred from the last one.
+    universe = after_hours.enrich_rows(universe)
 
     answer = select_rows(
         universe,

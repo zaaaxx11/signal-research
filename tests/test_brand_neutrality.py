@@ -78,7 +78,7 @@ def test_the_document_publishes_a_neutral_schema_version() -> None:
     version = descriptive.document()["schema_version"]
     assert version == descriptive.SCHEMA_VERSION
     assert VENDOR not in version.casefold(), version
-    assert version == "screener-2"
+    assert version == "screener-3"
 
 
 async def test_the_served_document_names_no_vendor(

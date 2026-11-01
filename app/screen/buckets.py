@@ -69,7 +69,7 @@ from types import MappingProxyType
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from app.screen import index_membership
+from app.screen import after_hours, etf_holdings, index_membership, news_index
 from app.screen.filters import FILTER_CATALOG
 
 #: The market's clock. An earnings date is a New York day; ``as_of`` is UTC.
@@ -104,6 +104,24 @@ class UnavailableBucket(BucketError):
     """
 
     code = "unavailable_bucket"
+
+
+class InvalidBucketToken(BucketError):
+    """The token is a **value** the control cannot accept, not an unknown id.
+
+    ``news_kw`` is free text with a validated alphabet and ``heldby`` names one
+    of four funds; a token outside those rules is a 422 whose code says which
+    rule it broke (``invalid_news_keyword``), rather than an ``unknown_bucket``
+    that would list a vocabulary the control does not have.
+    """
+
+    code = "invalid_bucket_token"
+
+    def __init__(self, identifier: object, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.identifier = identifier
+        if code is not None:
+            self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -620,9 +638,45 @@ _CONTROL_KEYS: dict[str, str] = {
     "highlow52w": "ta_highlow52w",
     "alltime": "ta_alltime",
     "candle": "ta_candlestick",
+    # -- technical: the extended session (Elite in the source panel) --------
+    # The post-market print is a real provider field; the two controls are
+    # buckets like any other, gated by tier rather than refused.
+    "ah_close": "ah_close",
+    "ah_change": "ah_change",
     # -- news (T23) --------------------------------------------------------
     "news": "news_date",
 }
+
+#: The controls whose tokens are a **value** this registry cannot enumerate:
+#: ``news_kw`` takes a validated keyword, ``heldby`` one of the four funds in
+#: :mod:`app.screen.etf_holdings`. They are buckets (one token, one predicate,
+#: ``op: eq``) resolved by :func:`bucket`'s dynamic hook instead of ``_BY_ID``;
+#: they are kept out of :data:`_CONTROL_KEYS` because that table promises one
+#: probe vocabulary per control and these two have none.
+DYNAMIC_CONTROLS: Mapping[str, str] = MappingProxyType(
+    {"news_kw": "news_keywords", "heldby": "etf_heldby"}
+)
+
+#: key → control id, the inverse of :data:`DYNAMIC_CONTROLS`.
+_DYNAMIC_BY_KEY: Mapping[str, str] = MappingProxyType(
+    {key: control for control, key in DYNAMIC_CONTROLS.items()}
+)
+
+#: The filter keys only a dynamic token can answer, in panel order.
+DYNAMIC_KEYS: tuple[str, ...] = tuple(DYNAMIC_CONTROLS.values())
+
+#: key → one token it accepts, for the 422 a **dynamic** key raises when the
+#: value names no token at all (an empty string). A static family lists its ids;
+#: a dynamic one cannot, so it shows one accepted shape instead of an IndexError.
+_EXAMPLES: Mapping[str, str] = MappingProxyType(
+    {"news_keywords": "news_kw:semiconductor", "etf_heldby": "heldby:spy"}
+)
+
+
+def example_token(key: object) -> str | None:
+    """One accepted token of a dynamic key, or ``None`` for a static one."""
+
+    return _EXAMPLES.get(key) if isinstance(key, str) else None
 
 #: Controls whose whole family is published **refused**: ``insidertrans`` is a
 #: vendor cell the product withdrew by name (:mod:`app.api.signals`). Every
@@ -680,9 +734,17 @@ WITHDRAWN_KEYS: tuple[str, ...] = tuple(
 
 
 def control_for(key: object) -> str | None:
-    """The namespace ``key``'s buckets live under, or ``None``."""
+    """The namespace ``key``'s buckets live under, or ``None``.
 
-    return _KEYS_BY_CONTROL.get(key) if isinstance(key, str) else None
+    Two tables, one answer: the static registry (:data:`CONTROL_KEYS`) and the
+    two dynamic controls (:data:`DYNAMIC_CONTROLS`), whose tokens are a value
+    rather than a probe vocabulary.
+    """
+
+    if not isinstance(key, str):
+        return None
+    found = _KEYS_BY_CONTROL.get(key)
+    return found if found is not None else _DYNAMIC_BY_KEY.get(key)
 
 
 # ---------------------------------------------------------------------------
@@ -1270,6 +1332,11 @@ def _idx_family() -> tuple[Bucket, ...]:
 _AVAILABILITY: Mapping[str, Callable[[], str | None]] = MappingProxyType(
     {
         "idx": lambda: None if index_membership.available() else index_membership.REASON,
+        # Both after-hours families read one snapshot: when it cannot answer (no
+        # file, or captured during the regular session) the controls say so with
+        # the module's measured sentence instead of matching nothing silently.
+        "ah_close": lambda: after_hours.reason(),
+        "ah_change": lambda: after_hours.reason(),
     }
 )
 
@@ -2101,6 +2168,139 @@ def _ipo_family() -> tuple[Bucket, ...]:
     return tuple(family)
 
 
+# -- after hours: the provider's post-market print, one cell per metric -------
+
+
+def _ah_change_map(token: str) -> tuple[str, float]:
+    """``u`` → up at all, ``u5`` → up 5 % or more, ``d5`` → down 5 % or more.
+
+    The direction letter is not a range: on ``sh_price`` a ``u`` means *under*,
+    here it means *up*. That is exactly why this family maps its own tokens
+    instead of reusing :func:`_band`.
+    """
+
+    hit = re.fullmatch(r"([ud])(\d+(?:\.\d+)?)?", token)
+    if hit is None:  # pragma: no cover - _validate() gates the vocabulary
+        raise RuntimeError(f"ah_change: token {token!r} is not a direction band")
+    side, digits = hit.group(1), hit.group(2)
+    if digits is None:
+        return ("gt", 0.0) if side == "u" else ("lt", 0.0)
+    value = float(digits)
+    return ("gte", value) if side == "u" else ("lte", -value)
+
+
+def _ah_family(control: str, key: str, column: str) -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens(key):
+        if control == "ah_change":
+            op, value = _ah_change_map(token)
+        else:
+            band = _band(token)
+            if band is None:  # pragma: no cover - _validate() gates the vocabulary
+                raise RuntimeError(f"{key}: token {token!r} has no price band")
+            op, value = band
+        family.append(
+            Bucket(
+                id=f"{control}:{token}",
+                key=key,
+                label=_label(key, token),
+                finviz=token,
+                predicate=_column_predicate(column, op, value),
+                describe=_describe(column, op, value),
+            )
+        )
+    return tuple(family)
+
+
+# -- held by and news keywords: tokens this registry cannot enumerate ---------
+#
+# Both controls take a **value**, not one of a fixed vocabulary: an ETF symbol
+# and a free-text keyword. They are still buckets — one token, one server-side
+# predicate, `op: eq` — so the executor needs no second path. What differs is
+# resolution: instead of an id in `_BY_ID`, `bucket()` asks the control's
+# resolver, which is also where the input rule lives (a 40-character keyword
+# alphabet, one of four funds).
+
+
+def _symbol(row: Mapping[str, Any]) -> str | None:
+    """``BRK-B``/``BRK.B``/``BRK B`` → ``BRK.B``: one spelling for one company."""
+
+    raw = row.get("symbol")
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip().upper().replace("-", ".").replace(" ", ".")
+    return text or None
+
+
+def _news_keyword_bucket(identifier: str) -> Bucket:
+    """``news_kw:<word>`` → the symbols whose headline carries every word."""
+
+    text = identifier.split(":", 1)[1] if ":" in identifier else ""
+    try:
+        words = news_index.normalize(text)
+    except news_index.KeywordError as exc:
+        raise InvalidBucketToken(identifier, str(exc), code=exc.code) from exc
+    if not news_index.available():
+        raise UnavailableBucket(identifier, news_index.reason() or news_index.REASON)
+    keyword = " ".join(words)
+    matched = news_index.symbols_for(keyword)
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        found = _symbol(row)
+        return found is not None and found in matched
+
+    return Bucket(
+        id=f"news_kw:{keyword}",
+        key="news_keywords",
+        label=f"News contains {keyword!r}",
+        finviz=None,
+        predicate=predicate,
+        describe=f"headline contains {keyword!r}",
+    )
+
+
+def _heldby_bucket(identifier: str) -> Bucket:
+    """``heldby:<etf>`` → the fund's published constituents."""
+
+    text = identifier.split(":", 1)[1].strip() if ":" in identifier else ""
+    if not text:
+        raise InvalidBucketToken(
+            identifier,
+            "heldby names no fund: send heldby:<etf>, one of "
+            f"{', '.join(etf_holdings.ETFS)}",
+            code="unknown_bucket",
+        )
+    symbol = text.upper()
+    try:
+        found = etf_holdings.members(symbol)
+    except etf_holdings.UnknownEtf as exc:
+        raise UnknownBucket(identifier, str(exc)) from exc
+    except etf_holdings.UnavailableEtf as exc:
+        raise UnavailableBucket(
+            identifier, f"bucket {identifier!r} cannot be applied: {exc}"
+        ) from exc
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        current = _symbol(row)
+        return current is not None and current in found
+
+    return Bucket(
+        id=f"heldby:{symbol.lower()}",
+        key="etf_heldby",
+        label=f"Held by {symbol}",
+        finviz=None,
+        predicate=predicate,
+        describe=f"symbol in the {symbol} holdings file ({len(found)} names)",
+    )
+
+
+#: control id → the resolver a dynamic token goes through. Declared here, after
+#: both resolvers, because the table is read at import time.
+_DYNAMIC_RESOLVERS: Mapping[str, Callable[[str], Bucket]] = MappingProxyType(
+    {"news_kw": _news_keyword_bucket, "heldby": _heldby_bucket}
+)
+
+
 def _build_registry() -> dict[str, tuple[Bucket, ...]]:
     registry = {
         "price": _numeric(
@@ -2202,6 +2402,12 @@ def _build_registry() -> dict[str, tuple[Bucket, ...]]:
             },
         ),
         "candle": _candle_family("candle", "ta_candlestick"),
+        # -- technical: the extended session (Elite in the source panel) --------
+        # The cells are `post_market_close` / `post_market_change`, attached by
+        # app.screen.after_hours. A row the snapshot did not price has no cell and
+        # matches no bucket — during a regular session that is every row.
+        "ah_close": _ah_family("ah_close", "ah_close", after_hours.CLOSE_CELL),
+        "ah_change": _ah_family("ah_change", "ah_change", after_hours.CHANGE_CELL),
         # -- news (T23) --------------------------------------------------------
         "news": _news_family(),
     }
@@ -2261,6 +2467,24 @@ def _validate() -> None:
             )
     if len(_BY_ID) != sum(len(family) for family in _REGISTRY.values()):
         raise RuntimeError("two buckets share an id")
+    # The two dynamic controls: a namespace may not shadow a static one, and a
+    # key of theirs must be a real catalogue key (they resolve `bucket`, so a
+    # typo here would be an unreachable control instead of a boot error).
+    for control, key in DYNAMIC_CONTROLS.items():
+        if control in _REGISTRY:  # pragma: no cover - boot gate
+            raise RuntimeError(
+                f"dynamic control {control!r} shadows the static registry's namespace"
+            )
+        if key not in FILTER_CATALOG:  # pragma: no cover - boot gate
+            raise RuntimeError(
+                f"dynamic control {control!r} answers {key!r}, which is not a "
+                "catalogue key"
+            )
+        if key in _CONTROL_KEYS:  # pragma: no cover - boot gate
+            raise RuntimeError(
+                f"dynamic control {control!r} answers key {key!r}, which a static "
+                "family already claims"
+            )
 
 
 _validate()
@@ -2290,6 +2514,12 @@ def bucket(identifier: object) -> Bucket:
             identifier,
             f"bucket id must be a non-empty string, got {identifier!r}",
         )
+    # A dynamic control resolves before the static lookup: its namespace is not
+    # in `_BY_ID` by construction, and its resolver owns both the input rule and
+    # the snapshot check (a keyword outside the alphabet, a fund nobody fetched).
+    dynamic = _DYNAMIC_RESOLVERS.get(identifier.strip().split(":", 1)[0].casefold())
+    if dynamic is not None:
+        return dynamic(identifier.strip())
     found = _BY_ID.get(identifier.strip().casefold())
     if found is None:
         control = identifier.split(":", 1)[0].casefold()
@@ -2381,6 +2611,9 @@ __all__ = [
     "BucketError",
     "CONTROL_KEYS",
     "Context",
+    "DYNAMIC_CONTROLS",
+    "DYNAMIC_KEYS",
+    "InvalidBucketToken",
     "KEYS",
     "NEW_YORK",
     "SESSION_REASON",
@@ -2391,6 +2624,7 @@ __all__ = [
     "bucket",
     "control_for",
     "day",
+    "example_token",
     "for_key",
     "labels_for",
 ]

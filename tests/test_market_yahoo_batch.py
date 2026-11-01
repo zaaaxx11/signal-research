@@ -221,10 +221,20 @@ def build_source(
 def test_batch_map_keeps_the_benchmark_keys_and_adds_five() -> None:
     module = load_module()
     mapping = module.YAHOO_BATCH_MAP
-    assert len(mapping) == len(BENCHMARK_MAP) + len(NEW_MAP) == 32
+    # 27 benchmark keys + the five the probe found (E1) + the four extended-session
+    # keys (`ah_close`/`ah_change` read two of them; the absolute change and the
+    # print time travel with the same response and cost no extra request).
+    assert len(mapping) == len(BENCHMARK_MAP) + len(NEW_MAP) + 4 == 36
     for source, key in BENCHMARK_MAP.items():
         assert mapping.get(source) == key
     for source, key in NEW_MAP.items():
+        assert mapping.get(source) == key
+    for source, key in {
+        "postMarketPrice": "post_market_price",
+        "postMarketChange": "post_market_change",
+        "postMarketChangePercent": "post_market_change_pct",
+        "postMarketTime": "post_market_time",
+    }.items():
         assert mapping.get(source) == key
 
 

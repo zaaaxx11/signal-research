@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "note": "Which filter features need a paid plan. This file is the policy: edit it, never the code. A feature set to 'free' (or removed from 'features', which falls back to 'default') is answered to every caller on the next request, with no rebuild. 'premium' features are built and shipped — gated, not refused. api_keys stores 'sha256:<hex>' fingerprints, never a key.",
+  "default": "free",
+  "features": {
+    "ah_close": "premium",
+    "ah_change": "premium",
+    "news_keywords": "premium",
+    "etf_heldby": "premium",
+    "sh_trades": "premium"
+  },
+  "api_keys": {}
+}

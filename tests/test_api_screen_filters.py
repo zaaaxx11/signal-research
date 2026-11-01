@@ -82,7 +82,7 @@ async def test_get_screens_filters_serves_the_five_tabs(
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
 
-    assert body["schema_version"] == "screener-2"
+    assert body["schema_version"] == "screener-3"
     assert [(group["id"], len(group["controls"])) for group in body["groups"]] == [
         ("descriptive", 25),
         ("fundamental", 37),

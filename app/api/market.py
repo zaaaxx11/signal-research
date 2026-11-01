@@ -368,6 +368,11 @@ def _document(tick: QuoteTick) -> dict[str, Any]:
         "volume": tick.volume,
         "direction": tick.direction.value,
         "velocity": tick.velocity,
+        # The extended session, when the provider published a print for it. A
+        # ``null`` here means "no post-market price" (a regular session), never
+        # "unchanged" — the same rule the screener's `ah_close` bucket reads.
+        "post_market_price": tick.post_market_price,
+        "post_market_change_pct": tick.post_market_change_pct,
         "ts_exchange": tick.ts_exchange.isoformat(),
         "ts_received": tick.ts_received.isoformat(),
         "source": tick.source,
