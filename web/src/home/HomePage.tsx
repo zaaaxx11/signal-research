@@ -31,6 +31,7 @@ import { blockState } from "./home";
 import { useHome } from "./useHome";
 import { BreadthTiles } from "./blocks/BreadthTiles";
 import { HomeFooter } from "./blocks/HomeFooter";
+import { HeadlineTicker } from "./blocks/HeadlineTicker";
 import { IndexStrip } from "./blocks/IndexStrip";
 import { InsiderStrip } from "./blocks/InsiderStrip";
 import { MapBlock } from "./blocks/MapBlock";
@@ -96,6 +97,8 @@ export function HomePage() {
         aria-busy={status === "loading" ? "true" : undefined}
         className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-12"
       >
+        <HeadlineTicker state={state.news} news={report?.news ?? null} />
+
         <IndexStrip
           indicesState={state.indices}
           indices={report?.indices ?? null}

@@ -303,3 +303,43 @@ body {
     background-color 120ms ease-out,
     color 120ms ease-out;
 }
+
+/* ---------------------------------------------------------------------------
+ * The ticker: the day's headlines, sliding
+ *
+ * The track holds the stories twice and moves by exactly half its width, so the
+ * moment the first copy leaves, the second is where the first began — the loop
+ * has no seam and no JavaScript. Duration comes from the component as a custom
+ * property (a longer list gets more seconds).
+ *
+ * Hovering or focusing pauses it: a reader who reached for a headline should not
+ * have it slide out from under the pointer. `prefers-reduced-motion` removes the
+ * animation and hands the row back as a normal horizontal scroll, which is the
+ * same information without the movement.
+ */
+@keyframes zt-ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.zt-ticker {
+  animation: zt-ticker-scroll var(--zt-ticker-duration, 40s) linear infinite;
+}
+
+[data-testid="home-ticker"]:hover .zt-ticker,
+[data-testid="home-ticker"]:focus-within .zt-ticker {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zt-ticker {
+    animation: none !important;
+  }
+  [data-testid="home-ticker"] {
+    overflow-x: auto;
+  }
+}
