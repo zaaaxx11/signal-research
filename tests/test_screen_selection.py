@@ -68,7 +68,13 @@ from app.screen.selection import (
     select_rows,
 )
 from app.screen.snapshot import DISPLAY_ROWS, display_row
-from app.screen.universe import DERIVED_FIELDS, PARITY_FIELDS, REGIONS, build_universe
+from app.screen.universe import (
+    DEPTH_FIELDS,
+    DERIVED_FIELDS,
+    PARITY_FIELDS,
+    REGIONS,
+    build_universe,
+)
 from tests import _screen as S
 
 FIXTURE = S.FIXTURES / "selection_request.json"
@@ -136,15 +142,16 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 51, (
-        "seven light columns, the twenty-nine parity metrics a bulk scan copies "
-        "and whose columns are really filled, the three derived columns computed "
-        "from those cells, the three fundamentals joined from the snapshot store, "
-        "the two ratios computed from that snapshot, the three short/ownership "
-        "cells joined from the facts store, the three option-driven keys, and the "
-        "index key, which filters through its membership buckets (no column)"
+    assert len(mapped_keys()) == 70, (
+        "seven light columns, the parity metrics a bulk scan copies, the three "
+        "derived columns computed from those cells, the three fundamentals joined "
+        "from the snapshot store, the two ratios computed from that snapshot, the "
+        "three short/ownership cells joined from the facts store, the three "
+        "option-driven keys, and the nineteen keys whose cells arrive from the "
+        "depth overlay (app.screen.universe.DEPTH_FIELDS) and answer their bucket "
+        "vocabulary rather than one column"
     )
-    assert len(unavailable_keys()) == 31
+    assert len(unavailable_keys()) == 12
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -164,11 +171,19 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
     joined = {key: field for key, field in beyond_light.items() if key in FUNDAMENTALS_FILTER_KEYS}
     facts = {key: field for key, field in beyond_light.items() if key in FACTS_FILTER_KEYS}
     derived = {key: field for key, field in beyond_light.items() if field in DERIVED_FIELDS}
+    depth = {
+        key: field
+        for key, field in beyond_light.items()
+        if field in DEPTH_FIELDS
+    }
     parity = {
         key: field
         for key, field in beyond_light.items()
-        if key not in derived and key not in joined and key not in facts
+        if key not in derived and key not in joined and key not in facts and key not in depth
     }
+    assert depth == {"fa_ltdebteq": "lt_debt_to_equity"}, (
+        "the one depth cell that also has a numeric field (T20)"
+    )
     assert len(parity) == 29
     assert set(parity.values()) <= set(PARITY_FIELDS.values()), (
         "every copied key must point at a provider column the parity scan requests; "
@@ -235,7 +250,10 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
         "idx filters a membership bucket now (app.screen.index_membership); a "
         "refusal here would be a stale disposition"
     )
-    assert "dividend" in (reason_for("fa_divgrowth") or "")
+    assert reason_for("fa_divgrowth") is None, (
+        "dividend growth reads the depth store's 1y/3y/5y cells now"
+    )
+    assert "keyword" in (reason_for("news_keywords") or "")
     for key in ("ta_perf", "ta_perf2", "ta_volatility"):
         assert reason_for(key) is None, (
             f"{key} filters through its option tokens now (app.screen.choice_filters); "
@@ -542,10 +560,10 @@ def test_an_operator_that_cannot_apply_to_the_kind_is_rejected() -> None:
 
 def test_an_unavailable_key_is_a_422_that_names_it() -> None:
     with pytest.raises(SelectionError) as caught:
-        parse_selection(criteria({"key": "fa_divgrowth", "op": "lte", "value": 10}))
+        parse_selection(criteria({"key": "ta_pattern", "op": "eq", "value": "wedge"}))
     assert caught.value.code == "unavailable_filter_key"
     message = str(caught.value)
-    assert "fa_divgrowth" in message and "Dividend Growth" in message
+    assert "ta_pattern" in message and "Pattern" in message
     assert "cannot be applied" in message
 
 

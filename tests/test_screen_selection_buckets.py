@@ -215,7 +215,7 @@ def test_every_bucket_key_publishes_the_flag() -> None:
     for key in buckets.KEYS:
         assert binding(key).bucket is True, key
     # The flag does not leak onto keys with no vocabulary of their own.
-    for key in ("fa_pe", "ta_rsi", "exch", "sh_curvol"):
+    for key in ("exch", "sh_curvol", "ta_perf"):
         assert binding(key).bucket is False, key
 
 

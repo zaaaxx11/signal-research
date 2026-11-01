@@ -91,6 +91,7 @@ P11H: dict[str, tuple[str, ...]] = {
         "ret_6m",
         "ret_ytd",
         "ret_1y",
+        "ret_3y",
         "ret_5y",
         "ret_10y",
     ),
@@ -102,6 +103,7 @@ P11H: dict[str, tuple[str, ...]] = {
         "ret_6m",
         "ret_ytd",
         "ret_1y",
+        "ret_3y",
         "ret_5y",
         "ret_10y",
     ),
@@ -136,12 +138,14 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_fifty_one_available_and_thirty_one_refused() -> None:
-    # 51 = 47 single-column keys + 3 option-driven keys + ``idx``, which is a
-    # bucket-only key: Finviz's four index lists are membership tests, not a
-    # column a scan carries (app.screen.index_membership).
-    assert len(mapped_keys()) == 51
-    assert len(unavailable_keys()) == 31
+def test_the_disposition_is_seventy_available_and_twelve_refused() -> None:
+    # 70 = 48 single-column keys + 3 option-driven keys + 19 bucket-only keys.
+    # The bucket-only set is the technical/fundamental vocabulary whose cells
+    # arrive from the depth overlay under catalogue names
+    # (app.screen.universe.DEPTH_FIELDS), so those keys answer tokens and no
+    # single column — the same shape ``idx`` has had since T6.
+    assert len(mapped_keys()) == 70
+    assert len(unavailable_keys()) == 12
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
@@ -189,21 +193,36 @@ def test_the_index_key_is_a_bucket_and_not_a_column() -> None:
     assert all(item.key == "idx" for item in family)
 
 
+#: The twelve keys this deployment still refuses, and why each one is refused.
+#: Every one names a metric nothing in the deployment measures — no theme
+#: taxonomy, no IPO dates, no print count, no optionable flag, a withdrawn
+#: insider flow, no 20-day window, no pattern engine, no after-hours session, no
+#: article corpus, no fund holdings.
+STILL_REFUSED: dict[str, str] = {
+    "theme": "theme",
+    "subtheme": "theme/sub-theme",
+    "ipodate": "ipo_date",
+    "sh_trades": "trade-count",
+    "sh_opt": "optionable",
+    "sh_insidertrans": "mixture of ownership levels and junk",
+    "ta_highlow20d": "20-day",
+    "ta_pattern": "chart-pattern",
+    "ah_close": "after-hours",
+    "ah_change": "after-hours",
+    "news_keywords": "keyword",
+    "etf_heldby": "ETF holdings",
+}
+
+
 def test_only_the_declared_keys_left_the_refusal_list() -> None:
     """No other key became available by accident."""
 
     moved = set(P11B) | set(P11G) | set(P11H) | set(P11I) | set(P11J)
-    mapped = (
-        set(mapped_keys()) - set(P11H) - set(P11B) - set(P11G) - set(P11I) - set(P11J)
-    )
-    assert len(mapped) == 37, (
-        "the P7 disposition of 36 single-column keys stands, plus ``idx``, which "
-        "is available through a bucket and no column at all"
-    )
+    assert moved.isdisjoint(unavailable_keys())
     refused = set(unavailable_keys())
-    assert moved.isdisjoint(refused)
-    # One more than the P11 moves: ``idx`` left the refusal list into a bucket.
-    assert len(refused) == 46 - len(moved) - 1 == 31
+    assert refused == set(STILL_REFUSED), "the twelve refusals are exactly the twelve"
+    for key, fragment in STILL_REFUSED.items():
+        assert fragment in (reason_for(key) or ""), key
 
 
 def test_the_three_fact_keys_point_at_columns_the_join_really_writes() -> None:
@@ -260,6 +279,7 @@ def test_a_real_row_carries_every_choice_column(key: str) -> None:
         "Perf.6M": 4.0,
         "Perf.YTD": 5.0,
         "Perf.Y": 6.0,
+        "Perf.3Y": 9.0,
         "Perf.5Y": 7.0,
         "Perf.10Y": 8.0,
         "Volatility.W": 2.5,
@@ -373,9 +393,10 @@ def test_the_published_choice_options_are_the_compiled_predicates() -> None:
     assert published["ta_volatility"]["choice"]["options"]["mo15"] == (
         "volatility_m gte 15.0"
     )
-    unsupported = published["ta_perf"]["choice"]["unsupported"]
-    assert set(unsupported) == {"3y"}, "the one window no row carries"
-    assert "ret_3y" in unsupported["3y"]
+    assert published["ta_perf"]["choice"]["unsupported"] == {}, (
+        "ret_3y is a parity column: every window compiles"
+    )
+    assert published["ta_perf"]["choice"]["options"]["3y10u"] == "ret_3y lte -10.0"
 
 
 def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> None:
@@ -394,11 +415,9 @@ def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> Non
             f"{key} filters through its option tokens now (app.screen.choice_filters); "
             "a refusal here would be a stale disposition"
         )
-    # The one window the row cannot answer is refused per token, by name.
-    unsupported: dict[str, str] = choice_filters.describe("ta_perf")["unsupported"]  # type: ignore[assignment]
-    assert "ret_3y" in unsupported["3y"]
-    with pytest.raises(choice_filters.UnsupportedChoiceOption):
-        choice_filters.compile_option("ta_perf", "3y10u")
+    # Every window has a column: the per-token refusal has no customer today.
+    assert choice_filters.describe("ta_perf")["unsupported"] == {}  # type: ignore[comparison-overlap]
+    assert choice_filters.compile_option("ta_perf", "3y10u").field == "ret_3y"
     for key, reason in UNAVAILABLE.items():
         assert reason.strip(), f"{key} needs a non-empty reason"
         assert len(reason) > 20, f"{key}'s reason is too short to be useful: {reason!r}"

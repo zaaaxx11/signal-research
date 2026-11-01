@@ -89,7 +89,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -127,6 +126,25 @@ FMP_TEMPLATE = "https://images.financialmodelingprep.com/symbol/{symbol}.png"
 #: fail (``logo.clearbit.com``, no A record) is not in it: a dead rung costs a
 #: timeout on every uncached symbol and buys nothing.
 PROVIDER_ORDER: tuple[str, ...] = ("parqet", "fmp", "google")
+
+#: The RFC 3986 unreserved set: a ticker never needs anything else escaped, and
+#: ``urllib.parse`` is a **legacy transport** this tree may not import
+#: (``tests/test_import_direction.py``). Encoding a path segment is not a
+#: transport, so the eight lines live here rather than pulling a banned module
+#: in for one call.
+_UNRESERVED = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
+
+
+def _quote(text: str) -> str:
+    """``text`` percent-encoded as one URL path segment (UTF-8 bytes)."""
+
+    return "".join(
+        chr(byte) if chr(byte) in _UNRESERVED else f"%{byte:02X}"
+        for byte in text.encode("utf-8")
+    )
+
 
 #: How many seconds one uncached symbol may spend across the whole ladder. A
 #: provider that is up answers in ~50-600 ms; a provider that is down must cost
@@ -321,12 +339,12 @@ def provider_urls(symbol: str, domain: str | None) -> list[tuple[str, str]]:
     for provider in PROVIDER_ORDER:
         if provider == "parqet":
             urls.extend(
-                ("parqet", PARQET_TEMPLATE.format(symbol=quote(variant, safe="")))
+                ("parqet", PARQET_TEMPLATE.format(symbol=_quote(variant)))
                 for variant in symbol_variants(symbol)
             )
         elif provider == "fmp":
             urls.extend(
-                ("fmp", FMP_TEMPLATE.format(symbol=quote(variant, safe="")))
+                ("fmp", FMP_TEMPLATE.format(symbol=_quote(variant)))
                 for variant in symbol_variants(symbol)
             )
         elif provider == "google" and domain:

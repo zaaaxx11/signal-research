@@ -21,8 +21,7 @@ The window prefix picks the row column:
 * ``d`` → ``change_pct`` — the current session;
 * ``1w`` → ``ret_1w``, ``4w`` → ``ret_1m``, ``13w`` → ``ret_3m``,
   ``26w`` → ``ret_6m``, ``ytd`` → ``ret_ytd``, ``52w`` → ``ret_1y``;
-* ``5y`` → ``ret_5y`` and ``10y`` → ``ret_10y``;
-* ``3y`` → **no column**: refused by name, see below.
+* ``5y`` → ``ret_5y`` and ``10y`` → ``ret_10y``, and ``3y`` → ``ret_3y``.
 
 ``4w``/``13w``/``26w``/``52w`` are Finviz's week spellings of the groups its own
 dropdown labels Month, Quarter, Half Year and Year, and ``ret_1m``/``ret_3m``/
@@ -60,13 +59,11 @@ What is not invented
   :data:`app.screen.filters.FIELDS` that a parity row really carries, and the
   boot gate below checks it against :data:`app.screen.universe.CARRIED_FIELDS`.
   The module never computes a return of its own.
-* **One window has no column, and says so.** No screen row carries a three-year
-  return: the parity scan requests ``Perf.W``/``1M``/``3M``/``6M``/``YTD``/
-  ``Y``/``5Y``/``10Y`` (``ret_1w`` … ``ret_10y``), while ``ret_3y`` exists only
-  on the deep/quote path. Every ``3y…`` token is therefore an
-  :class:`UnsupportedChoiceOption` that names the missing column and the nine
-  windows that do compile. Approximating ``3ydown`` from ``ret_1y``/``ret_5y``
-  would be a fabricated bucket — the expensive kind of wrong for a screen.
+* **No window is approximated from another.** Every ``3y…`` token reads
+  ``ret_3y``; before this column was wired every one of them was refused. A
+  token whose window genuinely has no column is an
+  :class:`UnsupportedChoiceOption` that names the missing column and the windows
+  that do compile — the mechanism stays, it simply has no customer today.
 * **No control token is a filter.** ``""`` (the panel's empty value), ``modal``
   and ``modal_intraday`` are UI controls the probe recorded, not buckets.
 
@@ -146,15 +143,10 @@ class ChoiceSpec:
         )
 
 
-#: The three-year window is in Finviz's dropdown and in no screen row. Naming the
-#: column that would answer it (``ret_3y``, deep/quote path) keeps the refusal
-#: actionable instead of "not supported".
-_NO_THREE_YEAR = (
-    "no screen row carries a three-year return: the parity scan requests "
-    "Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists "
-    "only on the deep/quote path"
-)
-
+#: ``3y`` used to be refused on a false premise ("no screen row carries a
+#: three-year return"): ``ret_3y`` is in ``PARITY_FIELDS`` (``Perf.3Y``) and the
+#: parity row carries it on 5,573 of 5,576 rows (99.95 %). The window reads that
+#: column like every other one, and the refusal is gone rather than reworded.
 PERFORMANCE_WINDOWS: tuple[Window, ...] = (
     Window("d", "today", "change_pct"),
     Window("1w", "week", "ret_1w"),
@@ -163,7 +155,7 @@ PERFORMANCE_WINDOWS: tuple[Window, ...] = (
     Window("26w", "half-year", "ret_6m"),
     Window("ytd", "year-to-date", "ret_ytd"),
     Window("52w", "year", "ret_1y"),
-    Window("3y", "3-year", None, _NO_THREE_YEAR),
+    Window("3y", "3-year", "ret_3y"),
     Window("5y", "5-year", "ret_5y"),
     Window("10y", "10-year", "ret_10y"),
 )

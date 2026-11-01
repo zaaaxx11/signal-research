@@ -130,8 +130,7 @@ from app.auth import ApiError, owner_fingerprint
 from app.branding import logo_for
 from app.export.manifest import file_sha256
 from app.runtime import Runtime
-from app.screen import descriptive
-from app.screen import index_membership
+from app.screen import buckets, descriptive, index_membership
 from app.screen.export import (
     DATA_FORMATS,
     EXPORT_FORMATS,
@@ -399,6 +398,7 @@ def _data_revision(
     facts: str,
     brand: str,
     members: str,
+    clock: str = "-",
     answer: str | None = None,
 ) -> str:
     """Every input that can change the body, in one auditable line.
@@ -437,6 +437,13 @@ def _data_revision(
     * ``fund=`` / ``facts=`` — the two joins (:func:`_store_identity`).
     * ``logo=`` — the vendored brand set (:func:`_brand_identity`).
     * ``members=`` — the index-membership snapshot (:func:`_membership_identity`).
+    * ``clock=`` — the **New York date** of the answer's own read moment. A
+      ``today``/``yesterday``/``after-the-close`` bucket reads a calendar, so two
+      requests on either side of midnight are two answers and must be two tags.
+      Without this line a warm tag could ``304`` a request whose ``earn:today``
+      now means a different day — the hole ``as_of`` alone could not close,
+      because ``as_of`` is deliberately outside the revision (it moves every
+      request, and a tag that moves every request never matches).
     * ``answer=`` — present **only for ``fill_wide``**, whose cells are live
       page fetches that no store revision can name. That mode keeps the old
       behaviour exactly: build, digest the answer, compare afterwards.
@@ -454,6 +461,7 @@ def _data_revision(
         f";facts={facts}"
         f";logo={brand}"
         f";members={members}"
+        f";clock={clock}"
     )
     if answer is not None:
         line += f";answer={answer}"
@@ -1082,11 +1090,11 @@ async def filters(request: Request) -> Response:
     range again — the F1 bug class, where the panel and the server disagreed
     about a vocabulary.
 
-    It is built from memory (~2 ms: the catalogue, the bucket registry, the
-    vendored labels and the membership snapshot; no scan, no store, no join),
-    so unlike ``/screens/select`` it may hash its own **body**. The tag is
-    therefore strong: the bytes are a pure function of the inputs, and there is
-    no read clock in the document to weaken it. A ``304`` carries no body and
+    It is built from memory (single-digit milliseconds: the catalogue, the
+    bucket registry, the vendored labels and the membership snapshot; no scan,
+    no store, no join), so unlike ``/screens/select`` it may hash its own
+    **body**. The tag is therefore strong: the bytes are a pure function of the
+    inputs, and there is no read clock in the document to weaken it. A ``304`` carries no body and
     revalidation costs one encode + one sha256.
 
     Availability is a runtime fact, re-read on every call: remove the
@@ -1214,6 +1222,14 @@ async def select(request: Request) -> Any:
     # against the 744 ms the build used to cost before the tag could be
     # compared. `depth` is read below, after the fast path has had its chance,
     # so a `304` never parses the 11.7 MB store.
+    #
+    # The read moment is taken here, once, because the revision needs its New
+    # York date *and* the answer is dated with it: two clocks would let a
+    # `today` bucket and the tag it was revalidated under disagree.
+    moment = datetime.now(UTC).isoformat(timespec="microseconds")
+    clock_day = (
+        datetime.fromisoformat(moment).astimezone(buckets.NEW_YORK).date().isoformat()
+    )
     cache = _scan_cache(request)
     plan = _scan_plan(selection=selection, region=region, family=family, source=source)
     depth_revision = _depth_identity()
@@ -1236,6 +1252,7 @@ async def select(request: Request) -> Any:
             facts=facts_revision,
             brand=brand_revision,
             members=membership_revision,
+            clock=clock_day,
             answer=answer,
         )
 
@@ -1315,7 +1332,6 @@ async def select(request: Request) -> Any:
     # prevent.
     universe = index_membership.enrich_rows(universe)
 
-    moment = datetime.now(UTC).isoformat(timespec="microseconds")
     answer = select_rows(
         universe,
         selection,

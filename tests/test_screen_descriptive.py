@@ -147,10 +147,13 @@ def probe_options(key: str) -> list[str]:
     return [value for value in values if value and value not in ("frange", "modal")]
 
 
-def controls() -> dict[str, dict[str, Any]]:
+def descriptive_group() -> dict[str, Any]:
     document = descriptive.document()
-    (group,) = document["groups"]
-    return {control["id"]: control for control in group["controls"]}
+    return next(group for group in document["groups"] if group["id"] == "descriptive")
+
+
+def controls() -> dict[str, dict[str, Any]]:
+    return {control["id"]: control for control in descriptive_group()["controls"]}
 
 
 # ---------------------------------------------------------------------------
@@ -158,11 +161,24 @@ def controls() -> dict[str, dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_document_is_one_group_of_twenty_five_controls() -> None:
+def test_the_document_serves_five_tabs_and_descriptive_keeps_its_twenty_five() -> None:
     document = descriptive.document()
 
-    assert document["schema_version"] == "descriptive-1"
-    assert [group["id"] for group in document["groups"]] == ["descriptive"]
+    assert document["schema_version"] == "finviz-2"
+    assert [group["id"] for group in document["groups"]] == [
+        "descriptive",
+        "fundamental",
+        "technical",
+        "news",
+        "etf",
+    ]
+    assert {group["id"]: len(group["controls"]) for group in document["groups"]} == {
+        "descriptive": 25,
+        "fundamental": 37,
+        "technical": 20,
+        "news": 2,
+        "etf": 1,
+    }
     group = document["groups"][0]
     assert group["label"] == "Descriptive"
     assert tuple(control["id"] for control in group["controls"]) == CONTROL_IDS

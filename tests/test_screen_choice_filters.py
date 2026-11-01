@@ -16,9 +16,9 @@ What this module pins, and why each claim needs a test:
   ``tests/fixtures/finviz_filters.json`` compiles or is refused by name, and a
   token outside it (``v2``, ``1w15u``, the panel's ``""``/``modal``) is a 422
   with its own code instead of being rounded to a neighbouring bucket;
-* **the 3-year window is refused, not approximated** — no screen row carries a
-  three-year return, so every ``3y…`` token names the missing ``ret_3y`` column
-  and the nine windows that do compile;
+* **the 3-year window reads ``ret_3y``** — the parity row carries that column
+  (5,573 of 5,576), so ``3y…`` tokens compile like every other window instead
+  of being refused on a premise that was never true;
 * **the executor behaves** — a null cell matches no bucket, ``0`` is neither up
   nor down, thresholds are inclusive, ``total`` counts every match, and the
   response echoes both the Finviz key and the predicate it compiled to;
@@ -54,7 +54,7 @@ from app.screen.filter_fields import (
     choice_keys,
     field_for,
 )
-from app.screen.filters import FIELDS, FILTER_CATALOG, parse_filters
+from app.screen.filters import FIELDS, FILTER_CATALOG, Filter, parse_filters
 from app.screen.selection import (
     SELECTION_REQUEST_SCHEMA,
     SelectionError,
@@ -70,8 +70,7 @@ AS_OF = "2026-10-23T12:00:00.000000+00:00"
 #: The three keys this module is about, in panel order.
 KEYS: tuple[str, ...] = ("ta_perf", "ta_perf2", "ta_volatility")
 
-#: Finviz's ten performance windows and the row column each one reads. ``3y`` is
-#: the only window no row carries: ``ret_3y`` lives on the deep/quote path.
+#: Finviz's ten performance windows and the row column each one reads.
 WINDOWS: dict[str, str | None] = {
     "d": "change_pct",
     "1w": "ret_1w",
@@ -80,7 +79,7 @@ WINDOWS: dict[str, str | None] = {
     "26w": "ret_6m",
     "ytd": "ret_ytd",
     "52w": "ret_1y",
-    "3y": None,
+    "3y": "ret_3y",
     "5y": "ret_5y",
     "10y": "ret_10y",
 }
@@ -209,13 +208,11 @@ def test_the_three_keys_are_the_only_option_driven_keys() -> None:
     assert set(CHOICE_KEYS) == set(choice_filters.CHOICES)
 
 
-def test_the_performance_windows_are_finviz_ten_with_one_column_missing() -> None:
+def test_the_performance_windows_are_finviz_ten_and_all_carried() -> None:
     windows = {window.token: window.field for window in choice_filters.PERFORMANCE_WINDOWS}
     assert windows == WINDOWS
     assert list(windows) == ["d", "1w", "4w", "13w", "26w", "ytd", "52w", "3y", "5y", "10y"]
-    assert [window.token for window in choice_filters.PERFORMANCE_WINDOWS if not window.is_carried] == [
-        "3y"
-    ], "the 3-year window is the only one the row cannot answer"
+    assert [window.token for window in choice_filters.PERFORMANCE_WINDOWS if not window.is_carried] == []
     assert fields_for("ta_perf") == tuple(
         field for field in WINDOWS.values() if field is not None
     )
@@ -329,31 +326,17 @@ def test_every_volatility_token_is_a_gte_threshold_on_its_own_column() -> None:
     assert not choice_filters.unsupported_for("ta_volatility"), "both windows have a column"
 
 
-def test_the_three_year_window_is_refused_by_name_not_approximated() -> None:
-    refused = choice_filters.unsupported_for("ta_perf")
-    assert set(refused) == {token for token in options_for("ta_perf") if token.startswith("3y")}
-    assert len(refused) == 17, "the probe's 3y tokens: 90u…10u, down, up, 10o…1000o"
-    for token, reason in refused.items():
-        with pytest.raises(UnsupportedChoiceOption) as caught:
-            compile_option("ta_perf", token)
-        assert caught.value.code == "unsupported_filter_option"
-        assert token in str(caught.value)
-        assert "3-year" in str(caught.value)
-        assert "ret_3y" in str(caught.value), "the refusal names the column that would answer it"
-        assert "5y" in str(caught.value), "and the windows that do compile"
-        assert reason == str(caught.value)
-
-
-def test_no_compiled_predicate_pretends_to_be_a_three_year_return() -> None:
-    """A 3-year bucket must not land on ``ret_1y`` or ``ret_5y`` by accident."""
-
-    for token, compiled in choice_filters.choices_for("ta_perf").items():
-        if token.startswith("3y"):
-            raise AssertionError(f"{token} compiled to {compiled}; the 3y window has no column")
-    assert all(
-        compiled.field != "ret_3y"
-        for compiled in choice_filters.choices_for("ta_perf").values()
-    ), "ret_3y is not a screen column; a predicate may not name it"
+def test_every_three_year_token_reads_ret_3y_and_nothing_is_refused() -> None:
+    tokens = [token for token in options_for("ta_perf") if token.startswith("3y")]
+    assert len(tokens) == 17, "the probe's 3y tokens: 90u…10u, down, up, 10o…1000o"
+    assert choice_filters.unsupported_for("ta_perf") == {}
+    for key in ("ta_perf", "ta_perf2"):
+        for token in tokens:
+            compiled = compile_option(key, token)
+            assert compiled.field == "ret_3y", (key, token)
+    assert compile_option("ta_perf", "3yup") == Filter(field="ret_3y", op="gt", value=0.0)
+    assert compile_option("ta_perf", "3y10u").value == -10.0
+    assert compile_option("ta_perf", "3y1000o").value == 1000.0
 
 
 # ---------------------------------------------------------------------------
@@ -451,12 +434,11 @@ def test_an_unknown_option_reaches_the_validator_as_its_own_code() -> None:
     assert "wo11" in str(caught.value)
 
 
-def test_a_three_year_option_reaches_the_validator_as_unsupported() -> None:
-    with pytest.raises(SelectionError) as caught:
-        parse_selection(criteria({"key": "ta_perf2", "op": "eq", "value": "3ydown"}))
-    assert caught.value.code == "unsupported_filter_option"
-    assert caught.value.status_code == 422
-    assert "ret_3y" in str(caught.value)
+def test_a_three_year_option_reaches_the_validator_as_a_predicate() -> None:
+    parsed = parse_selection(criteria({"key": "ta_perf2", "op": "eq", "value": "3ydown"}))
+    assert parsed.filters[0].field == "ret_3y"
+    assert parsed.filters[0].op == "lt"
+    assert parsed.filters[0].value == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -626,13 +608,13 @@ def test_the_schema_publishes_the_choice_codes_vocabulary_and_counts() -> None:
     chosen = [key for key, entry in published.items() if "choice" in entry]
     assert chosen == list(KEYS)
     mapped = [key for key, entry in published.items() if entry["field"] is not None]
-    assert len(mapped) == 47
+    assert len(mapped) == 48
     refused = [
         key
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry
     ]
-    assert len(refused) == 32
+    assert len(refused) == 31, "19 bucket-only keys and the 12 refusals"
     assert len(mapped) + len(chosen) + len(refused) == 82
 
     definitions: dict[str, Any] = dict(SELECTION_REQUEST_SCHEMA["$defs"])  # type: ignore[arg-type]
@@ -693,18 +675,17 @@ async def test_the_api_refuses_an_unknown_option_with_a_switchable_code(
     assert "v2" in error["errorMessage"]
 
 
-async def test_the_api_refuses_the_three_year_window_by_name(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+async def test_the_api_answers_the_three_year_window(tmp_path: Path, monkeypatch: Any) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
         response = await harness.client.post(
             "/screens/select", json=api_body({"key": "ta_perf2", "op": "eq", "value": "3y10u"})
         )
 
-    assert response.status_code == 422, response.text
-    error = error_envelope(response)
-    assert error["error"] == "unsupported_filter_option"
-    assert "ret_3y" in error["errorMessage"]
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["filters"] == [
+        {"key": "ta_perf2", "field": "ret_3y", "op": "lte", "value": -10.0}
+    ]
 
 
 async def test_the_api_refuses_a_choice_key_with_a_numeric_operator(
@@ -731,7 +712,7 @@ async def test_the_schema_route_serves_the_option_vocabulary(
     served = response.json()
     choice = served["x-filter-keys"]["ta_volatility"]["choice"]
     assert choice["options"]["mo15"] == "volatility_m gte 15.0"
-    assert served["x-filter-keys"]["ta_perf"]["choice"]["unsupported"].keys() == {"3y"}
+    assert served["x-filter-keys"]["ta_perf"]["choice"]["unsupported"] == {}
     assert served["x-filter-keys"]["ta_perf"]["choice"]["options"]["1w10u"] == (
         "ret_1w lte -10.0"
     )

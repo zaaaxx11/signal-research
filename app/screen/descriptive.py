@@ -31,9 +31,11 @@ screen layer, and importing the HTTP layer from it would invert the dependency.
 
 The document
 ------------
-``GET /screens/filters`` serves :func:`document`: Finviz's 25 Descriptive
-controls, each with its options, whether it can run **today**, why not when it
-cannot, and the predicate every option compiles to. Eleven of them compile
+``GET /screens/filters`` serves :func:`document`: Finviz's five filter tabs —
+the 25 Descriptive controls this module opens with, then the 37 Fundamental, 20
+Technical, 2 News and 1 ETF keys the catalogue has always carried — each with
+its options, whether it can run **today**, why not when it cannot, and the
+predicate every option compiles to. Eleven of them compile
 through :mod:`app.screen.buckets` (the predicate *is* the bucket's audit line),
 one through the exchange value vocabulary, one through the order vocabulary, one
 through the signals above, two are free text, and the rest are published
@@ -64,8 +66,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
 
-from app.screen import buckets, index_membership
-from app.screen.filters import VALUE_ALIASES
+from app.screen import buckets, choice_filters, index_membership
+from app.screen.filters import FILTER_CATALOG, VALUE_ALIASES
 
 
 def _number(value: Any) -> float | None:
@@ -614,7 +616,18 @@ def default_sort(item: Signal) -> str:
 #   a select of Finviz labels would return empty pages.
 
 #: The version a client keys its cache on. A shape change moves it.
-SCHEMA_VERSION = "descriptive-1"
+SCHEMA_VERSION = "finviz-2"
+
+#: The five catalogue tabs, in Finviz's panel order, and the group each becomes.
+TAB_LABELS: Mapping[str, str] = MappingProxyType(
+    {
+        "descriptive": "Descriptive",
+        "fundamental": "Fundamental",
+        "technical": "Technical",
+        "news": "News",
+        "etf": "ETF",
+    }
+)
 
 #: Where the live sector labels come from — the treemap's own route, whose ids
 #: and labels are the ones a *row* carries (the provider's 21-name taxonomy).
@@ -785,16 +798,24 @@ def _disabled_options(
     ``predicate: None``: a value nobody can send must not advertise a filter.
     """
 
+    spec = vendored().get(control_key)
+    if spec is not None:
+        pairs = [(str(option["token"]), str(option["label"])) for option in spec["options"]]
+    else:
+        # The other four tabs' labels live in the full probe extract
+        # (``filter_options.json``); a key with no vocabulary at all
+        # (``etf_heldby``) honestly offers nothing.
+        pairs = list(buckets.labels_for(control_key).items())
     return tuple(
         Option(
-            id=f"{control}:{option['token']}",
-            label=str(option["label"]),
-            finviz=option["token"],
+            id=f"{control}:{token}",
+            label=label,
+            finviz=token,
             predicate=None,
             available=False,
             reason=reason,
         )
-        for option in _probe(control_key)["options"]
+        for token, label in pairs
     )
 
 
@@ -1106,6 +1127,110 @@ def _controls() -> tuple[Control, ...]:
     )
 
 
+# ---------------------------------------------------------------------------
+# The four filter tabs: one control per catalogue key (T24's document half)
+# ---------------------------------------------------------------------------
+#
+# Each key answers exactly one control, in three shapes:
+#
+# * a **bucket** control — the options are bucket ids, and every option carries
+#   the predicate the bucket compiles to (or the reason it cannot);
+# * a **choice** control — the performance/volatility keys, whose token names a
+#   window and a direction; the options carry the compiled `field op value`;
+# * a **disabled** control — a key with no family and no column, drawn with the
+#   probe's own options and the sentence that says what it needs.
+#
+# The tab → key table is read from `FILTER_CATALOG`, never retyped: a key that
+# moved tabs on Finviz's panel moves here, and the 82-key catalogue stays the
+# one source of what exists.
+
+#: tab → the catalogue keys that belong to it, in panel order.
+GROUPS_BY_TAB: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        tab: tuple(key for key, spec in FILTER_CATALOG.items() if spec.tab == tab)
+        for tab in TAB_LABELS
+    }
+)
+
+
+def _choice_control(key: str, label: str) -> Control:
+    """A key whose option vocabulary is the filter: one predicate per token."""
+
+    spec = choice_filters.CHOICES[key]
+    compiled = choice_filters.choices_for(key)
+    unsupported = choice_filters.unsupported_for(key)
+    options: list[Option] = []
+    for token in spec.tokens:
+        if token in compiled:
+            predicate = compiled[token]
+            options.append(
+                Option(
+                    id=token,
+                    label=buckets.labels_for(key)[token],
+                    finviz=token,
+                    predicate=f"{predicate.field} {predicate.op} {predicate.value}",
+                )
+            )
+        else:
+            options.append(
+                Option(
+                    id=token,
+                    label=buckets.labels_for(key)[token],
+                    finviz=token,
+                    predicate=None,
+                    available=False,
+                    reason=unsupported[token],
+                )
+            )
+    return Control(
+        id=key,
+        label=label,
+        key=key,
+        control="choice",
+        form="single",
+        op="eq",
+        options=tuple(options),
+        unit=None,
+    )
+
+
+def _disabled_tab_control(key: str, label: str) -> Control:
+    """A key no layer can answer: keeps its Finviz options, publishes no predicate."""
+
+    reason = _reason(key)
+    return Control(
+        id=key,
+        label=label,
+        key=key,
+        control="select",
+        form="single",
+        op="eq",
+        options=_disabled_options(key, control=key, reason=reason),
+        available=False,
+        reason=reason,
+        status="unavailable",
+    )
+
+
+def _tab_control(key: str) -> Control:
+    """One catalogue key as one control, in the strongest shape it supports."""
+
+    spec = FILTER_CATALOG[key]
+    label = spec.label.replace("\n", " ")
+    if key in choice_filters.CHOICES:
+        return _choice_control(key, label)
+    control = buckets.control_for(key)
+    if control is not None and buckets.for_key(key):
+        return _bucket_control(control, key, label)
+    return _disabled_tab_control(key, label)
+
+
+def _tab_controls(tab: str) -> tuple[Control, ...]:
+    """Every control of ``tab``, in the catalogue's panel order."""
+
+    return tuple(_tab_control(key) for key in GROUPS_BY_TAB[tab])
+
+
 def membership() -> dict[str, Any]:
     """The snapshot block: what ``idx`` can answer today, and its stamp."""
 
@@ -1119,7 +1244,7 @@ def membership() -> dict[str, Any]:
 
 
 def document() -> dict[str, Any]:
-    """The whole Descriptive group as one document — memory only, no scan.
+    """The whole filter document — five tabs — from memory, no scan, no store.
 
     Built from the catalogue, the bucket registry, the vendored labels and the
     membership snapshot; nothing here reads a store or a provider, which is why
@@ -1132,10 +1257,16 @@ def document() -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "groups": [
             {
-                "id": "descriptive",
-                "label": "Descriptive",
-                "controls": [control.as_dict() for control in _controls()],
+                "id": tab,
+                "label": TAB_LABELS[tab],
+                "controls": [
+                    control.as_dict()
+                    for control in (
+                        _controls() if tab == "descriptive" else _tab_controls(tab)
+                    )
+                ],
             }
+            for tab in TAB_LABELS
         ],
         "membership": membership(),
         "options_sources": {
@@ -1255,6 +1386,73 @@ def _validate_document() -> None:
 
 
 _validate_document()
+
+
+def _validate_groups() -> None:
+    """Fail at import: the five tabs cover the 82-key catalogue exactly once.
+
+    The Descriptive group is the 25 published controls above; the four filter
+    tabs are **one control per catalogue key**, so their counts are the
+    catalogue's own (37/20/2/1) and a key that belonged to no tab would be a
+    filter no panel can draw.
+    """
+
+    expected = {tab: len(keys) for tab, keys in GROUPS_BY_TAB.items()}
+    if expected != {
+        "descriptive": 22,
+        "fundamental": 37,
+        "technical": 20,
+        "news": 2,
+        "etf": 1,
+    }:
+        raise RuntimeError(f"the catalogue's tab split moved: {expected}")
+    covered = [
+        key
+        for tab in GROUPS_BY_TAB
+        if tab != "descriptive"
+        for key in GROUPS_BY_TAB[tab]
+    ]
+    expected_keys = set(FILTER_CATALOG) - set(GROUPS_BY_TAB["descriptive"])
+    if sorted(covered) != sorted(expected_keys):
+        raise RuntimeError(
+            "the four filter tabs do not cover the catalogue's 60 non-descriptive "
+            f"keys exactly once: missing={sorted(expected_keys - set(covered))}, "
+            f"extra={sorted(set(covered) - expected_keys)}"
+        )
+
+    for tab in GROUPS_BY_TAB:
+        if tab == "descriptive":
+            continue
+        for control in _tab_controls(tab):
+            if control.key is None:
+                raise RuntimeError(f"filter control {control.id!r} names no key")
+            if control.available:
+                if not control.options:
+                    raise RuntimeError(f"available control {control.id!r} offers nothing")
+                for option in control.options:
+                    if option.available and not option.predicate:
+                        raise RuntimeError(
+                            f"available option {option.id!r} publishes no predicate"
+                        )
+                    if not option.available and not option.reason:
+                        raise RuntimeError(f"disabled option {option.id!r} has no reason")
+            else:
+                if not (control.reason and len(control.reason) > 20):
+                    raise RuntimeError(f"unavailable control {control.id!r} has no reason")
+                if any(option.predicate for option in control.options):
+                    raise RuntimeError(
+                        f"unavailable control {control.id!r} publishes a predicate"
+                    )
+            if control.control == "buckets":
+                family = buckets.for_key(control.key)
+                if len(control.options) != len(family):
+                    raise RuntimeError(
+                        f"bucket control {control.id!r} publishes {len(control.options)} "
+                        f"options for {len(family)} buckets"
+                    )
+
+
+_validate_groups()
 
 
 def _validate() -> None:

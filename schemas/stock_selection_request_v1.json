@@ -119,6 +119,8 @@
         },
         "sort": {
           "enum": [
+            "-all_time_high",
+            "-all_time_low",
             "-atr_14",
             "-aum_usd",
             "-avg_volume_10d",
@@ -128,21 +130,37 @@
             "-change_pct",
             "-current_ratio",
             "-debt_to_equity",
+            "-dividend_growth_1y",
+            "-dividend_growth_3y",
+            "-dividend_growth_5y",
             "-dividend_yield",
             "-earnings_date",
             "-eps_forecast_next_fq",
             "-eps_forecast_next_fy",
+            "-eps_next_5y",
+            "-eps_next_y",
+            "-eps_past_3y",
+            "-eps_past_5y",
+            "-eps_qoq",
+            "-eps_surprise",
+            "-eps_this_y",
+            "-eps_yoy_ttm",
             "-ev_ebitda",
             "-ev_to_sales",
             "-float_shares",
             "-gainers",
             "-gap_pct",
             "-gross_margin",
+            "-high_50d",
             "-high_52w",
             "-insider_own",
+            "-insider_trans",
             "-inst_own",
+            "-inst_trans",
             "-listing_date",
+            "-low_50d",
             "-low_52w",
+            "-lt_debt_to_equity",
             "-market_cap",
             "-market_cap_usd",
             "-oper_margin",
@@ -171,10 +189,15 @@
             "-ret_6m",
             "-ret_ytd",
             "-revenue_forecast_next_fy",
+            "-revenue_surprise",
             "-roa",
             "-roe",
             "-roic",
             "-rsi_14",
+            "-sales_past_3y",
+            "-sales_past_5y",
+            "-sales_qoq",
+            "-sales_yoy_ttm",
             "-shares_outstanding",
             "-short_float",
             "-sma_20",
@@ -187,6 +210,8 @@
             "-volatility_m",
             "-volatility_w",
             "-volume",
+            "all_time_high",
+            "all_time_low",
             "atr_14",
             "aum_usd",
             "avg_volume_10d",
@@ -196,21 +221,37 @@
             "change_pct",
             "current_ratio",
             "debt_to_equity",
+            "dividend_growth_1y",
+            "dividend_growth_3y",
+            "dividend_growth_5y",
             "dividend_yield",
             "earnings_date",
             "eps_forecast_next_fq",
             "eps_forecast_next_fy",
+            "eps_next_5y",
+            "eps_next_y",
+            "eps_past_3y",
+            "eps_past_5y",
+            "eps_qoq",
+            "eps_surprise",
+            "eps_this_y",
+            "eps_yoy_ttm",
             "ev_ebitda",
             "ev_to_sales",
             "float_shares",
             "gainers",
             "gap_pct",
             "gross_margin",
+            "high_50d",
             "high_52w",
             "insider_own",
+            "insider_trans",
             "inst_own",
+            "inst_trans",
             "listing_date",
+            "low_50d",
             "low_52w",
+            "lt_debt_to_equity",
             "market_cap",
             "market_cap_usd",
             "oper_margin",
@@ -239,10 +280,15 @@
             "ret_6m",
             "ret_ytd",
             "revenue_forecast_next_fy",
+            "revenue_surprise",
             "roa",
             "roe",
             "roic",
             "rsi_14",
+            "sales_past_3y",
+            "sales_past_5y",
+            "sales_qoq",
+            "sales_yoy_ttm",
             "shares_outstanding",
             "short_float",
             "sma_20",
@@ -406,10 +452,12 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 47 that resolve to one row column, the 3 that filter through their option vocabulary, the 1 bucket-only key (idx) that filters through a named bucket, and the 31 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 105 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 187 keys a filter may name, and any other key is a 422 that names it."
+          "description": "One of the 82 Finviz filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 19 bucket-only key (idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, news_date) that filters through a named bucket, and the 12 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 128 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 210 keys a filter may name, and any other key is a 422 that names it."
         },
         "field": {
           "enum": [
+            "all_time_high",
+            "all_time_low",
             "atr_14",
             "aum_usd",
             "avg_volume_10d",
@@ -421,23 +469,39 @@
             "currency",
             "current_ratio",
             "debt_to_equity",
+            "dividend_growth_1y",
+            "dividend_growth_3y",
+            "dividend_growth_5y",
             "dividend_yield",
             "earnings_date",
             "eps_forecast_next_fq",
             "eps_forecast_next_fy",
+            "eps_next_5y",
+            "eps_next_y",
+            "eps_past_3y",
+            "eps_past_5y",
+            "eps_qoq",
+            "eps_surprise",
+            "eps_this_y",
+            "eps_yoy_ttm",
             "ev_ebitda",
             "ev_to_sales",
             "exchange",
             "float_shares",
             "gap_pct",
             "gross_margin",
+            "high_50d",
             "high_52w",
             "industry",
             "insider_own",
+            "insider_trans",
             "inst_own",
+            "inst_trans",
             "is_primary",
             "listing_date",
+            "low_50d",
             "low_52w",
+            "lt_debt_to_equity",
             "market_cap_usd",
             "name",
             "oper_margin",
@@ -466,10 +530,15 @@
             "ret_6m",
             "ret_ytd",
             "revenue_forecast_next_fy",
+            "revenue_surprise",
             "roa",
             "roe",
             "roic",
             "rsi_14",
+            "sales_past_3y",
+            "sales_past_5y",
+            "sales_qoq",
+            "sales_yoy_ttm",
             "sector",
             "shares_outstanding",
             "short_float",
@@ -690,223 +759,245 @@
       "label": "P/E",
       "tab": "fundamental",
       "field": "pe_ttm",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_fpe": {
       "label": "Forward P/E",
       "tab": "fundamental",
       "field": "pe_forward",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_peg": {
       "label": "PEG",
       "tab": "fundamental",
       "field": "peg",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_ps": {
       "label": "P/S",
       "tab": "fundamental",
       "field": "ps",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_pb": {
       "label": "P/B",
       "tab": "fundamental",
       "field": "pb",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_pc": {
       "label": "Price/Cash",
       "tab": "fundamental",
       "field": "price_to_cash",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_pfcf": {
       "label": "Price/Free Cash Flow",
       "tab": "fundamental",
       "field": "pfcf",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_evebitda": {
       "label": "EV/EBITDA",
       "tab": "fundamental",
       "field": "ev_ebitda",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_evsales": {
       "label": "EV/Sales",
       "tab": "fundamental",
       "field": "ev_to_sales",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_divgrowth": {
       "label": "Dividend Growth",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a dividend growth rate: the scan carries a dividend yield only (`dividends_yield`), which is not a growth rate"
+      "bucket": true
     },
     "fa_epsyoy": {
       "label": "EPS Growth\nThis Year",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_epsyoy1": {
       "label": "EPS Growth\nNext Year",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_epsqoq": {
       "label": "EPS Growth\nQtr Over Qtr",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_epsyoyttm": {
       "label": "EPS Growth TTM",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_eps3years": {
       "label": "EPS Growth\nPast 3 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_eps5years": {
       "label": "EPS Growth\nPast 5 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_estltgrowth": {
       "label": "EPS Growth\nNext 5 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_salesqoq": {
       "label": "Sales Growth\nQtr Over Qtr",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_salesyoyttm": {
       "label": "Sales Growth TTM",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_sales3years": {
       "label": "Sales Growth\nPast 3 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_sales5years": {
       "label": "Sales Growth\nPast 5 Years",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs a growth-rate column (EPS and sales growth this year, next year, quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue *levels* for the next FY/FQ, and a level is not a growth rate"
+      "bucket": true
     },
     "fa_epsrev": {
       "label": "Earnings & Revenue Surprise",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs an earnings-surprise column: the scan carries no surprise history"
+      "bucket": true
     },
     "fa_roa": {
       "label": "Return on Assets",
       "tab": "fundamental",
       "field": "roa",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_roe": {
       "label": "Return on Equity",
       "tab": "fundamental",
       "field": "roe",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_roi": {
       "label": "Return on Invested Capital",
       "tab": "fundamental",
       "field": "roic",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_curratio": {
       "label": "Current Ratio",
       "tab": "fundamental",
       "field": "current_ratio",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_quickratio": {
       "label": "Quick Ratio",
       "tab": "fundamental",
       "field": "quick_ratio",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_ltdebteq": {
       "label": "LT Debt/Equity",
       "tab": "fundamental",
-      "field": null,
-      "reason": "needs long-term debt separately: the scan carries total debt/equity only"
+      "field": "lt_debt_to_equity",
+      "kind": "number",
+      "bucket": true
     },
     "fa_debteq": {
       "label": "Debt/Equity",
       "tab": "fundamental",
       "field": "debt_to_equity",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_grossmargin": {
       "label": "Gross Margin",
       "tab": "fundamental",
       "field": "gross_margin",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_opermargin": {
       "label": "Operating Margin",
       "tab": "fundamental",
       "field": "oper_margin",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_netmargin": {
       "label": "Net Profit Margin",
       "tab": "fundamental",
       "field": "profit_margin",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_payoutratio": {
       "label": "Payout Ratio",
       "tab": "fundamental",
       "field": "payout_ratio",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_insiderown": {
       "label": "Insider\nOwnership",
       "tab": "fundamental",
       "field": "insider_own",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_insidertrans": {
       "label": "Insider\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs insider and institutional *transaction* flows: the scan carries no transaction column, and holdings are not transactions"
+      "reason": "reads a mixture of ownership levels and junk (TSLA 76.0, META 45.9, GME 8.7): the depth cell exists but is a vendor net-change nobody can read as a flow, so the product withdrew the control by name (app/api/signals.py)"
     },
     "sh_instown": {
       "label": "Institutional\nOwnership",
       "tab": "fundamental",
       "field": "inst_own",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_insttrans": {
       "label": "Institutional\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "needs insider and institutional *transaction* flows: the scan carries no transaction column, and holdings are not transactions"
+      "bucket": true
     },
     "ta_perf": {
       "label": "Performance",
@@ -922,6 +1013,7 @@
           "ret_6m",
           "ret_ytd",
           "ret_1y",
+          "ret_3y",
           "ret_5y",
           "ret_10y"
         ],
@@ -933,7 +1025,7 @@
           "26w": "ret_6m",
           "ytd": "ret_ytd",
           "52w": "ret_1y",
-          "3y": null,
+          "3y": "ret_3y",
           "5y": "ret_5y",
           "10y": "ret_10y"
         },
@@ -1015,6 +1107,23 @@
           "52w200o": "ret_1y gte 200.0",
           "52w300o": "ret_1y gte 300.0",
           "52w500o": "ret_1y gte 500.0",
+          "3y90u": "ret_3y lte -90.0",
+          "3y75u": "ret_3y lte -75.0",
+          "3y50u": "ret_3y lte -50.0",
+          "3y30u": "ret_3y lte -30.0",
+          "3y20u": "ret_3y lte -20.0",
+          "3y10u": "ret_3y lte -10.0",
+          "3ydown": "ret_3y lt 0.0",
+          "3yup": "ret_3y gt 0.0",
+          "3y10o": "ret_3y gte 10.0",
+          "3y20o": "ret_3y gte 20.0",
+          "3y30o": "ret_3y gte 30.0",
+          "3y50o": "ret_3y gte 50.0",
+          "3y100o": "ret_3y gte 100.0",
+          "3y200o": "ret_3y gte 200.0",
+          "3y300o": "ret_3y gte 300.0",
+          "3y500o": "ret_3y gte 500.0",
+          "3y1000o": "ret_3y gte 1000.0",
           "5y90u": "ret_5y lte -90.0",
           "5y75u": "ret_5y lte -75.0",
           "5y50u": "ret_5y lte -50.0",
@@ -1050,9 +1159,7 @@
           "10y500o": "ret_10y gte 500.0",
           "10y1000o": "ret_10y gte 1000.0"
         },
-        "unsupported": {
-          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists only on the deep/quote path"
-        }
+        "unsupported": {}
       }
     },
     "ta_perf2": {
@@ -1069,6 +1176,7 @@
           "ret_6m",
           "ret_ytd",
           "ret_1y",
+          "ret_3y",
           "ret_5y",
           "ret_10y"
         ],
@@ -1080,7 +1188,7 @@
           "26w": "ret_6m",
           "ytd": "ret_ytd",
           "52w": "ret_1y",
-          "3y": null,
+          "3y": "ret_3y",
           "5y": "ret_5y",
           "10y": "ret_10y"
         },
@@ -1162,6 +1270,23 @@
           "52w200o": "ret_1y gte 200.0",
           "52w300o": "ret_1y gte 300.0",
           "52w500o": "ret_1y gte 500.0",
+          "3y90u": "ret_3y lte -90.0",
+          "3y75u": "ret_3y lte -75.0",
+          "3y50u": "ret_3y lte -50.0",
+          "3y30u": "ret_3y lte -30.0",
+          "3y20u": "ret_3y lte -20.0",
+          "3y10u": "ret_3y lte -10.0",
+          "3ydown": "ret_3y lt 0.0",
+          "3yup": "ret_3y gt 0.0",
+          "3y10o": "ret_3y gte 10.0",
+          "3y20o": "ret_3y gte 20.0",
+          "3y30o": "ret_3y gte 30.0",
+          "3y50o": "ret_3y gte 50.0",
+          "3y100o": "ret_3y gte 100.0",
+          "3y200o": "ret_3y gte 200.0",
+          "3y300o": "ret_3y gte 300.0",
+          "3y500o": "ret_3y gte 500.0",
+          "3y1000o": "ret_3y gte 1000.0",
           "5y90u": "ret_5y lte -90.0",
           "5y75u": "ret_5y lte -75.0",
           "5y50u": "ret_5y lte -50.0",
@@ -1197,9 +1322,7 @@
           "10y500o": "ret_10y gte 500.0",
           "10y1000o": "ret_10y gte 1000.0"
         },
-        "unsupported": {
-          "3y": "no screen row carries a three-year return: the parity scan requests Perf.W/1M/3M/6M/YTD/Y/5Y/10Y (`ret_1w` … `ret_10y`), and `ret_3y` exists only on the deep/quote path"
-        }
+        "unsupported": {}
       }
     },
     "ta_volatility": {
@@ -1247,67 +1370,75 @@
       "label": "RSI (14)",
       "tab": "technical",
       "field": "rsi_14",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_gap": {
       "label": "Gap",
       "tab": "technical",
       "field": "gap_pct",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_sma20": {
       "label": "20-Day Simple Moving Average",
       "tab": "technical",
       "field": "sma_20",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_sma50": {
       "label": "50-Day Simple Moving Average",
       "tab": "technical",
       "field": "sma_50",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_sma200": {
       "label": "200-Day Simple Moving Average",
       "tab": "technical",
       "field": "sma_200",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_change": {
       "label": "Change",
       "tab": "technical",
       "field": "change_pct",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_changeopen": {
       "label": "Change from Open",
       "tab": "technical",
       "field": "change_from_open",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_highlow20d": {
       "label": "20-Day High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
+      "reason": "needs a 20-day high/low column: the scan carries the 52-week extremes and the depth store carries the 50-day ones, so a 50-day figure cannot be narrowed to 20 days"
     },
     "ta_highlow50d": {
       "label": "50-Day High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs 20-day and 50-day high/low columns: the scan carries the 52-week extremes only"
+      "bucket": true
     },
     "ta_highlow52w": {
       "label": "52-Week High/Low",
       "tab": "technical",
       "field": "pct_from_52w_high",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_alltime": {
       "label": "All-Time High/Low",
       "tab": "technical",
       "field": null,
-      "reason": "needs an all-time high/low column: the scan carries the 52-week extremes only"
+      "bucket": true
     },
     "ta_pattern": {
       "label": "Pattern",
@@ -1319,19 +1450,21 @@
       "label": "Candlestick",
       "tab": "technical",
       "field": null,
-      "reason": "needs candlestick detection: the scan returns no candlestick classification"
+      "bucket": true
     },
     "ta_beta": {
       "label": "Beta",
       "tab": "technical",
       "field": "beta_1y",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ta_averagetruerange": {
       "label": "Average True Range",
       "tab": "technical",
       "field": "atr_14",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ah_close": {
       "label": "After-Hours Close",
@@ -1349,13 +1482,13 @@
       "label": "Latest News",
       "tab": "news",
       "field": null,
-      "reason": "needs the news store: the scan returns no news timestamp or keywords"
+      "bucket": true
     },
     "news_keywords": {
       "label": "News Keywords",
       "tab": "news",
       "field": null,
-      "reason": "needs the news store: the scan returns no news timestamp or keywords"
+      "reason": "needs a news keyword index: the product holds one headline per symbol (the source `news_date` reads), so a keyword search would search 4,112 titles, one per company — not Finviz's 'titles from the last 24 hours that contain any keyword'"
     },
     "etf_heldby": {
       "label": "Held By",
@@ -1364,8 +1497,18 @@
       "reason": "needs ETF holdings data: the scan does not carry a fund's constituent list"
     }
   },
-  "x-filter-alias-count": 105,
+  "x-filter-alias-count": 128,
   "x-filter-aliases": {
+    "all_time_high": {
+      "field": "all_time_high",
+      "kind": "number",
+      "label": "All-Time High"
+    },
+    "all_time_low": {
+      "field": "all_time_low",
+      "kind": "number",
+      "label": "All-Time Low"
+    },
     "atr": {
       "field": "atr_14",
       "kind": "number",
@@ -1439,6 +1582,21 @@
       "kind": "number",
       "label": "Debt/Eq"
     },
+    "dividend_growth_1y": {
+      "field": "dividend_growth_1y",
+      "kind": "number",
+      "label": "Dividend Gr. 1Y"
+    },
+    "dividend_growth_3y": {
+      "field": "dividend_growth_3y",
+      "kind": "number",
+      "label": "Dividend Gr. 3Y"
+    },
+    "dividend_growth_5y": {
+      "field": "dividend_growth_5y",
+      "kind": "number",
+      "label": "Dividend Gr. 5Y"
+    },
     "dividend_yield": {
       "field": "dividend_yield",
       "kind": "number",
@@ -1456,6 +1614,46 @@
     "eps_forecast_next_fy": {
       "field": "eps_forecast_next_fy",
       "kind": "number"
+    },
+    "eps_next_5y": {
+      "field": "eps_next_5y",
+      "kind": "number",
+      "label": "EPS Next 5Y"
+    },
+    "eps_next_y": {
+      "field": "eps_next_y",
+      "kind": "number",
+      "label": "EPS Next Y"
+    },
+    "eps_past_3y": {
+      "field": "eps_past_3y",
+      "kind": "number",
+      "label": "EPS Past 3Y"
+    },
+    "eps_past_5y": {
+      "field": "eps_past_5y",
+      "kind": "number",
+      "label": "EPS Past 5Y"
+    },
+    "eps_qoq": {
+      "field": "eps_qoq",
+      "kind": "number",
+      "label": "EPS Q/Q"
+    },
+    "eps_surprise": {
+      "field": "eps_surprise",
+      "kind": "number",
+      "label": "EPS Surprise"
+    },
+    "eps_this_y": {
+      "field": "eps_this_y",
+      "kind": "number",
+      "label": "EPS This Y"
+    },
+    "eps_yoy_ttm": {
+      "field": "eps_yoy_ttm",
+      "kind": "number",
+      "label": "EPS YoY TTM"
     },
     "ev_ebitda": {
       "field": "ev_ebitda",
@@ -1499,6 +1697,11 @@
       "kind": "number",
       "label": "Gross M"
     },
+    "high_50d": {
+      "field": "high_50d",
+      "kind": "number",
+      "label": "50D High"
+    },
     "high_52w": {
       "field": "high_52w",
       "kind": "number",
@@ -1509,10 +1712,20 @@
       "kind": "number",
       "label": "Insider Own"
     },
+    "insider_trans": {
+      "field": "insider_trans",
+      "kind": "number",
+      "label": "Insider Trans"
+    },
     "inst_own": {
       "field": "inst_own",
       "kind": "number",
       "label": "Inst Own"
+    },
+    "inst_trans": {
+      "field": "inst_trans",
+      "kind": "number",
+      "label": "Inst Trans"
     },
     "ipo_date": {
       "field": "listing_date",
@@ -1527,10 +1740,20 @@
       "field": "listing_date",
       "kind": "number"
     },
+    "low_50d": {
+      "field": "low_50d",
+      "kind": "number",
+      "label": "50D Low"
+    },
     "low_52w": {
       "field": "low_52w",
       "kind": "number",
       "label": "52W Low"
+    },
+    "lt_debt_to_equity": {
+      "field": "lt_debt_to_equity",
+      "kind": "number",
+      "label": "LTDebt/Eq"
     },
     "market_cap": {
       "field": "market_cap_usd",
@@ -1727,6 +1950,11 @@
       "field": "revenue_forecast_next_fy",
       "kind": "number"
     },
+    "revenue_surprise": {
+      "field": "revenue_surprise",
+      "kind": "number",
+      "label": "Revenue Surprise"
+    },
     "roa": {
       "field": "roa",
       "kind": "number",
@@ -1750,6 +1978,26 @@
     "rsi_14": {
       "field": "rsi_14",
       "kind": "number"
+    },
+    "sales_past_3y": {
+      "field": "sales_past_3y",
+      "kind": "number",
+      "label": "Sales Past 3Y"
+    },
+    "sales_past_5y": {
+      "field": "sales_past_5y",
+      "kind": "number",
+      "label": "Sales Past 5Y"
+    },
+    "sales_qoq": {
+      "field": "sales_qoq",
+      "kind": "number",
+      "label": "Sales Q/Q"
+    },
+    "sales_yoy_ttm": {
+      "field": "sales_yoy_ttm",
+      "kind": "number",
+      "label": "Sales YoY TTM"
     },
     "sector": {
       "field": "sector",

@@ -1,25 +1,31 @@
-"""Named server-side bucket predicates for the Descriptive filters (plan D3).
+"""Named server-side bucket predicates for Finviz's filter tabs.
 
 A bucket is an **id**, not a range: ``price:u5``, ``cap:mega``,
-``earn:todaybefore``, ``idx:sp500``. The id is ``"<control>:<finviz-token>"``,
-so it is traceable to the probe that produced the vocabulary and stable enough
-to live in a URL.
+``earn:todaybefore``, ``idx:sp500``, ``pe:u15``, ``rsi:ob70``,
+``divgrowth:3yo10``, ``highlow52w:nh``, ``news:today``. The id is
+``"<control>:<finviz-token>"``, so it is traceable to the probe that produced
+the vocabulary and stable enough to live in a URL.
 
-Why a module and not ``field op value``
----------------------------------------
-Three of the four predicate shapes below cannot be written as one comparison
-between a row column and a constant, which is the whole justification for a
-second compiler beside the filter DSL:
+Five predicate shapes, not one
+------------------------------
+The Descriptive families are the easy half (one token, one column). The
+Fundamental, Technical and News families add the shapes a single comparison
+cannot express, and each has its own builder:
 
-===============  ====================================  ==============================
-shape            example                               why the DSL cannot
-===============  ====================================  ==============================
-column vs const  ``price < 5``                         it can — kept uniform anyway
-two columns      ``target_price >= 1.5 * price``       needs two cells of one row
-                 ``float_shares / shares_outstanding``
-date vs a day    ``earn:today`` = New York's today      needs a clock and a timezone
-set membership   ``idx:sp500``                         no list/set operator
-===============  ====================================  ==============================
+====================  =================================  ==============================
+shape                 example                             why the DSL cannot
+====================  =================================  ==============================
+one column             ``pe:u15`` → ``pe_ttm < 15``       it can — kept uniform anyway
+direction, not range   ``gap:u0`` → ``gap_pct >= 0``      ``u`` is "up" here and "under" on ``sh_price``
+distance from a level  ``highlow52w:nh``, ``sma20:pa10``   the row stores the *level*, not the distance
+two cells              ``epsrev:bp``, ``sma20:sa50``       both surprise cells / both averages
+a clock                ``news:today`` = New York's today   needs a calendar and a timezone
+set membership         ``idx:sp500``                       no list/set operator
+====================  =================================  ==============================
+
+Four of these shapes cannot be written as one comparison between a row column
+and a constant, which is the whole justification for a second compiler beside the
+filter DSL.
 
 The vocabulary is the catalogue's
 ---------------------------------
@@ -52,11 +58,13 @@ and a test never has to wait for midnight.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -100,13 +108,28 @@ class UnavailableBucket(BucketError):
 
 @dataclass(frozen=True, slots=True)
 class Context:
-    """The only clock a bucket may read: the answer's own read moment."""
+    """The only clock a bucket may read: the answer's own read moment.
+
+    ``today`` is that moment in New York (a market day); ``moment`` is the
+    instant itself, which a news window needs because "the last 24 hours" is not
+    a day. ``moment`` defaults to midnight New York on ``today`` so a caller that
+    only knows the day keeps working, and no bucket ever guesses a second clock.
+    """
 
     today: date
+    moment: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.moment is None:
+            object.__setattr__(
+                self,
+                "moment",
+                datetime(self.today.year, self.today.month, self.today.day, tzinfo=NEW_YORK),
+            )
 
     @classmethod
     def at(cls, as_of: str) -> "Context":
-        """``as_of`` (ISO-8601, the selection's own stamp) → New York's day.
+        """``as_of`` (ISO-8601, the selection's own stamp) → the answer's clocks.
 
         A naive stamp is read as UTC: every ``as_of`` the API emits carries an
         offset, and inventing a local zone for a naked one would make the same
@@ -116,7 +139,7 @@ class Context:
         moment = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=UTC)
-        return cls(today=moment.astimezone(NEW_YORK).date())
+        return cls(today=moment.astimezone(NEW_YORK).date(), moment=moment.astimezone(UTC))
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,12 +236,18 @@ def _column_predicate(
 
 
 def _band(token: str, scale: float = 1.0) -> tuple[str, Any] | None:
-    """``u5`` → ``("lt", 5)``; ``o1.5`` → ``("gt", 1.5)``; ``1to5`` → ``("between", (1, 5))``."""
+    """``u5`` → ``("lt", 5)``; ``o1.5`` → ``("gt", 1.5)``; ``1to5`` → ``("between", (1, 5))``.
 
-    hit = re.fullmatch(r"(u|o)(\d+(?:\.\d+)?)", token)
+    A threshold may be **negative**: ``fa_roa:u-50`` is "Under -50%", and the
+    same shape appears on seven other controls (51 real tokens). Before that
+    character was allowed the parser answered ``None``, so those families could
+    not be built at all — an import error, not a missing bucket.
+    """
+
+    hit = re.fullmatch(r"(u|o)(-?\d+(?:\.\d+)?)", token)
     if hit:
-        return ("lt" if hit.group(1) == "u" else "gt"), float(hit.group(2)) * scale
-    span = re.fullmatch(r"(\d+(?:\.\d+)?)to(\d+(?:\.\d+)?)", token)
+        return (("lt" if hit.group(1) == "u" else "gt"), float(hit.group(2)) * scale)
+    span = re.fullmatch(r"(-?\d+(?:\.\d+)?)to(-?\d+(?:\.\d+)?)", token)
     if span:
         return "between", (
             float(span.group(1)) * scale,
@@ -259,6 +288,267 @@ def _tokens(key: str) -> tuple[str, ...]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Labels come from the probe, never from a string typed here
+# ---------------------------------------------------------------------------
+
+#: The vendored Finviz vocabulary, written by ``scripts/filter-options.py``.
+LABEL_PATH = Path(__file__).with_name("data") / "filter_options.json"
+
+
+def _load_labels() -> Mapping[str, Mapping[str, str]]:
+    """``key → token → Finviz's own label``, read once from the vendored probe."""
+
+    document = json.loads(LABEL_PATH.read_text(encoding="utf-8"))
+    controls = document.get("controls")
+    if not isinstance(controls, dict):
+        raise RuntimeError(f"{LABEL_PATH} carries no 'controls' object")
+    return MappingProxyType(
+        {
+            key: MappingProxyType(
+                {
+                    str(option["token"]): str(option["label"])
+                    for option in spec.get("options") or ()
+                }
+            )
+            for key, spec in controls.items()
+        }
+    )
+
+
+_LABELS: Mapping[str, Mapping[str, str]] = _load_labels()
+
+
+def _label(key: str, token: str) -> str:
+    """The label Finviz draws for ``token`` on ``key``.
+
+    A missing label is an import error, not a token printed as its own name:
+    the panel would show ``fa_roa:u-50`` where Finviz shows "Under -50%", and
+    the document would be describing a vocabulary nobody can recognise.
+    """
+
+    labels = _LABELS.get(key)
+    if labels is None:
+        raise RuntimeError(
+            f"{key}: no vendored Finviz vocabulary in {LABEL_PATH}; "
+            "rerun python scripts/filter-options.py"
+        )
+    label = labels.get(token)
+    if label is None:
+        raise RuntimeError(
+            f"{key}: token {token!r} has no label in {LABEL_PATH}; the probe "
+            "grew an option and scripts/filter-options.py was not rerun"
+        )
+    return label
+
+
+def labels_for(key: object) -> Mapping[str, str]:
+    """Every label Finviz draws for ``key``'s options, or ``{}`` for a key we do not hold.
+
+    The document's *disabled* controls need exactly this: their options cannot
+    filter, but they still have to be drawn with Finviz's own words. A key the
+    probe does not carry answers ``{}`` rather than raising — the caller is
+    describing a vocabulary, not asserting one.
+    """
+
+    if not isinstance(key, str):
+        return {}
+    return _LABELS.get(key, {})
+
+
+# ---------------------------------------------------------------------------
+# Bands: one row per token whose meaning is not a bare ``u``/``o`` range
+# ---------------------------------------------------------------------------
+
+#: The eleven EPS/sales growth keys share this vocabulary verbatim: "Positive
+#: Low (0-10%)" is a *band*, not a threshold, and "High" is > 25%.
+_GROWTH: Mapping[str, tuple[str, Any]] = MappingProxyType(
+    {
+        "neg": ("lt", 0.0),
+        "pos": ("gt", 0.0),
+        "poslow": ("between", (0.0, 10.0)),
+        "high": ("gt", 25.0),
+    }
+)
+
+#: control key → token → ``(op, value)``. Thresholds are Finviz's own label
+#: table (``Low (<15)`` for P/E, ``Low (<1)`` for PEG, ``Low (<3)`` for
+#: Price/Cash); the digits in a label are the one place the meaning is stated.
+_BANDS: Mapping[str, Mapping[str, tuple[str, Any]]] = MappingProxyType(
+    {
+        # -- valuation (T17) --------------------------------------------------
+        "fa_pe": {
+            "low": ("lt", 15.0),
+            "profitable": ("gt", 0.0),
+            "high": ("gt", 50.0),
+        },
+        "fa_fpe": {
+            "low": ("lt", 15.0),
+            "profitable": ("gt", 0.0),
+            "high": ("gt", 50.0),
+        },
+        "fa_peg": {"low": ("lt", 1.0), "high": ("gt", 2.0)},
+        "fa_ps": {"low": ("lt", 1.0), "high": ("gt", 10.0)},
+        "fa_pb": {"low": ("lt", 1.0), "high": ("gt", 5.0)},
+        "fa_pc": {"low": ("lt", 3.0), "high": ("gt", 50.0)},
+        "fa_pfcf": {"low": ("lt", 15.0), "high": ("gt", 50.0)},
+        "fa_evebitda": {
+            "negative": ("lt", 0.0),
+            "low": ("lt", 15.0),
+            "profitable": ("gt", 0.0),
+            "high": ("gt", 50.0),
+        },
+        "fa_evsales": {
+            "negative": ("lt", 0.0),
+            "low": ("lt", 1.0),
+            "positive": ("gt", 0.0),
+            "high": ("gt", 10.0),
+        },
+        # -- growth (T18) -----------------------------------------------------
+        "fa_epsyoy": _GROWTH,
+        "fa_epsyoy1": _GROWTH,
+        "fa_epsqoq": _GROWTH,
+        "fa_epsyoyttm": _GROWTH,
+        "fa_eps3years": _GROWTH,
+        "fa_eps5years": _GROWTH,
+        "fa_estltgrowth": _GROWTH,
+        "fa_salesqoq": _GROWTH,
+        "fa_salesyoyttm": _GROWTH,
+        "fa_sales3years": _GROWTH,
+        "fa_sales5years": _GROWTH,
+        # -- quality, leverage, ownership (T19) -------------------------------
+        "fa_roa": {
+            "pos": ("gt", 0.0),
+            "neg": ("lt", 0.0),
+            "verypos": ("gt", 15.0),
+            "veryneg": ("lt", -15.0),
+        },
+        "fa_roe": {
+            "pos": ("gt", 0.0),
+            "neg": ("lt", 0.0),
+            "verypos": ("gt", 30.0),
+            "veryneg": ("lt", -15.0),
+        },
+        "fa_roi": {
+            "pos": ("gt", 0.0),
+            "neg": ("lt", 0.0),
+            "verypos": ("gt", 25.0),
+            "veryneg": ("lt", -10.0),
+        },
+        "fa_curratio": {"high": ("gt", 3.0), "low": ("lt", 1.0)},
+        "fa_quickratio": {"high": ("gt", 3.0), "low": ("lt", 0.5)},
+        "fa_ltdebteq": {"high": ("gt", 0.5), "low": ("lt", 0.1)},
+        "fa_debteq": {"high": ("gt", 0.5), "low": ("lt", 0.1)},
+        "fa_grossmargin": {"pos": ("gt", 0.0), "neg": ("lt", 0.0), "high": ("gt", 50.0)},
+        "fa_opermargin": {
+            "pos": ("gt", 0.0),
+            "neg": ("lt", 0.0),
+            "veryneg": ("lt", -20.0),
+            "high": ("gt", 25.0),
+        },
+        "fa_netmargin": {
+            "pos": ("gt", 0.0),
+            "neg": ("lt", 0.0),
+            "veryneg": ("lt", -20.0),
+            "high": ("gt", 20.0),
+        },
+        "fa_payoutratio": {
+            "none": ("eq", 0.0),
+            "pos": ("gt", 0.0),
+            "low": ("lt", 20.0),
+            "high": ("gt", 50.0),
+        },
+        "sh_insiderown": {
+            "low": ("lt", 5.0),
+            "high": ("gt", 30.0),
+            "veryhigh": ("gt", 50.0),
+        },
+        "sh_instown": {"low": ("lt", 5.0), "high": ("gt", 90.0)},
+        "sh_insttrans": {
+            "veryneg": ("lt", -20.0),
+            "neg": ("lt", 0.0),
+            "pos": ("gt", 0.0),
+            "verypos": ("gt", 20.0),
+        },
+    }
+)
+
+
+def _never(row: Mapping[str, Any], context: Context) -> bool:
+    """An unavailable bucket accepts nothing: it is a 422, not a predicate."""
+
+    return False
+
+
+def _family(
+    control: str,
+    key: str,
+    column: str | None = None,
+    *,
+    bands: Mapping[str, tuple[str, Any]] | None = None,
+    tokens: Sequence[str] | None = None,
+    refuse: Mapping[str, str] | None = None,
+    predicate: Callable[[str, str, Any], Callable[[Mapping[str, Any], Context], bool]]
+    | None = None,
+    describe: Callable[[str, str, Any], str] | None = None,
+) -> tuple[Bucket, ...]:
+    """One bucket per probe option of ``key``, in the probe's order.
+
+    ``column`` + :func:`_band` is the common case (``pe:u5`` → ``pe_ttm < 5``).
+    ``predicate`` replaces it where a token needs two cells (``a5h``), both
+    cells of a pair (``epsrev:bp``) or a clock (``news:today``): it receives
+    ``(token, op, value)`` and returns the row predicate. ``refuse`` is
+    ``{token: reason}`` — the token is still a bucket (``available=False``), so
+    the family covers the probe without pretending the token works.
+    """
+
+    special = _BANDS.get(key, {}) if bands is None else bands
+    family: list[Bucket] = []
+    for token in (_tokens(key) if tokens is None else tokens):
+        if refuse is not None and token in refuse:
+            family.append(
+                Bucket(
+                    id=f"{control}:{token}",
+                    key=key,
+                    label=_label(key, token),
+                    finviz=token,
+                    predicate=_never,
+                    describe=f"unavailable: {refuse[token]}",
+                    available=False,
+                    reason=refuse[token],
+                )
+            )
+            continue
+        if token in special:
+            op, value = special[token]
+        else:
+            band = _band(token)
+            if band is None:
+                raise RuntimeError(
+                    f"{key}: token {token!r} has no band and no entry in _BANDS"
+                )
+            op, value = band
+        family.append(
+            Bucket(
+                id=f"{control}:{token}",
+                key=key,
+                label=_label(key, token),
+                finviz=token,
+                predicate=(
+                    predicate(token, op, value)
+                    if predicate is not None
+                    else _column_predicate(str(column), op, value)
+                ),
+                describe=(
+                    describe(token, op, value)
+                    if describe is not None
+                    else _describe(str(column), op, value)
+                ),
+            )
+        )
+    return tuple(family)
+
+
 _CONTROL_KEYS: dict[str, str] = {
     "price": "sh_price",
     "cap": "cap",
@@ -272,7 +562,84 @@ _CONTROL_KEYS: dict[str, str] = {
     "sh_float": "sh_float",
     "targetprice": "targetprice",
     "idx": "idx",
+    # -- fundamental: valuation (T17) --------------------------------------
+    "pe": "fa_pe",
+    "fpe": "fa_fpe",
+    "peg": "fa_peg",
+    "ps": "fa_ps",
+    "pb": "fa_pb",
+    "pc": "fa_pc",
+    "pfcf": "fa_pfcf",
+    "evebitda": "fa_evebitda",
+    "evsales": "fa_evsales",
+    # -- fundamental: growth (T18) -----------------------------------------
+    "epsyoy": "fa_epsyoy",
+    "epsyoy1": "fa_epsyoy1",
+    "epsqoq": "fa_epsqoq",
+    "epsytm": "fa_epsyoyttm",
+    "eps3y": "fa_eps3years",
+    "eps5y": "fa_eps5years",
+    "epsnext5y": "fa_estltgrowth",
+    "salesqoq": "fa_salesqoq",
+    "salesttm": "fa_salesyoyttm",
+    "sales3y": "fa_sales3years",
+    "sales5y": "fa_sales5years",
+    # -- fundamental: quality, leverage, ownership (T19) --------------------
+    "divgrowth": "fa_divgrowth",
+    "roa": "fa_roa",
+    "roe": "fa_roe",
+    "roi": "fa_roi",
+    "curratio": "fa_curratio",
+    "quickratio": "fa_quickratio",
+    "ltdebteq": "fa_ltdebteq",
+    "debteq": "fa_debteq",
+    "grossmargin": "fa_grossmargin",
+    "opermargin": "fa_opermargin",
+    "netmargin": "fa_netmargin",
+    "payout": "fa_payoutratio",
+    "insiderown": "sh_insiderown",
+    "insidertrans": "sh_insidertrans",
+    "instown": "sh_instown",
+    "insttrans": "sh_insttrans",
+    # -- fundamental: surprise (T20) ---------------------------------------
+    "epsrev": "fa_epsrev",
+    # -- technical: price and oscillator (T21) -----------------------------
+    "rsi": "ta_rsi",
+    "gap": "ta_gap",
+    "change": "ta_change",
+    "changeopen": "ta_changeopen",
+    "beta": "ta_beta",
+    "atr": "ta_averagetruerange",
+    # -- technical: trend and range (T22) ----------------------------------
+    "sma20": "ta_sma20",
+    "sma50": "ta_sma50",
+    "sma200": "ta_sma200",
+    "highlow50d": "ta_highlow50d",
+    "highlow52w": "ta_highlow52w",
+    "alltime": "ta_alltime",
+    "candle": "ta_candlestick",
+    # -- news (T23) --------------------------------------------------------
+    "news": "news_date",
 }
+
+#: Controls whose whole family is published **refused**: ``insidertrans`` is a
+#: vendor cell the product withdrew by name (:mod:`app.api.signals`). The
+#: family stays registered so a caller who sends ``insidertrans:pos`` gets a
+#: 422 that names the quality — never an unfiltered page — but no filter key
+#: advertises the control, and ``filter_fields`` keeps ``sh_insidertrans`` in
+#: its refusal list.
+_WITHDRAWN: frozenset[str] = frozenset({"insidertrans"})
+
+#: control → readable spelling → the canonical token it means. A synonym is a
+#: **spelling**, not a second bucket: :func:`bucket` resolves it to the canonical
+#: id, and the envelope echoes that id, so ``rsi:overbought`` and ``rsi:ob70``
+#: are one question and therefore one ETag. Only tokens whose Finviz mnemonic is
+#: unreadable get one; the fundamental bands (``pe:u15``) already read as prose.
+_SYNONYMS: Mapping[str, Mapping[str, str]] = MappingProxyType(
+    {
+        "rsi": MappingProxyType({"overbought": "ob70", "oversold": "os30"}),
+    }
+)
 
 #: control id → the Finviz filter key it serves. The one table that names the
 #: namespaces; ``selection`` and the descriptive document both read it.
@@ -283,8 +650,12 @@ _KEYS_BY_CONTROL: Mapping[str, str] = MappingProxyType(
     {key: control for control, key in _CONTROL_KEYS.items()}
 )
 
-#: The filter keys that answer a bucket token, in panel order.
-KEYS: tuple[str, ...] = tuple(_CONTROL_KEYS.values())
+#: The filter keys that answer a bucket token, in panel order. A **withdrawn**
+#: control is not listed: its family exists so its tokens can be refused by
+#: name, but no key may advertise it as a filter.
+KEYS: tuple[str, ...] = tuple(
+    key for control, key in _CONTROL_KEYS.items() if control not in _WITHDRAWN
+)
 
 
 def control_for(key: object) -> str | None:
@@ -892,6 +1263,601 @@ def _current(item: Bucket) -> Bucket:
     return replace(item, available=False, reason=reason)
 
 
+# -- dividend growth: the window is in the token, the threshold too ----------
+
+#: Finviz's three dividend-growth windows, and the depth column each one owns.
+#: ``cy1…cy9`` ("Growing 1+ Years") have **no** column: the store carries 1y,
+#: 3y and 5y only, so those nine tokens are refused by name.
+_DIVIDEND_COLUMNS: Mapping[str, str] = MappingProxyType(
+    {
+        "1y": "dividend_growth_1y",
+        "3y": "dividend_growth_3y",
+        "5y": "dividend_growth_5y",
+    }
+)
+
+DIVIDEND_SERIES_REASON = (
+    "no series for a 1-to-9-year dividend window: the depth store carries the "
+    "1-year, 3-year and 5-year growth rates only, so a 'Growing N+ Years' test "
+    "would have to invent the years it counts"
+)
+
+
+def _dividend_growth_family() -> tuple[Bucket, ...]:
+    """``3yo10`` → ``dividend_growth_3y > 10``; ``cy9`` → unavailable, named.
+
+    The token carries **two** facts — the window and the threshold — which is
+    why this family is a small parser instead of a `_BANDS` row: a shared table
+    could not say which of the three columns a token means.
+    """
+
+    family: list[Bucket] = []
+    for token in _tokens("fa_divgrowth"):
+        if token.startswith("cy"):
+            family.append(
+                Bucket(
+                    id=f"divgrowth:{token}",
+                    key="fa_divgrowth",
+                    label=_label("fa_divgrowth", token),
+                    finviz=token,
+                    predicate=_never,
+                    describe=f"unavailable: {DIVIDEND_SERIES_REASON}",
+                    available=False,
+                    reason=DIVIDEND_SERIES_REASON,
+                )
+            )
+            continue
+        hit = re.fullmatch(r"([135])y(pos|o(\d+))", token)
+        if hit is None:  # pragma: no cover - _validate() gates the vocabulary
+            raise RuntimeError(f"fa_divgrowth: token {token!r} has no window")
+        column = _DIVIDEND_COLUMNS[f"{hit.group(1)}y"]
+        op, value = ("gt", 0.0) if hit.group(2) == "pos" else ("gt", float(hit.group(3)))
+        family.append(
+            Bucket(
+                id=f"divgrowth:{token}",
+                key="fa_divgrowth",
+                label=_label("fa_divgrowth", token),
+                finviz=token,
+                predicate=_column_predicate(column, op, value),
+                describe=_describe(column, op, value),
+            )
+        )
+    return tuple(family)
+
+
+#: Why the insider-transaction control is refused, quoted from the product's
+#: own withdrawal (:mod:`app.api.signals`): the data exists and is junk.
+INSIDER_TRANSACTIONS_REASON = (
+    "reads a mixture of ownership levels and junk (TSLA 76.0, META 45.9, "
+    "GME 8.7): the depth cell is a vendor net-change nobody can read as a flow, "
+    "so the product withdrew the control by name rather than publish an "
+    "interpretation the data does not support"
+)
+
+
+def _withdrawn_family(control: str, key: str, reason: str) -> tuple[Bucket, ...]:
+    """A complete family of refused buckets: every probe token, none usable."""
+
+    return _family(control, key, None, refuse={token: reason for token in _tokens(key)})
+
+
+# -- earnings & revenue surprise: one token, two cells -----------------------
+
+#: ``bp``/``bm``/``bn`` mean "both positive / both met / both negative", so the
+#: predicate compares the same operator against **both** surprise cells.
+_SURPRISE_BANDS: Mapping[str, tuple[str, float]] = MappingProxyType(
+    {"bp": ("gt", 0.0), "bm": ("eq", 0.0), "bn": ("lt", 0.0)}
+)
+
+
+def _surprise_predicate(op: str, value: float) -> Callable[[Mapping[str, Any], Context], bool]:
+    """Both cells must be present and both must pass; unknown matches nothing."""
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        eps = _number(row.get("eps_surprise"))
+        revenue = _number(row.get("revenue_surprise"))
+        if eps is None or revenue is None:
+            return False
+        return _test(eps, op, value) and _test(revenue, op, value)
+
+    return predicate
+
+
+def _epsrev_family() -> tuple[Bucket, ...]:
+    """Three tokens, each one comparison applied to both surprise cells."""
+
+    family: list[Bucket] = []
+    for token in _tokens("fa_epsrev"):
+        if token not in _SURPRISE_BANDS:  # pragma: no cover - _validate() gates it
+            raise RuntimeError(f"fa_epsrev: token {token!r} has no band")
+        op, value = _SURPRISE_BANDS[token]
+        family.append(
+            Bucket(
+                id=f"epsrev:{token}",
+                key="fa_epsrev",
+                label=_label("fa_epsrev", token),
+                finviz=token,
+                predicate=_surprise_predicate(op, value),
+                describe=(
+                    f"eps_surprise {_OP_TEXT[op]} {_fmt(value)} and "
+                    f"revenue_surprise {_OP_TEXT[op]} {_fmt(value)}"
+                ),
+            )
+        )
+    return tuple(family)
+
+
+# -- price direction: `u` is UP here, not "under" ---------------------------
+
+def _direction_family(control: str, key: str, column: str) -> tuple[Bucket, ...]:
+    """``ta_gap:u2`` is "Up 2 %", not ``gap < 2``.
+
+    The same letter means *under* in ``sh_price:u5`` and *up* here; the probe's
+    own labels are the proof (``u1`` = "Up 1 %", ``d1`` = "Down 1 %"). So these
+    keys get their own parser and never pass through :func:`_band`, which would
+    compile "Up 0 %" as ``gap < 0`` — the exact opposite of the predicate.
+    """
+
+    family: list[Bucket] = []
+    for token in _tokens(key):
+        if token in ("u", "d"):
+            op, value = ("gt", 0.0) if token == "u" else ("lt", 0.0)
+        else:
+            hit = re.fullmatch(r"([ud])(\d+(?:\.\d+)?)", token)
+            if hit is None:  # pragma: no cover - _validate() gates the vocabulary
+                raise RuntimeError(f"{key}: token {token!r} is not a direction band")
+            side, digits = hit.groups()
+            number = float(digits)
+            op, value = ("gte", number) if side == "u" else ("lte", -number)
+        family.append(
+            Bucket(
+                id=f"{control}:{token}",
+                key=key,
+                label=_label(key, token),
+                finviz=token,
+                predicate=_column_predicate(column, op, value),
+                describe=_describe(column, op, value),
+            )
+        )
+    return tuple(family)
+
+
+# -- RSI: four token kinds, one column --------------------------------------
+
+#: ``ob`` overbought (>=), ``os`` oversold (<=), ``nob`` not overbought (<),
+#: ``nos`` not oversold (>). The labels confirm the direction at every bound
+#: ("Not Overbought (<60)", "Not Oversold (>50)"), and the strict/loose split is
+#: the difference between 60.0 being overbought and not.
+_RSI_OPS: Mapping[str, str] = MappingProxyType(
+    {"ob": "gte", "os": "lte", "nob": "lt", "nos": "gt"}
+)
+
+
+def _rsi_family() -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens("ta_rsi"):
+        hit = re.fullmatch(r"(ob|os|nob|nos)(\d+(?:\.\d+)?)", token)
+        if hit is None:  # pragma: no cover - _validate() gates the vocabulary
+            raise RuntimeError(f"ta_rsi: token {token!r} is not an RSI band")
+        op = _RSI_OPS[hit.group(1)]
+        value = float(hit.group(2))
+        family.append(
+            Bucket(
+                id=f"rsi:{token}",
+                key="ta_rsi",
+                label=_label("ta_rsi", token),
+                finviz=token,
+                predicate=_column_predicate("rsi_14", op, value),
+                describe=_describe("rsi_14", op, value),
+            )
+        )
+    return tuple(family)
+
+
+# -- a distance is measured from a level, and an implausible level is no measurement
+
+
+def _level_of(row: Mapping[str, Any], level: str) -> tuple[float, float] | None:
+    """``(price, level)`` when both are usable; ``None`` otherwise.
+
+    A level more than ten times the price is not a measurement: 24 rows carry
+    ``high_50d`` above 10x price (max 1,250x), and a distance computed from one
+    would read "99.9% below the high" for a stock that is not.
+    """
+
+    price = _number(row.get("price"))
+    anchor = _number(row.get(level))
+    if price is None or anchor is None or price <= 0 or anchor <= 0:
+        return None
+    if anchor > price * 10:
+        return None
+    return price, anchor
+
+
+def _distance_predicate(
+    op: str, value: Any, level: str, *, side: str
+) -> Callable[[Mapping[str, Any], Context], bool]:
+    """``side="below"``: ``(1 - price/level)*100``; ``"above"``: ``(price/level - 1)*100``."""
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        reading = _level_of(row, level)
+        if reading is None:
+            return False
+        price, anchor = reading
+        # `(anchor - price) / anchor`, not `1 - price/anchor`: the two are the
+        # same number in arithmetic and not in floating point, and 90 vs 100
+        # must be exactly "10% below", not 9.999999999999998%.
+        distance = (
+            (anchor - price) / anchor * 100
+            if side == "below"
+            else (price - anchor) / anchor * 100
+        )
+        return _test(distance, op, value)
+
+    return predicate
+
+
+def _at_level_predicate(level: str, *, at: str) -> Callable[[Mapping[str, Any], Context], bool]:
+    """``nh`` → ``price >= 0.999 * level``; ``nl`` → ``price <= 1.001 * level``.
+
+    The epsilon is the one :mod:`app.api.signals` uses for its ``new_high`` /
+    ``new_low`` tables, so the bucket and the home page cannot disagree about
+    what "at the high" means.
+    """
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        reading = _level_of(row, level)
+        if reading is None:
+            return False
+        price, anchor = reading
+        return price >= anchor * 0.999 if at == "high" else price <= anchor * 1.001
+
+    return predicate
+
+
+#: ``b5h`` / ``b0to5h`` / ``a10h``: below the high or above the low, by a
+#: threshold or inside a [0, N) band.
+_HIGHLOW_TOKEN = re.compile(r"(?P<side>[ab])(?P<band>0to)?(?P<pct>\d+)h")
+
+ALL_TIME_REASON = (
+    "the all-time-high cell is below the 52-week high on 22 rows and equal to the "
+    "50-day high on 293 more, so a new-all-time-high test would admit rows that "
+    "are nowhere near one; every other token reads a distance and survives a "
+    "wrong level"
+)
+
+
+def _highlow_family(
+    control: str,
+    key: str,
+    *,
+    high: str,
+    low: str,
+    refuse: Mapping[str, str] | None = None,
+) -> tuple[Bucket, ...]:
+    """One token, two anchors: ``b`` is measured from the high, ``a`` from the low."""
+
+    family: list[Bucket] = []
+    for token in _tokens(key):
+        if refuse is not None and token in refuse:
+            family.append(
+                Bucket(
+                    id=f"{control}:{token}",
+                    key=key,
+                    label=_label(key, token),
+                    finviz=token,
+                    predicate=_never,
+                    describe=f"unavailable: {refuse[token]}",
+                    available=False,
+                    reason=refuse[token],
+                )
+            )
+            continue
+        if token == "nh":
+            predicate = _at_level_predicate(high, at="high")
+            describe = f"price >= 0.999 * {high}"
+        elif token == "nl":
+            predicate = _at_level_predicate(low, at="low")
+            describe = f"price <= 1.001 * {low}"
+        else:
+            hit = _HIGHLOW_TOKEN.fullmatch(token)
+            if hit is None:  # pragma: no cover - _validate() gates the vocabulary
+                raise RuntimeError(f"{key}: token {token!r} is not a high/low band")
+            side = hit.group("side")
+            value: Any = float(hit.group("pct"))
+            op = "gte"
+            if hit.group("band"):
+                op, value = "span", (0.0, value)
+            level = high if side == "b" else low
+            direction = "below" if side == "b" else "above"
+            compare = "1 - price /" if side == "b" else "price /"
+            suffix = ") * 100" if side == "b" else " - 1) * 100"
+            predicate = _distance_predicate(op, value, level, side=direction)
+            describe = _describe(f"({compare} {level}{suffix}", op, value)
+        family.append(
+            Bucket(
+                id=f"{control}:{token}",
+                key=key,
+                label=_label(key, token),
+                finviz=token,
+                predicate=predicate,
+                describe=describe,
+            )
+        )
+    return tuple(family)
+
+
+# -- moving averages: a price distance, or a comparison between two averages --
+
+CROSS_REASON = (
+    "needs yesterday's price and yesterday's moving average: a cross is an event "
+    "between two sessions, and no row carries the previous session"
+)
+
+SMA_COLUMNS: Mapping[str, str] = MappingProxyType(
+    {"20": "sma_20", "50": "sma_50", "200": "sma_200"}
+)
+
+
+def _sma_distance(
+    column: str, *, side: str, op: str, value: float
+) -> Callable[[Mapping[str, Any], Context], bool]:
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        price = _number(row.get("price"))
+        sma = _number(row.get(column))
+        if price is None or sma is None or price <= 0 or sma <= 0:
+            return False
+        distance = (
+            (price - sma) / sma * 100 if side == "above" else (sma - price) / sma * 100
+        )
+        return _test(distance, op, value)
+
+    return predicate
+
+
+def _column_compare(
+    column: str, peer: str, op: str
+) -> Callable[[Mapping[str, Any], Context], bool]:
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        left = _number(row.get(column))
+        right = _number(row.get(peer))
+        if left is None or right is None:
+            return False
+        return _test(left, op, right)
+
+    return predicate
+
+
+def _sma_family(control: str, key: str, column: str) -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens(key):
+        if token in ("pa", "pb"):
+            side = "above" if token == "pa" else "below"
+            predicate = _sma_distance(column, side=side, op="gt", value=0.0)
+            describe = f"price {'>' if side == 'above' else '<'} {column}"
+        else:
+            price_hit = re.fullmatch(r"p([ab])(\d+)", token)
+            peer_hit = re.fullmatch(r"s([ab])(\d+)", token)
+            if price_hit is not None:
+                letter, digits = price_hit.groups()
+                side = "above" if letter == "a" else "below"
+                value = float(digits)
+                predicate = _sma_distance(column, side=side, op="gte", value=value)
+                expression = (
+                    f"(price - {column}) / {column} * 100"
+                    if letter == "a"
+                    else f"({column} - price) / {column} * 100"
+                )
+                describe = _describe(expression, "gte", value)
+            elif peer_hit is not None:
+                side, digits = peer_hit.groups()
+                peer = SMA_COLUMNS[digits]
+                op = "gt" if side == "a" else "lt"
+                predicate = _column_compare(column, peer, op)
+                describe = _describe(column, op, peer)
+            else:
+                # ``pc``/``pca``/``pcb`` and the six ``crossNN[a|b]`` tokens.
+                family.append(
+                    Bucket(
+                        id=f"{control}:{token}",
+                        key=key,
+                        label=_label(key, token),
+                        finviz=token,
+                        predicate=_never,
+                        describe=f"unavailable: {CROSS_REASON}",
+                        available=False,
+                        reason=CROSS_REASON,
+                    )
+                )
+                continue
+        family.append(
+            Bucket(
+                id=f"{control}:{token}",
+                key=key,
+                label=_label(key, token),
+                finviz=token,
+                predicate=predicate,
+                describe=describe,
+            )
+        )
+    return tuple(family)
+
+
+# -- candlestick: two classes we can name, nine we cannot --------------------
+
+CANDLESTICK_REASON = (
+    "no classifier for this shape in the depth store: it names doji, hammer and "
+    "engulfing only (2,389 rows), so the other nine Finviz classes can never "
+    "match a row — a bucket for them would be an empty page wearing a filter's name"
+)
+
+#: Finviz token → the classifier string the depth store writes.
+CANDLESTICK_CLASSES: Mapping[str, str] = MappingProxyType({"h": "hammer", "d": "doji"})
+
+
+def _candle_family(control: str, key: str) -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens(key):
+        if token not in CANDLESTICK_CLASSES:
+            family.append(
+                Bucket(
+                    id=f"{control}:{token}",
+                    key=key,
+                    label=_label(key, token),
+                    finviz=token,
+                    predicate=_never,
+                    describe=f"unavailable: {CANDLESTICK_REASON}",
+                    available=False,
+                    reason=CANDLESTICK_REASON,
+                )
+            )
+            continue
+        wanted = CANDLESTICK_CLASSES[token]
+
+        def predicate(
+            row: Mapping[str, Any], context: Context, wanted: str = wanted
+        ) -> bool:
+            value = row.get("candlestick_pattern")
+            if not isinstance(value, str) or not value.strip():
+                return False
+            return value.strip().casefold() == wanted
+
+        family.append(
+            Bucket(
+                id=f"{control}:{token}",
+                key=key,
+                label=_label(key, token),
+                finviz=token,
+                predicate=predicate,
+                describe=f"candlestick_pattern == {wanted!r}",
+            )
+        )
+    return tuple(family)
+
+
+# -- news: one headline per symbol, and a clock ------------------------------
+
+#: Why the three sub-hour windows cannot run: the store is refreshed by a poll,
+#: not by a feed, so a five-minute window is a statement about the poll.
+NEWS_MINUTE_REASON = (
+    "the depth store refreshes about every 13 minutes, so a five-minute window "
+    "can only contain rows the poll happened to land on — the answer would look "
+    "like news coverage and mean 'what we happened to fetch'"
+)
+
+#: The session close, in New York. "Aftermarket Today" means after this moment.
+_CLOSE_HOUR = 16
+
+
+def _news_moment(value: Any) -> datetime | None:
+    """One ``news_time`` cell as an aware instant, or ``None``.
+
+    The store writes ISO-8601 UTC (``2026-11-01T11:20:00+00:00``); a naive
+    string is read as UTC for the same reason :meth:`Context.at` does — a naked
+    stamp has no zone and inventing one would answer differently per host.
+    """
+
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
+def _close_of(day: date) -> datetime:
+    return datetime(day.year, day.month, day.day, _CLOSE_HOUR, tzinfo=NEW_YORK)
+
+
+def _news_predicate(token: str) -> Callable[[Mapping[str, Any], Context], bool]:
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        moment = _news_moment(row.get("news_time"))
+        stamp = context.moment
+        if moment is None or stamp is None:
+            return False
+        local = moment.astimezone(NEW_YORK)
+        yesterday = context.today - timedelta(days=1)
+        if token == "today":
+            return local.date() == context.today
+        if token == "yesterday":
+            return local.date() == yesterday
+        if token == "sinceyesterday":
+            return local.date() >= yesterday
+        if token == "todayafter":
+            return local.date() == context.today and local.hour >= _CLOSE_HOUR
+        if token == "yesterdayafter":
+            return local.date() == yesterday and local.hour >= _CLOSE_HOUR
+        if token == "sinceyesterdayafter":
+            return moment >= _close_of(yesterday)
+        if token == "prevhours24":
+            return moment >= stamp - timedelta(hours=24)
+        if token == "prevdays7":
+            return moment >= stamp - timedelta(days=7)
+        if token == "prevmonth":
+            # Finviz's "In the last month": 30 days, and the label says so.
+            return moment >= stamp - timedelta(days=30)
+        raise RuntimeError(f"news_date: token {token!r} has no window")
+
+    return predicate
+
+
+_NEWS_DESCRIBE: Mapping[str, str] = MappingProxyType(
+    {
+        "today": "news_time is on New York's today",
+        "todayafter": "news_time is on New York's today, after 16:00",
+        "sinceyesterday": "news_time is on New York's yesterday or today",
+        "sinceyesterdayafter": "news_time >= yesterday 16:00 New York",
+        "yesterday": "news_time is on New York's yesterday",
+        "yesterdayafter": "news_time is on New York's yesterday, after 16:00",
+        "prevhours24": "news_time >= the answer's moment - 24 hours",
+        "prevdays7": "news_time >= the answer's moment - 7 days",
+        "prevmonth": "news_time >= the answer's moment - 30 days (the label's month)",
+    }
+)
+
+_NEWS_MINUTE_TOKENS: frozenset[str] = frozenset(
+    {"prevminutes5", "prevminutes30", "prevhours1"}
+)
+
+
+def _news_family() -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens("news_date"):
+        if token in _NEWS_MINUTE_TOKENS:
+            family.append(
+                Bucket(
+                    id=f"news:{token}",
+                    key="news_date",
+                    label=_label("news_date", token),
+                    finviz=token,
+                    predicate=_never,
+                    describe=f"unavailable: {NEWS_MINUTE_REASON}",
+                    available=False,
+                    reason=NEWS_MINUTE_REASON,
+                )
+            )
+            continue
+        if token not in _NEWS_DESCRIBE:  # pragma: no cover - _validate() gates it
+            raise RuntimeError(f"news_date: token {token!r} has no window")
+        family.append(
+            Bucket(
+                id=f"news:{token}",
+                key="news_date",
+                label=_label("news_date", token),
+                finviz=token,
+                predicate=_news_predicate(token),
+                describe=_NEWS_DESCRIBE[token],
+            )
+        )
+    return tuple(family)
+
+
 def _build_registry() -> dict[str, tuple[Bucket, ...]]:
     registry = {
         "price": _numeric(
@@ -912,6 +1878,87 @@ def _build_registry() -> dict[str, tuple[Bucket, ...]]:
         "sh_float": _float_family(),
         "targetprice": _target_family(),
         "idx": _idx_family(),
+        # -- fundamental: valuation (T17) --------------------------------------
+        # Every column is a depth cell published under its screen field name
+        # (``depth_overlay.SCREEN_ALIASES``); ``price_to_cash`` is the join's
+        # computed cell, never the store's ``pc`` spelling.
+        "pe": _family("pe", "fa_pe", "pe_ttm"),
+        "fpe": _family("fpe", "fa_fpe", "pe_forward"),
+        "peg": _family("peg", "fa_peg", "peg"),
+        "ps": _family("ps", "fa_ps", "ps"),
+        "pb": _family("pb", "fa_pb", "pb"),
+        "pc": _family("pc", "fa_pc", "price_to_cash"),
+        "pfcf": _family("pfcf", "fa_pfcf", "pfcf"),
+        "evebitda": _family("evebitda", "fa_evebitda", "ev_ebitda"),
+        "evsales": _family("evsales", "fa_evsales", "ev_to_sales"),
+        # -- fundamental: growth (T18) ----------------------------------------
+        # Percent points, as the depth store reports them (18.52 = 18.52%).
+        "epsyoy": _family("epsyoy", "fa_epsyoy", "eps_this_y"),
+        "epsyoy1": _family("epsyoy1", "fa_epsyoy1", "eps_next_y"),
+        "epsqoq": _family("epsqoq", "fa_epsqoq", "eps_qoq"),
+        "epsytm": _family("epsytm", "fa_epsyoyttm", "eps_yoy_ttm"),
+        "eps3y": _family("eps3y", "fa_eps3years", "eps_past_3y"),
+        "eps5y": _family("eps5y", "fa_eps5years", "eps_past_5y"),
+        # The next-five-year *rate*, not the forward-EPS level the row also
+        # carries: `eps_forecast_next_fy` is $4.20, this cell is 12.0%.
+        "epsnext5y": _family("epsnext5y", "fa_estltgrowth", "eps_next_5y"),
+        "salesqoq": _family("salesqoq", "fa_salesqoq", "sales_qoq"),
+        "salesttm": _family("salesttm", "fa_salesyoyttm", "sales_yoy_ttm"),
+        "sales3y": _family("sales3y", "fa_sales3years", "sales_past_3y"),
+        "sales5y": _family("sales5y", "fa_sales5years", "sales_past_5y"),
+        # -- fundamental: quality, leverage, ownership (T19) -------------------
+        "divgrowth": _dividend_growth_family(),
+        "roa": _family("roa", "fa_roa", "roa"),
+        "roe": _family("roe", "fa_roe", "roe"),
+        "roi": _family("roi", "fa_roi", "roic"),
+        "curratio": _family("curratio", "fa_curratio", "current_ratio"),
+        "quickratio": _family("quickratio", "fa_quickratio", "quick_ratio"),
+        "ltdebteq": _family("ltdebteq", "fa_ltdebteq", "lt_debt_to_equity"),
+        "debteq": _family("debteq", "fa_debteq", "debt_to_equity"),
+        "grossmargin": _family("grossmargin", "fa_grossmargin", "gross_margin"),
+        "opermargin": _family("opermargin", "fa_opermargin", "oper_margin"),
+        "netmargin": _family("netmargin", "fa_netmargin", "profit_margin"),
+        "payout": _family("payout", "fa_payoutratio", "payout_ratio"),
+        "insiderown": _family("insiderown", "sh_insiderown", "insider_own"),
+        "insidertrans": _withdrawn_family(
+            "insidertrans", "sh_insidertrans", INSIDER_TRANSACTIONS_REASON
+        ),
+        "instown": _family("instown", "sh_instown", "inst_own"),
+        "insttrans": _family("insttrans", "sh_insttrans", "inst_trans"),
+        # -- fundamental: surprise (T20) ---------------------------------------
+        "epsrev": _epsrev_family(),
+        # -- technical: price and oscillator (T21) -----------------------------
+        "rsi": _rsi_family(),
+        "gap": _direction_family("gap", "ta_gap", "gap_pct"),
+        "change": _direction_family("change", "ta_change", "change_pct"),
+        "changeopen": _direction_family("changeopen", "ta_changeopen", "change_from_open"),
+        "beta": _family("beta", "ta_beta", "beta_1y"),
+        # Price units, not a percent: Finviz's labels ("Over 0.25") are price
+        # units too, so no scaling is applied in either direction.
+        "atr": _family("atr", "ta_averagetruerange", "atr_14"),
+        # -- technical: trend and range (T22) ----------------------------------
+        "sma20": _sma_family("sma20", "ta_sma20", "sma_20"),
+        "sma50": _sma_family("sma50", "ta_sma50", "sma_50"),
+        "sma200": _sma_family("sma200", "ta_sma200", "sma_200"),
+        "highlow50d": _highlow_family(
+            "highlow50d", "ta_highlow50d", high="high_50d", low="low_50d"
+        ),
+        "highlow52w": _highlow_family(
+            "highlow52w", "ta_highlow52w", high="high_52w", low="low_52w"
+        ),
+        "alltime": _highlow_family(
+            "alltime",
+            "ta_alltime",
+            high="all_time_high",
+            low="all_time_low",
+            refuse={
+                "nh": ALL_TIME_REASON,
+                "nl": ALL_TIME_REASON,
+            },
+        ),
+        "candle": _candle_family("candle", "ta_candlestick"),
+        # -- news (T23) --------------------------------------------------------
+        "news": _news_family(),
     }
     return registry
 
@@ -953,6 +2000,15 @@ def _validate() -> None:
                 raise RuntimeError(f"unavailable bucket {item.id!r} has no reason")
             if item.available and item.reason is not None:
                 raise RuntimeError(f"available bucket {item.id!r} carries a reason")
+    for control in _WITHDRAWN:
+        family = _REGISTRY.get(control) or ()
+        if not family:
+            raise RuntimeError(f"withdrawn control {control!r} has no family to refuse by")
+        if any(item.available for item in family):  # pragma: no cover - boot gate
+            raise RuntimeError(
+                f"withdrawn control {control!r} publishes an available bucket: a "
+                "control the product withdrew must not filter a row"
+            )
     if len(_BY_ID) != sum(len(family) for family in _REGISTRY.values()):
         raise RuntimeError("two buckets share an id")
 
@@ -985,6 +2041,12 @@ def bucket(identifier: object) -> Bucket:
             f"bucket id must be a non-empty string, got {identifier!r}",
         )
     found = _BY_ID.get(identifier.strip().casefold())
+    if found is None:
+        control = identifier.split(":", 1)[0].casefold()
+        token = identifier.split(":", 1)[1].strip().casefold() if ":" in identifier else ""
+        canonical = _SYNONYMS.get(control, {}).get(token)
+        if canonical is not None:
+            found = _BY_ID.get(f"{control}:{canonical}".casefold())
     if found is None:
         control = identifier.split(":", 1)[0].casefold()
         family = _REGISTRY.get(control)
@@ -1079,4 +2141,5 @@ __all__ = [
     "control_for",
     "day",
     "for_key",
+    "labels_for",
 ]

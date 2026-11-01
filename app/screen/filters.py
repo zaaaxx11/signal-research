@@ -12,7 +12,7 @@ claim that the metric behind every key is already sourced.
 
 **Only a metric the product can answer gets a field.** ``FilterSpec.field`` names
 the canonical row column a key filters, and it is ``None`` for the keys no row
-carries. **Forty-seven keys map to one column today**: the seven light columns
+carries. **Forty-eight keys map to one column today**: the seven light columns
 (exchange, sector, country, market cap, price, change %, current volume),
 twenty-nine parity metrics that :data:`app.screen.universe.PARITY_FIELDS` copies
 from the bulk scan — P/E, PEG, P/B, P/FCF, EV/EBITDA, ROE/ROA/ROIC, the current,
@@ -36,12 +36,12 @@ keys — ``ta_perf``, ``ta_perf2`` and ``ta_volatility`` — are **choice** keys
 filter through Finviz's option vocabulary instead of one column, and
 :mod:`app.screen.choice_filters` is their compiler. One more key — ``idx`` — is
 available through a **named bucket** rather than a column
-(:mod:`app.screen.buckets`, :mod:`app.screen.index_membership`), and eleven of
-the mapped keys also accept their probe tokens as buckets, so **fifty-one keys
-can filter a row today** and thirty-one are refused. The tokens themselves are
-not interpreted here: ``compile_filter`` compares a ``field`` to a number, and a
-description such as ``price:u5`` is a 422 until :mod:`app.screen.selection`
-routes it to the bucket compiler.
+(:mod:`app.screen.buckets`, :mod:`app.screen.index_membership`). Every mapped
+key also accepts its probe tokens as buckets, and nineteen more are bucket-only
+over the depth cells, so **seventy keys can filter a row today** and twelve are
+refused. The tokens themselves are not interpreted here: ``compile_filter``
+compares a ``field`` to a number, and a description such as ``price:u5`` is a 422
+until :mod:`app.screen.selection` routes it to the bucket compiler.
 
 The rule for the twenty-nine copies is **one quantity, one column, and the
 provider's window or unit in the name**. ``ta_beta`` therefore resolves to
@@ -75,7 +75,7 @@ there rather than to a column the scan does not have. ``short_float`` is answere
 by the **facts** store (:mod:`app.screen.facts`), together with insider and
 institutional ownership — cells the Finviz stock page prints and
 ``fundamentals_snapshots`` does not hold. ``ipo_date`` stays refused, and the
-thirty-one refusals in :mod:`app.screen.filter_fields` name the missing metric
+twelve refusals in :mod:`app.screen.filter_fields` name the missing metric
 instead.
 
 **A key that spans several columns is a choice, not a refusal.** ``ta_perf`` and
@@ -207,6 +207,37 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "eps_forecast_next_fy": "number",
         "eps_forecast_next_fq": "number",
         "revenue_forecast_next_fy": "number",
+        # -- depth-store cells (declared in app.screen.universe.DEPTH_FIELDS)
+        # The overlay has been copying these onto the row under their catalogue
+        # names; these entries make them filterable by a plain number as well as
+        # by their bucket tokens. Growth and surprise cells are **percent**
+        # points (18.52 = 18.52%), `lt_debt_to_equity` is a ratio (0.66 = 0.66x)
+        # and the level cells are in price units. `candlestick_pattern` and
+        # `news_time` are deliberately absent: they are text, and a numeric
+        # operator over a string is a filter that can only return nothing.
+        "eps_this_y": "number",
+        "eps_next_y": "number",
+        "eps_qoq": "number",
+        "eps_yoy_ttm": "number",
+        "eps_past_3y": "number",
+        "eps_past_5y": "number",
+        "eps_next_5y": "number",
+        "sales_qoq": "number",
+        "sales_yoy_ttm": "number",
+        "sales_past_3y": "number",
+        "sales_past_5y": "number",
+        "eps_surprise": "number",
+        "revenue_surprise": "number",
+        "lt_debt_to_equity": "number",
+        "dividend_growth_1y": "number",
+        "dividend_growth_3y": "number",
+        "dividend_growth_5y": "number",
+        "insider_trans": "number",
+        "inst_trans": "number",
+        "high_50d": "number",
+        "low_50d": "number",
+        "all_time_high": "number",
+        "all_time_low": "number",
         # -- share structure and trading depth
         "shares_outstanding": "number",
         "float_shares": "number",
@@ -1431,7 +1462,10 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "LT Debt/Equity",
         "fundamental",
         "floatRangeSelect",
-        None,
+        # The depth store carries long-term debt separately from total
+        # debt/equity (`lt_debt_to_equity`, 4,112 rows) in the same unit
+        # Finviz's control uses: a ratio, 0.66 = 0.66x.
+        "lt_debt_to_equity",
         ("", "high", "low", "u1", "u0.9", "u0.8", "u0.7", "u0.6", "u0.5", "u0.4", "u0.3",
          "u0.2", "u0.1", "o0.1", "o0.2", "o0.3", "o0.4", "o0.5", "o0.6", "o0.7",
          "o0.8", "o0.9", "o1", "frange"),

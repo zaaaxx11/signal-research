@@ -32,9 +32,9 @@ The rules the code has to earn:
    "value": "1w10u"}`` — and :mod:`app.screen.choice_filters` compiles it into
    the same ``field op number`` predicate a ``field`` criterion would have
    produced.
-2. **A bucket token is a criterion with no field.** Finviz's Descriptive panel
-   offers names, not ranges: ``price:u5``, ``cap:mega``, ``earn:todaybefore``,
-   ``idx:sp500``. Three of those four shapes cannot be written as one
+2. **A bucket token is a criterion with no field.** Finviz's panels offer names,
+   not ranges: ``price:u5``, ``cap:mega``, ``earn:todaybefore``, ``idx:sp500``,
+   ``pe:u15``, ``rsi:ob70``, ``divgrowth:3yo10``, ``highlow52w:nh``. Three of those four shapes cannot be written as one
    ``field op value`` triple — ``targetprice:a50`` relates two columns,
    ``earn:today`` needs New York's clock, ``idx:sp500`` is set membership — so
    the token is compiled by :mod:`app.screen.buckets` and travels as

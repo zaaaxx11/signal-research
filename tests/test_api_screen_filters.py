@@ -72,7 +72,7 @@ def members_universe(members: tuple[str, ...]) -> Any:
 # ---------------------------------------------------------------------------
 
 
-async def test_get_screens_filters_serves_the_descriptive_group(
+async def test_get_screens_filters_serves_the_five_tabs(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
@@ -82,23 +82,30 @@ async def test_get_screens_filters_serves_the_descriptive_group(
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
 
-    assert body["schema_version"] == "descriptive-1"
-    (group,) = body["groups"]
-    assert group["id"] == "descriptive"
-    assert group["label"] == "Descriptive"
-    assert len(group["controls"]) == 25
+    assert body["schema_version"] == "finviz-2"
+    assert [(group["id"], len(group["controls"])) for group in body["groups"]] == [
+        ("descriptive", 25),
+        ("fundamental", 37),
+        ("technical", 20),
+        ("news", 2),
+        ("etf", 1),
+    ]
     assert body["membership"]["counts"]["sp500"] > 480
     assert body["membership"]["as_of"], "a membership count without a stamp is a claim"
 
     # Every control states its availability, and every option its predicate.
-    for control in group["controls"]:
-        assert isinstance(control["available"], bool)
-        if not control["available"]:
-            assert control["reason"]
-        for option in control["options"]:
-            if option["available"]:
-                assert option["predicate"], (control["id"], option["id"])
+    for group in body["groups"]:
+        for control in group["controls"]:
+            assert isinstance(control["available"], bool)
+            if not control["available"]:
+                assert control["reason"], (group["id"], control["id"])
+            for option in control["options"]:
+                if option["available"]:
+                    assert option["predicate"], (control["id"], option["id"])
+                else:
+                    assert option["reason"], (control["id"], option["id"])
 
+    group = body["groups"][0]
     idx = next(control for control in group["controls"] if control["id"] == "idx")
     assert idx["available"] is True
     assert [option["predicate"] for option in idx["options"]] == [
@@ -270,6 +277,94 @@ async def test_a_bad_token_is_422_with_a_specific_code(
             assert body["error"] == code, (key, value, body)
             assert "total" not in body, "a refusal is never an empty page"
             assert named in body["errorMessage"], (key, value, body)
+
+
+# ---------------------------------------------------------------------------
+# The new groups, over HTTP
+# ---------------------------------------------------------------------------
+
+#: A five-row universe whose cells make every example filter answer a known
+#: population. The route under test is the wiring — bucket id → predicate →
+#: `total` — so the rows are supplied and everything downstream is real.
+BUCKET_ROWS: tuple[dict[str, Any], ...] = (
+    {"symbol": "CHEAP", "name": "Cheap", "price": 10.0, "pe_ttm": 12.0, "rsi_14": 75.0, "ret_1w": 3.0, "market_cap_usd": 1e9},
+    {"symbol": "MID", "name": "Mid", "price": 20.0, "pe_ttm": 14.9, "rsi_14": 69.9, "ret_1w": 0.5, "market_cap_usd": 2e9},
+    {"symbol": "RICH", "name": "Rich", "price": 30.0, "pe_ttm": 60.0, "rsi_14": 50.0, "ret_1w": -2.0, "market_cap_usd": 3e9},
+    {"symbol": "EDGE", "name": "Edge", "price": 40.0, "pe_ttm": 15.0, "rsi_14": 70.0, "ret_1w": 0.0, "market_cap_usd": 4e9},
+    {"symbol": "NONE", "name": "None", "price": 50.0, "pe_ttm": None, "rsi_14": None, "ret_1w": None, "market_cap_usd": 5e9},
+)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "expected", "canonical"),
+    [
+        ("fa_pe", "pe:u15", ["MID", "CHEAP"], "pe:u15"),
+        ("ta_rsi", "rsi:overbought", ["EDGE", "CHEAP"], "rsi:ob70"),
+        ("ta_perf", "1wup", ["MID", "CHEAP"], "1wup"),
+    ],
+)
+async def test_a_representative_filter_answers_over_http(
+    tmp_path: Path,
+    monkeypatch: Any,
+    key: str,
+    value: str,
+    expected: list[str],
+    canonical: str,
+) -> None:
+    """Three groups, one wire shape: ``{key, op: eq, value: <token>}``."""
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        from app.api import screens as screens_api
+
+        monkeypatch.setattr(
+            screens_api, "build_universe", lambda _rows, **_: [dict(row) for row in BUCKET_ROWS]
+        )
+        response = await harness.client.post(
+            "/screens/select", json=select_body([{"key": key, "op": "eq", "value": value}])
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [row["symbol"] for row in body["rows"]] == expected
+    assert body["total"] == len(expected)
+    echoed = body["filters"][0]
+    if key in ("ta_perf", "ta_perf2", "ta_volatility"):
+        # A choice key compiles the token; the envelope echoes the predicate.
+        assert (echoed["field"], echoed["op"], echoed["value"]) == ("ret_1w", "gt", 0.0)
+    else:
+        assert echoed["value"] == canonical, (
+            "the envelope echoes the canonical spelling, so a synonym is not a second bucket"
+        )
+
+
+async def test_an_unavailable_bucket_is_422_over_http(tmp_path: Path, monkeypatch: Any) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post(
+            "/screens/select",
+            json=select_body([{"key": "fa_divgrowth", "op": "eq", "value": "divgrowth:cy9"}]),
+        )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"] == "unavailable_bucket"
+    assert "no series" in body["errorMessage"]
+    assert "total" not in body
+
+
+async def test_a_misspelled_token_is_422_unknown_bucket(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        response = await harness.client.post(
+            "/screens/select",
+            json=select_body([{"key": "fa_pe", "op": "eq", "value": "pe:u999"}]),
+        )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"] == "unknown_bucket"
+    assert "pe:u999" in body["errorMessage"]
+    assert "total" not in body
 
 
 # ---------------------------------------------------------------------------

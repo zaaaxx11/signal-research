@@ -39,8 +39,10 @@ from app.screen.filters import (
     parse_filters,
 )
 from app.screen.facts import FACTS_ROW_FIELDS
+from app.screen.filter_fields import BUCKET_KEYS, binding
 from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.universe import (
+    DEPTH_FIELDS,
     DERIVED_FIELDS,
     MIN_MARKET_CAP_USD,
     PARITY_FIELDS,
@@ -193,6 +195,8 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "fa_roi": "roic",
         "fa_curratio": "current_ratio",
         "fa_quickratio": "quick_ratio",
+        # -- the one depth cell with a numeric field as well as its vocabulary
+        "fa_ltdebteq": "lt_debt_to_equity",
         "fa_debteq": "debt_to_equity",
         "fa_grossmargin": "gross_margin",
         "fa_opermargin": "oper_margin",
@@ -237,25 +241,31 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
     # derived column computed from those cells, or a cell one of the joins copies
     # onto the row.
     carried = set(UNIVERSE_COLUMNS) | set(PARITY_FIELDS.values()) | set(DERIVED_FIELDS)
-    readable = carried | set(FUNDAMENTALS_ROW_FIELDS) | set(FACTS_ROW_FIELDS)
+    readable = (
+        carried | set(DEPTH_FIELDS) | set(FUNDAMENTALS_ROW_FIELDS) | set(FACTS_ROW_FIELDS)
+    )
     assert set(mapped.values()) <= readable, (
         "filter keys point at fields no row carries: "
         f"{sorted(set(mapped.values()) - readable)}"
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 35
-    # The three option-driven keys also have no single column — that is why they
-    # are not in `mapped` — but they are not refused: one option token names one
-    # window and compiles to one column predicate (app.screen.choice_filters).
+    assert len(unsourced) == 82 - len(mapped) == 34
+    # A key with no single column is still available if it answers its Finviz
+    # vocabulary: the three option-driven keys compile one token per predicate
+    # (app.screen.choice_filters), and 19 more answer bucket ids over the depth
+    # cells (app.screen.buckets). What is left has no source at all.
     choice = {key for key, spec in FILTER_CATALOG.items() if spec.choice}
     assert choice <= set(unsourced), "a choice key must not claim a single column"
-    assert all(not FILTER_CATALOG[key].is_available for key in set(unsourced) - choice), (
-        "a key without a metric must report is_available == False"
-    )
     assert all(FILTER_CATALOG[key].is_available for key in choice), (
         "an option-driven key filters a row today; it is not a refusal"
     )
+    assert BUCKET_KEYS - set(mapped) <= set(unsourced)
+    assert all(binding(key).is_available for key in BUCKET_KEYS - set(mapped))
+    assert all(
+        not FILTER_CATALOG[key].is_available
+        for key in set(unsourced) - choice - set(BUCKET_KEYS)
+    ), "a key without a metric and without a vocabulary must report is_available == False"
 
 
 # ---------------------------------------------------------------------------

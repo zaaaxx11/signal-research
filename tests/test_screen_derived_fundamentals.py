@@ -384,8 +384,8 @@ def test_the_two_keys_resolve_to_the_computed_columns(key: str, field: str) -> N
 
 
 def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 51
-    assert len(unavailable_keys()) == 31
+    assert len(mapped_keys()) == 70
+    assert len(unavailable_keys()) == 12
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     for key in P11I:
@@ -405,7 +405,7 @@ def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 47 and len(chosen) == 3 and len(refused) == 31
+    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 12
     assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
     assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
     assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
@@ -417,9 +417,9 @@ def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
         assert "reason" not in mapped[key], f"{key} is mapped, so it carries no refusal"
 
     description = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]["key"]["description"]  # type: ignore[index]
-    assert "The 47 that resolve to one row column" in description
-    assert "the 31 that are refused" in description
-    assert "(idx) that filters through a named bucket" in description
+    assert "The 48 that resolve to one row column" in description
+    assert "the 12 that are refused" in description
+    assert "19 bucket-only key" in description and "idx" in description
 
 
 # ---------------------------------------------------------------------------

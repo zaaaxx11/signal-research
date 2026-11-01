@@ -689,8 +689,8 @@ def test_the_facts_keys_resolve_to_the_joined_columns() -> None:
 
 
 def test_the_catalogue_moved_to_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 51
-    assert len(unavailable_keys()) == 31
+    assert len(mapped_keys()) == 70
+    assert len(unavailable_keys()) == 12
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert not set(mapped_keys()) & set(unavailable_keys())
@@ -712,7 +712,7 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_facts_keys() 
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 47 and len(chosen) == 3 and len(refused) == 31
+    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 12
     assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
     assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
     assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
@@ -724,9 +724,9 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_facts_keys() 
 
     predicate = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]  # type: ignore[index]
     description = predicate["key"]["description"]
-    assert "The 47 that resolve to one row column" in description
-    assert "the 31 that are refused" in description
-    assert "(idx) that filters through a named bucket" in description
+    assert "The 48 that resolve to one row column" in description
+    assert "the 12 that are refused" in description
+    assert "19 bucket-only key" in description and "idx" in description
 
 
 # ---------------------------------------------------------------------------

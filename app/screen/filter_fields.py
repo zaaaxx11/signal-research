@@ -14,9 +14,9 @@ parameter. So the contract is: **a filter key either filters a row — directly,
 or through one of its option tokens — or the request is rejected (422) with the
 reason**, never applied as a no-op.
 
-Forty-seven keys can filter a row directly, three more through their option
-vocabulary and one (``idx``) through a named bucket — fifty-one live — while
-thirty-one are refused:
+Forty-eight keys can filter a row directly, three more through their option
+vocabulary and nineteen through a named bucket — **seventy live** — while twelve
+are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -67,12 +67,20 @@ thirty-one are refused:
   single column could name ten performance windows, so ``Binding.field`` stays
   ``None`` and ``Binding.choice`` is ``True``: the key is available, it just
   answers per token;
-* **thirty-one are refused**, each with the metric it needs: no column measures
-  it (theme, dividend growth and the two insider/institutional
-  *transaction* flows, news, ETF holdings, after-hours, patterns, 20/50-day and
-  all-time extremes), or the column the provider offers answers **null for every
-  row** (``ipo_date`` on both the US and the global scan), where a filter could
-  only ever return an empty screen.
+* **nineteen answer a bucket family instead of one column** — the fundamental
+  multiples, growth rates, margins and ownership cells, and the technical
+  oscillators, moving averages and range controls. Their cells are depth-store
+  columns published under their catalogue names
+  (:data:`app.screen.universe.DEPTH_FIELDS`), and their Finviz tokens are named
+  server-side predicates (:mod:`app.screen.buckets`): ``{"key": "fa_pe", "op":
+  "eq", "value": "pe:u15"}``. A key may be **both** mapped and bucketed
+  (``fa_ltdebteq`` answers a number *and* ``ltdebteq:o0.5``), because a token and
+  a number are the same question asked two ways;
+* **twelve are refused**, each with the metric it needs: no column measures it
+  (theme, sub-theme, IPO dates, a print count, an optionable flag, a withdrawn
+  insider flow, a 20-day window, a pattern engine, the after-hours session, an
+  article corpus, fund holdings), where a filter could only ever return an
+  empty screen.
 
 Three things this module refuses to invent:
 
@@ -105,9 +113,9 @@ Three things this module refuses to invent:
   :mod:`app.screen.buckets` and :mod:`app.screen.index_membership` publishes the
   lists. ``Binding.field`` stays ``None`` and ``Binding.bucket`` is ``True``; a
   request still reads ``{"key": "idx", "op": "eq", "value": "sp500"}``. The
-  bucket flag also rides on the eleven *mapped* keys that accept their Finviz
-  tokens (``sh_price`` + ``price:u5``), because a token and a number are the same
-  key asked two ways.
+  bucket flag also rides on every *mapped* key that accepts its Finviz tokens
+  (``sh_price`` + ``price:u5``), because a token and a number are the same key
+  asked two ways.
 
 The mapping is not a second source of truth: :data:`ROW_FIELDS`,
 :data:`CHOICE_FIELDS` and :data:`BUCKET_KEYS` are *derived* from
@@ -159,11 +167,6 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("theme", "subtheme"),
     ),
     (
-        "needs a dividend growth rate: the scan carries a dividend yield only "
-        "(`dividends_yield`), which is not a growth rate",
-        ("fa_divgrowth",),
-    ),
-    (
         "needs an IPO-date column the scanner fills: `ipo_date` answered null for "
         "all 5,720 US rows (and 96,278 global rows) when probed live, so a filter "
         "on it can only return an empty screen",
@@ -178,45 +181,17 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("sh_opt",),
     ),
     (
-        "needs a growth-rate column (EPS and sales growth this year, next year, "
-        "quarterly, 3-5 year and TTM): the scan carries forward EPS and revenue "
-        "*levels* for the next FY/FQ, and a level is not a growth rate",
-        (
-            "fa_epsyoy",
-            "fa_epsyoy1",
-            "fa_epsqoq",
-            "fa_epsyoyttm",
-            "fa_eps3years",
-            "fa_eps5years",
-            "fa_estltgrowth",
-            "fa_salesqoq",
-            "fa_salesyoyttm",
-            "fa_sales3years",
-            "fa_sales5years",
-        ),
+        "reads a mixture of ownership levels and junk (TSLA 76.0, META 45.9, "
+        "GME 8.7): the depth cell exists but is a vendor net-change nobody can "
+        "read as a flow, so the product withdrew the control by name "
+        "(app/api/signals.py)",
+        ("sh_insidertrans",),
     ),
     (
-        "needs an earnings-surprise column: the scan carries no surprise history",
-        ("fa_epsrev",),
-    ),
-    (
-        "needs long-term debt separately: the scan carries total debt/equity only",
-        ("fa_ltdebteq",),
-    ),
-    (
-        "needs insider and institutional *transaction* flows: the scan carries "
-        "no transaction column, and holdings are not transactions",
-        ("sh_insidertrans", "sh_insttrans"),
-    ),
-    (
-        "needs 20-day and 50-day high/low columns: the scan carries the "
-        "52-week extremes only",
-        ("ta_highlow20d", "ta_highlow50d"),
-    ),
-    (
-        "needs an all-time high/low column: the scan carries the 52-week "
-        "extremes only",
-        ("ta_alltime",),
+        "needs a 20-day high/low column: the scan carries the 52-week extremes "
+        "and the depth store carries the 50-day ones, so a 50-day figure cannot "
+        "be narrowed to 20 days",
+        ("ta_highlow20d",),
     ),
     (
         "needs chart-pattern detection: the scan returns no pattern "
@@ -224,17 +199,15 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("ta_pattern",),
     ),
     (
-        "needs candlestick detection: the scan returns no candlestick "
-        "classification",
-        ("ta_candlestick",),
-    ),
-    (
         "needs after-hours prices: the scan covers the regular session only",
         ("ah_close", "ah_change"),
     ),
     (
-        "needs the news store: the scan returns no news timestamp or keywords",
-        ("news_date", "news_keywords"),
+        "needs a news keyword index: the product holds one headline per symbol "
+        "(the source `news_date` reads), so a keyword search would search 4,112 "
+        "titles, one per company — not Finviz's 'titles from the last 24 hours "
+        "that contain any keyword'",
+        ("news_keywords",),
     ),
     (
         "needs ETF holdings data: the scan does not carry a fund's constituent "

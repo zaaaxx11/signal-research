@@ -54,6 +54,7 @@ from app.screen.fundamentals import FUNDAMENTALS_ROW_FIELDS
 from app.screen.scanner import SCAN_COLUMNS, scan_body
 from app.screen.selection import SelectionError, parse_selection, select_rows
 from app.screen.universe import (
+    DEPTH_FIELDS,
     DERIVED_FIELDS,
     MIN_MARKET_CAP_USD,
     PARITY_COLUMNS,
@@ -141,14 +142,15 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 51
-    assert len(unavailable_keys()) == 31
+    assert len(mapped_keys()) == 70
+    assert len(unavailable_keys()) == 12
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(ROW_FIELDS.values()) <= set(FIELDS)
     assert set(ROW_FIELDS.values()) <= (
-        set(PARITY_FIELDS.values())
+        set(DEPTH_FIELDS)
+        | set(PARITY_FIELDS.values())
         | set(UNIVERSE_COLUMNS)
         | set(DERIVED_FIELDS)
         | set(FUNDAMENTALS_ROW_FIELDS)

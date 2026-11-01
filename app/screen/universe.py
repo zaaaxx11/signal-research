@@ -272,6 +272,55 @@ PARITY_NULLABLE: frozenset[str] = frozenset(
 )
 
 
+#: Cells the depth overlay copies onto a row under their **catalogue** name.
+#: They are declared here rather than discovered from the store, because
+#: ``CARRIED_FIELDS`` is what a filter key is validated against: a key that
+#: points at one of these must be able to say *which* names are real, and a set
+#: built from a live store file would make the answer depend on a machine.
+#:
+#: The declaration is checked from both ends by
+#: ``tests/test_screen_depth_fields.py``: every name is a catalogue column, and a
+#: real store fills every name for at least one symbol — so the set cannot claim
+#: a cell the collector stopped writing. The last two are **text**
+#: (``candlestick_pattern``, an ISO-8601 ``news_time``): they are bucket-only and
+#: deliberately absent from :data:`app.screen.filters.FIELDS`.
+DEPTH_FIELDS: frozenset[str] = frozenset(
+    {
+        # growth rates, percent points (18.52 = 18.52%)
+        "eps_this_y",
+        "eps_next_y",
+        "eps_qoq",
+        "eps_yoy_ttm",
+        "eps_past_3y",
+        "eps_past_5y",
+        "eps_next_5y",
+        "sales_qoq",
+        "sales_yoy_ttm",
+        "sales_past_3y",
+        "sales_past_5y",
+        # surprises, percent points
+        "eps_surprise",
+        "revenue_surprise",
+        # leverage, a ratio (0.66 = 0.66x)
+        "lt_debt_to_equity",
+        # dividend growth, percent points, three windows only
+        "dividend_growth_1y",
+        "dividend_growth_3y",
+        "dividend_growth_5y",
+        # net insider/institutional change, percent points
+        "insider_trans",
+        "inst_trans",
+        # price levels, price units
+        "high_50d",
+        "low_50d",
+        "all_time_high",
+        "all_time_low",
+        # text: bucket-only, never a numeric filter field
+        "candlestick_pattern",
+        "news_time",
+    }
+)
+
 #: Fields a universe row carries. ``rank`` is added later by
 #: :func:`app.screen.rank.rank_rows`, so ordering stays a separate decision.
 UNIVERSE_COLUMNS: tuple[str, ...] = (
@@ -290,12 +339,16 @@ UNIVERSE_COLUMNS: tuple[str, ...] = (
     "is_primary",
 )
 
-#: Every column a row can carry: the light block, the parity copies and the three
-#: derived columns. This is the union :mod:`app.screen.filter_fields` validates a
-#: filter key against — a key may point at a light column, a provider metric or a
-#: derived metric, and at nothing else.
+#: Every column a row can carry: the light block, the parity copies, the three
+#: derived columns and the depth cells the overlay copies under their catalogue
+#: names. This is the union :mod:`app.screen.filter_fields` validates a filter
+#: key against — a key may point at a light column, a provider metric, a derived
+#: metric or a depth cell, and at nothing else.
 CARRIED_FIELDS: frozenset[str] = (
-    frozenset(UNIVERSE_COLUMNS) | frozenset(PARITY_FIELDS.values()) | frozenset(DERIVED_FIELDS)
+    frozenset(UNIVERSE_COLUMNS)
+    | frozenset(PARITY_FIELDS.values())
+    | frozenset(DERIVED_FIELDS)
+    | DEPTH_FIELDS
 )
 
 
@@ -671,6 +724,7 @@ _validate_derived()
 __all__ = [
     "ASSET_CLASSES",
     "CARRIED_FIELDS",
+    "DEPTH_FIELDS",
     "COMMON_SUBTYPE",
     "COMMON_TYPE",
     "DERIVED_COLUMNS",
