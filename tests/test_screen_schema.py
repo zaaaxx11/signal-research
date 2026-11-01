@@ -216,7 +216,7 @@ def test_the_published_description_names_both_vocabularies() -> None:
     assert "x-filter-aliases" in key_help, (
         "a client author has to be told where the catalogue spellings live"
     )
-    assert "82 Finviz" in document["description"]
+    assert "82 filter keys" in document["description"]
 
 
 # ---------------------------------------------------------------------------

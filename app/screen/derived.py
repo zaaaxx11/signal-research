@@ -16,7 +16,7 @@ the three conditions a derivation must meet to earn it:
    PARITY_COLUMNS)`` already asks for ``Recommend.All``, ``gap`` and
    ``price_52_week_high``; a derived column is computed from those, so a parity
    scan is byte-identical in cost to the one before this module existed.
-3. **The name states the transform or the scale.** ``recom_finviz`` says *which
+3. **The name states the transform or the scale.** ``recom_score`` says *which
    scale* (Finviz's 1..5, not the provider's -1..1 ``recommendation``),
    ``change_from_open`` says *which base* (the session open, not the previous
    close) and ``pct_from_52w_high`` says *which direction* (the high, never a
@@ -25,7 +25,7 @@ the three conditions a derivation must meet to earn it:
 The three formulas
 ------------------
 
-``recom_finviz`` — Finviz's "Analyst Recom." is 1 (strong buy) .. 5 (strong
+``recom_score`` — Finviz's "Analyst Recom." is 1 (strong buy) .. 5 (strong
 sell); TradingView's ``Recommend.All`` is a -1..+1 mean rating. ``3 - 2 * score``
 is the published linear map, and it is applied without rounding: ``+1 -> 1``,
 ``0 -> 3``, ``-1 -> 5``, and a live ``0.5576`` becomes ``1.8848`` — between
@@ -82,7 +82,7 @@ from typing import Any, Mapping
 #: reason a derived column can never be mistaken for a provider copy.
 DERIVED_FIELDS: Mapping[str, str] = MappingProxyType(
     {
-        "recom_finviz": "3 - 2 * recommendation",
+        "recom_score": "3 - 2 * recommendation",
         "change_from_open": "((1 + change_pct / 100) / (1 + gap_pct / 100) - 1) * 100",
         "pct_from_52w_high": "(price / high_52w - 1) * 100",
     }
@@ -94,7 +94,7 @@ DERIVED_FIELDS: Mapping[str, str] = MappingProxyType(
 #: fails at import if one is not.
 DERIVED_INPUTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
-        "recom_finviz": ("recommendation",),
+        "recom_score": ("recommendation",),
         "change_from_open": ("price", "change_pct", "gap_pct"),
         "pct_from_52w_high": ("price", "high_52w"),
     }
@@ -140,7 +140,7 @@ def _result(value: float) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def recom_finviz(score: Any) -> float | None:
+def recom_score(score: Any) -> float | None:
     """``Recommend.All`` (-1..+1) → Finviz's 1..5 analyst score, or ``None``.
 
     ``+1 -> 1`` (strong buy), ``0 -> 3`` (hold), ``-1 -> 5`` (sell). No rounding:
@@ -200,7 +200,7 @@ def derive_row(row: Mapping[str, Any]) -> dict[str, float | None]:
     """
 
     return {
-        "recom_finviz": recom_finviz(row.get("recommendation")),
+        "recom_score": recom_score(row.get("recommendation")),
         "change_from_open": change_from_open(
             row.get("price"), row.get("change_pct"), row.get("gap_pct")
         ),
@@ -241,5 +241,5 @@ __all__ = [
     "change_from_open",
     "derive_row",
     "pct_from_52w_high",
-    "recom_finviz",
+    "recom_score",
 ]

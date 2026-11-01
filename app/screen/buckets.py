@@ -330,7 +330,7 @@ def _label(key: str, token: str) -> str:
     labels = _LABELS.get(key)
     if labels is None:
         raise RuntimeError(
-            f"{key}: no vendored Finviz vocabulary in {LABEL_PATH}; "
+            f"{key}: no vendored vocabulary in {LABEL_PATH}; "
             "rerun python scripts/filter-options.py"
         )
     label = labels.get(token)
@@ -555,12 +555,14 @@ _CONTROL_KEYS: dict[str, str] = {
     "fa_div": "fa_div",
     "sh_short": "sh_short",
     "an_recom": "an_recom",
+    "sh_opt": "sh_opt",
     "earn": "earningsdate",
     "sh_avgvol": "sh_avgvol",
     "sh_relvol": "sh_relvol",
     "sh_outstanding": "sh_outstanding",
     "sh_float": "sh_float",
     "targetprice": "targetprice",
+    "ipodate": "ipodate",
     "idx": "idx",
     # -- fundamental: valuation (T17) --------------------------------------
     "pe": "fa_pe",
@@ -869,7 +871,7 @@ def _short_family() -> tuple[Bucket, ...]:
     return tuple(family)
 
 
-#: Analyst recommendation on Finviz's 1..5 score (``recom_finviz``), where 1 is
+#: Analyst recommendation on Finviz's 1..5 score (``recom_score``), where 1 is
 #: a strong buy and 5 a strong sell. Each label is a half-point band; the
 #: "or better"/"or worse" labels are the cumulative side of the same scale.
 _RECOM_BANDS: Mapping[str, tuple[str, Any]] = MappingProxyType(
@@ -901,7 +903,7 @@ _RECOM_LABELS: Mapping[str, str] = MappingProxyType(
 
 
 def _recom_family() -> tuple[Bucket, ...]:
-    column = "recom_finviz"
+    column = "recom_score"
     family: list[Bucket] = []
     for token in _tokens("an_recom"):
         if token not in _RECOM_BANDS:  # pragma: no cover - _validate() gates it
@@ -1706,8 +1708,9 @@ def _sma_family(control: str, key: str, column: str) -> tuple[Bucket, ...]:
 
 CANDLESTICK_REASON = (
     "no classifier for this shape in the depth store: it names doji, hammer and "
-    "engulfing only (2,389 rows), so the other nine Finviz classes can never "
-    "match a row — a bucket for them would be an empty page wearing a filter's name"
+    "engulfing only (2,389 rows), so the other nine chart-pattern classes can "
+    "never match a row — a bucket for them would be an empty page wearing a "
+    "filter's name"
 )
 
 #: Finviz token → the classifier string the depth store writes.
@@ -1877,6 +1880,227 @@ def _news_family() -> tuple[Bucket, ...]:
     return tuple(family)
 
 
+# -- optionable / shortable: the vendor's Yes/No is a boolean, and two cells ---
+
+#: ``sh_opt`` token → ``(optionable, shortable)``, where ``None`` means "this
+#: token does not ask that cell". The eight tokens are the probe's; the mapping
+#: is the 2x2 truth table read literally, not an interpretation of it.
+_OPTION_SHORT_TOKENS: Mapping[str, tuple[bool | None, bool | None]] = MappingProxyType(
+    {
+        "option": (True, None),
+        "short": (None, True),
+        "notoption": (False, None),
+        "notshort": (None, False),
+        "optionshort": (True, True),
+        "optionnotshort": (True, False),
+        "notoptionshort": (False, True),
+        "notoptionnotshort": (False, False),
+    }
+)
+
+#: The two cells, and the sentence each token compiles to.
+_OPTION_CELLS: tuple[str, str] = ("optionable", "shortable")
+
+
+def _flag(value: Any) -> bool | None:
+    """One yes/no cell as a boolean, or ``None`` when it says neither.
+
+    Two writers fill these cells: the depth collector writes the vendor's
+    strings (``"Yes"`` / ``"No"``) and the official Cboe path writes a bool. A
+    blank, a missing key and a value that is neither is *unknown*, which matches
+    no token — the 20 symbols in the store with neither cell must not answer
+    ``notoption`` merely because the store is silent.
+    """
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().casefold()
+        if text in {"yes", "y", "true", "1"}:
+            return True
+        if text in {"no", "n", "false", "0"}:
+            return False
+    return None
+
+
+def _option_short_predicate(
+    optionable: bool | None, shortable: bool | None
+) -> Callable[[Mapping[str, Any], Context], bool]:
+    """One token's truth-table row: each named cell must equal its verdict."""
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        for cell, expected in zip(_OPTION_CELLS, (optionable, shortable), strict=True):
+            if expected is None:
+                continue
+            if _flag(row.get(cell)) is not expected:
+                return False
+        return True
+
+    return predicate
+
+
+def _option_short_describe(
+    optionable: bool | None, shortable: bool | None
+) -> str:
+    """The audit line: which cells, and the verdict each one must carry."""
+
+    clauses = [
+        f"{cell} == {'Yes' if expected else 'No'}"
+        for cell, expected in zip(_OPTION_CELLS, (optionable, shortable), strict=True)
+        if expected is not None
+    ]
+    return " and ".join(clauses)
+
+
+def _option_short_family() -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens("sh_opt"):
+        verdicts = _OPTION_SHORT_TOKENS.get(token)
+        if verdicts is None:  # pragma: no cover - _validate() gates the tokens
+            raise RuntimeError(f"sh_opt: token {token!r} has no truth-table row")
+        optionable, shortable = verdicts
+        family.append(
+            Bucket(
+                id=f"sh_opt:{token}",
+                key="sh_opt",
+                label=_label("sh_opt", token),
+                finviz=token,
+                predicate=_option_short_predicate(optionable, shortable),
+                describe=_option_short_describe(optionable, shortable),
+            )
+        )
+    return tuple(family)
+
+
+# -- IPO dates: two spellings, one date, fifteen windows ---------------------
+
+#: Days in a nominal year, for the "last N years" / "more than N years" tokens.
+#: A calendar year is 365.25 days on average; using 365 would drift a window by
+#: two days over eight years, and the token is a *duration*, not a calendar
+#: boundary (``earn:prevweek`` is a calendar week; this control never was).
+_YEAR_DAYS = 365.25
+
+#: ``ipodate`` token → ``("last", days)`` for "in the last N days",
+#: ``("before", days)`` for "more than N days ago", or a named exact day.
+_IPO_WINDOWS: Mapping[str, tuple[str, int] | str] = MappingProxyType(
+    {
+        "today": "today",
+        "yesterday": "yesterday",
+        "prevweek": ("last", 7),
+        "prevmonth": ("last", 30),
+        "prevquarter": ("last", 90),
+        "prevyear": ("last", 365),
+        "prev2yrs": ("last", round(2 * _YEAR_DAYS)),
+        "prev3yrs": ("last", round(3 * _YEAR_DAYS)),
+        "prev5yrs": ("last", round(5 * _YEAR_DAYS)),
+        "more1": ("before", 365),
+        "more5": ("before", round(5 * _YEAR_DAYS)),
+        "more10": ("before", round(10 * _YEAR_DAYS)),
+        "more15": ("before", round(15 * _YEAR_DAYS)),
+        "more20": ("before", round(20 * _YEAR_DAYS)),
+        "more25": ("before", round(25 * _YEAR_DAYS)),
+    }
+)
+
+#: Month names, reused from the earnings reader (:data:`_MONTHS`): a table, not
+#: ``strptime("%b")``, because ``%b`` reads the process locale.
+_IPO_MONTH_DAY = re.compile(r"([A-Za-z]{3,9})\.? (\d{1,2}), (\d{4})")
+
+
+def _ipo_day(value: Any) -> date | None:
+    """One ``listing_date`` cell as a date, or ``None`` when it is not one.
+
+    Two spellings are in the store and both are read: ``1999-11-18`` (4,188
+    rows, the collector's ISO stamp) and ``Oct 18, 2016`` (29 rows, the vendor's
+    own). The vendor spelling carries its year, so nothing is guessed: a
+    year-less month-day would have to pick one, and an IPO date is never "the
+    next occurrence".
+    """
+
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        # The catalogue documents ``listing_date`` as epoch seconds (the parity
+        # scan's unit). It answers null on every live row today, so this branch
+        # has no data to prove it — but a column whose documented unit is a
+        # timestamp must not silently match nothing if the provider ever fills it.
+        return _epoch_day(float(value)) if math.isfinite(float(value)) else None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        pass
+    spelled = _IPO_MONTH_DAY.fullmatch(text)
+    if spelled is None:
+        return None
+    month = _MONTHS.get(spelled.group(1)[:3].casefold())
+    if month is None:
+        return None
+    try:
+        return date(int(spelled.group(3)), month, int(spelled.group(2)))
+    except ValueError:
+        return None
+
+
+def _ipo_predicate(token: str) -> Callable[[Mapping[str, Any], Context], bool]:
+    window = _IPO_WINDOWS[token]
+
+    def predicate(row: Mapping[str, Any], context: Context) -> bool:
+        moment = _ipo_day(row.get("listing_date"))
+        if moment is None:
+            return False
+        if window == "today":
+            return moment == context.today
+        if window == "yesterday":
+            return moment == context.today - timedelta(days=1)
+        kind, days = window  # type: ignore[misc]
+        if kind == "last":
+            return context.today - timedelta(days=days - 1) <= moment <= context.today
+        return moment < context.today - timedelta(days=days)
+
+    return predicate
+
+
+def _ipo_describe(token: str) -> str:
+    window = _IPO_WINDOWS[token]
+    if window == "today":
+        return "listing_date == New York today"
+    if window == "yesterday":
+        return "listing_date == New York today - 1"
+    kind, days = window  # type: ignore[misc]
+    if kind == "last":
+        return (
+            f"listing_date >= today - {days - 1} days and listing_date <= today"
+        )
+    return f"listing_date < today - {days} days"
+
+
+def _ipo_family() -> tuple[Bucket, ...]:
+    family: list[Bucket] = []
+    for token in _tokens("ipodate"):
+        if token not in _IPO_WINDOWS:  # pragma: no cover - _validate() gates it
+            raise RuntimeError(f"ipodate: token {token!r} has no window")
+        family.append(
+            Bucket(
+                id=f"ipodate:{token}",
+                key="ipodate",
+                label=_label("ipodate", token),
+                finviz=token,
+                predicate=_ipo_predicate(token),
+                describe=_ipo_describe(token),
+            )
+        )
+    return tuple(family)
+
+
 def _build_registry() -> dict[str, tuple[Bucket, ...]]:
     registry = {
         "price": _numeric(
@@ -1886,6 +2110,7 @@ def _build_registry() -> dict[str, tuple[Bucket, ...]]:
         "fa_div": _dividend_family(),
         "sh_short": _short_family(),
         "an_recom": _recom_family(),
+        "sh_opt": _option_short_family(),
         "earn": _earnings_family(),
         "sh_avgvol": _numeric(
             "sh_avgvol", "sh_avgvol", "avg_volume_30d", scale=1e3
@@ -1896,6 +2121,7 @@ def _build_registry() -> dict[str, tuple[Bucket, ...]]:
         ),
         "sh_float": _float_family(),
         "targetprice": _target_family(),
+        "ipodate": _ipo_family(),
         "idx": _idx_family(),
         # -- fundamental: valuation (T17) --------------------------------------
         # Every column is a depth cell published under its screen field name

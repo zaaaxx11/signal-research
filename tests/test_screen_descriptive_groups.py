@@ -272,7 +272,7 @@ async def test_the_served_document_carries_the_same_metadata(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["schema_version"] == "finviz-2"
+    assert body["schema_version"] == "screener-2"
     seen: set[str] = set()
     for group in body["groups"]:
         for control in group["controls"]:

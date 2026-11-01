@@ -108,6 +108,13 @@ SCAN_NULL_CELLS: frozenset[str] = frozenset(
         "cash_per_share",
         "insider_own",
         "inst_own",
+        # The parity scan copies the provider's ``ipo_date`` into
+        # ``listing_date`` and answers null on every row (0 of 5,720 US, 0 of
+        # 96,278 global when probed live), while the depth store measures the
+        # real date on all 4,217 rows. Same shape as P/S and short float: the
+        # None is the scan saying it has no cell, so the store's value is the
+        # observation. ``ipodate`` filters this column.
+        "listing_date",
     }
 )
 

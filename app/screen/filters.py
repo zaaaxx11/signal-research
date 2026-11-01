@@ -37,8 +37,8 @@ filter through Finviz's option vocabulary instead of one column, and
 :mod:`app.screen.choice_filters` is their compiler. One more key — ``idx`` — is
 available through a **named bucket** rather than a column
 (:mod:`app.screen.buckets`, :mod:`app.screen.index_membership`). Every mapped
-key also accepts its probe tokens as buckets, and nineteen more are bucket-only
-over the depth cells, so **seventy keys can filter a row today** and twelve are
+key also accepts its probe tokens as buckets, and twenty-one more are bucket-only
+over the depth cells, so **seventy-two keys can filter a row today** and ten are
 refused. The tokens themselves are not interpreted here: ``compile_filter``
 compares a ``field`` to a number, and a description such as ``price:u5`` is a 422
 until :mod:`app.screen.selection` routes it to the bucket compiler.
@@ -56,7 +56,7 @@ fraction.
 The three derived columns are the *documented exception* to "copy, never compute",
 and they are allowed only because each is an identity over cells the row already
 has (no estimate, no invented denominator), requests no new provider
-column, and carries its scale or direction in the name: ``recom_finviz`` is
+column, and carries its scale or direction in the name: ``recom_score`` is
 Finviz's scale, not the provider's -1..+1 ``recommendation``;
 ``change_from_open`` names its base; ``pct_from_52w_high`` names its one
 direction — the low side stays the absolute ``low_52w``, and no low-side distance
@@ -75,7 +75,7 @@ there rather than to a column the scan does not have. ``short_float`` is answere
 by the **facts** store (:mod:`app.screen.facts`), together with insider and
 institutional ownership — cells the Finviz stock page prints and
 ``fundamentals_snapshots`` does not hold. ``ipo_date`` stays refused, and the
-twelve refusals in :mod:`app.screen.filter_fields` name the missing metric
+ten refusals in :mod:`app.screen.filter_fields` name the missing metric
 instead.
 
 **A key that spans several columns is a choice, not a refusal.** ``ta_perf`` and
@@ -256,12 +256,12 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "rel_volume_10d": "number",
         # -- analyst and event data
         # TradingView's own -1..1 mean rating (not Finviz's 1..5 score); the
-        # Finviz-scale column is `recom_finviz` below.
+        # Finviz-scale column is `recom_score` below.
         "recommendation": "number",  # Recommend.All, +1 = strong buy, -1 = sell
         # Finviz's 1..5 score, derived: 3 - 2 * recommendation (+1 -> 1, 0 -> 3,
         # -1 -> 5), no rounding. The scale is in the name because a second
         # recommendation column on another scale would otherwise be unreadable.
-        "recom_finviz": "number",  # derived from Recommend.All
+        "recom_score": "number",  # derived from Recommend.All
         "target_price": "number",
         "earnings_date": "number",  # provider epoch seconds, often null
         "listing_date": "number",  # ipo_date, epoch seconds, null on every live row
@@ -983,7 +983,7 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
         "Analyst Recom.",
         "descriptive",
         "modalSelect",
-        "recom_finviz",
+        "recom_score",
         ("", "strongbuy", "buybetter", "buy", "holdbetter", "hold", "holdworse", "sell",
          "sellworse", "strongsell", "modal"),
     ),

@@ -2,7 +2,7 @@
 
 Contract (PLAN-screen P11B, "jalur 2": derive from data already carried):
 
-* ``an_recom`` → ``recom_finviz`` = ``3 - 2 * recommendation``: Finviz's 1..5
+* ``an_recom`` → ``recom_score`` = ``3 - 2 * recommendation``: Finviz's 1..5
   analyst score built from the provider's -1..+1 ``Recommend.All``;
 * ``ta_changeopen`` → ``change_from_open`` =
   ``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``: the percent change
@@ -50,7 +50,7 @@ AS_OF = "2026-10-24T12:00:00.000000+00:00"
 
 #: ``key -> (row field, input columns)``: the three mappings this pass adds.
 DERIVED_KEYS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "an_recom": ("recom_finviz", ("recommendation",)),
+    "an_recom": ("recom_score", ("recommendation",)),
     "ta_changeopen": ("change_from_open", ("price", "change_pct", "gap_pct")),
     "ta_highlow52w": ("pct_from_52w_high", ("price", "high_52w")),
 }
@@ -155,15 +155,15 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 def test_the_analyst_score_is_the_published_linear_map() -> None:
     """``3 - 2 * score``, endpoints and interior, with no rounding."""
 
-    assert derived.recom_finviz(1.0) == 1.0, "Recommend.All +1 (strong buy) is Finviz 1"
-    assert derived.recom_finviz(0.0) == 3.0, "a neutral mean rating is Finviz 3 (hold)"
-    assert derived.recom_finviz(-1.0) == 5.0, "Recommend.All -1 (sell) is Finviz 5"
-    assert derived.recom_finviz(0.5) == 2.0
-    assert derived.recom_finviz(-0.5) == 4.0
+    assert derived.recom_score(1.0) == 1.0, "Recommend.All +1 (strong buy) is Finviz 1"
+    assert derived.recom_score(0.0) == 3.0, "a neutral mean rating is Finviz 3 (hold)"
+    assert derived.recom_score(-1.0) == 5.0, "Recommend.All -1 (sell) is Finviz 5"
+    assert derived.recom_score(0.5) == 2.0
+    assert derived.recom_score(-0.5) == 4.0
     # No rounding: a live 0.5576 stays 1.8848 instead of collapsing to 2.
-    assert derived.recom_finviz(0.5575757575757576) == 3.0 - 2.0 * 0.5575757575757576
-    assert derived.recom_finviz(0.5575757575757576) != 2.0
-    assert DERIVED_FIELDS["recom_finviz"] == "3 - 2 * recommendation"
+    assert derived.recom_score(0.5575757575757576) == 3.0 - 2.0 * 0.5575757575757576
+    assert derived.recom_score(0.5575757575757576) != 2.0
+    assert DERIVED_FIELDS["recom_score"] == "3 - 2 * recommendation"
 
 
 def test_the_change_from_open_is_the_closed_form_of_close_over_open() -> None:
@@ -227,7 +227,7 @@ def test_the_three_live_symbols_replay_into_their_derived_columns(probe: dict[st
     assert carried["change_from_open"] == pytest.approx(
         (probe["close"] / probe["open"] - 1.0) * 100.0, rel=1e-9
     )
-    assert carried["recom_finviz"] == pytest.approx(
+    assert carried["recom_score"] == pytest.approx(
         3.0 - 2.0 * probe["recommendation"], rel=1e-12
     )
     assert carried["pct_from_52w_high"] == pytest.approx(
@@ -247,7 +247,7 @@ def test_the_three_live_symbols_replay_into_their_derived_columns(probe: dict[st
 
 @pytest.mark.parametrize("missing", [None, float("nan"), float("inf"), float("-inf"), "34.5", True])
 def test_a_missing_or_non_numeric_input_is_unknown(missing: Any) -> None:
-    assert derived.recom_finviz(missing) is None
+    assert derived.recom_score(missing) is None
     assert derived.change_from_open(100.0, missing, 0.2) is None
     assert derived.change_from_open(100.0, 1.0, missing) is None
     assert derived.change_from_open(missing, 1.0, 0.2) is None
@@ -281,7 +281,7 @@ def test_a_non_positive_52w_high_or_price_is_unknown(price: float, high: float) 
 def test_a_rating_outside_the_providers_domain_is_unknown(score: float) -> None:
     """``3 - 2 * 7 = -11`` is not a Finviz score; refuse it instead of inventing one."""
 
-    assert derived.recom_finviz(score) is None
+    assert derived.recom_score(score) is None
 
 
 def test_a_real_zero_is_reported_as_zero() -> None:
@@ -292,7 +292,7 @@ def test_a_real_zero_is_reported_as_zero() -> None:
         "a zero gap means the open is the previous close: change from open equals change"
     )
     assert derived.pct_from_52w_high(100.0, 100.0) == 0.0
-    assert derived.recom_finviz(0.0) == 3.0
+    assert derived.recom_score(0.0) == 3.0
 
 
 def test_a_missing_gap_does_not_fall_back_to_the_change() -> None:

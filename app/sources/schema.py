@@ -50,7 +50,7 @@ def _candidate() -> dict[str, object]:
                 "minLength": 1,
                 "description": (
                     "The route the value must be taken from. `quote` is the only legal "
-                    "route for a Finviz 52-week extreme: the screener column is percent "
+                    "route for a 52-week extreme: the screener column is percent "
                     "distance, not a price."
                 ),
                 "examples": ["quote"],
@@ -235,7 +235,7 @@ SOURCE_GRAPH_SCHEMA: dict[str, object] = {
                     "type": "string",
                     "minLength": 1,
                     "description": (
-                        "Route the value must come from; `quote` on a Finviz 52-week "
+                        "Route the value must come from; `quote` on a 52-week "
                         "edge records that the screener column is not a price."
                     ),
                 },

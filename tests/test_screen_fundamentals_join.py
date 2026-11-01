@@ -263,9 +263,9 @@ async def test_the_finviz_keys_resolve_to_the_joined_columns() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_catalogue_moved_to_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 70
-    assert len(unavailable_keys()) == 12
+def test_the_catalogue_moved_to_seventy_two_available_and_ten_refused() -> None:
+    assert len(mapped_keys()) == 72
+    assert len(unavailable_keys()) == 10
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert not set(mapped_keys()) & set(unavailable_keys())
@@ -282,7 +282,7 @@ def test_the_three_keys_name_a_column_and_their_refusals_are_gone() -> None:
 
 
 def test_the_refusals_that_remain_still_name_a_missing_metric() -> None:
-    assert "answered null for all" in (reason_for("ipodate") or "")
+    assert "Elite-only" in (reason_for("ah_close") or "")
     assert "mixture of ownership levels and junk" in (reason_for("sh_insidertrans") or "")
     assert reason_for("fa_divgrowth") is None, (
         "dividend growth reads the depth store's 1y/3y/5y columns now"
@@ -357,7 +357,7 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 12
+    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 10
     assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
     assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
     assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
@@ -370,8 +370,8 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
     description = predicate["key"]["description"]
     assert "The 48 that resolve to one row column" in description
     assert "the 3 that filter through their option vocabulary" in description
-    assert "the 12 that are refused" in description
-    assert "19 bucket-only key" in description and "idx" in description
+    assert "the 10 that are refused" in description
+    assert "21 bucket-only key" in description and "idx" in description
 
 
 # ---------------------------------------------------------------------------

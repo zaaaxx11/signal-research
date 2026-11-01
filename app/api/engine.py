@@ -32,19 +32,22 @@ API. A security lookup against an empty master is a 404, not an empty 200:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
+from fastapi.responses import Response
 
+from app.api.cache import cache_headers, not_modified
 from app.api.market import quote_engine_of
 from app.auth import ApiError
 from app.engine.fund_series import fund_series_path, load_fund_series
-from app.engine.insider import collect_insider
+from app.engine.insider import FILINGS_TTL_S, collect_insider
 from app.engine.model import Cell
 from app.engine.nport import HoldingsNotFound, HoldingsUnavailable, collect_holdings
 from app.engine.ops import cache_stats, dataset_metrics, zero_cache_stats
@@ -311,13 +314,48 @@ async def insider(symbol: str, request: Request, limit: str = "5") -> dict[str, 
             "insider_unavailable",
             "no Form 4 body could be read for this issuer: " + "; ".join(errors),
         )
-    return {
+    document = {
         "symbol": record.symbol,
         "as_of": max((item.filed for item in items), default=None),
         "count": len(items),
         "items": [item.document() for item in items],
         "provider_errors": list(errors),
     }
+    return _cached_document(request, document)
+
+
+def _cached_document(request: Request, document: Mapping[str, Any]) -> Response:
+    """One filings document, with its validator and the filings TTL.
+
+    The tag is a **strong** one over the bytes this answer ships, which is the
+    honest kind for a document that is a pure function of the filings it read:
+    two calls that read the same filings produce the same bytes and the same
+    tag, and a filing that appears moves both. It is computed here rather than
+    from the request's inputs because the inputs (an EDGAR index plus N bodies)
+    are not cheaply hashable, and this body is a few kilobytes — hashing it is
+    cheaper than a second read of anything.
+
+    ``Cache-Control`` is :data:`app.engine.insider.FILINGS_TTL_S` — the window
+    the dashboard's filings block already uses — rendered by the house helper so
+    ``must-revalidate`` rides along: a client may keep the page, but it must ask
+    before reusing it, and the ask is a ``304`` with no body. A refusal (404, 422
+    or 503) is raised before this is reached and therefore carries no cache
+    policy at all: "this company is not in the index" is a fact about the
+    request, not a document worth storing.
+    """
+
+    body = json.dumps(
+        document,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+    headers = cache_headers(etag, max_age=int(FILINGS_TTL_S))
+    if not_modified(request, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 def _insider_limit(raw: str) -> int:

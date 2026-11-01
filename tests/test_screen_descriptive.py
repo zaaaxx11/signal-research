@@ -64,11 +64,11 @@ CONTROL_IDS: tuple[str, ...] = (
     "sh_dilution",
 )
 
-#: The six controls that cannot run, and the one that is out of scope.
+#: The four controls that cannot run, and the one that is out of scope.
+#: ``sh_opt`` and ``ipodate`` are bucket controls now: the depth store carries
+#: the two flag cells and the IPO date the scan cannot.
 UNAVAILABLE: tuple[str, ...] = (
-    "sh_opt",
     "sh_trades",
-    "ipodate",
     "theme",
     "subtheme",
     "sh_dilution",
@@ -109,6 +109,7 @@ OPTION_COUNTS: dict[str, int] = {
     "sh_relvol": 16,
     "sh_float": 34,
     "targetprice": 14,
+    "sh_opt": 8,
     "ipodate": 15,
     "sh_outstanding": 16,
     "exch": 5,
@@ -133,6 +134,8 @@ BUCKET_CONTROLS: dict[str, str] = {
     "targetprice": "targetprice",
     "sh_outstanding": "sh_outstanding",
     "sh_float": "sh_float",
+    "sh_opt": "sh_opt",
+    "ipodate": "ipodate",
 }
 
 
@@ -164,7 +167,7 @@ def controls() -> dict[str, dict[str, Any]]:
 def test_the_document_serves_five_tabs_and_descriptive_keeps_its_twenty_five() -> None:
     document = descriptive.document()
 
-    assert document["schema_version"] == "finviz-2"
+    assert document["schema_version"] == "screener-2"
     assert [group["id"] for group in document["groups"]] == [
         "descriptive",
         "fundamental",
@@ -224,7 +227,7 @@ def test_every_option_count_matches_the_probe() -> None:
         assert len(published[control_id]["options"]) == len(probe_options(key)), (
             f"{control_id} does not publish exactly the probe's named options"
         )
-        assert [option["finviz"] for option in published[control_id]["options"]] == (
+        assert [option["token"] for option in published[control_id]["options"]] == (
             probe_options(key)
         ), f"{control_id} publishes the probe's options in another order"
 
@@ -289,7 +292,7 @@ def test_every_bucket_control_resolves_every_option() -> None:
         for option, item in zip(control["options"], family, strict=True):
             assert option["id"] == item.id
             assert option["label"] == item.label
-            assert option["finviz"] == item.finviz
+            assert option["token"] == item.finviz
             expected = item.describe if item.available else None
             assert option["predicate"] == expected, (
                 f"{option['id']} publishes a predicate the bucket does not run"
@@ -405,14 +408,14 @@ def test_the_document_publishes_no_internal_membership_column() -> None:
     controls = document["groups"][0]["controls"]
     keys = {control["key"] for control in controls}
     ids = {option["id"] for control in controls for option in control["options"]}
-    tokens = {option["finviz"] for control in controls for option in control["options"]}
+    tokens = {option["token"] for control in controls for option in control["options"]}
 
     assert "index_members" not in keys | ids | tokens
     # The four index predicates *name* the cell they read ("'sp500' in
     # index_members") — that is the audit sentence, not a projectable column.
     idx = next(control for control in controls if control["id"] == "idx")
     for option in idx["options"]:
-        assert option["predicate"] == f"'{option['finviz']}' in index_members"
+        assert option["predicate"] == f"'{option['token']}' in index_members"
 
     catalog = json.loads(
         (ROOT / "app" / "engine" / "data" / "finviz_columns_116.json").read_text(encoding="utf-8")

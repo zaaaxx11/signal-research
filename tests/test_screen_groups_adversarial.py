@@ -17,7 +17,7 @@ to trust:
   on the code had to write two branches for one withdrawn control.
 
 The resolution here: the **token** is the unit of refusal for a bucket-driven
-key. `sh_insidertrans` keeps its twelve-key refusal (it can answer no value at
+key. `sh_insidertrans` keeps its ten-key refusal (it can answer no value at
 all), so the schema and the document still publish it as unavailable — but a
 request that names one of its tokens reaches the registry, and the registry's
 code (`unavailable_bucket`) is what HTTP answers, with the registry's own
@@ -45,13 +45,17 @@ from tests import _screen as S
 ROOT = Path(__file__).resolve().parents[1]
 DEPTH = Path("/home/ubuntu/ztockz-data/depth.json")
 
-#: The twelve, in panel order — the assertion that ends the argument. The order
-#: is the catalogue's (`filter_fields.CATALOGUE`), not the plan's prose order:
+#: The ten, in panel order — the assertion that ends the argument. The order is
+#: the catalogue's (`filter_fields.CATALOGUE`), not the plan's prose order:
 #: `unavailable_keys()` promises panel order, so the test pins it.
-TWELVE = (
-    "sh_opt",
+#:
+#: ``sh_opt`` and ``ipodate`` used to head this list. Both were refusals whose
+#: metric the deployment *did* hold, in the depth store, in shapes a filter can
+#: read (``optionable``/``shortable`` as Yes/No, ``ipo_date`` in two spellings);
+#: they are bucket families now (``sh_opt:*``, ``ipodate:*``) and this list is the
+#: ten that still name a metric nothing here measures.
+TEN = (
     "sh_trades",
-    "ipodate",
     "theme",
     "subtheme",
     "sh_insidertrans",
@@ -75,8 +79,6 @@ REFUSAL_CODES = {"unavailable_filter_key", "unavailable_bucket", "unknown_bucket
 #: be lying about it ("`optionable` is empty"), so the sentence has to say what
 #: the store actually holds.
 PARTIAL = {
-    "ipodate": ("ipo_date", "text"),
-    "sh_opt": ("optionable", "strings"),
     "ta_pattern": ("candlestick_pattern", "flag"),
 }
 
@@ -140,13 +142,13 @@ async def test_an_unavailable_token_is_422_and_never_an_unfiltered_page(
     assert "total" not in body, "a refusal is never an empty page"
 
 
-async def test_every_one_of_the_twelve_is_a_422_and_names_itself(
+async def test_every_one_of_the_ten_is_a_422_and_names_itself(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     """The document supplies the request: this is the panel's own vocabulary."""
 
     async with S.screen_client(tmp_path, monkeypatch) as harness:
-        for key in TWELVE:
+        for key in TEN:
             control = _document_control(key)
             value = control["options"][0]["id"] if control["options"] else key
             response = await harness.client.post(
@@ -160,9 +162,9 @@ async def test_every_one_of_the_twelve_is_a_422_and_names_itself(
             assert key in body["errorMessage"], (key, value, body)
 
 
-def test_the_twelve_refusals_are_exactly_the_twelve() -> None:
-    assert set(filter_fields.unavailable_keys()) == set(TWELVE)
-    assert filter_fields.unavailable_keys() == TWELVE, "panel order, not set order"
+def test_the_ten_refusals_are_exactly_the_ten() -> None:
+    assert set(filter_fields.unavailable_keys()) == set(TEN)
+    assert filter_fields.unavailable_keys() == TEN, "panel order, not set order"
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +281,7 @@ def test_the_three_stale_refusal_sentences_are_gone() -> None:
 
 
 def test_every_refusal_names_a_gap_a_reader_can_act_on() -> None:
-    for key in TWELVE:
+    for key in TEN:
         reason = filter_fields.reason_for(key) or ""
         assert len(reason) > 60, (key, reason)
         assert any(
@@ -298,7 +300,7 @@ def test_the_elite_refusals_are_the_five_the_probe_flags() -> None:
     }
     for key in elite:
         assert "Elite" in (filter_fields.reason_for(key) or ""), key
-    for key in set(TWELVE) - elite:
+    for key in set(TEN) - elite:
         assert "Elite" not in (filter_fields.reason_for(key) or ""), (
             key,
             "only the five the probe flags may claim the tier",

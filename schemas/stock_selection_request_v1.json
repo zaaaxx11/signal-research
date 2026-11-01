@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ztockz.local/schemas/stock-selection-request-v1.json",
   "title": "StockSelectionRequestV1",
-  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 100 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`, in request order, with its own `limit`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 100-row panel never claims to be a 100-stock market. A filter key may be one of the 82 Finviz keys (`x-filter-keys`) or one of the catalogue spellings in `x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to one row column, and a key no column can answer is a 422 that names it. The two tables together are the vocabulary a filter picker is built from. `criteria.sort` orders by any numeric catalog field (`-field` ascends), and the top-level `signal` narrows the whole query to one of Finviz's signal populations. `GET /screens/filters` publishes the Descriptive group itself — every control, its options, its availability and the predicate each option compiles to — so a panel never hardcodes a vocabulary the server owns.",
+  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 100 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`, in request order, with its own `limit`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 100-row panel never claims to be a 100-stock market. A filter key may be one of the 82 filter keys (`x-filter-keys`) or one of the catalogue spellings in `x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to one row column, and a key no column can answer is a 422 that names it. The two tables together are the vocabulary a filter picker is built from. `criteria.sort` orders by any numeric catalog field (`-field` ascends), and the top-level `signal` narrows the whole query to one of the signal populations. `GET /screens/filters` publishes the Descriptive group itself — every control, its options, its availability and the predicate each option compiles to — so a panel never hardcodes a vocabulary the server owns.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -54,7 +54,7 @@
         "head-shoulders",
         "head-shoulders-inverse"
       ],
-      "description": "Criteria only: one of Finviz's 27 signals. 10 can run here (top-gainers, top-losers, most-active, most-volatile, most-increased-volume, unusual-volume, overbought, oversold, new-high, new-low); the other 17 are a 422 `unavailable_signal` naming the metric they would need (analyst revisions, an earnings session stamp, the news store, chart-pattern detection). A signal sets the **population**, and when `criteria.sort` is absent its own measure becomes the order (`top-losers` ascends); an explicit sort always wins. A `symbols` selection does not take it."
+      "description": "Criteria only: one of the 27 signals. 10 can run here (top-gainers, top-losers, most-active, most-volatile, most-increased-volume, unusual-volume, overbought, oversold, new-high, new-low); the other 17 are a 422 `unavailable_signal` naming the metric they would need (analyst revisions, an earnings session stamp, the news store, chart-pattern detection). A signal sets the **population**, and when `criteria.sort` is absent its own measure becomes the order (`top-losers` ascends); an explicit sort always wins. A `symbols` selection does not take it."
     },
     "asset_class": {
       "enum": [
@@ -82,7 +82,7 @@
         "financial",
         "technical"
       ],
-      "description": "Both modes: shape every response row as one of the six Finviz views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
+      "description": "Both modes: shape every response row as one of the six views. A viewed row carries `rank`/`symbol`/`as_of` plus one cell per declared view column, filled from the parity metrics the bulk scan carries (missing columns stay null, never 0); without `view` the row is the light screen row."
     },
     "columns": {
       "type": "array",
@@ -176,7 +176,7 @@
             "-profit_margin",
             "-ps",
             "-quick_ratio",
-            "-recom_finviz",
+            "-recom_score",
             "-recommendation",
             "-rel_volume_10d",
             "-ret_10y",
@@ -267,7 +267,7 @@
             "profit_margin",
             "ps",
             "quick_ratio",
-            "recom_finviz",
+            "recom_score",
             "recommendation",
             "rel_volume_10d",
             "ret_10y",
@@ -303,7 +303,7 @@
             "volume"
           ],
           "default": "market_cap",
-          "description": "The one metric the page is ordered by: any numeric catalog field, descending, or `-<field>` for ascending (Finviz's own `o=-marketcap`). The three legacy names `market_cap`, `turnover` and `gainers` still resolve. A text column is not an order — `sector` is a 422 `unknown_sort` naming the accepted fields. When `signal` is named and this is absent, the signal's own measure becomes the order; an explicit sort always wins."
+          "description": "The one metric the page is ordered by: any numeric catalog field, descending, or `-<field>` for ascending (the panel's own `o=-marketcap`). The three legacy names `market_cap`, `turnover` and `gainers` still resolve. A text column is not an order — `sector` is a 422 `unknown_sort` naming the accepted fields. When `signal` is named and this is absent, the signal's own measure becomes the order; an explicit sort always wins."
         },
         "limit": {
           "type": "integer",
@@ -448,11 +448,11 @@
           ]
         }
       ],
-      "description": "One predicate: exactly one of `key` (a Finviz filter key, resolved to its row column) or `field` (the column itself), plus an operator and a value. A key whose entry in `x-filter-keys` carries `choice` takes `op: eq` and an option token as `value`; a key whose entry carries `bucket` also takes one of its named bucket ids that way (`price:u5`, `cap:mega`, `idx:sp500`), and `GET /screens/filters` publishes every id with the predicate it compiles to.",
+      "description": "One predicate: exactly one of `key` (a filter key, resolved to its row column) or `field` (the column itself), plus an operator and a value. A key whose entry in `x-filter-keys` carries `choice` takes `op: eq` and an option token as `value`; a key whose entry carries `bucket` also takes one of its named bucket ids that way (`price:u5`, `cap:mega`, `idx:sp500`), and `GET /screens/filters` publishes every id with the predicate it compiles to.",
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 19 bucket-only key (idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, news_date) that filters through a named bucket, and the 12 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 128 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 210 keys a filter may name, and any other key is a 422 that names it."
+          "description": "One of the 82 filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 21 bucket-only key (sh_opt, ipodate, idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, news_date) that filters through a named bucket, and the 10 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 128 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 210 keys a filter may name, and any other key is a 422 that names it."
         },
         "field": {
           "enum": [
@@ -517,7 +517,7 @@
             "profit_margin",
             "ps",
             "quick_ratio",
-            "recom_finviz",
+            "recom_score",
             "recommendation",
             "rel_volume_10d",
             "ret_10y",
@@ -570,7 +570,7 @@
           ]
         },
         "value": {
-          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. For an option-driven key (ta_perf, ta_perf2, ta_volatility) the value is the Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate each token compiles to is published under `x-filter-keys.<key>.choice.options`. For a key whose entry carries `bucket: true` the value is one of the bucket ids that key publishes (`price:u5`, `cap:mega`, `idx:sp500`), with `op: eq`; the predicate each id runs is in `GET /screens/filters` and in the key's own `x-filter-keys` entry. For `exch` the value is a MIC (`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published under `x-filter-keys.exch.aliases`; any other value on the US tabs is a 422 `unknown_value` whose message lists the accepted codes, while a non-US region (`global`) accepts a provider code matching `[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it names — zero when it names none. Everywhere else Finviz's option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
+          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. For an option-driven key (ta_perf, ta_perf2, ta_volatility) the value is the source-panel option token itself (`1w10u`, `dup`, `wo2`), and the predicate each token compiles to is published under `x-filter-keys.<key>.choice.options`. For a key whose entry carries `bucket: true` the value is one of the bucket ids that key publishes (`price:u5`, `cap:mega`, `idx:sp500`), with `op: eq`; the predicate each id runs is in `GET /screens/filters` and in the key's own `x-filter-keys` entry. For `exch` the value is a MIC (`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published under `x-filter-keys.exch.aliases`; any other value on the US tabs is a 422 `unknown_value` whose message lists the accepted codes, while a non-US region (`global`) accepts a provider code matching `[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it names — zero when it names none. Everywhere else the source panel's option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
           "oneOf": [
             {
               "type": "number"
@@ -666,7 +666,7 @@
     "an_recom": {
       "label": "Analyst Recom.",
       "tab": "descriptive",
-      "field": "recom_finviz",
+      "field": "recom_score",
       "kind": "number",
       "bucket": true
     },
@@ -674,7 +674,7 @@
       "label": "Option/Short",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs an optionable/shortable flag: the scan has neither column, and the depth store's `optionable`/`shortable` cells are the vendor's strings 'Yes'/'No' on 4,197 of 4,217 symbols (20 null), so neither is a boolean a filter can compare"
+      "bucket": true
     },
     "earningsdate": {
       "label": "Earnings Date",
@@ -707,7 +707,7 @@
       "label": "Trades",
       "tab": "descriptive",
       "field": null,
-      "reason": "Elite-only in Finviz's panel, and it needs a trade-count column: the scan carries volume in shares and turnover in currency, the depth store has no print count and FINRA publishes short-sale volume, so a trade count cannot be read from anything ingested — no source is ingested (Polygon.io aggregates, IEX HIST or Databento would answer it)"
+      "reason": "Elite-only in the source panel, and it needs a trade-count column: the scan carries volume in shares and turnover in currency, the depth store has no print count and FINRA publishes short-sale volume, so a trade count cannot be read from anything ingested — no source is ingested (Polygon.io aggregates, IEX HIST or Databento would answer it)"
     },
     "sh_price": {
       "label": "Price $",
@@ -727,7 +727,7 @@
       "label": "IPO Date",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs a comparable IPO date: the scan's `listing_date` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, and the depth store's `ipo_date` (4,217 rows) is text in two formats ('1999-11-18' and 'Oct 18, 2016'), so neither column is a date a filter can compare"
+      "bucket": true
     },
     "sh_outstanding": {
       "label": "Shares Outstanding",
@@ -747,13 +747,13 @@
       "label": "Theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so Finviz's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
+      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so the source panel's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
     },
     "subtheme": {
       "label": "Sub-theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so Finviz's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
+      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so the source panel's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
     },
     "fa_pe": {
       "label": "P/E",
@@ -1444,7 +1444,7 @@
       "label": "Pattern",
       "tab": "technical",
       "field": null,
-      "reason": "needs a chart-pattern detector: the depth store's `candlestick_pattern` flag has three classes (doji/engulfing/hammer) but no price series, and Finviz's 28 chart-pattern tokens need daily bars to detect — no bars store is ingested"
+      "reason": "needs a chart-pattern detector: the depth store's `candlestick_pattern` flag has three classes (doji/engulfing/hammer) but no price series, and the source panel's 28 chart-pattern tokens need daily bars to detect — no bars store is ingested"
     },
     "ta_candlestick": {
       "label": "Candlestick",
@@ -1470,13 +1470,13 @@
       "label": "After-Hours Close",
       "tab": "technical",
       "field": null,
-      "reason": "Elite-only in Finviz's panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
+      "reason": "Elite-only in the source panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
     },
     "ah_change": {
       "label": "After-Hours Change",
       "tab": "technical",
       "field": null,
-      "reason": "Elite-only in Finviz's panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
+      "reason": "Elite-only in the source panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
     },
     "news_date": {
       "label": "Latest News",
@@ -1488,7 +1488,7 @@
       "label": "News Keywords",
       "tab": "news",
       "field": null,
-      "reason": "Elite-only, and it needs an article corpus: the product holds one headline per symbol (4,141 `news_title` cells), so a keyword search would search one title per company — not Finviz's 'titles from the last 24 hours that contain any keyword' — no source is ingested"
+      "reason": "Elite-only, and it needs an article corpus: the product holds one headline per symbol (4,141 `news_title` cells), so a keyword search would search one title per company — not the source panel's 'titles from the last 24 hours that contain any keyword' — no source is ingested"
     },
     "etf_heldby": {
       "label": "Held By",
@@ -1892,8 +1892,8 @@
       "kind": "number",
       "label": "Quick R"
     },
-    "recom_finviz": {
-      "field": "recom_finviz",
+    "recom_score": {
+      "field": "recom_score",
       "kind": "number"
     },
     "recommendation": {

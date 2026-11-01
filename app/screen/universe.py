@@ -72,7 +72,7 @@ scale or shape, and each of them is answerable by *algebra* over cells the row
 already carries. :data:`DERIVED_FIELDS` (from :mod:`app.screen.derived`) is the
 one place allowed to compute instead of copy, and it is deliberately small:
 
-* ``recom_finviz`` = ``3 - 2 * recommendation`` — the published map from the
+* ``recom_score`` = ``3 - 2 * recommendation`` — the published map from the
   provider's -1..+1 mean rating to Finviz's 1..5 analyst score;
 * ``change_from_open`` = ``((1 + change_pct/100) / (1 + gap_pct/100) - 1) * 100``
   — the previous close cancels between the two percentages, so the change from
@@ -167,7 +167,7 @@ def asset_class_for(region: str, asset_class: str | None = None) -> str:
 #: scan always sends (a price multiple can still be null per row, which is what
 #: ``PARITY_NULLABLE`` records).
 #:
-#: The three derived columns (``recom_finviz``, ``change_from_open``,
+#: The three derived columns (``recom_score``, ``change_from_open``,
 #: ``pct_from_52w_high``) are deliberately absent: this mapping's keys are sent to
 #: the provider as column names, so a computed field would ask the scan for a
 #: column that does not exist. They live in
@@ -265,8 +265,9 @@ PARITY_TEXT_FIELDS: frozenset[str] = frozenset({"industry"})
 #: prove the rule — their keys filter a real observation from another table:
 #: :mod:`app.screen.fundamentals` joins forward P/E, P/S and payout ratio from the
 #: fundamentals snapshot store, and :mod:`app.screen.facts` joins the float and
-#: ownership percentages from the Finviz stock page. ``listing_date`` has no such
-#: source and stays refused.
+#: ownership percentages from the stock page. ``listing_date`` has one:
+#: :mod:`app.screen.depth_overlay` fills it from the depth store's ``ipo_date``
+#: (4,217 rows, two spellings), which is what ``ipodate`` filters.
 PARITY_NULLABLE: frozenset[str] = frozenset(
     {"pe_forward", "ps", "short_float", "listing_date"}
 )

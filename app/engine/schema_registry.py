@@ -360,7 +360,7 @@ _REGISTRY: tuple[TableUsage, ...] = (
             "app/screen/facts.py:474",
         ),
         note=(
-            "Finviz-only cells (short float, insider and institutional ownership) keyed by "
+            "Reference-panel cells (short float, insider and institutional ownership) keyed by "
             "symbol with a TTL, filled by the facts collector and read once per selection."
         ),
     ),

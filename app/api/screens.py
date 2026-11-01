@@ -125,6 +125,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
 from app.api.cache import cache_headers, not_modified
+from app.api.encoding import GZIP_MINIMUM, compress, wants_gzip
 from app.api.markets import runtime_of
 from app.auth import ApiError, owner_fingerprint
 from app.branding import logo_for
@@ -1097,6 +1098,15 @@ async def filters(request: Request) -> Response:
     inputs, and there is no read clock in the document to weaken it. A ``304`` carries no body and
     revalidation costs one encode + one sha256.
 
+    It is also the largest JSON answer in the app — 389,688 bytes on the live
+    catalogue — so it is the one that negotiates ``gzip``
+    (:mod:`app.api.encoding`). The encoding is part of the representation, so it
+    is part of the tag: a gzip client and an identity client hold different
+    bytes and must not validate each other's ``If-None-Match``. ``Vary:
+    Accept-Encoding`` rides on both answers so a shared cache keeps them apart.
+    Compression is decided **after** the validator: a warm ``304`` never builds
+    a gzip frame it will not send.
+
     Availability is a runtime fact, re-read on every call: remove the
     membership snapshot and ``idx`` answers ``available: false`` with the
     reason, which moves the body and therefore the tag. No restart is needed,
@@ -1105,10 +1115,17 @@ async def filters(request: Request) -> Response:
 
     document = descriptive.document()
     body = _encoded(document)
-    etag = f'"flt-{hashlib.sha256(body).hexdigest()[:32]}"'
-    headers = cache_headers(etag)
+    digest = hashlib.sha256(body).hexdigest()[:32]
+    gzipped = len(body) >= GZIP_MINIMUM and wants_gzip(
+        request.headers.get("accept-encoding")
+    )
+    etag = f'"flt-{digest}-gzip"' if gzipped else f'"flt-{digest}"'
+    headers = {**cache_headers(etag), "Vary": "Accept-Encoding"}
     if not_modified(request, etag):
         return Response(status_code=304, headers=headers)
+    if gzipped:
+        headers["Content-Encoding"] = "gzip"
+        return Response(content=compress(body), media_type="application/json", headers=headers)
     return Response(content=body, media_type="application/json", headers=headers)
 
 

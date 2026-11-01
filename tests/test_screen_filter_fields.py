@@ -55,7 +55,7 @@ from app.screen.universe import CARRIED_FIELDS, DERIVED_FIELDS, PARITY_COLUMNS, 
 
 #: The three keys P11B moved from "refused" to "mapped", and their columns.
 P11B: dict[str, str] = {
-    "an_recom": "recom_finviz",
+    "an_recom": "recom_score",
     "ta_changeopen": "change_from_open",
     "ta_highlow52w": "pct_from_52w_high",
 }
@@ -138,14 +138,14 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_seventy_available_and_twelve_refused() -> None:
-    # 70 = 48 single-column keys + 3 option-driven keys + 19 bucket-only keys.
+def test_the_disposition_is_seventy_two_available_and_ten_refused() -> None:
+    # 72 = 48 single-column keys + 3 option-driven keys + 21 bucket-only keys.
     # The bucket-only set is the technical/fundamental vocabulary whose cells
     # arrive from the depth overlay under catalogue names
     # (app.screen.universe.DEPTH_FIELDS), so those keys answer tokens and no
     # single column — the same shape ``idx`` has had since T6.
-    assert len(mapped_keys()) == 70
-    assert len(unavailable_keys()) == 12
+    assert len(mapped_keys()) == 72
+    assert len(unavailable_keys()) == 10
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
@@ -193,17 +193,17 @@ def test_the_index_key_is_a_bucket_and_not_a_column() -> None:
     assert all(item.key == "idx" for item in family)
 
 
-#: The twelve keys this deployment still refuses, and why each one is refused.
+#: The ten keys this deployment still refuses, and why each one is refused.
 #: Every one names a metric nothing in the deployment measures — no theme
-#: taxonomy, no IPO dates, no print count, no optionable flag, a withdrawn
-#: insider flow, no 20-day window, no pattern engine, no after-hours session, no
-#: article corpus, no fund holdings.
+#: taxonomy, no print count, a withdrawn insider flow, no 20-day window, no
+#: pattern engine, no after-hours session, no article corpus, no fund holdings.
+#: ``ipodate`` and ``sh_opt`` left this table when the depth store's own
+#: ``ipo_date`` and ``optionable``/``shortable`` cells were wired to real
+#: bucket families (``sh_opt:*`` and ``ipodate:*``).
 STILL_REFUSED: dict[str, str] = {
     "theme": "theme",
     "subtheme": "theme/sub-theme",
-    "ipodate": "ipo_date",
     "sh_trades": "trade-count",
-    "sh_opt": "optionable",
     "sh_insidertrans": "mixture of ownership levels and junk",
     "ta_highlow20d": "20-day",
     "ta_pattern": "chart-pattern",
@@ -220,7 +220,7 @@ def test_only_the_declared_keys_left_the_refusal_list() -> None:
     moved = set(P11B) | set(P11G) | set(P11H) | set(P11I) | set(P11J)
     assert moved.isdisjoint(unavailable_keys())
     refused = set(unavailable_keys())
-    assert refused == set(STILL_REFUSED), "the twelve refusals are exactly the twelve"
+    assert refused == set(STILL_REFUSED), "the ten refusals are exactly the ten"
     for key, fragment in STILL_REFUSED.items():
         assert fragment in (reason_for(key) or ""), key
 
@@ -400,11 +400,17 @@ def test_the_published_choice_options_are_the_compiled_predicates() -> None:
 
 
 def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> None:
-    """The two shapes of refusal that survive: no column, or a column always null."""
+    """One shape of refusal survives: a metric nothing here measures."""
 
     for key in ("theme", "sh_insidertrans", "ah_close", "ta_pattern", "etf_heldby"):
         assert reason_for(key), f"{key} has no metric; it must stay refused"
-    assert "answered null for all" in (reason_for("ipodate") or "")
+    # Both former "the column is always null" refusals are filters now: the
+    # depth store answers the cell the scan cannot (app.screen.buckets).
+    for key in ("ipodate", "sh_opt"):
+        assert reason_for(key) is None, (
+            f"{key} filters a depth cell now (sh_opt:*/ipodate:*); a refusal "
+            "here would be a stale disposition"
+        )
     for key in P11J:
         assert reason_for(key) is None, (
             f"{key} filters a facts column now (app.screen.facts); a refusal "

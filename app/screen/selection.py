@@ -518,7 +518,7 @@ def _choice_criterion(
     example = choice_filters.CHOICES[key].tokens[0]
     if token not in {"eq", "==", "="}:
         raise SelectionError(
-            f"{where} (key {key!r}) takes op 'eq' and one of its Finviz option "
+            f"{where} (key {key!r}) takes op 'eq' and one of its option "
             f"tokens as the value (e.g. {{'key': {key!r}, 'op': 'eq', 'value': "
             f"{example!r}}}), got op {op!r}: the token already names the window "
             "and the direction, so a second comparison has nothing left to say",
@@ -625,7 +625,7 @@ def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion
     field = item.get("field")
     if (key is None) == (field is None):
         raise SelectionError(
-            f"{where} must name exactly one of 'key' (a Finviz filter key, e.g. "
+            f"{where} must name exactly one of 'key' (a filter key, e.g. "
             "'cap') or 'field' (a screen row column, e.g. 'market_cap_usd')"
         )
     missing = [name for name in ("op", "value") if name not in item]
@@ -1388,7 +1388,8 @@ def _filter_value_schema() -> dict[str, object]:
             "The comparison value. `in` and `between` take an array (`between` "
             "exactly two numbers); every other operator takes one scalar. For an "
             f"option-driven key ({', '.join(CHOICE_FIELDS)}) the value is the "
-            "Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate "
+            "source-panel option token itself (`1w10u`, `dup`, `wo2`), and the "
+            "predicate "
             "each token compiles to is published under "
             "`x-filter-keys.<key>.choice.options`. For a key whose entry carries "
             "`bucket: true` the value is one of the bucket ids that key publishes "
@@ -1400,7 +1401,8 @@ def _filter_value_schema() -> dict[str, object]:
             "is a 422 `unknown_value` whose message lists the accepted codes, "
             "while a non-US region (`global`) accepts a provider code matching "
             "`[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it "
-            "names — zero when it names none. Everywhere else Finviz's option "
+            "names — zero when it names none. Everywhere else the source panel's "
+            "option "
             "tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send "
             "the number the bucket means."
         ),
@@ -1425,14 +1427,14 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "inside the universe addressed by `snapshot_id`, in request order, with "
         "its own `limit`. The response carries `total` (every row that matched) "
         "separately from `returned` (the page), so a 100-row panel never claims "
-        "to be a 100-stock market. A filter key may be one of the 82 Finviz "
+        "to be a 100-stock market. A filter key may be one of the 82 filter "
         "keys (`x-filter-keys`) or one of the catalogue spellings in "
         "`x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to "
         "one row column, and a key no column can answer is a 422 that names it. "
         "The two tables together are the vocabulary a filter picker is built "
         "from. `criteria.sort` orders by any numeric catalog field (`-field` "
         "ascends), and the top-level `signal` narrows the whole query to one of "
-        "Finviz's signal populations. `GET /screens/filters` publishes the "
+        "the signal populations. `GET /screens/filters` publishes the "
         "Descriptive group itself — every control, its options, its availability "
         "and the predicate each option compiles to — so a panel never hardcodes "
         "a vocabulary the server owns."
@@ -1452,7 +1454,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "signal": {
             "enum": [item.id for item in descriptive.SIGNALS],
             "description": (
-                "Criteria only: one of Finviz's "
+                "Criteria only: one of the "
                 f"{len(descriptive.SIGNALS)} signals. "
                 f"{len(descriptive.AVAILABLE)} can run here "
                 f"({', '.join(descriptive.AVAILABLE)}); the other "
@@ -1478,7 +1480,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "view": {
             "enum": list(screen_views.SCREEN_VIEW_NAMES),
             "description": (
-                "Both modes: shape every response row as one of the six Finviz "
+                "Both modes: shape every response row as one of the six "
                 "views. A viewed row carries `rank`/`symbol`/`as_of` plus one "
                 "cell per declared view column, filled from the parity metrics "
                 "the bulk scan carries (missing columns stay null, never 0); "
@@ -1546,7 +1548,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                     "description": (
                         "The one metric the page is ordered by: any numeric "
                         "catalog field, descending, or `-<field>` for ascending "
-                        "(Finviz's own `o=-marketcap`). The three legacy names "
+                        "(the panel's own `o=-marketcap`). The three legacy names "
                         "`market_cap`, `turnover` and `gainers` still resolve. A "
                         "text column is not an order — `sector` is a 422 "
                         "`unknown_sort` naming the accepted fields. When `signal` "
@@ -1649,7 +1651,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
             "required": ["op", "value"],
             "oneOf": [{"required": ["key"]}, {"required": ["field"]}],
             "description": (
-                "One predicate: exactly one of `key` (a Finviz filter key, "
+                "One predicate: exactly one of `key` (a filter key, "
                 "resolved to its row column) or `field` (the column itself), plus "
                 "an operator and a value. A key whose entry in `x-filter-keys` "
                 "carries `choice` takes `op: eq` and an option token as `value`; "
@@ -1662,7 +1664,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "key": {
                     "type": "string",
                     "description": (
-                        f"One of the {len(CATALOGUE)} Finviz filter keys. The "
+                        f"One of the {len(CATALOGUE)} filter keys. The "
                         f"{len(ROW_FIELDS)} that resolve to one row column, the "
                         f"{len(CHOICE_FIELDS)} that filter through their option "
                         f"vocabulary, the {len(_BUCKET_ONLY)} bucket-only key "

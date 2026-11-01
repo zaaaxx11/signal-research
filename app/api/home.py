@@ -152,6 +152,7 @@ from app.api.sectors import (
 )
 from app.api.signals import _with_depth, collect
 from app.auth import ApiError
+from app.engine.insider import FILINGS_TTL_S as insider_filings_ttl
 from app.engine.insider import collect_insider
 from app.screen.depth_overlay import _entry_for
 from app.screen.depth_source import current_depth, resolve_store_path
@@ -209,9 +210,11 @@ FOREX_ROWS = 8
 #: is the same bars, so the tag must not move.
 SERIES_TTL_S = 60.0
 
-#: How long the whole filings block is reused. Fifteen minutes is the news
-#: service's own window; a Form 4 filing does not change on a faster clock.
-FILINGS_TTL_S = 900.0
+#: How long the whole filings block is reused. The window belongs to the module
+#: that reads the filings (:data:`app.engine.insider.FILINGS_TTL_S`), so the
+#: block cache here and the ``Cache-Control`` on ``/engine/insider`` are one
+#: number rather than two that can drift.
+FILINGS_TTL_S = insider_filings_ttl
 
 #: How many documents, series and filings blocks the process keeps. Each is a
 #: memory budget for a handful of regions and generations, not a hit-rate goal.

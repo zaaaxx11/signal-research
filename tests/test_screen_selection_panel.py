@@ -514,7 +514,7 @@ def test_an_unknown_key_still_names_itself_with_the_old_envelope() -> None:
         parse_selection(criteria({"key": "pe_ratio", "op": "lt", "value": 20}))
     assert caught.value.code == "unknown_filter_key"
     assert "pe_ratio" in str(caught.value)
-    assert "is not one of the 82 Finviz filter keys" in str(caught.value)
+    assert "is not one of the 82 filter keys" in str(caught.value)
 
 
 def test_a_catalogue_key_with_no_filterable_column_is_refused_by_name() -> None:

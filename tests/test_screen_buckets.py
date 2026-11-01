@@ -201,8 +201,8 @@ def test_a_float_percent_bucket_matches_nothing_without_both_cells() -> None:
 
 
 def test_recom_strongbuy_is_lt_2() -> None:
-    strong = one(symbol="STRONG", recom_finviz=1.9)
-    edge = one(symbol="EDGE", recom_finviz=2.0)
+    strong = one(symbol="STRONG", recom_score=1.9)
+    edge = one(symbol="EDGE", recom_score=2.0)
     kept = matches("an_recom", "strongbuy", [strong, edge])
     assert [row["symbol"] for row in kept] == ["STRONG"]
 
@@ -406,7 +406,7 @@ def test_every_bucket_is_a_callable_predicate_over_a_row() -> None:
         market_cap_usd=3_000_000_000.0,
         dividend_yield=1.0,
         short_float=5.0,
-        recom_finviz=2.5,
+        recom_score=2.5,
         earnings_date=date(2026, 11, 1),
         avg_volume_30d=500_000.0,
         rel_volume_10d=1.0,

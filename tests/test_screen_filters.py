@@ -212,7 +212,7 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "ta_gap": "gap_pct",
         "ta_averagetruerange": "atr_14",
         # -- derived from the parity cells above, no new scan column (P11B)
-        "an_recom": "recom_finviz",
+        "an_recom": "recom_score",
         "ta_changeopen": "change_from_open",
         "ta_highlow52w": "pct_from_52w_high",
         # -- joined from the fundamentals snapshot store (P11G): the scan answers

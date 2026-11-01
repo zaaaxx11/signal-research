@@ -45,6 +45,14 @@ from app.engine.ratelimit import sec_get
 from app.engine.sources.sec import normalize_cik
 from app.providers import http as provider_http
 
+#: How long a Form 4 answer may be reused, in seconds. Fifteen minutes is the
+#: window the dashboard's filings block has always used
+#: (:data:`app.api.home.FILINGS_TTL_S` reads this constant, so the block cache and
+#: this route's ``Cache-Control`` cannot drift apart): a filing is public the
+#: moment EDGAR accepts it, and nothing on this side re-reads an issuer's index
+#: on a faster clock than this.
+FILINGS_TTL_S = 900.0
+
 #: EDGAR's archive path for one filing body. ``cik`` is the unpadded integer
 #: spelling and ``accession`` carries no dashes — that is the published shape.
 INSIDER_ARCHIVE_URL = (
@@ -534,6 +542,7 @@ async def collect_insider(
 
 
 __all__ = [
+    "FILINGS_TTL_S",
     "INSIDER_ARCHIVE_URL",
     "InsiderFetchError",
     "InsiderTransaction",

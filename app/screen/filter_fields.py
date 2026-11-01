@@ -15,8 +15,8 @@ or through one of its option tokens — or the request is rejected (422) with th
 reason**, never applied as a no-op.
 
 Forty-eight keys can filter a row directly, three more through their option
-vocabulary and nineteen through a named bucket — **seventy live** — while twelve
-are refused:
+vocabulary and twenty-one through a named bucket — **seventy-two live** — while
+ten are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -31,7 +31,7 @@ are refused:
   units);
 * **three derived columns** answer the keys whose provider cell is on another
   scale or in another shape (:data:`app.screen.universe.DERIVED_FIELDS`, owned by
-  :mod:`app.screen.derived`): ``an_recom`` → ``recom_finviz`` (Finviz's 1..5
+  :mod:`app.screen.derived`): ``an_recom`` → ``recom_score`` (Finviz's 1..5
   score, ``3 - 2 * recommendation``), ``ta_changeopen`` → ``change_from_open``
   (percent from the session open, derived from close/change/gap) and
   ``ta_highlow52w`` → ``pct_from_52w_high`` (percent below the 52-week high, one
@@ -67,7 +67,7 @@ are refused:
   single column could name ten performance windows, so ``Binding.field`` stays
   ``None`` and ``Binding.choice`` is ``True``: the key is available, it just
   answers per token;
-* **nineteen answer a bucket family instead of one column** — the fundamental
+* **twenty-one answer a bucket family instead of one column** — the fundamental
   multiples, growth rates, margins and ownership cells, and the technical
   oscillators, moving averages and range controls. Their cells are depth-store
   columns published under their catalogue names
@@ -76,11 +76,11 @@ are refused:
   "eq", "value": "pe:u15"}``. A key may be **both** mapped and bucketed
   (``fa_ltdebteq`` answers a number *and* ``ltdebteq:o0.5``), because a token and
   a number are the same question asked two ways;
-* **twelve are refused**, each with the metric it needs: no column measures it
-  (theme, sub-theme, IPO dates, a print count, an optionable flag, a withdrawn
-  insider flow, a 20-day window, a pattern engine, the after-hours session, an
-  article corpus, fund holdings), where a filter could only ever return an
-  empty screen. Eleven of them have no column at all; the twelfth,
+* **ten are refused**, each with the metric it needs: no column measures it
+  (theme, sub-theme, a print count, a withdrawn insider flow, a 20-day window, a
+  pattern engine, the after-hours session, an article corpus, fund holdings),
+  where a filter could only ever return an empty screen. Nine of them have no
+  column at all; the tenth,
   ``sh_insidertrans``, owns a 32-token bucket family in which **every** token is
   refused (:data:`app.screen.buckets.INSIDER_TRANSACTIONS_REASON`), so the key
   can answer no value either. Its sentence is not copied into
@@ -179,32 +179,18 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "needs theme/sub-theme classification: no layer carries a theme column — "
         "not the scan, not the depth store's 106 cells, not the snapshot, not "
-        "SQLite — so Finviz's 40 theme and 268 sub-theme tokens name a taxonomy "
+        "SQLite — so the source panel's 40 theme and 268 sub-theme tokens name a "
+        "taxonomy "
         "nothing in this deployment speaks",
         ("theme", "subtheme"),
     ),
     (
-        "needs a comparable IPO date: the scan's `listing_date` answered null for "
-        "all 5,720 US rows (and 96,278 global rows) when probed live, and the "
-        "depth store's `ipo_date` (4,217 rows) is text in two formats "
-        "('1999-11-18' and 'Oct 18, 2016'), so neither column is a date a filter "
-        "can compare",
-        ("ipodate",),
-    ),
-    (
-        "Elite-only in Finviz's panel, and it needs a trade-count column: the "
+        "Elite-only in the source panel, and it needs a trade-count column: the "
         "scan carries volume in shares and turnover in currency, the depth store "
         "has no print count and FINRA publishes short-sale volume, so a trade "
         "count cannot be read from anything ingested — no source is ingested "
         "(Polygon.io aggregates, IEX HIST or Databento would answer it)",
         ("sh_trades",),
-    ),
-    (
-        "needs an optionable/shortable flag: the scan has neither column, and the "
-        "depth store's `optionable`/`shortable` cells are the vendor's strings "
-        "'Yes'/'No' on 4,197 of 4,217 symbols (20 null), so neither is a boolean a "
-        "filter can compare",
-        ("sh_opt",),
     ),
     (
         "needs a 20-day high/low column: the scan carries the 52-week extremes "
@@ -215,12 +201,13 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "needs a chart-pattern detector: the depth store's `candlestick_pattern` "
         "flag has three classes (doji/engulfing/hammer) but no price series, and "
-        "Finviz's 28 chart-pattern tokens need daily bars to detect — no bars "
+        "the source panel's 28 chart-pattern tokens need daily bars to detect — no "
+        "bars "
         "store is ingested",
         ("ta_pattern",),
     ),
     (
-        "Elite-only in Finviz's panel and no source: the scan covers the regular "
+        "Elite-only in the source panel and no source: the scan covers the regular "
         "session only, the provider returns `postmarket_close`/"
         "`postmarket_change` but no collector ingests either, so no row carries an "
         "after-hours price — no source is ingested",
@@ -229,7 +216,8 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Elite-only, and it needs an article corpus: the product holds one "
         "headline per symbol (4,141 `news_title` cells), so a keyword search "
-        "would search one title per company — not Finviz's 'titles from the last "
+        "would search one title per company — not the source panel's 'titles from "
+        "the last "
         "24 hours that contain any keyword' — no source is ingested",
         ("news_keywords",),
     ),
@@ -246,7 +234,7 @@ def _refused_bucket_keys() -> dict[str, str]:
 
     ``sh_insidertrans`` has a registered vocabulary (32 tokens) and not one of
     them can run, so the key answers no value at all and belongs in the refusal
-    list beside the eleven groups above. Its sentence is **not** copied here: it
+    list beside the nine groups above. Its sentence is **not** copied here: it
     is read from the family, where the tokens and their reason live
     (:data:`app.screen.buckets.INSIDER_TRANSACTIONS_REASON`), so the schema, the
     document and the 422 cannot drift into three paraphrases.
@@ -339,7 +327,7 @@ class Binding:
         """Can the key answer at least one value?
 
         A bucket key whose whole family is refused (``sh_insidertrans``) answers
-        none, so it is refused exactly like the eleven keys with no column: the
+        none, so it is refused exactly like the nine keys with no column: the
         published schema must not advertise a vocabulary for a key that can
         filter nothing. What it still owns is the *token* level story — the
         registry refuses each of its 32 ids by name — and that is
@@ -474,7 +462,7 @@ def _validate() -> None:
             f"{drifted}"
         )
     if len(keys) != 82:
-        raise RuntimeError(f"the Finviz catalogue is 82 keys, got {len(keys)}")
+        raise RuntimeError(f"the filter catalogue is 82 keys, got {len(keys)}")
     for key, field in ROW_FIELDS.items():
         if field not in FIELDS:
             raise RuntimeError(f"filter key {key!r} names non-existent row field {field!r}")
@@ -491,7 +479,7 @@ def _validate() -> None:
             raise RuntimeError(f"filter key {key!r} has an empty unavailability reason")
     for key in BUCKET_KEYS:
         if key not in keys:
-            raise RuntimeError(f"bucket key {key!r} is not one of the 82 Finviz keys")
+            raise RuntimeError(f"bucket key {key!r} is not one of the 82 filter keys")
         if not buckets.for_key(key):
             raise RuntimeError(f"bucket key {key!r} has no bucket family")
         field = ROW_FIELDS.get(key)
@@ -533,7 +521,7 @@ _validate()
 def unavailable_filter_key(key: object, found: Binding) -> UnavailableFilterKey:
     """The 422 a refused key raises — one sentence, two entry points.
 
-    :func:`binding` raises it for the eleven keys with no column;
+    :func:`binding` raises it for the nine keys with no column;
     :mod:`app.screen.selection` raises it for a withdrawn bucket key whose value
     is not one of its tokens. Two call sites, one sentence: a refusal that says
     one thing in the schema and another over HTTP is a bug a caller cannot
@@ -572,7 +560,7 @@ def binding(key: object) -> Binding:
     if found is None:
         raise UnknownFilterKey(
             key,
-            f"unknown filter key {key!r}: it is not one of the 82 Finviz filter keys. "
+            f"unknown filter key {key!r}: it is not one of the 82 filter keys. "
             f"Keys that can filter a row today: {', '.join(ROW_FIELDS)}; "
             f"option-driven keys: {', '.join(CHOICE_FIELDS)}; "
             f"bucket-driven keys: {', '.join(BUCKET_KEYS)}. "

@@ -35,7 +35,7 @@ The document
 the 25 Descriptive controls this module opens with, then the 37 Fundamental, 20
 Technical, 2 News and 1 ETF keys the catalogue has always carried — each with
 its options, whether it can run **today**, why not when it cannot, and the
-predicate every option compiles to. Eleven of them compile
+predicate every option compiles to. Fourteen of them compile
 through :mod:`app.screen.buckets` (the predicate *is* the bucket's audit line),
 one through the exchange value vocabulary, one through the order vocabulary, one
 through the signals above, two are free text, and the rest are published
@@ -50,8 +50,8 @@ Every control also states its ``tab`` and its ``disposition`` — ``scan_row``,
 panel without a label map and can say *where a number comes from* without
 guessing. :data:`DISPOSITION_BY_KEY` is the one place that provenance is written,
 keyed by catalogue key, and :func:`_validate_dispositions` checks it against
-:mod:`app.screen.filter_fields` at import: the twelve keys the schema refuses are
-exactly the twelve the document calls unanswerable, and every key the schema can
+:mod:`app.screen.filter_fields` at import: the ten keys the schema refuses are
+exactly the ten the document calls unanswerable, and every key the schema can
 run is stated as answerable. One fact, two published shapes, no third copy.
 
 Ordering is an ORDER_BY name, not a closure
@@ -624,8 +624,10 @@ def default_sort(item: Signal) -> str:
 #   labels are *their* taxonomy, while the row carries the provider's string, so
 #   a select of Finviz labels would return empty pages.
 
-#: The version a client keys its cache on. A shape change moves it.
-SCHEMA_VERSION = "finviz-2"
+#: The version a client keys its cache on. A shape change moves it. The id is
+#: the product's, not a vendor's: a client holding ``screener-2`` is holding
+#: *this* panel, and the name says nothing about where the idea came from.
+SCHEMA_VERSION = "screener-2"
 
 #: The five catalogue tabs, in Finviz's panel order, and the group each becomes.
 TAB_LABELS: Mapping[str, str] = MappingProxyType(
@@ -680,10 +682,13 @@ VENDORED_KEYS: tuple[str, ...] = (
     "sh_dilution",
 )
 
-#: Why the two controls with no source of their own cannot run. ``sh_opt``,
-#: ``ipodate``, ``theme``, ``subtheme`` and ``sh_trades`` take their sentence
-#: from :data:`app.screen.filter_fields.UNAVAILABLE` — the same table that makes
-#: the 422 — so the document and the refusal cannot describe different gaps.
+#: Why the controls that still have no source of their own cannot run.
+#: ``theme``, ``subtheme`` and ``sh_trades`` take their sentence from
+#: :data:`app.screen.filter_fields.UNAVAILABLE` — the same table that makes the
+#: 422 — so the document and the refusal cannot describe different gaps.
+#: ``sh_opt`` and ``ipodate`` used to live here; both are bucket controls now,
+#: because the depth store really does carry ``optionable``/``shortable`` and
+#: ``ipo_date`` (see :mod:`app.screen.buckets`).
 _DILUTION_REASON = (
     "needs a dilution input (share-count history): the scan carries shares "
     "outstanding today, not the series, so a dilution *risk* would have to be "
@@ -691,7 +696,7 @@ _DILUTION_REASON = (
     "would answer it"
 )
 _TRADES_REASON = (
-    "Elite-only in Finviz's panel, and it needs a trade count (prints): the scan "
+    "Elite-only in the source panel, and it needs a trade count (prints): the scan "
     "carries volume in shares and turnover in currency, the depth store has no "
     "print count and FINRA publishes short-sale volume, so a trade count cannot "
     "be derived from anything ingested — no source is ingested (Polygon.io "
@@ -705,15 +710,19 @@ class Option:
 
     ``id`` is what a request sends in ``value``: a bucket id (``price:u5``), an
     exchange alias (``nyse``), a sort name, a signal id, a sector label. A
-    **disabled** option keeps its probe-namespaced id (``theme:ai…``) for a
-    stable UI key even though no value can be sent, and publishes
-    ``predicate: null`` — an option that cannot filter must not look like one
-    that can.
+    **disabled** option keeps its namespaced id (``theme:ai…``) for a stable UI
+    key even though no value can be sent, and publishes ``predicate: null`` — an
+    option that cannot filter must not look like one that can.
+
+    ``token`` is the source panel's own spelling of the option (``u5``,
+    ``mega``, ``prevweek``), published so a client can round-trip a label it was
+    given without inventing an id. It is data about a vocabulary, never a name
+    for this product.
     """
 
     id: str
     label: str
-    finviz: str | None
+    token: str | None
     predicate: str | None
     available: bool = True
     reason: str | None = None
@@ -723,7 +732,7 @@ class Option:
         return {
             "id": self.id,
             "label": self.label,
-            "finviz": self.finviz,
+            "token": self.token,
             "predicate": self.predicate,
             "available": self.available,
             "reason": self.reason,
@@ -833,7 +842,7 @@ def _disabled_options(
         Option(
             id=f"{control}:{token}",
             label=label,
-            finviz=token,
+            token=token,
             predicate=None,
             available=False,
             reason=reason,
@@ -852,7 +861,7 @@ def _bucket_control(
         Option(
             id=item.id,
             label=item.label,
-            finviz=item.finviz,
+            token=item.finviz,
             predicate=item.describe if item.available else None,
             available=item.available,
             reason=item.reason,
@@ -896,7 +905,7 @@ def _exchange_control() -> Control:
                 Option(
                     id=token,
                     label=str(spec["label"]),
-                    finviz=token,
+                    token=token,
                     predicate=None,
                     available=False,
                     reason=_EXCHANGE_UNAVAILABLE,
@@ -907,7 +916,7 @@ def _exchange_control() -> Control:
                 Option(
                     id=token,
                     label=str(spec["label"]),
-                    finviz=token,
+                    token=token,
                     predicate=f"exchange == '{mic}'",
                 )
             )
@@ -938,7 +947,7 @@ def _order_control() -> Control:
         Option(
             id=name,
             label=name,
-            finviz=None,
+            token=None,
             predicate=f"order by {name} desc",
             order="desc",
         )
@@ -953,7 +962,7 @@ def _order_control() -> Control:
         op=None,
         options=options,
         hint=(
-            "a leading '-' orders ascending (-pe_ttm, Finviz's o=-marketcap); "
+            "a leading '-' orders ascending (-pe_ttm); "
             "the legacy names market_cap, turnover and gainers still resolve"
         ),
         note="the order is the request's `criteria.sort`, not a filter",
@@ -972,7 +981,7 @@ def _signal_control() -> Control:
                 Option(
                     id=item.id,
                     label=item.label,
-                    finviz=None,
+                    token=None,
                     predicate=f"{item.criterion}; ordered by {column}, {direction}",
                     order=direction,
                 )
@@ -982,7 +991,7 @@ def _signal_control() -> Control:
                 Option(
                     id=item.id,
                     label=item.label,
-                    finviz=None,
+                    token=None,
                     predicate=None,
                     available=False,
                     reason=item.reason,
@@ -1005,7 +1014,7 @@ def _controls() -> tuple[Control, ...]:
 
     text_hint = (
         "free text, case-insensitive substring: the row carries the provider's "
-        "label, and Finviz's own list is a different taxonomy"
+        "label, and the source panel's own list is a different taxonomy"
     )
     return (
         _order_control(),
@@ -1046,20 +1055,7 @@ def _controls() -> tuple[Control, ...]:
         _bucket_control("fa_div", "fa_div", "Dividend Yield", unit="percent"),
         _bucket_control("sh_short", "sh_short", "Short Float", unit="percent"),
         _bucket_control("an_recom", "an_recom", "Analyst Recom."),
-        Control(
-            id="sh_opt",
-            label="Option/Short",
-            key="sh_opt",
-            control="select",
-            form="single",
-            op="eq",
-            options=_disabled_options(
-                "sh_opt", control="sh_opt", reason=_reason("sh_opt")
-            ),
-            available=False,
-            reason=_reason("sh_opt"),
-            status="unavailable",
-        ),
+        _bucket_control("sh_opt", "sh_opt", "Option/Short"),
         _bucket_control("earn", "earningsdate", "Earnings Date"),
         _bucket_control("sh_avgvol", "sh_avgvol", "Average Volume", unit="shares"),
         _bucket_control("sh_relvol", "sh_relvol", "Relative Volume"),
@@ -1072,7 +1068,7 @@ def _controls() -> tuple[Control, ...]:
             op="gte",
             options=(),
             unit="shares",
-            hint="a number, e.g. 1000000: Finviz offers only a Custom width here",
+            hint="a number, e.g. 1000000: the source panel offers only a Custom width here",
         ),
         Control(
             id="sh_trades",
@@ -1091,20 +1087,7 @@ def _controls() -> tuple[Control, ...]:
         ),
         _bucket_control("price", "sh_price", "Price $", unit="usd"),
         _bucket_control("targetprice", "targetprice", "Target Price", unit="usd"),
-        Control(
-            id="ipodate",
-            label="IPO Date",
-            key="ipodate",
-            control="select",
-            form="single",
-            op="eq",
-            options=_disabled_options(
-                "ipodate", control="ipodate", reason=_reason("ipodate")
-            ),
-            available=False,
-            reason=_reason("ipodate"),
-            status="unavailable",
-        ),
+        _bucket_control("ipodate", "ipodate", "IPO Date"),
         _bucket_control("sh_outstanding", "sh_outstanding", "Shares Outstanding", unit="shares"),
         _bucket_control("sh_float", "sh_float", "Float", unit="shares"),
         Control(
@@ -1223,7 +1206,7 @@ DISPOSITION_BY_KEY: Mapping[str, str] = MappingProxyType(
         "fa_div": "scan_row",
         "sh_short": "join",
         "an_recom": "derived",
-        "sh_opt": "unavailable",
+        "sh_opt": "join",
         "earningsdate": "scan_row",
         "sh_avgvol": "scan_row",
         "sh_relvol": "scan_row",
@@ -1231,7 +1214,7 @@ DISPOSITION_BY_KEY: Mapping[str, str] = MappingProxyType(
         "sh_trades": "new_source",
         "sh_price": "scan_row",
         "targetprice": "scan_row",
-        "ipodate": "unavailable",
+        "ipodate": "join",
         "sh_outstanding": "scan_row",
         "sh_float": "scan_row",
         "theme": "new_source",
@@ -1352,7 +1335,7 @@ def _choice_control(key: str, label: str) -> Control:
                 Option(
                     id=token,
                     label=buckets.labels_for(key)[token],
-                    finviz=token,
+                    token=token,
                     predicate=f"{predicate.field} {predicate.op} {predicate.value}",
                 )
             )
@@ -1361,7 +1344,7 @@ def _choice_control(key: str, label: str) -> Control:
                 Option(
                     id=token,
                     label=buckets.labels_for(key)[token],
-                    finviz=token,
+                    token=token,
                     predicate=None,
                     available=False,
                     reason=unsupported[token],
@@ -1541,7 +1524,7 @@ def _validate_document() -> None:
         if control.key is not None and control.key not in vendored_controls:
             raise RuntimeError(
                 f"descriptive control {control.id!r} names key {control.key!r}, "
-                "which the vendored Finviz vocabulary does not have"
+                "which the vendored vocabulary does not have"
             )
         if control.available:
             if control.reason is not None:
@@ -1721,7 +1704,7 @@ def _validate() -> None:
     from app.screen.rank import ORDER_BY
 
     if len(SIGNALS) != 27:
-        raise RuntimeError(f"the Finviz signal vocabulary is 27 ids, got {len(SIGNALS)}")
+        raise RuntimeError(f"the signal vocabulary is 27 ids, got {len(SIGNALS)}")
     if len(BY_ID) != len(SIGNALS):
         raise RuntimeError("two signals share an id")
     for item in SIGNALS:

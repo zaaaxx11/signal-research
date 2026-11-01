@@ -247,7 +247,8 @@ def _unknown(spec: ChoiceSpec, token: object, hint: str = "") -> UnknownChoiceOp
     return UnknownChoiceOption(
         spec.key,
         f"{spec.key} ({spec.label}) has no option {token!r}: the vocabulary is "
-        f"Finviz's own and this key takes {len(spec.tokens)} tokens. {spec.grammar}. "
+        f"the source panel's own and this key takes {len(spec.tokens)} tokens. "
+        f"{spec.grammar}. "
         "The full list, with the predicate each token compiles to, is published at "
         f"GET /screens/select/schema under x-filter-keys.{spec.key}.choice.options"
         + (f" {hint}" if hint else ""),
@@ -341,7 +342,7 @@ def _validate() -> None:
     for key, spec in CHOICES.items():
         found = FILTER_CATALOG.get(key)
         if found is None:
-            raise RuntimeError(f"choice key {key!r} is not in the Finviz catalogue")
+            raise RuntimeError(f"choice key {key!r} is not in the filter catalogue")
         if not found.choice:
             raise RuntimeError(
                 f"filters.FILTER_CATALOG[{key!r}].choice is False, but "

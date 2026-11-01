@@ -142,7 +142,7 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 70, (
+    assert len(mapped_keys()) == 72, (
         "seven light columns, the parity metrics a bulk scan copies, the three "
         "derived columns computed from those cells, the three fundamentals joined "
         "from the snapshot store, the two ratios computed from that snapshot, the "
@@ -151,7 +151,7 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
         "depth overlay (app.screen.universe.DEPTH_FIELDS) and answer their bucket "
         "vocabulary rather than one column"
     )
-    assert len(unavailable_keys()) == 12
+    assert len(unavailable_keys()) == 10
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -198,7 +198,7 @@ def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
         "(app.screen.facts), not copied from the scan"
     )
     assert derived == {
-        "an_recom": "recom_finviz",
+        "an_recom": "recom_score",
         "ta_changeopen": "change_from_open",
         "ta_highlow52w": "pct_from_52w_high",
     }, (
@@ -264,9 +264,13 @@ def test_reasons_name_the_metric_that_is_missing() -> None:
             f"{key} filters a derived column now (app.screen.derived); a refusal "
             "here would be a stale disposition"
         )
-    assert "answered null for all" in (reason_for("ipodate") or ""), (
-        "a column that is null for every row cannot filter: refuse it, do not "
-        "return an empty screen as if nothing matched"
+    assert reason_for("ipodate") is None, (
+        "ipodate filters the depth store's own ipo_date now (ipodate:*); a "
+        "refusal here would return an empty screen for a control that works"
+    )
+    assert reason_for("sh_opt") is None, (
+        "sh_opt filters the depth store's optionable/shortable cells now "
+        "(sh_opt:*); a refusal here would be a stale disposition"
     )
     for key in ("sh_short", "sh_insiderown", "sh_instown"):
         assert reason_for(key) is None, (

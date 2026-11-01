@@ -1035,3 +1035,141 @@ async def test_insider_route_all_filings_failed_is_503(
 
     assert response.status_code == 503, response.text
     assert response.json().get("error") == "insider_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# §4 Cache policy — the filings TTL, and a validator that costs no bytes
+# ---------------------------------------------------------------------------
+
+
+def filings_ttl() -> int:
+    """The one filings freshness window, read from the module that owns it.
+
+    The route may not invent a longer one: a Form 4 is public the moment EDGAR
+    accepts it, and a cache that outlives the collector's own window would serve
+    a filing history the server has already moved past.
+    """
+
+    from app.engine import insider
+
+    return int(insider.FILINGS_TTL_S)
+
+
+async def test_the_filing_answer_states_its_ttl_and_carries_a_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeCollector(items=(insider_item(),))
+    install_collector(monkeypatch, fake)
+
+    async with route_client(
+        tmp_path, monkeypatch, engine_service(engine_master())
+    ) as client:
+        response = await client.get("/engine/insider/AAPL?limit=5")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == (
+        f"private, max-age={filings_ttl()}, must-revalidate"
+    ), "the TTL must be the filings window, not one invented for the route"
+    assert filings_ttl() == 900, (
+        "the filings window is fifteen minutes (app.api.home's block cache); "
+        "this test fails if it moves, so the header cannot drift behind it"
+    )
+    assert response.headers["etag"].startswith('"'), "a strong tag, quoted"
+    assert response.headers["etag"].endswith('"')
+
+
+async def test_a_matching_validator_answers_304_with_the_same_headers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeCollector(items=(insider_item(),))
+    install_collector(monkeypatch, fake)
+
+    async with route_client(
+        tmp_path, monkeypatch, engine_service(engine_master())
+    ) as client:
+        first = await client.get("/engine/insider/AAPL?limit=5")
+        second = await client.get(
+            "/engine/insider/AAPL?limit=5",
+            headers={"if-none-match": first.headers["etag"]},
+        )
+
+    assert second.status_code == 304, second.text
+    assert second.content == b"", "a 304 carries no body"
+    assert second.headers["etag"] == first.headers["etag"]
+    assert second.headers["cache-control"] == first.headers["cache-control"]
+
+
+async def test_a_stale_validator_still_answers_the_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeCollector(items=(insider_item(),))
+    install_collector(monkeypatch, fake)
+
+    async with route_client(
+        tmp_path, monkeypatch, engine_service(engine_master())
+    ) as client:
+        first = await client.get("/engine/insider/AAPL?limit=5")
+        second = await client.get(
+            "/engine/insider/AAPL?limit=5",
+            headers={"if-none-match": '"insider-nonsense"'},
+        )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["count"] == first.json()["count"]
+
+
+async def test_the_tag_is_a_function_of_the_document_not_of_the_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two requests that read the same filings share a tag; a new filing moves it.
+
+    The validator is over the answer's bytes — the only thing this route can
+    hash without a second read — so ``limit`` alone does not move it when the
+    collector answers the same rows, and a filing that appears does.
+    """
+
+    fake = FakeCollector(items=(insider_item(),))
+    install_collector(monkeypatch, fake)
+
+    async with route_client(
+        tmp_path, monkeypatch, engine_service(engine_master())
+    ) as client:
+        five = await client.get("/engine/insider/AAPL?limit=5")
+        one = await client.get(
+            "/engine/insider/AAPL?limit=1",
+            headers={"if-none-match": five.headers["etag"]},
+        )
+        assert one.status_code == 304, "the same bytes are the same representation"
+
+        fake.items = (
+            insider_item(),
+            insider_item(accession="0001140361-26-040600", filed="2026-10-24"),
+        )
+        moved = await client.get(
+            "/engine/insider/AAPL?limit=5",
+            headers={"if-none-match": five.headers["etag"]},
+        )
+
+    assert moved.status_code == 200, "a new filing must not validate the old page"
+    assert moved.headers["etag"] != five.headers["etag"]
+    assert moved.json()["count"] == 2
+
+
+async def test_a_refusal_is_never_cached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 404 is a fact about this request, not a document worth storing."""
+
+    fake = FakeCollector(items=(insider_item(),))
+    install_collector(monkeypatch, fake)
+
+    async with route_client(
+        tmp_path, monkeypatch, engine_service(engine_master())
+    ) as client:
+        missing = await client.get("/engine/insider/ZZZZ?limit=5")
+        bad_limit = await client.get("/engine/insider/AAPL?limit=99")
+
+    assert missing.status_code == 404, missing.text
+    assert "cache-control" not in missing.headers
+    assert bad_limit.status_code == 422, bad_limit.text
+    assert "cache-control" not in bad_limit.headers

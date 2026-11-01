@@ -222,7 +222,7 @@ def test_every_bucket_key_publishes_the_flag() -> None:
 def test_an_unavailable_control_keeps_its_refusal_not_a_bucket_path() -> None:
     """`theme` has no predicate family, so it stays a 422 that names the metric."""
 
-    for key, token in (("theme", "artificialintelligence"), ("sh_opt", "option")):
+    for key, token in (("theme", "artificialintelligence"), ("sh_trades", "trade")):
         with pytest.raises(SelectionError) as caught:
             request([{"key": key, "op": "eq", "value": token}])
         assert caught.value.code == "unavailable_filter_key"

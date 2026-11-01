@@ -82,7 +82,7 @@ async def test_get_screens_filters_serves_the_five_tabs(
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
 
-    assert body["schema_version"] == "finviz-2"
+    assert body["schema_version"] == "screener-2"
     assert [(group["id"], len(group["controls"])) for group in body["groups"]] == [
         ("descriptive", 25),
         ("fundamental", 37),
@@ -126,7 +126,13 @@ async def test_the_document_revalidates_on_its_own_digest(
         third = await harness.client.get("/screens/filters")
 
     assert etag.startswith('"flt-') and etag.endswith('"'), etag
-    assert len(etag) == len('"flt-') + 32 + 1, "the prefix plus a 128-bit digest"
+    # The tag names the representation: ``"flt-<32 hex>"`` for the identity
+    # bytes and ``"flt-<32 hex>-gzip"`` for the compressed ones (httpx asks for
+    # gzip by default, so this fetch gets the gzip tag).
+    body = etag[len('"flt-') : -1]
+    assert body.endswith("-gzip") or len(body) == 32, etag
+    digest = body[: -len("-gzip")] if body.endswith("-gzip") else body
+    assert len(digest) == 32, "the prefix plus a 128-bit digest"
     assert second.status_code == 304
     assert second.content == b"", "a 304 carries no body"
     assert second.headers["etag"] == etag

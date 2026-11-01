@@ -6,7 +6,7 @@ Contract (PLAN-finviz-parity.md §6 gate 3, "82/82 keys"):
   twenty-nine parity metrics a bulk scan copies from TradingView whose columns
   are really filled (the last four added after a live probe answered with
   values: ``industry``, ``dividends_yield``, ``gap``, ``ATR``), the three
-  derived columns computed from those cells (``recom_finviz``,
+  derived columns computed from those cells (``recom_score``,
   ``change_from_open``, ``pct_from_52w_high``), the five fundamentals columns
   the snapshot join contributes (``pe_forward``, ``ps``, ``payout_ratio`` joined;
   ``price_to_cash``, ``ev_to_sales`` computed) and the three facts columns
@@ -141,9 +141,9 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 70
-    assert len(unavailable_keys()) == 12
+def test_the_disposition_is_seventy_two_available_and_ten_refused() -> None:
+    assert len(mapped_keys()) == 72
+    assert len(unavailable_keys()) == 10
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82

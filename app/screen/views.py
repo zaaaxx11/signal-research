@@ -420,11 +420,11 @@ ALL_VIEW = ViewDefinition(
 LEGACY_UNIT_SHIFT: Mapping[str, str] = MappingProxyType(
     {
         "week52_high": (
-            "Finviz: % distance from the 52-week high. Ours: the high as a price "
+            "Source panel: % distance from the 52-week high. Ours: the high as a price "
             "in USD (depth_fields unit override); do not re-derive a percentage."
         ),
         "week52_low": (
-            "Finviz: % distance from the 52-week low. Ours: the low as a price in "
+            "Source panel: % distance from the 52-week low. Ours: the low as a price in "
             "USD (depth_fields unit override); do not re-derive a percentage."
         ),
     }
