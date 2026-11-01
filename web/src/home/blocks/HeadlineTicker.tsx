@@ -20,6 +20,7 @@
 
 import type { BlockState, HomeNews } from "../home";
 import { Link } from "@/shell/routes";
+import { cn } from "@/lib/utils";
 
 /** Stories in the ticker. A dozen is a line, not a feed. */
 const TICKER_ITEMS = 12;
@@ -27,6 +28,8 @@ const TICKER_ITEMS = 12;
 export interface HeadlineTickerProps {
   readonly state: BlockState;
   readonly news: readonly HomeNews[] | null;
+  /** Layout from the page: the ticker is a bleed strip, not a card. */
+  readonly className?: string;
 }
 
 function Item({ item }: { readonly item: HomeNews }) {
@@ -53,7 +56,7 @@ function Item({ item }: { readonly item: HomeNews }) {
   );
 }
 
-export function HeadlineTicker({ state, news }: HeadlineTickerProps) {
+export function HeadlineTicker({ state, news, className }: HeadlineTickerProps) {
   if (state.kind !== "ready" || news === null || news.length === 0) {
     // No ticker when there is nothing to tick: an empty bar that slides is a
     // broken promise. The error is named instead, in one quiet line.
@@ -74,7 +77,7 @@ export function HeadlineTicker({ state, news }: HeadlineTickerProps) {
     <section
       aria-label="Top headlines"
       data-testid="home-ticker"
-      className="group relative min-w-0 overflow-hidden rounded-md border border-line bg-surface"
+      className={cn("group relative min-w-0 overflow-hidden", className)}
     >
       <div
         data-testid="ticker-track"
@@ -97,7 +100,7 @@ export function HeadlineTicker({ state, news }: HeadlineTickerProps) {
 
       <Link
         to="/news"
-        className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-surface via-surface px-2 text-[10px] uppercase tracking-[0.08em] text-fg-subtle hover:text-accent-text"
+        className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-bg via-bg px-2 text-[10px] uppercase tracking-[0.08em] text-fg-subtle hover:text-accent-text"
       >
         All news
       </Link>

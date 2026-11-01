@@ -125,6 +125,24 @@ describe("HomePage", () => {
     expect(screen.getByTestId("map-tiles").textContent).toBe("0 of 5,573 tiles");
   });
 
+  it("bleeds the ticker across the page and gives it no border", async () => {
+    stub();
+    render(<HomePage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"),
+    );
+
+    const ticker = screen.getByTestId("home-ticker");
+    // A strip, not a card: no border, no radius, no fill, and full-bleed by
+    // cancelling the page's own gutter.
+    expect(ticker.className).toContain("-mx-2");
+    expect(ticker.className).not.toMatch(/\bborder-(line|strong|b|t|l|r)\b/);
+    expect(ticker.className).not.toMatch(/(^|\s)border(\s|$)/);
+    expect(ticker.className).not.toContain("rounded");
+    // It sits above the grid, not inside it.
+    expect(screen.getByTestId("home-grid").contains(ticker)).toBe(false);
+  });
+
   it("renders a headline containing a script tag as text", async () => {
     stub(
       homeDocument({

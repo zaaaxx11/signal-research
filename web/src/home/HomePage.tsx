@@ -91,14 +91,20 @@ export function HomePage() {
         </div>
       ) : null}
 
+      {/* The ticker bleeds to the page edges: a strip above the grid, not a
+          card inside it. */}
+      <HeadlineTicker
+        state={state.news}
+        news={report?.news ?? null}
+        className="-mx-2 mb-1"
+      />
+
       <div
         data-testid="home-grid"
         data-status={status}
         aria-busy={status === "loading" ? "true" : undefined}
         className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-12"
       >
-        <HeadlineTicker state={state.news} news={report?.news ?? null} />
-
         <IndexStrip
           indicesState={state.indices}
           indices={report?.indices ?? null}
