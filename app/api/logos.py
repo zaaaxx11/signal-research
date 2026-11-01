@@ -13,29 +13,37 @@ The ladder
 
 1. **the store** — ``<logo_dir>/{SYMBOL}.{png,svg,jpg,jpeg,webp}``. This is the
    hand-curated set and the upstream cache, one directory, so an operator drops a
-   file in and it wins;
+   file in and it wins. ``scripts/logos-backfill.py`` fills this rung in bulk;
 2. **the vendored set** — the 35 files under ``ui/logos`` the cockpit has always
    shipped. They stay authoritative for what they cover;
-3. **one fixed upstream** — a favicon service addressed by the symbol's website
-   **domain**, not by its URL. The host is a constant in this module: the data
-   contributes one validated hostname, and nothing else. A mark is fetched once,
-   validated, and written to the store; while the file exists the network is
-   never touched again. A success and a refusal are both remembered, so an
-   outage cannot turn one panel into a hundred probes;
-4. **the monogram** — the same generator ``_with_logos`` uses, decoded from its
+3. **symbol-addressed providers** — ``assets.parqet.com/logos/symbol/{SYMBOL}``
+   then ``images.financialmodelingprep.com/symbol/{SYMBOL}.png``. Both are
+   keyless, both take the ticker and need no website (79% and most of the
+   remainder on a 200-symbol pilot), so a symbol the depth store has never heard
+   of can still get a mark;
+4. **one domain-addressed provider** — a favicon service addressed by the
+   symbol's website **domain**, not by its URL. The host is a constant in this
+   module: the data contributes one validated hostname, and nothing else;
+5. **the monogram** — the same generator ``_with_logos`` uses, decoded from its
    ``data:`` URI. Every valid symbol answers 200, so a row is never a hole.
 
-Why the upstream is ``t2.gstatic.com`` and not Clearbit
------------------------------------------------------
+A mark is fetched once, validated, and written to the store; while the file
+exists the network is never touched again. A success and a refusal are both
+remembered, so an outage cannot turn one panel into a hundred probes. The
+ladder is bounded by a per-request deadline: an unreachable provider costs one
+timeout, not one per rung.
+
+Why the domain rung is ``t2.gstatic.com`` and not Clearbit
+----------------------------------------------------------
 
 ``https://logo.clearbit.com/{domain}?size=64`` is the obvious shape, and it no
-longer resolves: the free Clearbit Logo API was retired with the HubSpot
-acquisition, so shipping it as the default would ship a rung that can only fail.
-``faviconV2`` on ``t2.gstatic.com`` has the same contract — one fixed host, the
-domain as a parameter, a PNG or a 404 — and it answers (measured 2.5 KB in
-~50 ms). The template is a module constant rather than a setting on purpose: a
-configurable base URL is an SSRF knob, and this route has no legitimate use for
-one.
+longer resolves: ``logo.clearbit.com`` has no A record at all (checked over
+DNS-over-HTTPS as well as locally, 2026-11-01), so shipping it as a rung would
+ship one that can only fail. ``faviconV2`` on ``t2.gstatic.com`` has the same
+contract — one fixed host, the domain as a parameter, a PNG or a 404 — and it
+answers (measured 1.2 KB in ~40 ms). The template is a module constant rather
+than a setting on purpose: a configurable base URL is an SSRF knob, and this
+route has no legitimate use for one.
 
 Security
 --------
@@ -81,6 +89,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -105,6 +114,25 @@ UPSTREAM_TEMPLATE = (
     f"https://{UPSTREAM_HOST}/faviconV2?client=SOCIAL&type=FAVICON"
     "&fallback_opts=TYPE,SIZE,URL&url=https%3A%2F%2F{domain}&size=64"
 )
+
+#: The symbol-addressed rungs. Both hosts are constants for the same SSRF
+#: reason as ``UPSTREAM_HOST``; only the ticker rides in the path, and
+#: :func:`normalize_symbol` has already refused anything that is not one.
+#: They need no website, which is what makes a symbol the depth store has never
+#: seen resolve at all.
+PARQET_TEMPLATE = "https://assets.parqet.com/logos/symbol/{symbol}?format=png"
+FMP_TEMPLATE = "https://images.financialmodelingprep.com/symbol/{symbol}.png"
+
+#: The ladder's provider order, symbol-addressed first. A provider that can only
+#: fail (``logo.clearbit.com``, no A record) is not in it: a dead rung costs a
+#: timeout on every uncached symbol and buys nothing.
+PROVIDER_ORDER: tuple[str, ...] = ("parqet", "fmp", "google")
+
+#: How many seconds one uncached symbol may spend across the whole ladder. A
+#: provider that is up answers in ~50-600 ms; a provider that is down must cost
+#: one timeout, not one per rung. The single-fetch timeout still comes from
+#: ``logo_upstream_timeout_s``.
+LADDER_BUDGET_S = 12.0
 
 #: Thirty days. A brand mark for a ticker does not change, and this is a
 #: decoration: the cheapest correct answer is "do not ask again".
@@ -259,6 +287,51 @@ def safe_domain(website: object) -> str | None:
     if not host.rsplit(".", 1)[1].isalpha():
         return None
     return host
+
+
+def symbol_variants(symbol: str) -> tuple[str, ...]:
+    """The spellings the symbol providers use for one issuer, best first.
+
+    ``BRK.B`` is ``BRK-B`` at both symbol providers, while the depth store
+    spells the class with a dash and a caller may use a dot. The canonical
+    spelling is always first, so the common case costs one request; a class
+    suffix is the only thing that grows the list.
+    """
+
+    variants = [symbol]
+    if "." in symbol:
+        variants.append(symbol.replace(".", "-"))
+    if "-" in symbol:
+        base, _, suffix = symbol.partition("-")
+        if base and 1 <= len(suffix) <= 3 and suffix.isalpha():
+            variants.append(f"{base}.{suffix}")
+    return tuple(dict.fromkeys(variants))
+
+
+def provider_urls(symbol: str, domain: str | None) -> list[tuple[str, str]]:
+    """``(provider, url)`` pairs for ``symbol``, in ladder order.
+
+    A domain-addressed provider contributes nothing when there is no domain —
+    that is not a failure, it is a rung with no question to ask. The symbol
+    rungs always contribute, which is why a symbol with no website can still
+    resolve to a real mark.
+    """
+
+    urls: list[tuple[str, str]] = []
+    for provider in PROVIDER_ORDER:
+        if provider == "parqet":
+            urls.extend(
+                ("parqet", PARQET_TEMPLATE.format(symbol=quote(variant, safe="")))
+                for variant in symbol_variants(symbol)
+            )
+        elif provider == "fmp":
+            urls.extend(
+                ("fmp", FMP_TEMPLATE.format(symbol=quote(variant, safe="")))
+                for variant in symbol_variants(symbol)
+            )
+        elif provider == "google" and domain:
+            urls.append(("google", UPSTREAM_TEMPLATE.format(domain=domain)))
+    return urls
 
 
 def sniff_image(body: bytes | bytearray | None) -> str | None:
@@ -443,10 +516,11 @@ class LogoStore:
                     logger.info(
                         "logo: refusing non-public website %r for %s", website, symbol
                     )
-                if domain is not None:
-                    fetched = await self._fetch_once(symbol, domain)
-                    if fetched is not None:
-                        return fetched
+                # The symbol providers do not need a domain; the domain rung is
+                # contributed by ``provider_urls`` only when there is one.
+                fetched = await self._fetch_once(symbol, domain)
+                if fetched is not None:
+                    return fetched
         except Exception:  # noqa: BLE001 - the mark is decoration; a 500 is not
             logger.warning("logo resolution failed for %r", symbol, exc_info=True)
         return self._monogram(symbol, name)
@@ -545,13 +619,20 @@ class LogoStore:
 
     # -- the fetch ----------------------------------------------------------
 
-    async def _fetch_once(self, symbol: str, domain: str) -> LogoImage | None:
+    async def _fetch_once(self, symbol: str, domain: str | None) -> LogoImage | None:
         """Fetch ``symbol`` at most once, even under fifty concurrent requests.
 
         The lock is per symbol: the first caller fetches, the other forty-nine
         wait and then find the file the first one wrote. The disk is re-checked
         inside the lock because "the file exists" is the cache, and a writer
-        outside this process (an operator dropping a PNG in) counts.
+        outside this process (an operator, or the batch backfill) counts.
+
+        Inside the lock the provider ladder is walked in order — symbol-addressed
+        first, because it needs no data beyond the ticker, then the domain rung
+        when there is a safe domain. The first body that sniffs as an image and
+        fits the per-file ceiling wins and is written; ``LADDER_BUDGET_S`` bounds
+        the whole walk, so an unreachable provider costs one timeout instead of
+        one per rung.
         """
 
         if self._retry_after.get(symbol, 0.0) > self._clock():
@@ -565,29 +646,46 @@ class LogoStore:
             if self._retry_after.get(symbol, 0.0) > self._clock():
                 return None
 
-            url = UPSTREAM_TEMPLATE.format(domain=domain)
+            ladder = provider_urls(symbol, domain)
+            if not ladder:
+                self._retry_after[symbol] = self._clock() + RETRY_AFTER_S
+                return None
             self._counts["upstream"] = self._counts.get("upstream", 0) + 1
-            try:
-                body = await self.fetcher(url, self.timeout_s)
-            except Exception:  # noqa: BLE001 - an outage is a monogram, not a 500
-                logger.debug("logo: fetch for %s raised", symbol, exc_info=True)
-                body = None
 
-            media = sniff_image(body) if body else None
-            if body is None or media is None or len(body) > self.max_bytes:
-                if body is not None and media is not None:
+            deadline = self._clock() + LADDER_BUDGET_S
+            for provider, url in ladder:
+                if self._clock() > deadline:
+                    logger.info(
+                        "logo: ladder budget spent for %s before %s", symbol, provider
+                    )
+                    break
+                try:
+                    body = await self.fetcher(url, self.timeout_s)
+                except Exception:  # noqa: BLE001 - an outage is a monogram, not a 500
+                    logger.debug("logo: fetch for %s raised", symbol, exc_info=True)
+                    body = None
+
+                media = sniff_image(body) if body else None
+                if body is None or media is None:
+                    logger.debug("logo: %s had no mark for %s", provider, symbol)
+                    continue
+                if len(body) > self.max_bytes:
                     logger.warning(
-                        "logo: refusing %d bytes from upstream for %s (ceiling %d)",
+                        "logo: refusing %d bytes from %s for %s (ceiling %d)",
                         len(body),
+                        provider,
                         symbol,
                         self.max_bytes,
                     )
-                self._retry_after[symbol] = self._clock() + RETRY_AFTER_S
-                return None
+                    continue
 
-            self._retry_after.pop(symbol, None)
-            self._write(symbol, body, media)
-            return LogoImage(body=body, media_type=media, source="upstream")
+                self._retry_after.pop(symbol, None)
+                self._write(symbol, body, media)
+                logger.debug("logo: %s answered for %s", provider, symbol)
+                return LogoImage(body=body, media_type=media, source="upstream")
+
+            self._retry_after[symbol] = self._clock() + RETRY_AFTER_S
+            return None
 
     def _lock_for(self, symbol: str) -> asyncio.Lock:
         lock = self._locks.get(symbol)

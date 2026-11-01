@@ -250,7 +250,9 @@ def test_a_preplaced_file_costs_zero_upstream_calls(tmp_path: Path) -> None:
 
 
 def test_the_website_comes_from_the_depth_store_and_keys_a_fixed_host(tmp_path: Path) -> None:
-    fetcher = Fetcher()
+    """The domain rung is last, and its host is code, not data."""
+
+    fetcher = Fetcher(body=None)
     depth = depth_file(tmp_path, {TICKER: {"website": f"{WEBSITE}/investors"}})
 
     with serve(
@@ -263,16 +265,91 @@ def test_the_website_comes_from_the_depth_store_and_keys_a_fixed_host(tmp_path: 
         response = harness.client.get(f"/logos/{TICKER}")
 
     assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    domain_calls = [url for url, _ in fetcher.calls if logos.UPSTREAM_HOST in url]
+    assert domain_calls == [logos.UPSTREAM_TEMPLATE.format(domain="www.oracle.com")], (
+        f"the domain rung must be keyed by the website's host: {fetcher.calls}"
+    )
+    assert domain_calls[0].startswith(f"https://{logos.UPSTREAM_HOST}/")
+    assert "size=64" in domain_calls[0]
+    assert all(timeout == pytest.approx(0.5) for _url, timeout in fetcher.calls)
+
+
+def test_the_symbol_provider_is_tried_before_the_website_provider(tmp_path: Path) -> None:
+    """``ORCL`` has a website, but the ticker rung answers first and wins."""
+
+    fetcher = Fetcher(body=PNG)
+    depth = depth_file(tmp_path, {TICKER: {"website": WEBSITE}})
+
+    with serve(
+        tmp_path,
+        fetcher=fetcher,
+        upstream=True,
+        screen_depth=True,
+        screen_depth_store_path=str(depth),
+    ) as harness:
+        response = harness.client.get(f"/logos/{TICKER}")
+
+    assert response.status_code == 200
+    assert response.headers["x-logo-source"] == "upstream"
+    assert len(fetcher.calls) == 1, f"the first rung answered: {fetcher.calls}"
+    url, _timeout = fetcher.calls[0]
+    assert url == logos.PARQET_TEMPLATE.format(symbol=TICKER)
+    assert url.startswith("https://assets.parqet.com/")
+
+
+def test_the_ladder_falls_through_to_the_domain_rung(tmp_path: Path) -> None:
+    """A symbol the ticker rungs miss still resolves through its website."""
+
+    class Selective(Fetcher):
+        async def __call__(self, url: str, timeout_s: float) -> Any:  # type: ignore[override]
+            self.calls.append((url, timeout_s))
+            return PNG if logos.UPSTREAM_HOST in url else None
+
+    fetcher = Selective(body=None)
+    depth = depth_file(tmp_path, {TICKER: {"website": WEBSITE}})
+
+    with serve(
+        tmp_path,
+        fetcher=fetcher,
+        upstream=True,
+        screen_depth=True,
+        screen_depth_store_path=str(depth),
+    ) as harness:
+        response = harness.client.get(f"/logos/{TICKER}")
+
+    assert response.status_code == 200
+    assert response.content == PNG
+    assert response.headers["x-logo-source"] == "upstream"
+    hosts = [url for url, _ in fetcher.calls]
+    assert hosts[0] == logos.PARQET_TEMPLATE.format(symbol=TICKER)
+    assert hosts[1] == logos.FMP_TEMPLATE.format(symbol=TICKER)
+    assert hosts[-1] == logos.UPSTREAM_TEMPLATE.format(domain="www.oracle.com")
+
+
+def test_a_symbol_with_no_website_still_gets_a_symbol_provider_mark(tmp_path: Path) -> None:
+    """The whole point of a symbol-addressed rung: no website required."""
+
+    fetcher = Fetcher(body=PNG)
+    depth = depth_file(tmp_path, {"ZZZZ": {"pe": 12.0}})
+
+    with serve(
+        tmp_path,
+        fetcher=fetcher,
+        upstream=True,
+        screen_depth=True,
+        screen_depth_store_path=str(depth),
+    ) as harness:
+        response = harness.client.get("/logos/ZZZZ")
+
+    assert response.status_code == 200
+    assert response.content == PNG, "a symbol with no site is still a company"
     assert len(fetcher.calls) == 1
-    url, timeout_s = fetcher.calls[0]
-    assert url == logos.UPSTREAM_TEMPLATE.format(domain="www.oracle.com")
-    assert url.startswith(f"https://{logos.UPSTREAM_HOST}/"), "the host is fixed in code"
-    assert "size=64" in url
-    assert timeout_s == pytest.approx(0.5)
+    assert (tmp_path / "logos" / "ZZZZ.png").is_file()
 
 
-def test_a_symbol_with_no_website_never_calls_upstream(tmp_path: Path) -> None:
-    fetcher = Fetcher()
+def test_a_symbol_with_no_website_never_calls_the_domain_provider(tmp_path: Path) -> None:
+    fetcher = Fetcher(body=None)
     depth = depth_file(tmp_path, {"ZZZZ": {"pe": 12.0}})
 
     with serve(
@@ -286,7 +363,10 @@ def test_a_symbol_with_no_website_never_calls_upstream(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
-    assert fetcher.calls == [], "no domain, no fetch"
+    assert fetcher.calls, "the symbol rungs are still worth one request each"
+    assert all(logos.UPSTREAM_HOST not in url for url, _ in fetcher.calls), (
+        f"no domain, no domain fetch: {fetcher.calls}"
+    )
 
 
 def test_a_failed_fetch_is_remembered_briefly_not_retried_per_request(tmp_path: Path) -> None:
@@ -301,11 +381,15 @@ def test_a_failed_fetch_is_remembered_briefly_not_retried_per_request(tmp_path: 
         screen_depth_store_path=str(depth),
     ) as harness:
         first = harness.client.get(f"/logos/{TICKER}")
+        after_first = len(fetcher.calls)
         second = harness.client.get(f"/logos/{TICKER}")
 
     assert first.status_code == second.status_code == 200
     assert second.headers["content-type"].startswith("image/svg+xml")
-    assert len(fetcher.calls) == 1, "an upstream outage must not be re-probed per row"
+    assert after_first >= 1
+    assert len(fetcher.calls) == after_first, (
+        f"an upstream outage must not be re-probed per row: {fetcher.calls}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +540,7 @@ def test_the_write_is_atomic_so_a_reader_never_sees_a_partial_file(tmp_path: Pat
     ],
 )
 def test_a_private_or_non_http_website_is_never_fetched(tmp_path: Path, website: str) -> None:
-    fetcher = Fetcher()
+    fetcher = Fetcher(body=None)
     depth = depth_file(tmp_path, {TICKER: {"website": website}})
 
     with serve(
@@ -469,7 +553,9 @@ def test_a_private_or_non_http_website_is_never_fetched(tmp_path: Path, website:
         response = harness.client.get(f"/logos/{TICKER}")
 
     assert response.status_code == 200, "a refused website degrades, it does not fail"
-    assert fetcher.calls == [], f"{website!r} must never reach the upstream"
+    assert all(logos.UPSTREAM_HOST not in url for url, _ in fetcher.calls), (
+        f"{website!r} must never reach the domain upstream: {fetcher.calls}"
+    )
     assert _files(tmp_path / "logos") == []
 
 
