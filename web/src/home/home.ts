@@ -53,6 +53,12 @@ export const HOME_BLOCK_KEYS = [
   "map",
   "news",
   "filings",
+  "futures",
+  "forex",
+  "ipos",
+  "insider_latest",
+  "insider_top",
+  "economic",
 ] as const;
 
 export type HomeBlockKey = (typeof HOME_BLOCK_KEYS)[number];
@@ -150,6 +156,18 @@ export interface HomeFiling {
   readonly filed: string | null;
 }
 
+/** A side table row: whatever the server sent, and nothing it did not. */
+export type HomeSideRow = Readonly<Record<string, string | number | null>>;
+
+function readSideRow(raw: unknown): HomeSideRow | null {
+  if (!isRecord(raw)) return null;
+  const out: Record<string, string | number | null> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === null || typeof value === "string" || typeof value === "number") out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export interface HomeReport {
   readonly asOf: string | null;
   readonly indices: readonly HomeIndex[] | null;
@@ -159,6 +177,12 @@ export interface HomeReport {
   readonly map: HomeMap | null;
   readonly news: readonly HomeNews[] | null;
   readonly filings: readonly HomeFiling[] | null;
+  readonly futures: readonly HomeSideRow[] | null;
+  readonly forex: readonly HomeSideRow[] | null;
+  readonly ipos: readonly HomeSideRow[] | null;
+  readonly insiderLatest: readonly HomeSideRow[] | null;
+  readonly insiderTop: readonly HomeSideRow[] | null;
+  readonly economic: readonly HomeSideRow[] | null;
   /** Block names the server says it could not build, lower-case. */
   readonly unavailable: readonly string[];
   readonly method: string | null;
@@ -439,6 +463,12 @@ export function readHome(body: unknown): HomeReport {
       map: null,
       news: null,
       filings: null,
+      futures: null,
+      forex: null,
+      ipos: null,
+      insiderLatest: null,
+      insiderTop: null,
+      economic: null,
       unavailable: [],
       method: null,
     };
@@ -459,6 +489,12 @@ export function readHome(body: unknown): HomeReport {
     map: readMap(body["map"]),
     news: readList(body["news"], readNewsItem),
     filings: readList(body["filings"], readFiling),
+    futures: readList(body["futures"], readSideRow),
+    forex: readList(body["forex"], readSideRow),
+    ipos: readList(body["ipos"], readSideRow),
+    insiderLatest: readList(body["insider_latest"], readSideRow),
+    insiderTop: readList(body["insider_top"], readSideRow),
+    economic: readList(body["economic"], readSideRow),
     unavailable: named,
     method: str(body["method"]) || null,
   };
@@ -511,7 +547,22 @@ export function blockState(
 ): BlockState {
   if (status === "loading") return LOADING;
   if (status === "error") return FAILED;
-  const block = report?.[key];
+  // The wire names five of these with underscores; the parsed document keeps
+  // camelCase. One table, so the two spellings cannot drift.
+  const block =
+    key === "insider_latest"
+      ? report?.insiderLatest
+      : key === "insider_top"
+        ? report?.insiderTop
+        : key === "futures"
+          ? report?.futures
+          : key === "forex"
+            ? report?.forex
+            : key === "ipos"
+              ? report?.ipos
+              : key === "economic"
+                ? report?.economic
+                : report?.[key];
   if (block === null || block === undefined) return { kind: "missing", reason: missingReason(report, key, label) };
   return READY;
 }

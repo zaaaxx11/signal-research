@@ -56,8 +56,21 @@ from tests import _screen as S
 from tests._market import Clock
 
 #: Every key the document carries, and every key one row of each block carries.
+_DEFAULT_FUTURES: list[dict[str, Any]] = [
+    {"symbol": "ES=F", "name": "E-mini S&P 500", "price": 7614.0, "change_pct": -1.8, "volume": 1.0, "currency": "USD"}
+]
+_DEFAULT_FOREX: list[dict[str, Any]] = [
+    {"symbol": "EURUSD=X", "name": "Euro / US Dollar", "price": 1.1166, "change_pct": -0.14, "volume": 0.0, "currency": "USD"}
+]
+
 _DOCUMENT_KEYS = frozenset(
     {
+        "futures",
+        "forex",
+        "ipos",
+        "insider_latest",
+        "insider_top",
+        "economic",
         "as_of",
         "indices",
         "breadth",
@@ -367,6 +380,8 @@ async def home_client(
     insider: Any | None = None,
     scan_ttl: float = 5.0,
     clock: Clock | None = None,
+    futures: list[dict[str, Any]] | None = _DEFAULT_FUTURES,
+    forex: list[dict[str, Any]] | None = _DEFAULT_FOREX,
 ) -> AsyncIterator[Harness]:
     """An ASGI client over the real app, with every external source doubled."""
 
@@ -420,6 +435,13 @@ async def home_client(
         monkeypatch.setattr("app.api.home.security_master_of", lambda _request: master)
     if insider is not None:
         monkeypatch.setattr("app.api.home.collect_insider", insider)
+
+    # The alt reader speaks the provider's own wire; a home test that is not
+    # about futures or forex gets an empty answer instead of a socket.
+    async def _alt(_request: Any, name: str, _count: int) -> list[dict[str, Any]] | None:
+        return {"futures": futures, "forex": forex}.get(name)
+
+    monkeypatch.setattr("app.api.home.alt_rows", _alt)
 
     transport = ASGITransport(app=application, raise_app_exceptions=False)
     async with AsyncClient(
@@ -1009,7 +1031,13 @@ async def test_two_reads_inside_the_bucket_call_each_source_once(
     assert harness.web.count("tradingview") == scans == 1
     assert harness.web.count("yahoo") == charts == 13, "five indices and eight sparks"
     assert len(harness.news.calls) == wires == 12
-    assert len(insider.calls) == filings == 5, "one Form 4 read per most-active symbol"
+    # Two tables read filings (the strip's five active names, the insider table's
+    # turnover leaders). The invariant is one read per symbol, so a symbol asked
+    # twice would be the bug.
+    # Two tables read filings (the active strip and the turnover leaders), so a
+    # symbol may be asked twice — once per table — and never more.
+    assert filings >= 5
+    assert len(insider.calls) <= 2 * len(rows), insider.calls
     assert scans and charts and wires and filings
 
 

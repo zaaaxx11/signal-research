@@ -26,7 +26,8 @@ describe("SignalsBlock", () => {
     expect(newHigh?.textContent).toContain("10");
     expect(newHigh?.textContent).toContain("LLY");
 
-    expect(screen.getByTestId("home-signals").textContent).toContain("40 names across four screens");
+    // The rows are the answer; a caption counting them is noise.
+    expect(screen.getByTestId("home-signals").textContent).not.toContain("across four screens");
   });
 
   it("links the leading name to its stock page", () => {

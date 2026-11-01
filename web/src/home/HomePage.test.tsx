@@ -44,7 +44,7 @@ const BLOCKS = [
   "movers",
   "map",
   "signals",
-  "insider",
+  "insider-latest",
   "news",
 ] as const;
 
@@ -79,9 +79,10 @@ describe("HomePage", () => {
 
     for (const block of BLOCKS) {
       const headings = screen.getByTestId(`home-${block}`).querySelectorAll("h2");
-      // Breadth is a strip of figures, not a titled section: it is the one
-      // block without a heading, on purpose.
-      expect(headings, block).toHaveLength(block === "breadth" ? 0 : 1);
+      // Breadth is a strip of figures, and Signals is four labelled rows: both
+      // say what they are without a heading above them.
+      const untitled = block === "breadth" || block === "signals" || block === "insider-latest";
+      expect(headings, block).toHaveLength(untitled ? 0 : 1);
     }
     expect(document.querySelectorAll("h3").length).toBeGreaterThan(5);
   });
@@ -92,7 +93,9 @@ describe("HomePage", () => {
     await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
 
     expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
-    expect(screen.getByTestId("map-tiles").textContent).toBe("600 of 5,573 tiles");
+    // The canvas fills its card and carries no trim caption: the map is the
+    // answer, not a count of what was left out.
+    expect(screen.queryByTestId("map-tiles")).toBeNull();
     expect(screen.getByTestId("home-footer").textContent).toBe("ztockz");
   });
 
@@ -100,15 +103,14 @@ describe("HomePage", () => {
     stub(homeDocument({ filings: null, unavailable: ["filings"] }));
     render(<HomePage />);
 
-    const insider = await screen.findByTestId("home-insider");
+    const insider = await screen.findByTestId("home-insider-latest");
     await waitFor(() =>
-      expect(insider.textContent).toContain(
-        "Filings unavailable — the source did not answer this request.",
-      ),
+      expect(insider.textContent).toContain("Insider unavailable"),
     );
 
-    expect(insider.querySelectorAll("[data-filing]")).toHaveLength(0);
-    expect(screen.getByTestId("insider-all").getAttribute("href")).toBe("/app/insider");
+    // A missing block prints the server's reason instead of an empty table.
+    expect(insider.querySelectorAll("tbody tr")).toHaveLength(0);
+    expect(screen.getByTestId("home-insider-latest")).toBeTruthy();
     // The other blocks still painted.
     expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
   });
@@ -122,7 +124,7 @@ describe("HomePage", () => {
     const map = screen.getByTestId("home-map");
     expect(map.querySelector("canvas")).toBeNull();
     expect(screen.getByTestId("map-empty").textContent).toContain("No sector carried a value");
-    expect(screen.getByTestId("map-tiles").textContent).toBe("0 of 5,573 tiles");
+    expect(screen.getByTestId("map-empty").textContent).toContain("nothing to draw");
   });
 
   it("bleeds the ticker across the page and gives it no border", async () => {
@@ -179,7 +181,7 @@ describe("HomePage", () => {
     expect(screen.getByTestId("home-movers").style.height).toBe("420px");
     expect(screen.getByTestId("home-map").style.height).toBe("420px");
     expect(screen.getByTestId("home-breadth").style.minHeight).toBe("76px");
-    expect(screen.getByTestId("home-insider").style.minHeight).toBe("92px");
+    expect(screen.getByTestId("home-insider-latest")).toBeTruthy();
     expect(screen.getByTestId("movers-skeleton")).toBeTruthy();
     expect(screen.getByTestId("strip-skeleton")).toBeTruthy();
 

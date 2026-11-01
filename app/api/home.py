@@ -128,6 +128,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from app.api import alt as alt_api
 from app.api import map as map_api
 from app.api import market_news as news_api
 from app.api.chart import (
@@ -197,6 +198,11 @@ MAP_TILES = 600
 #: How many headlines the dashboard shows, and how many Form 4 rows.
 NEWS_ITEMS = 40
 FILINGS_SYMBOLS = 5
+#: Turnover leaders read for the two insider tables (one EDGAR read each).
+INSIDER_SYMBOLS = 10
+#: Rows the side tables show.
+FUTURES_ROWS = 8
+FOREX_ROWS = 8
 
 #: How long a derived series (price, change, closes) is reused. It is the
 #: document's index bucket as well: a re-read inside the same 60-second window
@@ -823,6 +829,167 @@ async def filings_block(
 
 
 # ---------------------------------------------------------------------------
+# The side tables: contracts, pairs, new listings, insider rows
+# ---------------------------------------------------------------------------
+
+
+async def alt_rows(request: Request, name: str, count: int) -> list[dict[str, Any]] | None:
+    """The first ``count`` rows of one `/market/alt` class, from its own cache.
+
+    Same catalogue, same reader and same sixty-second class cache the alt route
+    uses, so a dashboard read and an alt page read cannot disagree, and a second
+    dashboard read inside the minute costs nothing.
+    """
+
+    try:
+        state = alt_api.alt_state(request)
+        cached = state.classes.get(name)
+        if cached is None:
+            measured = await alt_api.read_quotes(state, alt_api.CATALOGUE[name])
+            cached = state.classes.put(
+                name,
+                (
+                    measured[instrument.symbol]
+                    for instrument in alt_api.CATALOGUE[name]
+                    if instrument.symbol in measured
+                ),
+            )
+        rows = [row.document() for row in cached.rows][:count]
+    except (ApiError, OSError, TimeoutError, RuntimeError) as exc:
+        # The futures wire is not the dashboard. A reader that cannot answer
+        # costs this block, and the document names it in `unavailable`.
+        logger.warning("home: the %s table could not be read: %s", name, exc)
+        return None
+    # An empty class is a quiet wire, not a broken one: the table says "no
+    # prices" in its own line instead of the page calling the block unavailable.
+    return rows
+
+
+#: Form 4 transaction codes, as the table reads them. A code we do not know is
+#: printed as itself rather than guessed at.
+_TX_LABELS = {
+    "P": "Buy",
+    "S": "Sale",
+    "A": "Grant",
+    "M": "Exercise",
+    "F": "Tax",
+    "G": "Gift",
+    "C": "Conversion",
+    "D": "Disposition",
+}
+
+
+def _tx_label(code: Any) -> str | None:
+    text = code.strip().upper() if isinstance(code, str) else ""
+    return _TX_LABELS.get(text, text or None)
+
+
+async def insider_documents(
+    request: Request, symbols: Sequence[str], caches: HomeCaches
+) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]] | None]:
+    """Two tables from one read: the latest filings, and the largest by value.
+
+    ``symbols`` is the turnover leaders, so "top" means "largest transaction among
+    the companies this page already looked at" — the caption says so rather than
+    implying a market-wide sweep we did not run.
+    """
+
+    latest_key = ("insider-latest", *symbols)
+    top_key = ("insider-top", *symbols)
+    cached_latest = caches.filings.get(latest_key)
+    cached_top = caches.filings.get(top_key)
+    if cached_latest is not None and cached_top is not None:
+        return cached_latest, cached_top
+
+    master = security_master_of(request)
+    cache_dir = filing_cache_dir()
+    per_symbol = await asyncio.gather(
+        *(
+            _insider_rows_for(request, symbol, master=master, cache_dir=cache_dir)
+            for symbol in symbols
+        )
+    )
+    rows = [row for group in per_symbol for row in group]
+    if not rows:
+        return None, None
+
+    rows.sort(key=lambda row: (row.get("date") or "", row.get("symbol") or ""), reverse=True)
+    latest = rows[:10]
+    top = sorted(
+        (row for row in rows if isinstance(row.get("value"), (int, float))),
+        key=lambda row: float(row["value"]),
+        reverse=True,
+    )[:6]
+    caches.filings.put(latest_key, latest)
+    caches.filings.put(top_key, top)
+    return latest, top
+
+
+async def _insider_rows_for(
+    request: Request, symbol: str, *, master: Any, cache_dir: Path | None
+) -> list[dict[str, Any]]:
+    record = master.get(symbol) if master is not None else None
+    cik = getattr(record, "cik", None)
+    if not isinstance(cik, str) or not cik.strip():
+        return []
+    items, errors = await collect_insider(symbol, cik, cache_dir=cache_dir, limit=6)
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        shares = number(getattr(item, "shares", None))
+        price = number(getattr(item, "price", None))
+        value = shares * price if shares is not None and price is not None else None
+        rows.append(
+            {
+                "symbol": symbol,
+                "owner": getattr(item, "owner_name", None),
+                "role": getattr(item, "role", None),
+                "date": getattr(item, "transaction_date", None) or getattr(item, "filed", None),
+                "transaction": _tx_label(getattr(item, "code", None)),
+                "cost": price,
+                "shares": shares,
+                "value": round(value, 2) if value is not None else None,
+            }
+        )
+    return rows
+
+
+def ipos_of(rows: Iterable[Mapping[str, Any]], *, count: int = 20) -> list[dict[str, Any]]:
+    """Recent listings from the scan's own ``ipo_date``, newest first.
+
+    A row without a date is not a new listing, and a date in the future is a
+    scheduled listing — both are skipped rather than shown as today's IPO.
+    """
+
+    today = datetime.now(UTC).date()
+    found: list[tuple[str, dict[str, Any]]] = []
+    for row in rows:
+        raw = row.get("ipo_date")
+        if not isinstance(raw, str) or len(raw) < 10:
+            continue
+        try:
+            listed = datetime.fromisoformat(raw[:10]).date()
+        except ValueError:
+            continue
+        if listed > today:
+            continue
+        symbol = _symbol(row.get("symbol"))
+        if symbol is None:
+            continue
+        found.append(
+            (
+                raw[:10],
+                {
+                    "symbol": symbol,
+                    "date": raw[:10],
+                    "change_pct": _plain(number(row.get("change_pct"))),
+                },
+            )
+        )
+    found.sort(key=lambda pair: (pair[0], pair[1]["symbol"]), reverse=True)
+    return [row for _date, row in found[:count]]
+
+
+# ---------------------------------------------------------------------------
 # News: the first three items of the market merge
 # ---------------------------------------------------------------------------
 
@@ -946,6 +1113,12 @@ def home_document(
     news: list[dict[str, Any]] | None,
     filings: list[dict[str, Any]] | None,
     unavailable: Sequence[str],
+    futures: list[dict[str, Any]] | None = None,
+    forex: list[dict[str, Any]] | None = None,
+    ipos: list[dict[str, Any]] | None = None,
+    insider_latest: list[dict[str, Any]] | None = None,
+    insider_top: list[dict[str, Any]] | None = None,
+    economic: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The answer, from blocks already built. Pure: the same blocks print the same body."""
 
@@ -958,6 +1131,12 @@ def home_document(
         "map": map_block,
         "news": news,
         "filings": filings,
+        "futures": futures,
+        "forex": forex,
+        "ipos": ipos,
+        "insider_latest": insider_latest,
+        "insider_top": insider_top,
+        "economic": economic,
         "unavailable": list(unavailable),
         "method": dict(METHOD),
     }
@@ -1120,6 +1299,12 @@ async def build_document(
                 news=news,
                 filings=None,
                 unavailable=unavailable,
+                futures=await alt_rows(request, "futures", FUTURES_ROWS),
+                forex=await alt_rows(request, "forex", FOREX_ROWS),
+                ipos=None,
+                insider_latest=None,
+                insider_top=None,
+                economic=None,
             ),
             None,
             "miss",
@@ -1134,7 +1319,15 @@ async def build_document(
         if row.get("symbol")
     ]
 
-    # The two remaining network reads start now, while the treemap is built.
+    # The remaining network reads start now, while the treemap is built.
+    insider_symbols = [
+        str(row.get("symbol"))
+        for row in candidates[:INSIDER_SYMBOLS]
+        if row.get("symbol")
+    ]
+    insider_work = asyncio.create_task(insider_documents(request, insider_symbols, caches))
+    futures_work = asyncio.create_task(alt_rows(request, "futures", FUTURES_ROWS))
+    forex_work = asyncio.create_task(alt_rows(request, "forex", FOREX_ROWS))
     spark_series = asyncio.create_task(
         series_points(request, caches, [_symbol(row.get("symbol")) or "" for row in candidates])
     )
@@ -1156,6 +1349,16 @@ async def build_document(
 
     sparks = _sparks(candidates, await spark_series, unavailable)
     filings = await filings_work
+    insider_latest, insider_top = await insider_work
+    if insider_latest is None:
+        unavailable.append("insider")
+    futures_rows = await futures_work
+    if futures_rows is None:
+        unavailable.append("futures")
+    forex_rows = await forex_work
+    if forex_rows is None:
+        unavailable.append("forex")
+    ipos = ipos_of(universe)
     if filings is None:
         unavailable.append("filings")
     news = await headlines
@@ -1172,6 +1375,12 @@ async def build_document(
             map_block=map_block,
             news=news,
             filings=filings,
+            futures=futures_rows,
+            forex=forex_rows,
+            ipos=ipos,
+            insider_latest=insider_latest,
+            insider_top=insider_top,
+            economic=None,
             unavailable=unavailable,
         ),
         int(page.generation),

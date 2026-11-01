@@ -33,11 +33,11 @@ import { BreadthTiles } from "./blocks/BreadthTiles";
 import { HomeFooter } from "./blocks/HomeFooter";
 import { HeadlineTicker } from "./blocks/HeadlineTicker";
 import { IndexStrip } from "./blocks/IndexStrip";
-import { InsiderStrip } from "./blocks/InsiderStrip";
 import { MapBlock } from "./blocks/MapBlock";
 import { MoversBlock } from "./blocks/MoversBlock";
 import { NewsTable } from "./blocks/NewsTable";
 import { SignalsBlock } from "./blocks/SignalsBlock";
+import { InsiderLatestTable, SideColumn } from "./blocks/SideTables";
 
 /**
  * Spans, as literal class strings.
@@ -64,6 +64,12 @@ export function HomePage() {
       map: blockState(status, report, "map", "Map"),
       news: blockState(status, report, "news", "Headlines"),
       filings: blockState(status, report, "filings", "Filings"),
+      insiderLatest: blockState(status, report, "insider_latest", "Insider"),
+      insiderTop: blockState(status, report, "insider_top", "Insider"),
+      futures: blockState(status, report, "futures", "Futures"),
+      forex: blockState(status, report, "forex", "Forex"),
+      ipos: blockState(status, report, "ipos", "IPOs"),
+      economic: blockState(status, report, "economic", "Economic"),
     }),
     [status, report],
   );
@@ -115,12 +121,35 @@ export function HomePage() {
 
         <BreadthTiles state={state.breadth} breadth={report?.breadth ?? null} className={SPAN.full} />
 
-        <MoversBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.movers} />
-        <MapBlock state={state.map} map={report?.map ?? null} className={SPAN.map} />
+        {/* The page is two columns from 900 px, two shares to one: the reading
+            area on the left, the tables a reader checks in passing on the right. */}
+        <div className="flex min-w-0 flex-col gap-2 min-[900px]:col-span-8">
+          <div className="grid grid-cols-1 gap-2 min-[720px]:grid-cols-3">
+            <MoversBlock
+              state={state.movers}
+              movers={report?.movers ?? null}
+              className="min-[720px]:col-span-2"
+            />
+            <MapBlock state={state.map} map={report?.map ?? null} className="min-[720px]:col-span-1" />
+          </div>
 
-        <SignalsBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.full} />
+          {/* Two borders, one row: the four screens on the left, the filings on
+              the right, each its own card. */}
+          <div className="grid grid-cols-1 gap-2 min-[640px]:grid-cols-2">
+            <SignalsBlock state={state.movers} movers={report?.movers ?? null} />
+            <InsiderLatestTable rows={report?.insiderLatest ?? null} state={state.insiderLatest} />
+          </div>
+        </div>
 
-        <InsiderStrip state={state.filings} filings={report?.filings ?? null} className={SPAN.full} />
+        <div className="min-w-0 min-[900px]:col-span-4">
+          <SideColumn
+            futures={report?.futures ?? null}
+            forex={report?.forex ?? null}
+            ipos={report?.ipos ?? null}
+            insiderTop={report?.insiderTop ?? null}
+            economic={report?.economic ?? null}
+          />
+        </div>
 
         {/* The desk sits directly above the footer: one table, scrolled, full. */}
         <NewsTable state={state.news} news={report?.news ?? null} className={SPAN.full} />

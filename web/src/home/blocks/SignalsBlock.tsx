@@ -28,6 +28,7 @@ export function SignalsBlock({ state, movers, className }: SignalsBlockProps) {
     <HomeBlock
       id="signals"
       title="Signals"
+      hideTitle
       className={className}
       state={state}
       minHeight={BLOCK_HEIGHT.column}
@@ -67,9 +68,6 @@ export function SignalsBlock({ state, movers, className }: SignalsBlockProps) {
         })}
       </ul>
 
-      <p className="mt-auto px-2 py-1 text-[10px] text-fg-subtle">
-        {movers?.total ?? 0} names across four screens
-      </p>
     </HomeBlock>
   );
 }

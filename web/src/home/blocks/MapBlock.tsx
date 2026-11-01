@@ -67,22 +67,18 @@ export function MapBlock({ state, map, className }: MapBlockProps) {
           <p data-testid="map-empty" className="px-2 py-2 text-[11px] leading-snug text-fg-subtle">
             No sector carried a value for this session, so there is nothing to draw.
           </p>
-          <p data-testid="map-tiles" className="mt-auto px-2 pb-1 text-[10px] text-fg-subtle">
-            {tilesLabel(map)}
-          </p>
         </div>
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="min-h-0 min-w-0 flex-1 px-2 pt-2">
+          <div className="min-h-0 min-w-0 flex-1">
             <MiniMap
+              // The canvas owns the card's whole body: 30 px is the title row.
+              height={BLOCK_HEIGHT.map - 30}
               sectors={map.sectors}
               onOpenSymbol={(symbol) => navigate(`/stock/${encodeURIComponent(symbol)}`)}
               ariaLabel="1-day performance by sector"
             />
           </div>
-          <p data-testid="map-tiles" className="shrink-0 px-2 py-1 text-[10px] text-fg-subtle">
-            {tilesLabel(map)}
-          </p>
         </div>
       )}
     </Card>
