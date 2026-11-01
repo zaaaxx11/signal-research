@@ -4,12 +4,22 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * WCAG 2.1 contrast gate for the dark token set.
+ * WCAG 2.1 contrast gate for BOTH token scopes.
  *
  * The tokens are parsed from `tokens.css` — the file the app actually ships,
  * not a copy — so a colour edited in CSS is measured here on the next run.
  * Nothing in this file knows a hex by heart: if `--up` becomes `#0b5c3a`, the
  * test fails because the arithmetic says so, not because someone remembered.
+ *
+ * Two blocks, one variable vocabulary
+ *   `:root` is the dark set (the shipped default); `[data-theme="light"]` is
+ *   the day set. The light block must be a *full restatement*: it may not leave
+ *   a name to be inherited from dark, and it may not reach into the dark block
+ *   through `var()` — a scope that resolves half its values from the other one
+ *   is not a theme, it is an override, and it fails the moment a dark value
+ *   moves. So the parser is scope-aware (`parseScope`), the key sets are
+ *   compared before a single ratio is measured, and every pair below runs
+ *   twice, once per scope, with the scope named in its failure.
  *
  * Sizes are declared per pair so "large text" can never be used as a quiet
  * downgrade to 3.0:1. Every data pair is 12 px at 400–600 weight, which is
@@ -19,6 +29,12 @@ import { describe, expect, it } from "vitest";
 // Vitest's jsdom environment gives modules an http:// URL, so `import.meta.url`
 // is not a file path here; the test root is the package root by contract.
 const TOKENS_CSS = resolve(process.cwd(), "src/styles/tokens.css");
+
+/** The two scopes, in the order the stylesheet declares them. */
+const DARK_SCOPE = ":root";
+const LIGHT_SCOPE = '[data-theme="light"]';
+
+const CSS = readFileSync(TOKENS_CSS, "utf8");
 
 /** WCAG 2.1 §1.4.3 thresholds. */
 const AA_NORMAL = 4.5;
@@ -51,6 +67,128 @@ export function parseTokens(css: string): Record<string, string> {
     if (/^#[0-9a-f]{6}$/i.test(value)) tokens[name] = value.toLowerCase();
   }
   return tokens;
+}
+
+/** Comments are prose, not paint: a documented hex must not become a token. */
+export function stripComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+/**
+ * The declarations inside the block opened by `selector`, matched by brace
+ * counting so a nested at-rule (none today) cannot truncate the block early.
+ */
+export function blockBody(css: string, selector: string): string {
+  const clean = stripComments(css);
+  const open = clean.indexOf(selector);
+  if (open === -1) throw new Error(`no ${selector} block in tokens.css`);
+  const start = clean.indexOf("{", open + selector.length);
+  if (start === -1) throw new Error(`no opening brace after ${selector}`);
+  let depth = 0;
+  for (let index = start; index < clean.length; index += 1) {
+    const character = clean[index];
+    if (character === "{") depth += 1;
+    else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return clean.slice(start + 1, index);
+    }
+  }
+  throw new Error(`unterminated ${selector} block in tokens.css`);
+}
+
+/** Every `--name: value;` in a block, values trimmed and unresolved. */
+export function parseDeclarations(body: string): Record<string, string> {
+  const declared: Record<string, string> = {};
+  const declaration = /(--[a-z0-9-]+)\s*:\s*([^;]+);/gi;
+  let match: RegExpExecArray | null;
+  while ((match = declaration.exec(body)) !== null) {
+    const name = match[1];
+    const raw = match[2];
+    if (name === undefined || raw === undefined) continue;
+    declared[name] = raw.trim();
+  }
+  return declared;
+}
+
+const HEX = /^#[0-9a-f]{6}$/i;
+const ALIAS = /^var\((--[a-z0-9-]+)\)$/i;
+
+/**
+ * Resolve a declaration to its literal value **using only names declared in the
+ * same block**. `var(--x)` that is not restated in this scope throws: that is
+ * the cross-scope alias the light block is not allowed to use.
+ */
+export function resolveInScope(
+  declared: Record<string, string>,
+  name: string,
+  seen: ReadonlySet<string> = new Set<string>(),
+): string {
+  const value = declared[name];
+  if (value === undefined) throw new Error(`${name} is not declared in this scope`);
+  const alias = ALIAS.exec(value);
+  if (alias === null) return value;
+  const target = alias[1];
+  if (target === undefined) throw new Error(`${name} has an unreadable var() reference`);
+  if (seen.has(name)) throw new Error(`${name} resolves through itself`);
+  const next = new Set(seen);
+  next.add(name);
+  return resolveInScope(declared, target, next);
+}
+
+export interface Scope {
+  selector: string;
+  /** Declarations as written, `var()` chains included. */
+  declared: Record<string, string>;
+  /** Names that resolve, inside this block, to an opaque #rrggbb. */
+  colours: Record<string, string>;
+  /** `name: reason` for a declaration that does not resolve to a hex here. */
+  unresolved: string[];
+}
+
+/**
+ * One block of `tokens.css`, resolved in isolation. Density tokens (`28px`)
+ * are declared once in `:root` and are not part of the colour set, so they are
+ * skipped rather than reported; anything else that fails to resolve is kept in
+ * `unresolved` so the test can name it instead of dying inside the parser.
+ */
+export function parseScope(css: string, selector: string): Scope {
+  const declared = parseDeclarations(blockBody(css, selector));
+  const colours: Record<string, string> = {};
+  const unresolved: string[] = [];
+  for (const name of Object.keys(declared)) {
+    let value: string;
+    try {
+      value = resolveInScope(declared, name);
+    } catch (error) {
+      unresolved.push(`${name}: ${(error as Error).message}`);
+      continue;
+    }
+    if (HEX.test(value)) colours[name] = value.toLowerCase();
+    else if (ALIAS.test(value)) unresolved.push(`${name}: alias left unresolved`);
+  }
+  return { selector, declared, colours, unresolved };
+}
+
+/**
+ * The scope-parity gate: the light block must declare exactly the names the
+ * dark block declares as colours — no missing token (a light surface that
+ * silently keeps `#181215`) and no extra one (a typo like `--accent-txt` that
+ * would otherwise sit there, unused and unmeasured).
+ */
+export function assertScopeParity(css: string): { dark: string[]; light: string[] } {
+  const dark = parseScope(css, DARK_SCOPE);
+  const light = parseScope(css, LIGHT_SCOPE);
+  const darkColours = Object.keys(dark.colours).sort();
+  const lightNames = Object.keys(light.declared).sort();
+  const missing = darkColours.filter((name) => !lightNames.includes(name));
+  const extra = lightNames.filter((name) => !darkColours.includes(name));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `light scope is not a full restatement of dark: missing [${missing.join(", ")}]; ` +
+        `declared only in light [${extra.join(", ")}]`,
+    );
+  }
+  return { dark: darkColours, light: lightNames };
 }
 
 function channel(value: number): number {
@@ -147,7 +285,8 @@ const PAIRS: readonly Pair[] = [
   { fg: "--fg-subtle", bg: "--row-bg-alt", sizePx: 10, weight: 400 },
 
   /* A selected row still prints its numbers, so every tone it can carry is
-   * measured on --row-selected too — the lightest plane a datum lands on. */
+   * measured on --row-selected too — the plane furthest from the page, and so
+   * the worst case for a text colour in either direction. */
   { fg: "--up", bg: "--row-selected", sizePx: 12, weight: 500 },
   { fg: "--down", bg: "--row-selected", sizePx: 12, weight: 500 },
   { fg: "--flat", bg: "--row-selected", sizePx: 12, weight: 400 },
@@ -156,7 +295,9 @@ const PAIRS: readonly Pair[] = [
   { fg: "--fg-muted", bg: "--row-selected", sizePx: 12, weight: 400 },
   { fg: "--fg-subtle", bg: "--row-selected", sizePx: 10, weight: 400 },
 
-  /* Chrome: a link is text, so 4.5:1 on every plane it can be printed on. */
+  /* Chrome: a link is text, so 4.5:1 on every plane it can be printed on —
+   * including --surface-raised, the hovered-row and menu plane, not only the
+   * panel it was designed on. */
   { fg: "--accent-text", bg: "--bg", sizePx: 13, weight: 400 },
   { fg: "--accent-text", bg: "--surface", sizePx: 13, weight: 400 },
   { fg: "--accent-text", bg: "--surface-raised", sizePx: 13, weight: 400 },
@@ -184,12 +325,12 @@ const PAIRS: readonly Pair[] = [
  *   --surface-raised  menus and popovers
  *   --row-bg / -alt   a control inside a grid row (filters land here in Ph. 3)
  *   --bg              the page plane
- *   --row-hover       the lightest surface a control can be drawn over, so the
- *                     worst case for a light-on-dark boundary
+ *   --row-hover       the plane furthest from the page, so the worst case for a
+ *                     control edge in either direction
  *
  * `--row-selected` is deliberately absent: it is a data-row fill and the active
  * tab's underline, never a background a control edge is drawn on. If that ever
- * changes, add the pair — `--border-control` measures 2.74:1 there today, so
+ * changes, add the pair — `--border-control` measures 2.74:1 there in dark, so
  * the token would have to move rather than the table.
  */
 interface Boundary {
@@ -259,8 +400,6 @@ export function assertContrast(tokens: Record<string, string>): Measurement[] {
   return assertEvery(measure(tokens, PAIRS), "WCAG AA contrast failure");
 }
 
-const tokens = parseTokens(readFileSync(TOKENS_CSS, "utf8"));
-
 export interface BoundaryMeasurement {
   fg: string;
   bg: string;
@@ -312,128 +451,245 @@ function assertEvery<T extends { fg: string; bg: string; ratio: number; threshol
   return [...measurements];
 }
 
+/**
+ * Printed on success too: a gate that only speaks when it fails gives the
+ * operator no evidence that it ran, and the report is the receipt.
+ */
+function printTable(label: string, rows: readonly string[]): void {
+  console.log(`\n${label} — ${rows.length} pairs\n${rows.join("\n")}\n`);
+}
 
-describe("dark token set", () => {
-  it("declares the four finance tokens as opaque hex values", () => {
-    for (const name of ["--up", "--down", "--flat", "--alert"]) {
-      expect(tokens[name], `${name} must be a #rrggbb hex in tokens.css`).toMatch(
-        /^#[0-9a-f]{6}$/,
+function tableRows(
+  measurements: readonly { fg: string; bg: string; ratio: number; threshold: number }[],
+): string[] {
+  return measurements.map(
+    (entry) =>
+      `${entry.fg.padEnd(24)} on ${entry.bg.padEnd(18)} ${entry.ratio.toFixed(2)}:1 (min ${entry.threshold})`,
+  );
+}
+
+/** Parsed once, lazily: a missing light block fails one named test, not the import. */
+let parsed: { dark: Scope; light: Scope } | null = null;
+
+function scopes(): { dark: Scope; light: Scope } {
+  if (parsed === null) {
+    parsed = { dark: parseScope(CSS, DARK_SCOPE), light: parseScope(CSS, LIGHT_SCOPE) };
+  }
+  return parsed;
+}
+
+/** The two scopes as test subjects, dark first. */
+const SUBJECTS = [
+  { name: "dark", selector: DARK_SCOPE },
+  { name: "light", selector: LIGHT_SCOPE },
+] as const;
+
+function coloursOf(selector: string): Record<string, string> {
+  return selector === DARK_SCOPE ? scopes().dark.colours : scopes().light.colours;
+}
+
+/**
+ * Minimum |ΔL| between the chrome rose and the datum red, per scope.
+ *
+ * On dark both are light inks on a near-black plane, so the rose must also be
+ * the *lighter* of the two: the 0.10 gap is what keeps the pair apart after a
+ * deuteranope collapses the hue axis.
+ *
+ * On light both are dark inks on a near-white plane, and the 4.5:1 text floor
+ * caps them: on the darkest row plane (`--row-selected`, L≈0.80) a text colour
+ * may not exceed L≈0.136, and on `--row-hover` L≈0.149. Two inks that still
+ * read as a rose and a red land within ~0.02 of each other, so the 0.10 gap the
+ * dark scope can afford is arithmetically impossible here. The light scope
+ * therefore pins a 0.015 floor — enough to catch a collapse to one value — and
+ * leans on the 25° hue separation, which is the channel that survives at 12 px
+ * on both planes.
+ */
+const MIN_LIGHTNESS_GAP: Readonly<Record<"dark" | "light", number>> = { dark: 0.1, light: 0.015 };
+
+describe("the token scopes", () => {
+  it("declares a light scope alongside the dark one", () => {
+    const { dark, light } = scopes();
+    expect(light.selector).toBe(LIGHT_SCOPE);
+    // A palette this size is not a guess: if the block were empty the parity
+    // test below would pass vacuously, so the floor is asserted here.
+    expect(Object.keys(dark.colours).length).toBeGreaterThanOrEqual(40);
+    expect(Object.keys(light.colours).length).toBeGreaterThanOrEqual(40);
+  });
+
+  it("restates every dark colour token in the light block, and nothing else", () => {
+    const { dark, light } = assertScopeParity(CSS);
+    expect(light).toEqual(dark);
+  });
+
+  it("resolves every light value inside the light block", () => {
+    const { light } = scopes();
+    // An unresolved `var(--x)` is a value borrowed from the dark block: the
+    // light theme would then be half-dark the day a dark value moves.
+    expect(light.unresolved).toEqual([]);
+    expect(Object.keys(light.colours).sort()).toEqual(Object.keys(light.declared).sort());
+  });
+
+  it("declares every light colour as an opaque hex", () => {
+    const { light } = scopes();
+    for (const [name, value] of Object.entries(light.colours)) {
+      expect(value, `${name} must resolve to #rrggbb, not ${value}`).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+
+  it("keeps the shadcn aliases pointing at the same values in both scopes", () => {
+    const { dark, light } = scopes();
+    for (const [name, raw] of Object.entries(dark.declared)) {
+      const alias = /^var\((--[a-z0-9-]+)\)$/.exec(raw);
+      if (alias === null) continue;
+      const target = alias[1];
+      if (target === undefined) continue;
+      // Dark says `--background: var(--bg)`; light restates it as a hex, so the
+      // invariant has to be asserted rather than inherited from the cascade.
+      expect(light.colours[name], `${name} must equal ${target} in light`).toBe(
+        light.colours[target],
       );
     }
   });
-
-  it("declares the row surfaces the pairs are measured against", () => {
-    for (const name of ["--row-bg", "--row-bg-alt", "--row-hover"]) {
-      expect(tokens[name], `${name} is required`).toMatch(/^#[0-9a-f]{6}$/);
-    }
-  });
-
-  it("meets AA on every pair the shell and the grid paint", () => {
-    const measurements = assertContrast(tokens);
-    // Printed on success too: a gate that only speaks when it fails gives the
-    // operator no evidence that it ran.
-    const table = measurements
-      .map(
-        (entry) =>
-          `${entry.fg.padEnd(12)} on ${entry.bg.padEnd(14)} ${entry.ratio.toFixed(2)}:1 (min ${entry.threshold})`,
-      )
-      .join("\n");
-    console.log(`\nWCAG AA — ${measurements.length} pairs\n${table}\n`);
-  });
-
-  it("meets 3:1 on every control boundary the shell draws", () => {
-    const measurements = assertBoundaries(tokens);
-    const table = measurements
-      .map(
-        (entry) =>
-          `${entry.fg.padEnd(16)} on ${entry.bg.padEnd(16)} ${entry.ratio.toFixed(2)}:1 (min ${entry.threshold})`,
-      )
-      .join("\n");
-    console.log(`\nWCAG 1.4.11 — ${measurements.length} boundaries\n${table}\n`);
-  });
-
-  it("classifies none of the data pairs as large text", () => {
-    const large = measure(tokens, PAIRS).filter((entry) => entry.large);
-    // If one of these ever becomes "large", someone changed a font size to
-    // escape 4.5:1 and the exception must be reviewed, not assumed.
-    expect(large).toEqual([]);
-  });
-
-  it("keeps the four semantics distinguishable from each other", () => {
-    const values = ["--up", "--down", "--flat", "--alert"].map((name) => tokens[name]);
-    expect(new Set(values).size).toBe(4);
-  });
 });
+
+for (const subject of SUBJECTS) {
+  const tokens = (): Record<string, string> => coloursOf(subject.selector);
+
+  describe(`${subject.name} scope`, () => {
+    it("declares the four finance tokens as opaque hex values", () => {
+      for (const name of ["--up", "--down", "--flat", "--alert"]) {
+        expect(tokens()[name], `${name} must be a #rrggbb hex in the ${subject.name} scope`).toMatch(
+          /^#[0-9a-f]{6}$/,
+        );
+      }
+    });
+
+    it("declares the row surfaces the pairs are measured against", () => {
+      for (const name of ["--row-bg", "--row-bg-alt", "--row-hover"]) {
+        expect(tokens()[name], `${name} is required in the ${subject.name} scope`).toMatch(
+          /^#[0-9a-f]{6}$/,
+        );
+      }
+    });
+
+    it("meets AA on every pair the shell and the grid paint", () => {
+      const measurements = assertContrast(tokens());
+      printTable(`WCAG AA (${subject.name})`, tableRows(measurements));
+    });
+
+    it("meets 3:1 on every control boundary the shell draws", () => {
+      const measurements = assertBoundaries(tokens());
+      printTable(`WCAG 1.4.11 (${subject.name})`, tableRows(measurements));
+    });
+
+    it("classifies none of the data pairs as large text", () => {
+      const large = measure(tokens(), PAIRS).filter((entry) => entry.large);
+      // If one of these ever becomes "large", someone changed a font size to
+      // escape 4.5:1 and the exception must be reviewed, not assumed.
+      expect(large).toEqual([]);
+    });
+
+    it("keeps the four semantics distinguishable from each other", () => {
+      const values = ["--up", "--down", "--flat", "--alert"].map((name) => tokens()[name]);
+      expect(new Set(values).size).toBe(4);
+    });
+  });
+}
 
 /**
- * The palette's *shape*, not its ratios.
- *
- * "Pink theme" plus "red means loss" is the trap this ramp exists to avoid:
- * the old accent was a blue (#7aa2ff) and the old negative was a pink-red
- * (#ff6b81), so moving the accent into pink could have made a clickable
- * control and a falling number the same colour. These assertions are what
- * stops the next edit from melting them back together — a hue, a lightness
- * and a chroma budget, measured from the same file the app ships.
+ * The palette's *shape*, not its ratios — asserted per scope, because a light
+ * theme that collapses the chrome rose into the datum red is the failure the
+ * ramp exists to prevent, and it cannot be caught by contrast alone: both
+ * colours would still be legible.
  */
-describe("the rose contract", () => {
-  const token = (name: string): string => {
-    const value = tokens[name];
-    if (value === undefined) throw new Error(`token ${name} is missing or not a hex colour`);
-    return value;
-  };
+for (const subject of SUBJECTS) {
+  const tokens = (): Record<string, string> => coloursOf(subject.selector);
 
-  it("keeps every weight of the accent in the pink band", () => {
-    for (const name of ["--accent", "--accent-strong", "--accent-text", "--brand", "--focus"]) {
-      const hue = hueOf(token(name));
-      expect(hue, `${name} is ${hue.toFixed(1)}° — outside the 320–340° rose band`).toBeGreaterThanOrEqual(320);
-      expect(hue, `${name} is ${hue.toFixed(1)}° — outside the 320–340° rose band`).toBeLessThanOrEqual(340);
-    }
-  });
+  describe(`${subject.name} rose contract`, () => {
+    const token = (name: string): string => {
+      const value = tokens()[name];
+      if (value === undefined) throw new Error(`token ${name} is missing or not a hex colour`);
+      return value;
+    };
 
-  it("keeps the negative a red, not a second rose", () => {
-    const hue = hueOf(token("--down"));
-    expect(hue, `--down is ${hue.toFixed(1)}°, outside the 0–8° red band`).toBeGreaterThanOrEqual(0);
-    expect(hue, `--down is ${hue.toFixed(1)}°, outside the 0–8° red band`).toBeLessThanOrEqual(8);
-  });
+    it("keeps every weight of the accent in the pink band", () => {
+      for (const name of ["--accent", "--accent-strong", "--accent-text", "--brand", "--focus"]) {
+        const hue = hueOf(token(name));
+        expect(
+          hue,
+          `${name} is ${hue.toFixed(1)}° — outside the 320–340° rose band`,
+        ).toBeGreaterThanOrEqual(320);
+        expect(
+          hue,
+          `${name} is ${hue.toFixed(1)}° — outside the 320–340° rose band`,
+        ).toBeLessThanOrEqual(340);
+      }
+    });
 
-  it("separates the accent from the negative by hue and by lightness", () => {
-    const accent = token("--accent");
-    const down = token("--down");
-    expect(accent).not.toBe(down);
-    expect(hueDistance(hueOf(accent), hueOf(down))).toBeGreaterThanOrEqual(25);
-    // Hue is the channel a deuteranope loses, so the rose must also be the
-    // lighter of the two: the pair has to survive as a value difference.
-    expect(luminance(accent)).toBeGreaterThan(luminance(down));
-    expect(luminance(accent) - luminance(down)).toBeGreaterThanOrEqual(0.1);
-  });
+    it("keeps the negative a red, not a second rose", () => {
+      const hue = hueOf(token("--down"));
+      expect(hue, `--down is ${hue.toFixed(1)}°, outside the 0–8° red band`).toBeGreaterThanOrEqual(
+        0,
+      );
+      expect(hue, `--down is ${hue.toFixed(1)}°, outside the 0–8° red band`).toBeLessThanOrEqual(8);
+    });
 
-  it("keeps every plane the table paints a tint, not a colour", () => {
-    // A 100-row table is read at 12 px; a plane whose channels differ by more
-    // than 12/255 starts competing with the data ink printed on it.
-    for (const name of [
-      "--bg",
-      "--surface",
-      "--surface-raised",
-      "--surface-sunken",
-      "--row-bg",
-      "--row-bg-alt",
-      "--row-hover",
-    ]) {
-      expect(channelSpread(token(name)), `${name} is too chromatic to be a plane`).toBeLessThanOrEqual(12);
-    }
-  });
+    it("separates the accent from the negative by hue and by lightness", () => {
+      const accent = token("--accent");
+      const down = token("--down");
+      expect(accent).not.toBe(down);
+      expect(hueDistance(hueOf(accent), hueOf(down))).toBeGreaterThanOrEqual(25);
+      const gap = Math.abs(luminance(accent) - luminance(down));
+      expect(
+        gap,
+        `${subject.name}: accent L=${luminance(accent).toFixed(3)} and down ` +
+          `L=${luminance(down).toFixed(3)} are ${gap.toFixed(3)} apart`,
+      ).toBeGreaterThanOrEqual(MIN_LIGHTNESS_GAP[subject.name]);
+      if (subject.name === "dark") {
+        // Hue is the channel a deuteranope loses, so on dark the rose must also
+        // be the lighter of the two: the pair has to survive as a value
+        // difference. On light both are dark inks and the ordering carries no
+        // information — the hue arc and the sign/arrow do the work.
+        expect(luminance(accent)).toBeGreaterThan(luminance(down));
+      }
+    });
 
-  it("lets the selected row carry state, but not a poster", () => {
-    expect(channelSpread(token("--row-selected"))).toBeGreaterThan(channelSpread(token("--row-bg")));
-    expect(channelSpread(token("--row-selected"))).toBeLessThanOrEqual(24);
-  });
+    it("keeps every plane the table paints a tint, not a colour", () => {
+      // A 100-row table is read at 12 px; a plane whose channels differ by more
+      // than 12/255 starts competing with the data ink printed on it.
+      for (const name of [
+        "--bg",
+        "--surface",
+        "--surface-raised",
+        "--surface-sunken",
+        "--row-bg",
+        "--row-bg-alt",
+        "--row-hover",
+      ]) {
+        expect(
+          channelSpread(token(name)),
+          `${name} is too chromatic to be a plane`,
+        ).toBeLessThanOrEqual(12);
+      }
+    });
 
-  it("leaves --flat achromatic so 'unchanged' owns no hue", () => {
-    expect(channelSpread(token("--flat"))).toBeLessThanOrEqual(8);
+    it("lets the selected row carry state, but not a poster", () => {
+      expect(channelSpread(token("--row-selected"))).toBeGreaterThan(
+        channelSpread(token("--row-bg")),
+      );
+      expect(channelSpread(token("--row-selected"))).toBeLessThanOrEqual(24);
+    });
+
+    it("leaves --flat achromatic so 'unchanged' owns no hue", () => {
+      expect(channelSpread(token("--flat"))).toBeLessThanOrEqual(8);
+    });
   });
-});
+}
 
 describe("the gate itself", () => {
+  /** The dark set, which is what the synthetic overrides below are applied to. */
+  const darkTokens = (): Record<string, string> => scopes().dark.colours;
+
   it("treats 18.66 px bold as large and 18 px bold as normal", () => {
     expect(isLargeText(18.66, 700)).toBe(true);
     expect(isLargeText(24, 400)).toBe(true);
@@ -450,18 +706,18 @@ describe("the gate itself", () => {
   });
 
   it("fails when --up is darkened below 4.5:1", () => {
-    const broken = { ...tokens, "--up": "#0b5c3a" };
+    const broken = { ...darkTokens(), "--up": "#0b5c3a" };
     expect(() => assertContrast(broken)).toThrow(/--up on --row-bg/);
   });
 
   it("fails at 3.89:1 even though 3.0:1 would pass for large text", () => {
     // #66748a measures 3.89:1 on --row-bg; normal text must reject it.
-    const broken = { ...tokens, "--down": "#66748a" };
+    const broken = { ...darkTokens(), "--down": "#66748a" };
     expect(() => assertContrast(broken)).toThrow(/--down on --row-bg/);
   });
 
   it("fails when a pair is measured against a background that was lightened", () => {
-    const broken = { ...tokens, "--row-bg": "#e8e8e8" };
+    const broken = { ...darkTokens(), "--row-bg": "#e8e8e8" };
     expect(() => assertContrast(broken)).toThrow(/contrast failure/);
   });
 
@@ -469,13 +725,13 @@ describe("the gate itself", () => {
     // The exact regression F3 found: the old token passed every text test it
     // was never in, because only text pairs were measured. It is still below
     // 3:1 against today's --surface-sunken, and the message names the pair.
-    const broken = { ...tokens, "--border-control": "#4a5b75" };
+    const broken = { ...darkTokens(), "--border-control": "#4a5b75" };
     expect(() => assertBoundaries(broken)).toThrow(/--border-control on --surface-sunken/);
     expect(() => assertBoundaries(broken)).toThrow(/2\.\d{2}:1 < 3\.0:1/);
   });
 
   it("applies the non-text threshold, not the text one, to boundaries", () => {
-    const [first] = measureBoundaries(tokens);
+    const [first] = measureBoundaries(darkTokens());
     expect(first?.threshold).toBe(3.0);
     // The shipped boundary clears 3:1 but would not clear 4.5:1 — proof that
     // the two tables are not measuring the same rule by accident.
@@ -485,7 +741,7 @@ describe("the gate itself", () => {
   });
 
   it("names every failing boundary in one message", () => {
-    const broken = { ...tokens, "--border-control": "#2a3446", "--focus": "#2a3446" };
+    const broken = { ...darkTokens(), "--border-control": "#2a3446", "--focus": "#2a3446" };
     let message = "";
     try {
       assertBoundaries(broken);
@@ -494,5 +750,28 @@ describe("the gate itself", () => {
     }
     expect(message).toMatch(/--border-control on --surface-sunken/);
     expect(message).toMatch(/--focus on --surface-sunken/);
+  });
+
+  it("names a light token that was typo'd, in both directions", () => {
+    // The adversarial case: `--accent-txt` is a real hex, so every ratio it is
+    // not part of still passes; only the key-set comparison sees it. The two
+    // blocks here are the smallest shape that exercises the parser.
+    const broken = [
+      ":root { --bg: #100c0e; --accent-text: #ffa8cf; }",
+      '[data-theme="light"] { --bg: #fbf7f8; --accent-txt: #a3144c; }',
+    ].join("\n");
+    expect(() => assertScopeParity(broken)).toThrow(/missing \[--accent-text\]/);
+    expect(() => assertScopeParity(broken)).toThrow(/declared only in light \[--accent-txt\]/);
+  });
+
+  it("rejects a light token that resolves through the dark block", () => {
+    // `var(--bg)` is legal inside `:root`; in the light block it would silently
+    // borrow the dark plane, which is exactly the gap this test exists for.
+    const broken = [
+      ":root { --bg: #100c0e; --fg: #efe9ec; }",
+      '[data-theme="light"] { --bg: var(--surface); --fg: #1a1215; }',
+    ].join("\n");
+    const light = parseScope(broken, '[data-theme="light"]');
+    expect(light.unresolved).toEqual(["--bg: --surface is not declared in this scope"]);
   });
 });

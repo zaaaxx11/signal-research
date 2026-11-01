@@ -172,15 +172,17 @@ describe("the catalogue is the only source of views and columns", () => {
           // not screener views). This assertion is about the code that draws
           // the view strip and builds the request — which is exactly the code
           // that must not know a view's name.
-          // `map`, `groups` and `calendar` are their own surfaces too: they
-          // carry vocabularies (a tile's `value`, a sector's label) that have
-          // nothing to do with the screener's view strip.
+          // `map`, `groups`, `calendar` and `home` are their own surfaces too:
+          // they carry vocabularies (a tile's `value`, a sector's label, a
+          // feed's headline) that have nothing to do with the screener's view
+          // strip. Home reads `/market/home`, never `/screens/select`.
           if (
             entry === "detail" ||
             entry === "breadth" ||
             entry === "map" ||
             entry === "groups" ||
-            entry === "calendar"
+            entry === "calendar" ||
+            entry === "home"
           ) {
             continue;
           }

@@ -239,3 +239,67 @@
     color, background-color, border-color, text-decoration-color, fill, stroke,
     opacity, box-shadow, transform;
 }
+
+/* ---------------------------------------------------------------------------
+ * Arrival: the page settles, the dashboard assembles
+ *
+ * The shell swaps one page for another with no transition today; a route change
+ * is a hard cut. Two short animations fix that without a router or a library:
+ *
+ * 1. `main` fades in over 140 ms. Every page renders exactly one `<main>`, and
+ *    a route change mounts a new one, so this is the route transition — with no
+ *    wrapper element added to the flex chain (which is why it is not in
+ *    `app.tsx`).
+ * 2. A dashboard's blocks rise 6 px in sequence, 20 ms apart, capped at the
+ *    first eight. A long list that kept arriving would read as a slot machine;
+ *    eight is where the eye stops counting.
+ *
+ * Both are `opacity`/`transform` only — no layout, no reflow. The global
+ * `prefers-reduced-motion` block above already collapses every duration to
+ * 0.01 ms, so a reader who asks for stillness gets the final frame at once.
+ */
+@keyframes zt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes zt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+main {
+  animation: zt-fade 140ms ease-out both;
+}
+
+[data-testid="home-grid"] > * {
+  animation: zt-rise 180ms ease-out both;
+}
+
+[data-testid="home-grid"] > *:nth-child(1) { animation-delay: 0ms; }
+[data-testid="home-grid"] > *:nth-child(2) { animation-delay: 20ms; }
+[data-testid="home-grid"] > *:nth-child(3) { animation-delay: 40ms; }
+[data-testid="home-grid"] > *:nth-child(4) { animation-delay: 60ms; }
+[data-testid="home-grid"] > *:nth-child(5) { animation-delay: 80ms; }
+[data-testid="home-grid"] > *:nth-child(6) { animation-delay: 100ms; }
+[data-testid="home-grid"] > *:nth-child(7) { animation-delay: 120ms; }
+[data-testid="home-grid"] > *:nth-child(n + 8) { animation-delay: 140ms; }
+
+/* The theme switch is one attribute write on <html>; without this, a 5,000 px
+ * dashboard repaints instantly and the flash reads as a bug. The transition is
+ * on the two properties the page paints, not on `*`. */
+body {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}

@@ -27,7 +27,7 @@ import { HomePage } from "@/home/HomePage";
 import { ScreenerScreen } from "@/screener/ScreenerScreen";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { NotFoundPage } from "@/shell/NotFoundPage";
-import { SiteNav } from "@/shell/SiteNav";
+import { HeaderBar } from "@/shell/HeaderBar";
 import { StockPage } from "@/stock/StockPage";
 import { DETAIL_CHUNK_ATTEMPTS, detailChunk, loadDetailPanel } from "@/detail/load";
 import type { SymbolHit } from "@/lib/api";
@@ -203,7 +203,7 @@ export function App() {
     <div className="flex h-dvh min-h-0 flex-col bg-bg">
       {route.kind === "screener" ? <SkipLink /> : null}
 
-      <SiteNav
+      <HeaderBar
         route={route}
         search={searchQuery}
         onSelect={onSearchSelect}

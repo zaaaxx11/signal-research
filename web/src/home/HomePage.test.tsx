@@ -1,41 +1,19 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CARD_HEIGHT } from "./SignalCard";
 import { HomePage } from "./HomePage";
-import { AVAILABLE_GROUPS, SIGNAL_GROUPS, UNAVAILABLE_REASON } from "./signals";
+import { homeDocument, stubCanvas, stubResizeObserver } from "./__fixtures__/home";
 
 /**
- * Home's promises, on the rendered page:
+ * The page's whole contract, on the rendered dashboard:
  *
- * * one request for thirteen cards, never one per card;
- * * the eleven sourced groups each draw up to twenty rows with exactly five
- *   columns;
- * * every ticker is a link to its own page (a real href);
- * * the two unsourced groups say why and draw no rows;
- * * the skeleton and the table occupy the same box, so the answer cannot move
- *   the page.
+ * * **one** request paints every block — never one per card;
+ * * six blocks and a footer, each with a level-2 heading, under one hidden `h1`;
+ * * a `null` block prints the reason from `unavailable` and draws no fake zeroes;
+ * * a failure names itself per block and one Retry refetches exactly once;
+ * * the skeletons occupy the same boxes the content will.
  */
-
-function groupRows(key: string, count = 20) {
-  return Array.from({ length: count }, (_, index) => ({
-    symbol: `${key.slice(0, 2).toUpperCase()}${index}`,
-    name: `${key} company ${index}`,
-    price: 10 + index,
-    change_pct: index % 2 === 0 ? 1.5 : -1.5,
-    volume: 1_000_000 * (index + 1),
-  }));
-}
-
-function signalsDocument(count = 20) {
-  return {
-    as_of: "2026-10-31T20:00:00Z",
-    groups: Object.fromEntries(
-      AVAILABLE_GROUPS.map((group) => [group.key, { rows: groupRows(group.key, count) }]),
-    ),
-  };
-}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -44,168 +22,204 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function stub(body: unknown = signalsDocument()) {
-  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => json(body));
+function stub(body: unknown = homeDocument()) {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json(body));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
+
+beforeEach(() => {
+  stubCanvas();
+  stubResizeObserver(320, 200);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
+const BLOCKS = [
+  "headline",
+  "strip",
+  "breadth",
+  "movers",
+  "map",
+  "signals",
+  "headlines",
+  "majors",
+  "insider",
+] as const;
+
 describe("HomePage", () => {
-  it("asks for signals once, and draws thirteen cards", async () => {
+  it("paints every block from one request", async () => {
     const fetchMock = stub();
     render(<HomePage />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("signal-card-gainers").getAttribute("aria-busy")).toBeNull(),
-    );
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/signals?region=us&per=20");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/home?region=us");
 
-    const cards = document.querySelectorAll('[data-testid^="signal-card-"]');
-    expect(cards).toHaveLength(SIGNAL_GROUPS.length);
-    for (const group of SIGNAL_GROUPS) {
-      expect(screen.getByTestId(`signal-card-${group.key}`)).toBeTruthy();
+    for (const block of BLOCKS) {
+      expect(screen.getByTestId(`home-${block}`), block).toBeTruthy();
     }
+    expect(screen.getByTestId("home-footer").tagName).toBe("FOOTER");
+    // And nothing else was asked for: no per-block endpoints, no health poll.
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.every((url) => url === "/market/home?region=us")).toBe(true);
   });
 
-  it("draws the eleven sourced groups with the five columns and twenty rows", async () => {
+  it("has a hidden h1 and a level-2 heading on every card", async () => {
     stub();
     render(<HomePage />);
-    await waitFor(() => expect(screen.getByTestId("signal-card-gainers")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
+
+    const h1s = document.querySelectorAll("h1");
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]?.className).toContain("sr-only");
+    expect(h1s[0]?.textContent).toBe("Market overview");
+
+    for (const block of BLOCKS) {
+      const headings = screen.getByTestId(`home-${block}`).querySelectorAll("h2");
+      expect(headings, block).toHaveLength(1);
+    }
+    expect(document.querySelectorAll("h3").length).toBeGreaterThan(5);
+  });
+
+  it("draws the movers table and the map's trim, and the footer's word", async () => {
+    stub();
+    render(<HomePage />);
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
+
+    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
+    expect(screen.getByTestId("map-tiles").textContent).toBe("600 of 5,573 tiles");
+    expect(screen.getByTestId("home-footer").textContent).toBe("ztockz");
+  });
+
+  it("shows a null block's reason from the payload, with no fake zeroes", async () => {
+    stub(homeDocument({ filings: null, unavailable: ["filings"] }));
+    render(<HomePage />);
+
+    const insider = await screen.findByTestId("home-insider");
     await waitFor(() =>
-      expect(screen.getByTestId("signal-card-gainers").getAttribute("aria-busy")).toBeNull(),
+      expect(insider.textContent).toContain(
+        "Filings unavailable — the source did not answer this request.",
+      ),
     );
 
-    for (const group of AVAILABLE_GROUPS) {
-      const card = screen.getByTestId(`signal-card-${group.key}`);
-      const headers = [...card.querySelectorAll("thead th")].map((th) => th.textContent);
-      expect(headers, group.key).toEqual(["Ticker", "Last", "Change %", "Volume", "Signal"]);
-      expect(card.querySelectorAll("tbody tr[data-signal-row]")).toHaveLength(20);
-    }
+    expect(insider.querySelectorAll("[data-filing]")).toHaveLength(0);
+    expect(screen.getByTestId("insider-all").getAttribute("href")).toBe("/app/insider");
+    // The other blocks still painted.
+    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
   });
 
-  it("links each ticker to its stock page and draws the 16 px mark", async () => {
-    stub();
+  it("says a missing map has no sectors instead of drawing an empty canvas", async () => {
+    stub(homeDocument({ map: { sectors: [], tiles: 0, tiles_total: 5573 } }));
     render(<HomePage />);
 
-    const card = screen.getByTestId("signal-card-gainers");
-    await waitFor(() => expect(card.querySelectorAll("a[href]").length).toBe(20));
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
 
-    const first = card.querySelector<HTMLAnchorElement>('tbody tr[data-signal-row="GA0"] a');
-    expect(first).not.toBeNull();
-    expect(first?.getAttribute("href")).toBe("/app/stock/GA0");
-    expect(first?.textContent).toContain("GA0");
-
-    const logo = card.querySelector<HTMLImageElement>('img[data-testid="logo-img-GA0"]');
-    expect(logo).not.toBeNull();
-    expect(logo?.getAttribute("src")).toBe("/logos/GA0");
-    expect(logo?.getAttribute("width")).toBe("16");
-    expect(logo?.getAttribute("height")).toBe("16");
-    // The monogram is behind it, so a 404 still occupies the same box.
-    expect(screen.getByTestId("monogram-GA0")).toBeTruthy();
+    const map = screen.getByTestId("home-map");
+    expect(map.querySelector("canvas")).toBeNull();
+    expect(screen.getByTestId("map-empty").textContent).toContain("No sector carried a value");
+    expect(screen.getByTestId("map-tiles").textContent).toBe("0 of 5,573 tiles");
   });
 
-  it("says why Upgrades and Downgrades are empty, and draws no rows", () => {
-    stub();
-    render(<HomePage />);
+  it("renders a headline containing a script tag as text", async () => {
+    stub(
+      homeDocument({
+        news: [
+          {
+            headline: "Markets <script>alert(1)</script> steady",
+            url: "https://example.com/x",
+            source: "AP",
+            published_at: "2026-10-31T12:00:00Z",
+          },
+        ],
+      }),
+    );
+    const { container } = render(<HomePage />);
 
-    for (const key of ["upgrades", "downgrades"]) {
-      const card = screen.getByTestId(`signal-card-${key}`);
-      expect(card.getAttribute("data-available")).toBe("false");
-      expect(within(card).getByTestId(`signal-reason-${key}`).textContent).toBe(
-        UNAVAILABLE_REASON,
-      );
-      expect(card.querySelectorAll("tbody tr[data-signal-row]")).toHaveLength(0);
-      expect(card.querySelector("table")).toBeNull();
-    }
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
+
+    expect(container.querySelector("script")).toBeNull();
+    expect(screen.getByTestId("home-headline").textContent).toContain(
+      "Markets <script>alert(1)</script> steady",
+    );
   });
 
-  it("reserves every card's height before the answer arrives", async () => {
+  it("reserves each block's box before the answer arrives", async () => {
     let release: (value: Response) => void = () => undefined;
     const pending = new Promise<Response>((resolve) => {
       release = resolve;
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => pending),
-    );
+    vi.stubGlobal("fetch", vi.fn(async () => pending));
 
     render(<HomePage />);
-    const card = screen.getByTestId("signal-card-gainers");
-    expect(card.style.minHeight).toBe(`${CARD_HEIGHT}px`);
-    expect(card.getAttribute("aria-busy")).toBe("true");
-    const skeleton = card.querySelector('[data-testid="signal-skeleton"]');
-    expect(skeleton?.querySelectorAll("tr")).toHaveLength(20);
 
-    release(json(signalsDocument()));
-    await waitFor(() => expect(card.getAttribute("aria-busy")).toBeNull());
-    // Same box, before and after: the page does not move when data lands.
-    expect(card.style.minHeight).toBe(`${CARD_HEIGHT}px`);
+    expect(screen.getByTestId("home-grid").getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByTestId("home-movers").style.height).toBe("420px");
+    expect(screen.getByTestId("home-map").style.height).toBe("420px");
+    expect(screen.getByTestId("home-breadth").style.minHeight).toBe("76px");
+    expect(screen.getByTestId("home-insider").style.minHeight).toBe("92px");
+    expect(screen.getByTestId("movers-skeleton")).toBeTruthy();
+    expect(screen.getByTestId("strip-skeleton")).toBeTruthy();
+
+    release(json(homeDocument()));
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
+
+    // Same boxes after the answer: the page does not move when data lands.
+    expect(screen.getByTestId("home-movers").style.height).toBe("420px");
+    expect(screen.getByTestId("home-map").style.height).toBe("420px");
+    expect(screen.getByTestId("home-breadth").style.minHeight).toBe("76px");
   });
 
-  it("shows the empty state for a group with no names, with the server's note on the row", async () => {
-    const body = {
-      groups: {
-        gainers: { rows: [] },
-        insider_buying: {
-          rows: [],
-          note: "no rows matched: insider_trans > 0; 0 of 5576 rows carry insider_trans",
-        },
-      },
-    };
-    stub(body);
-    render(<HomePage />);
-
-    const card = screen.getByTestId("signal-card-gainers");
-    await waitFor(() => expect(card.textContent).toContain("No names in this signal right now."));
-    expect(card.querySelectorAll("tbody tr[data-signal-row]")).toHaveLength(0);
-
-    const insider = screen.getByTestId("signal-card-insider_buying");
-    await waitFor(() => expect(insider.textContent).toContain("No names in this signal right now."));
-    expect(insider.querySelector("tbody td")?.getAttribute("title")).toContain("insider_trans");
-  });
-
-  it("names a failed read and retries it", async () => {
+  it("names a failed read per block and retries the whole page once", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(json({ errorMessage: "scanner offline" }, 503))
-      .mockResolvedValueOnce(json(signalsDocument()));
+      .mockResolvedValueOnce(json({ errorMessage: "home aggregate offline" }, 503))
+      .mockResolvedValueOnce(json(homeDocument()));
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<HomePage />);
 
-    const alert = await screen.findByTestId("signals-error");
+    const alert = await screen.findByTestId("home-error");
     expect(alert.getAttribute("role")).toBe("alert");
-    expect(alert.textContent).toContain("Market signals did not load");
+    expect(alert.textContent).toContain("home aggregate offline");
+
+    // Every block says so in place; the page is not blank.
+    for (const block of BLOCKS) {
+      expect(within(screen.getByTestId(`home-${block}`)).getAllByText(/did not load/i).length, block)
+        .toBeGreaterThan(0);
+    }
 
     await user.click(within(alert).getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(screen.queryByTestId("signals-error")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("home-error")).toBeNull());
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("signal-card-gainers").querySelectorAll("tbody tr[data-signal-row]"),
-      ).toHaveLength(20),
-    );
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
+    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
+  });
+
+  it("aborts its request when the page goes away", async () => {
+    const fetchMock = stub();
+    const { unmount } = render(<HomePage />);
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
+
+    const signal = (fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.signal;
+    expect(signal?.aborted).toBe(false);
+    unmount();
+    expect(signal?.aborted).toBe(true);
   });
 
   it("keeps internals off the page", async () => {
     stub();
     render(<HomePage />);
-    await waitFor(() =>
-      expect(screen.getByTestId("signal-card-gainers").getAttribute("aria-busy")).toBeNull(),
-    );
+    await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
 
     const text = screen.getByTestId("home").textContent ?? "";
-    expect(text).not.toMatch(/v\d+\.\d+/);
-    expect(text).not.toMatch(/depth store|snapshot ok|as of|method:|engine/i);
-    // Two columns are a CSS grid, not two wrapper tables.
-    expect(screen.getByTestId("signal-grid").className).toContain("xl:grid-cols-2");
+    expect(text).not.toMatch(/v\d+\.\d+\.\d+/);
+    expect(text).not.toMatch(/depth store|snapshot ok|method:|engine/i);
+    expect(screen.getByTestId("home-grid").className).toContain("min-[900px]:grid-cols-12");
   });
 });

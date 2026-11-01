@@ -112,13 +112,26 @@ const NAMED_COLOURS = [
   "yellowgreen",
 ];
 
-/** Parse `--name: #rrggbb` declarations; `var()` aliases are resolved later. */
+/**
+ * Parse `--name: #rrggbb` declarations; `var()` aliases are resolved later.
+ *
+ * A name is declared once per theme *scope* — `:root` (dark) and
+ * `[data-theme="light"]` (day) — so the file holds two values per name. The
+ * map is keyed by name for the report, so the second declaration is filed under
+ * a scoped key: `provenance` matches by value, and a light value that simply
+ * overwrote its dark twin would make every dark literal in the artefact look
+ * off-token.
+ */
 function parseTokens(css) {
   const tokens = new Map();
   for (const match of css.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
     const name = match[1];
     const raw = match[2].replace(/\/\*[\s\S]*?\*\//g, "").trim();
-    if (name && /^#[0-9a-f]{6}$/i.test(raw)) tokens.set(name, raw.toLowerCase());
+    if (!name || !/^#[0-9a-f]{6}$/i.test(raw)) continue;
+    const value = raw.toLowerCase();
+    const existing = tokens.get(name);
+    if (existing === undefined) tokens.set(name, value);
+    else if (existing !== value) tokens.set(`${name} (other scope)`, value);
   }
   return tokens;
 }
@@ -320,6 +333,13 @@ function selfTest() {
   ).filter((finding) => !finding.transparent);
   if (cssClean.length !== 1 || cssClean[0]?.base !== "#5f7189") {
     console.error(`self-test: CSS scanner expected only #5f7189, saw ${cssClean.length}`);
+    ok = false;
+  }
+  // Two scopes, one name: the parser must keep both values or every dark
+  // literal in the artefact resolves to "not in tokens.css".
+  const twoScopes = parseTokens(':root{--bg:#100c0e;}[data-theme="light"]{--bg:#fbf7f8;}');
+  if (twoScopes.size !== 2) {
+    console.error(`self-test: parser kept ${twoScopes.size} of 2 scoped values for --bg`);
     ok = false;
   }
   if (!ok) process.exit(1);

@@ -15,6 +15,7 @@ import { App } from "@/app";
 import { LIVE_BREADTH } from "@/breadth/__fixtures__/breadth";
 import { filterSchemaWire } from "@/filters/__fixtures__/schema";
 import { resetFilterSchemaCache } from "@/filters/schema";
+import { homeDocument } from "@/home/__fixtures__/home";
 import { AVAILABLE_GROUPS } from "@/home/signals";
 
 // The detail panel is a separate chunk with its own reads; the route test only
@@ -79,6 +80,7 @@ function stubApi(): Harness {
     if (url.startsWith("/market/exchanges")) {
       return json({ venues: [{ code: "XNAS", count: 10 }], total: 10 });
     }
+    if (url.startsWith("/market/home")) return json(homeDocument());
     if (url.startsWith("/market/signals")) return json(signalsDocument());
     if (url === "/screens/select" && init?.method === "POST") {
       selects.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -115,15 +117,17 @@ afterEach(() => {
 });
 
 describe("the front door", () => {
-  it("renders Home's signal cards at / and asks for nothing else", async () => {
+  it("renders the dashboard at / from one request and asks for nothing else", async () => {
     const api = stubApi();
     render(<App />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("signal-card-gainers").getAttribute("aria-busy")).toBeNull(),
+      expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"),
     );
-    expect(document.querySelectorAll('[data-testid^="signal-card-"]')).toHaveLength(13);
-    expect(urls(api).filter((url) => url === "/market/signals?region=us&per=20")).toHaveLength(1);
+    expect(screen.getByTestId("home-movers")).toBeTruthy();
+    expect(screen.getByTestId("home-map")).toBeTruthy();
+    expect(screen.getByTestId("home-footer").textContent).toBe("ztockz");
+    expect(urls(api).filter((url) => url === "/market/home?region=us")).toHaveLength(1);
     expect(urls(api).some((url) => url === "/screens/select")).toBe(false);
     expect(urls(api)).not.toContain("/health");
   });

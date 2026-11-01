@@ -9,9 +9,14 @@
  *   text pair clears WCAG 2.1 AA. No third-party theme file is vendored here,
  *   so there is no NOTICE to carry and no licence to inherit.
  *
- *   D8/D11: dark ships alone. Light is a second *block* of values for the same
- *   variable names (a `[data-theme="light"]` scope), not a second layout. Do
- *   not add one until cutover (plan §11).
+ *   D8/D11: two *blocks* of values for the same variable names — `:root` is the
+ *   dark set and the shipped default, `[data-theme="light"]` is the day set —
+ *   not two layouts. The light block is a full restatement: it declares every
+ *   colour token dark declares, as an opaque hex, and never borrows one through
+ *   `var()` from the other scope. tokens.test.ts compares the two key sets
+ *   before it measures a single ratio, so a gap is a red test rather than a
+ *   half-dark surface nobody noticed. Density tokens (`--row-pitch` and
+ *   friends) are theme-independent and stay in `:root` only.
  *
  * The rose ramp
  *   The product is pink. That is a brand decision, and it is also a trap: a
@@ -85,6 +90,41 @@
  *   The focus ring has 5.56 of headroom over the 3:1 floor even on the lightest
  *   surface it is drawn on: a rose ring on a rose-tinted row is the adversarial
  *   case, and it is not close to the line.
+ *
+ * Measured contrast (day) — the same tables, run again on `[data-theme="light"]`
+ * by the same test. The row surfaces are the four a data cell can land on:
+ *
+ *   token          value      on --row-bg  on --row-bg-alt  on --row-hover  on --row-selected
+ *   --up           #0d7047        6.13          5.77            5.24            4.97
+ *   --down         #b3261e        6.54          6.15            5.59            5.30
+ *   --flat         #666063        6.14          5.78            5.26            4.98
+ *   --alert        #8a5a00        5.93          5.58            5.07            4.80
+ *   --fg           #1a1215       18.40         17.32             —             14.91
+ *   --fg-muted     #5b4a50        8.27          7.78             —              6.70
+ *   --fg-subtle    #6f5a61        6.34          5.97             —              5.14
+ *   --accent-text  #a3144c        7.60          7.16            6.50             —
+ *
+ *   --row-selected (#f7e2ea) is the binding plane in this scope: it is the
+ *   darkest surface a datum sits on, so it is where every ink lands last. The
+ *   proposed ramp's #0f7a4d measured 4.35 there and its #7d676e 4.22 — both
+ *   below 4.5 on a *selected* row only, which is exactly the paper-cut a
+ *   white-only audit misses. They were darkened to #0d7047 and #6f5a61 rather
+ *   than the row being lightened, because the selected row has to stay visible
+ *   as a selection. The ramp's #6b5a60 for --flat was also replaced: at 17/255
+ *   channel spread it read as a colour, and --flat owns no hue (the gate pins
+ *   ≤8); #666063 is 6/255.
+ *
+ *   Boundaries (WCAG 1.4.11, 3:1) on the seven planes a control can sit on:
+ *
+ *     token             value      sunken  surface  raised  row-bg  row-alt  hover   page
+ *     --border-control  #8f737c     3.83    4.28    3.66    4.28   4.02    3.66   4.02
+ *     --focus           #a3144c     6.81    7.60    6.50    7.60   7.16    6.50   7.16
+ *     --accent          #c2185b     5.26    5.87    5.02    5.87   5.53    5.02   5.53
+ *     --accent-strong   #b0145a      —      6.79     —       —      —       5.81    —
+ *
+ *   --accent-text on --surface-raised is 6.50, not just on --surface (7.60):
+ *   a hovered row is a rose-tinted plane, and a link measured only on the panel
+ *   it was designed on is a link that goes dim the first time it is hovered.
  */
 
 :root {
@@ -170,4 +210,113 @@
   --destructive-foreground: #ffffff;
   --input: var(--border-control);
   --ring: var(--focus);
+}
+
+/*
+ * ── DAY ─────────────────────────────────────────────────────────────────────
+ *
+ * The light block is the same vocabulary with the plane order flipped, not a
+ * dimmed dark theme. Two things reverse and nothing else does:
+ *
+ *   * Light is added to, not subtracted from. The page is #fbf7f8 and a panel
+ *     is #ffffff: a raised surface is *brighter* than the page, because on a
+ *     light plane “raised” means “closer to the light”, which is what a white
+ *     card on an off-white page is. The one exception is --surface-raised,
+ *     which in this shell is the menu/hover plane and stays a step *down* from
+ *     the panels it covers — the same relationship those two tokens have on
+ *     dark (menu on top, hover inside), just inverted in value.
+ *   * The neutrals keep the rose cast. Every plane sits at hue 325–335° with a
+ *     channel spread of 4–9/255: warm paper, not pink zebra. --bg and --row-bg
+ *     are near-white, so the zebra and the hover are carried by #fbf7f8 and
+ *     #f4ebee, and the selected row by a rose tint the data ink still clears.
+ *
+ * The rose is one ramp at three weights, re-derived for a light plane rather
+ * than lightened from the dark values:
+ *
+ *   chrome  --accent        #c2185b  the same hue 336° as dark, 4.5:1-capable
+ *   fill    --accent-strong #b0145a  with white ink (6.79:1)
+ *   text    --accent-text   #a3144c  links on every light plane (6.50 worst)
+ *
+ * Role separation is unchanged: chrome is rose (hue 336°), the datum is red
+ * (--down hue 3°), 27° of hue apart. What cannot be unchanged is the *value*
+ * gap: on light both are dark inks capped by the 4.5:1 text floor, so the
+ * dark theme's 0.10 luminance gap is arithmetically impossible here — the hue
+ * arc and the sign/arrow carry the distinction, and tokens.test.ts says so
+ * instead of pretending otherwise.
+ *
+ * Measured contrast is asserted by src/styles/tokens.test.ts for this scope
+ * exactly as for dark; see the table under “Measured contrast (day)” below.
+ */
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* ---- surfaces ------------------------------------------------------- */
+  --bg: #fbf7f8; /* page: warm paper, the plane everything sits on */
+  --surface: #ffffff; /* panels: top bar, table body, empty state */
+  --surface-raised: #f4ebee; /* menus, popovers, sticky header, hovered row */
+  --surface-sunken: #f6f1f3; /* inset wells, the search field, code, footer */
+  --row-bg: #ffffff; /* data row, even */
+  --row-bg-alt: #fbf7f8; /* data row, odd (zebra) */
+  --row-hover: #f4ebee; /* row hover */
+  --row-selected: #f7e2ea; /* selected row; the worst plane for every ink */
+  --selection: #f3c9da; /* ::selection; the one rose fill text is drawn *on* */
+
+  /* ---- borders -------------------------------------------------------- */
+  --border: #e4d5da; /* hairline separators */
+  --border-strong: #cfb9c0; /* panel edge, sticky-header underline */
+  --border-control: #8f737c; /* control edge: 3.66 worst case (--row-hover) */
+  --focus: #a3144c; /* focus ring: 6.50 on --row-hover, 7.60 on --surface */
+
+  /* ---- text tiers ----------------------------------------------------- */
+  --fg: #1a1215; /* primary: cells, headings */
+  --fg-muted: #5b4a50; /* secondary: header labels, units */
+  --fg-subtle: #6f5a61; /* tertiary: metadata in the status line */
+  --fg-disabled: #ad9ea4; /* disabled only — exempt from 1.4.3, and grey on purpose */
+
+  /* ---- structural neutrals -------------------------------------------- */
+  /* The scrim and the ink on --destructive are the same in both scopes: a
+   * modal dims whatever is behind it, and white stays white. Restated here so
+   * the light block is a complete set, not a diff. */
+  --scrim: #000000;
+  --on-destructive: #ffffff;
+
+  /* ---- finance semantics ---------------------------------------------- */
+  /* Same roles, re-derived for paper: green and red are darker so a 12 px
+   * number clears 4.5:1 on #f7e2ea as well as on white, and --flat is a
+   * neutral grey (spread 6/255) so “unchanged” still owns no hue. */
+  --up: #0d7047;
+  --down: #b3261e;
+  --flat: #666063;
+  --alert: #8a5a00;
+
+  /* ---- brand / interactive -------------------------------------------- */
+  --brand: #c2185b;
+  --accent: #c2185b; /* chrome: 5.02 on --row-hover, 5.87 on --surface */
+  --accent-strong: #b0145a; /* fill: white ink 6.79:1, fill-vs-surface 6.67:1 */
+  --accent-text: #a3144c; /* text on paper: 6.50 on --row-hover */
+  --accent-fg: #ffffff; /* ink on the fill: 6.79:1 */
+  --accent-soft: #f6e6ed; /* shadcn `accent` surface: menu hover, skeleton pulse */
+
+  /* ---- shadcn semantic aliases ---------------------------------------- */
+  /* Spelled out rather than aliased with var(): a value that resolves inside
+   * this block cannot drift when a dark token moves. The parity test in
+   * tokens.test.ts asserts --background === --bg here, the same relationship
+   * the `var()` in `:root` expresses. */
+  --background: #fbf7f8;
+  --foreground: #1a1215;
+  --card: #ffffff;
+  --card-foreground: #1a1215;
+  --popover: #ffffff;
+  --popover-foreground: #1a1215;
+  --primary: #b0145a; /* the fill weight */
+  --primary-foreground: #ffffff;
+  --secondary: #f4ebee;
+  --secondary-foreground: #1a1215;
+  --muted: #f3eaed;
+  --muted-foreground: #5b4a50;
+  --accent-foreground: #1a1215;
+  --destructive: #b3261e; /* red, not rose: 6.54:1 under white */
+  --destructive-foreground: #ffffff;
+  --input: #8f737c; /* --border-control */
+  --ring: #a3144c; /* --focus */
 }

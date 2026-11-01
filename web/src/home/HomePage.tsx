@@ -1,44 +1,94 @@
 /**
- * Home: two columns of signal cards.
+ * Home: one request, six blocks, and a footer that says the name.
  *
- * Eleven groups the market can answer, two it cannot, all thirteen in one grid
- * fed by one request. There is no page title in the flow and no summary bar:
- * the nav says where the reader is, and the cards are the page. The heading
- * exists for assistive technology only, because a `<main>` without a name is a
- * region a screen-reader user has to enter to identify.
+ * The operator's layout, in order: a headline bar; a strip of index cards and
+ * three spark boxes; six breadth tiles; the movers table beside the 1-day map
+ * (2:1); three small boxes — signals, headlines, majors; the insider strip; a
+ * plain footer.
  *
- * The grid collapses to one column below 1280 px. At that width a card's five
- * columns (ticker, last, change, volume, signal) are still readable; two of
- * them side by side would be a 600 px table in a 620 px viewport.
+ * It is one CSS grid of twelve columns from 900 px and one column below that.
+ * Twelve, not four, because the 2:1 pair and the 5/4/3 row are the page's two
+ * real relationships, and a grid that can express them in spans is a grid whose
+ * breakpoints a reader can reason about. Below 900 px every block takes the full
+ * width: a 2:1 pair at 720 px is a 480 px table beside a 240 px canvas, and both
+ * halves would truncate the one fact they exist to show.
+ *
+ * Three rules the page enforces for every block, so no block has to remember
+ * them: a block that failed says so in its own card (there is no global blank
+ * page), a block that is loading draws a skeleton of its own shape, and a block
+ * whose source is `null` prints the reason from the payload — never a zero.
+ *
+ * The `h1` is visually hidden on purpose: the nav says where the reader is, and
+ * a visible "Home" heading above a dashboard is a label on a door you can see
+ * through. It stays in the DOM because a `<main>` without a name is a region a
+ * screen-reader user has to enter to identify, and heading navigation needs a
+ * first heading to start from.
  */
 
-import { SignalCard } from "./SignalCard";
-import { SIGNAL_GROUPS } from "./signals";
-import { useSignals } from "./useSignals";
+import * as React from "react";
+
+import { blockState } from "./home";
+import { useHome } from "./useHome";
+import { BreadthTiles } from "./blocks/BreadthTiles";
+import { HeadlineBar } from "./blocks/HeadlineBar";
+import { HeadlinesBlock } from "./blocks/HeadlinesBlock";
+import { HomeFooter } from "./blocks/HomeFooter";
+import { IndexStrip } from "./blocks/IndexStrip";
+import { InsiderStrip } from "./blocks/InsiderStrip";
+import { MajorsBlock } from "./blocks/MajorsBlock";
+import { MapBlock } from "./blocks/MapBlock";
+import { MoversBlock } from "./blocks/MoversBlock";
+import { SignalsBlock } from "./blocks/SignalsBlock";
+
+/**
+ * Spans, as literal class strings.
+ *
+ * Tailwind reads source text, so a span assembled at run time (`col-span-${n}`)
+ * would compile to nothing. The six names below are the page's whole layout
+ * vocabulary and each one is written once.
+ */
+const SPAN = {
+  full: "min-[900px]:col-span-12",
+  movers: "min-[900px]:col-span-8",
+  map: "min-[900px]:col-span-4",
+  signals: "min-[900px]:col-span-5",
+  headlines: "min-[900px]:col-span-4",
+  majors: "min-[900px]:col-span-3",
+} as const;
 
 export function HomePage() {
-  const signals = useSignals();
+  const { status, report, error, retry } = useHome("us");
+
+  const state = React.useMemo(
+    () => ({
+      indices: blockState(status, report, "indices", "Indices"),
+      breadth: blockState(status, report, "breadth", "Breadth"),
+      sparks: blockState(status, report, "sparks", "Tickers"),
+      movers: blockState(status, report, "movers", "Movers"),
+      map: blockState(status, report, "map", "Map"),
+      news: blockState(status, report, "news", "Headlines"),
+      filings: blockState(status, report, "filings", "Filings"),
+    }),
+    [status, report],
+  );
 
   return (
-    <main
-      data-testid="home"
-      className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
-    >
-      <h1 className="sr-only">Market signals</h1>
+    <main data-testid="home" className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2">
+      <h1 className="sr-only">Market overview</h1>
 
-      {signals.status === "error" ? (
+      {status === "error" ? (
         <div
           role="alert"
-          data-testid="signals-error"
+          data-testid="home-error"
           className="mb-2 flex items-center justify-between gap-3 rounded-md border border-line border-l-2 border-l-alert bg-surface px-3 py-1.5"
         >
-          <p className="min-w-0 truncate text-data text-fg">
-            Market signals did not load. {signals.error}
+          <p className="min-w-0 truncate text-[12px] text-fg">
+            The market dashboard did not load. {error}
           </p>
           <button
             type="button"
-            onClick={signals.retry}
-            className="shrink-0 rounded-sm border border-line px-2 py-0.5 text-data text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
+            onClick={retry}
+            className="shrink-0 rounded-sm border border-line px-2 py-0.5 text-[12px] text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
           >
             Retry
           </button>
@@ -46,19 +96,35 @@ export function HomePage() {
       ) : null}
 
       <div
-        data-testid="signal-grid"
-        className="grid grid-cols-1 gap-2 xl:grid-cols-2"
+        data-testid="home-grid"
+        data-status={status}
+        aria-busy={status === "loading" ? "true" : undefined}
+        className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-12"
       >
-        {SIGNAL_GROUPS.map((group) => (
-          <SignalCard
-            key={group.key}
-            group={group}
-            rows={signals.report?.groups[group.key] ?? []}
-            loading={signals.status === "loading"}
-            errored={signals.status === "error"}
-            note={signals.report?.notes[group.key] ?? null}
-          />
-        ))}
+        <HeadlineBar state={state.news} news={report?.news ?? null} className={SPAN.full} />
+
+        <IndexStrip
+          indicesState={state.indices}
+          indices={report?.indices ?? null}
+          sparksState={state.sparks}
+          sparks={report?.sparks ?? null}
+          className={SPAN.full}
+        />
+
+        <BreadthTiles state={state.breadth} breadth={report?.breadth ?? null} className={SPAN.full} />
+
+        <MoversBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.movers} />
+        <MapBlock state={state.map} map={report?.map ?? null} className={SPAN.map} />
+
+        <SignalsBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.signals} />
+        <HeadlinesBlock state={state.news} news={report?.news ?? null} className={SPAN.headlines} />
+        <MajorsBlock state={state.indices} indices={report?.indices ?? null} className={SPAN.majors} />
+
+        <InsiderStrip state={state.filings} filings={report?.filings ?? null} className={SPAN.full} />
+
+        <div className={SPAN.full}>
+          <HomeFooter />
+        </div>
       </div>
     </main>
   );
