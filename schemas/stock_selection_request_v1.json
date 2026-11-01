@@ -674,7 +674,7 @@
       "label": "Option/Short",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs an optionable/shortable flag: the scan carries no such column"
+      "reason": "needs an optionable/shortable flag: the scan has neither column, and the depth store's `optionable`/`shortable` cells are the vendor's strings 'Yes'/'No' on 4,197 of 4,217 symbols (20 null), so neither is a boolean a filter can compare"
     },
     "earningsdate": {
       "label": "Earnings Date",
@@ -707,7 +707,7 @@
       "label": "Trades",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs a trade-count column: the scan carries no trades counter"
+      "reason": "Elite-only in Finviz's panel, and it needs a trade-count column: the scan carries volume in shares and turnover in currency, the depth store has no print count and FINRA publishes short-sale volume, so a trade count cannot be read from anything ingested — no source is ingested (Polygon.io aggregates, IEX HIST or Databento would answer it)"
     },
     "sh_price": {
       "label": "Price $",
@@ -727,7 +727,7 @@
       "label": "IPO Date",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs an IPO-date column the scanner fills: `ipo_date` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, so a filter on it can only return an empty screen"
+      "reason": "needs a comparable IPO date: the scan's `listing_date` answered null for all 5,720 US rows (and 96,278 global rows) when probed live, and the depth store's `ipo_date` (4,217 rows) is text in two formats ('1999-11-18' and 'Oct 18, 2016'), so neither column is a date a filter can compare"
     },
     "sh_outstanding": {
       "label": "Shares Outstanding",
@@ -747,13 +747,13 @@
       "label": "Theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme/sub-theme classification: the scan carries no theme column"
+      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so Finviz's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
     },
     "subtheme": {
       "label": "Sub-theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme/sub-theme classification: the scan carries no theme column"
+      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so Finviz's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
     },
     "fa_pe": {
       "label": "P/E",
@@ -984,7 +984,7 @@
       "label": "Insider\nTransactions",
       "tab": "fundamental",
       "field": null,
-      "reason": "reads a mixture of ownership levels and junk (TSLA 76.0, META 45.9, GME 8.7): the depth cell exists but is a vendor net-change nobody can read as a flow, so the product withdrew the control by name (app/api/signals.py)"
+      "reason": "reads a mixture of ownership levels and junk (TSLA 76.0, META 45.9, GME 8.7): the depth cell is a vendor net-change nobody can read as a flow, so the product withdrew the control by name rather than publish an interpretation the data does not support"
     },
     "sh_instown": {
       "label": "Institutional\nOwnership",
@@ -1444,7 +1444,7 @@
       "label": "Pattern",
       "tab": "technical",
       "field": null,
-      "reason": "needs chart-pattern detection: the scan returns no pattern classification"
+      "reason": "needs a chart-pattern detector: the depth store's `candlestick_pattern` flag has three classes (doji/engulfing/hammer) but no price series, and Finviz's 28 chart-pattern tokens need daily bars to detect — no bars store is ingested"
     },
     "ta_candlestick": {
       "label": "Candlestick",
@@ -1470,13 +1470,13 @@
       "label": "After-Hours Close",
       "tab": "technical",
       "field": null,
-      "reason": "needs after-hours prices: the scan covers the regular session only"
+      "reason": "Elite-only in Finviz's panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
     },
     "ah_change": {
       "label": "After-Hours Change",
       "tab": "technical",
       "field": null,
-      "reason": "needs after-hours prices: the scan covers the regular session only"
+      "reason": "Elite-only in Finviz's panel and no source: the scan covers the regular session only, the provider returns `postmarket_close`/`postmarket_change` but no collector ingests either, so no row carries an after-hours price — no source is ingested"
     },
     "news_date": {
       "label": "Latest News",
@@ -1488,13 +1488,13 @@
       "label": "News Keywords",
       "tab": "news",
       "field": null,
-      "reason": "needs a news keyword index: the product holds one headline per symbol (the source `news_date` reads), so a keyword search would search 4,112 titles, one per company — not Finviz's 'titles from the last 24 hours that contain any keyword'"
+      "reason": "Elite-only, and it needs an article corpus: the product holds one headline per symbol (4,141 `news_title` cells), so a keyword search would search one title per company — not Finviz's 'titles from the last 24 hours that contain any keyword' — no source is ingested"
     },
     "etf_heldby": {
       "label": "Held By",
       "tab": "etf",
       "field": null,
-      "reason": "needs ETF holdings data: the scan does not carry a fund's constituent list"
+      "reason": "Elite-only, and it needs ETF holdings data: no fund→constituent table exists here — the ETF scan returns the funds themselves and the six index member lists are not holdings — so no source is ingested"
     }
   },
   "x-filter-alias-count": 128,

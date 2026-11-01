@@ -623,11 +623,20 @@ _CONTROL_KEYS: dict[str, str] = {
 }
 
 #: Controls whose whole family is published **refused**: ``insidertrans`` is a
-#: vendor cell the product withdrew by name (:mod:`app.api.signals`). The
-#: family stays registered so a caller who sends ``insidertrans:pos`` gets a
-#: 422 that names the quality — never an unfiltered page — but no filter key
-#: advertises the control, and ``filter_fields`` keeps ``sh_insidertrans`` in
-#: its refusal list.
+#: vendor cell the product withdrew by name (:mod:`app.api.signals`). Every
+#: member of the family is ``available=False`` and carries the same sentence, so
+#: the control can answer no value at all and ``filter_fields`` keeps
+#: ``sh_insidertrans`` in its refusal list.
+#:
+#: The family is registered like any other so ``insidertrans:pos`` reaches
+#: :func:`bucket` and raises :class:`UnavailableBucket` (422
+#: ``unavailable_bucket``) instead of being answered as an unknown id — that is
+#: the one code the registry, the document and the HTTP answer share for this
+#: control. What the withdrawn control does **not** do is answer the question
+#: :data:`KEYS` asks ("which keys can a token filter?"), so it is published apart
+#: in :data:`WITHDRAWN_KEYS` and ``filter_fields`` derives its refusal from the
+#: family (:attr:`filter_fields.BUCKET_REFUSALS`) rather than keeping a second
+#: paraphrase.
 _WITHDRAWN: frozenset[str] = frozenset({"insidertrans"})
 
 #: control → readable spelling → the canonical token it means. A synonym is a
@@ -651,10 +660,20 @@ _KEYS_BY_CONTROL: Mapping[str, str] = MappingProxyType(
 )
 
 #: The filter keys that answer a bucket token, in panel order. A **withdrawn**
-#: control is not listed: its family exists so its tokens can be refused by
-#: name, but no key may advertise it as a filter.
+#: control is not listed here — it answers no value, so it would lie about what a
+#: token can filter — but it is not dropped either: :data:`WITHDRAWN_KEYS` names
+#: it, and :func:`bucket` still refuses its tokens by name.
 KEYS: tuple[str, ...] = tuple(
     key for control, key in _CONTROL_KEYS.items() if control not in _WITHDRAWN
+)
+
+#: The filter keys whose bucket family is registered but entirely refused, in
+#: panel order. A request naming one of their tokens is a 422
+#: ``unavailable_bucket`` that carries the family's reason; a request naming the
+#: key itself is the key-level refusal (``unavailable_filter_key``), because a
+#: key that can answer no value is not a filter.
+WITHDRAWN_KEYS: tuple[str, ...] = tuple(
+    _CONTROL_KEYS[control] for control in _CONTROL_KEYS if control in _WITHDRAWN
 )
 
 
@@ -2009,6 +2028,11 @@ def _validate() -> None:
                 f"withdrawn control {control!r} publishes an available bucket: a "
                 "control the product withdrew must not filter a row"
             )
+        if _CONTROL_KEYS.get(control) not in WITHDRAWN_KEYS:  # pragma: no cover - boot gate
+            raise RuntimeError(
+                f"withdrawn control {control!r} is not in WITHDRAWN_KEYS: its "
+                "tokens would answer 'unknown id' instead of the registry's refusal"
+            )
     if len(_BY_ID) != sum(len(family) for family in _REGISTRY.values()):
         raise RuntimeError("two buckets share an id")
 
@@ -2136,6 +2160,7 @@ __all__ = [
     "SESSION_REASON",
     "UnavailableBucket",
     "UnknownBucket",
+    "WITHDRAWN_KEYS",
     "apply_bucket_filters",
     "bucket",
     "control_for",

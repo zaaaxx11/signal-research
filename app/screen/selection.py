@@ -639,6 +639,18 @@ def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion
         except FilterKeyError as exc:
             column = _alias_column(key_text)
             if column is None:
+                if isinstance(exc, UnavailableFilterKey) and buckets.control_for(key_text):
+                    # A **withdrawn** control (``sh_insidertrans``): refused as a
+                    # key, and still the owner of a registered vocabulary in
+                    # which every token is refused. The *token* is the unit of
+                    # refusal the registry, the document and this route have to
+                    # agree on, so it answers first — 422 ``unavailable_bucket``
+                    # with the family's own sentence. A value that names none of
+                    # its tokens is not a token question, so it falls through to
+                    # the key-level refusal below.
+                    by_bucket = _bucket_criterion(key_text, item, where)
+                    if by_bucket is not None:  # pragma: no cover - every token refuses
+                        return by_bucket
                 if isinstance(exc, UnknownFilterKey) and key_text in CATALOG_BY_KEY:
                     # A real catalogue column that no filter can read. Naming it
                     # is the whole point: a silent no-op would return the

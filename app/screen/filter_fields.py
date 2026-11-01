@@ -80,7 +80,14 @@ are refused:
   (theme, sub-theme, IPO dates, a print count, an optionable flag, a withdrawn
   insider flow, a 20-day window, a pattern engine, the after-hours session, an
   article corpus, fund holdings), where a filter could only ever return an
-  empty screen.
+  empty screen. Eleven of them have no column at all; the twelfth,
+  ``sh_insidertrans``, owns a 32-token bucket family in which **every** token is
+  refused (:data:`app.screen.buckets.INSIDER_TRANSACTIONS_REASON`), so the key
+  can answer no value either. Its sentence is not copied into
+  :data:`UNAVAILABLE` — it is read from the family
+  (:data:`BUCKET_REFUSALS`), and a request naming one of its tokens is answered
+  by the registry's own code (``unavailable_bucket``) rather than by a
+  paraphrase of it.
 
 Three things this module refuses to invent:
 
@@ -160,32 +167,44 @@ CHOICE_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 BUCKET_KEYS: frozenset[str] = frozenset(buckets.KEYS)
 
 #: Why a key cannot filter yet: one sentence per group of keys, naming the metric
-#: the scan does not carry, so a 422 can say *what* is absent instead of "invalid".
+#: the deployment cannot compare — so a 422 can say *what* is absent instead of
+#: "invalid". Three of these sentences are the **partial** shape rather than the
+#: missing one: ``ipodate``, ``sh_opt`` and ``ta_pattern`` name a cell the depth
+#: store really fills and say why it cannot answer the control (a text spelling,
+#: a vendor string, a candlestick flag where a chart pattern is asked for). A
+#: reason that claims a missing source the data actually has is the failure mode
+#: this table was audited for on 2026-11-01, so it is measured against the store
+#: in ``tests/test_screen_groups_adversarial.py``.
 _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
-        "needs theme/sub-theme classification: the scan carries no theme column",
+        "needs theme/sub-theme classification: no layer carries a theme column — "
+        "not the scan, not the depth store's 106 cells, not the snapshot, not "
+        "SQLite — so Finviz's 40 theme and 268 sub-theme tokens name a taxonomy "
+        "nothing in this deployment speaks",
         ("theme", "subtheme"),
     ),
     (
-        "needs an IPO-date column the scanner fills: `ipo_date` answered null for "
-        "all 5,720 US rows (and 96,278 global rows) when probed live, so a filter "
-        "on it can only return an empty screen",
+        "needs a comparable IPO date: the scan's `listing_date` answered null for "
+        "all 5,720 US rows (and 96,278 global rows) when probed live, and the "
+        "depth store's `ipo_date` (4,217 rows) is text in two formats "
+        "('1999-11-18' and 'Oct 18, 2016'), so neither column is a date a filter "
+        "can compare",
         ("ipodate",),
     ),
     (
-        "needs a trade-count column: the scan carries no trades counter",
+        "Elite-only in Finviz's panel, and it needs a trade-count column: the "
+        "scan carries volume in shares and turnover in currency, the depth store "
+        "has no print count and FINRA publishes short-sale volume, so a trade "
+        "count cannot be read from anything ingested — no source is ingested "
+        "(Polygon.io aggregates, IEX HIST or Databento would answer it)",
         ("sh_trades",),
     ),
     (
-        "needs an optionable/shortable flag: the scan carries no such column",
+        "needs an optionable/shortable flag: the scan has neither column, and the "
+        "depth store's `optionable`/`shortable` cells are the vendor's strings "
+        "'Yes'/'No' on 4,197 of 4,217 symbols (20 null), so neither is a boolean a "
+        "filter can compare",
         ("sh_opt",),
-    ),
-    (
-        "reads a mixture of ownership levels and junk (TSLA 76.0, META 45.9, "
-        "GME 8.7): the depth cell exists but is a vendor net-change nobody can "
-        "read as a flow, so the product withdrew the control by name "
-        "(app/api/signals.py)",
-        ("sh_insidertrans",),
     ),
     (
         "needs a 20-day high/low column: the scan carries the 52-week extremes "
@@ -194,31 +213,65 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("ta_highlow20d",),
     ),
     (
-        "needs chart-pattern detection: the scan returns no pattern "
-        "classification",
+        "needs a chart-pattern detector: the depth store's `candlestick_pattern` "
+        "flag has three classes (doji/engulfing/hammer) but no price series, and "
+        "Finviz's 28 chart-pattern tokens need daily bars to detect — no bars "
+        "store is ingested",
         ("ta_pattern",),
     ),
     (
-        "needs after-hours prices: the scan covers the regular session only",
+        "Elite-only in Finviz's panel and no source: the scan covers the regular "
+        "session only, the provider returns `postmarket_close`/"
+        "`postmarket_change` but no collector ingests either, so no row carries an "
+        "after-hours price — no source is ingested",
         ("ah_close", "ah_change"),
     ),
     (
-        "needs a news keyword index: the product holds one headline per symbol "
-        "(the source `news_date` reads), so a keyword search would search 4,112 "
-        "titles, one per company — not Finviz's 'titles from the last 24 hours "
-        "that contain any keyword'",
+        "Elite-only, and it needs an article corpus: the product holds one "
+        "headline per symbol (4,141 `news_title` cells), so a keyword search "
+        "would search one title per company — not Finviz's 'titles from the last "
+        "24 hours that contain any keyword' — no source is ingested",
         ("news_keywords",),
     ),
     (
-        "needs ETF holdings data: the scan does not carry a fund's constituent "
-        "list",
+        "Elite-only, and it needs ETF holdings data: no fund→constituent table "
+        "exists here — the ETF scan returns the funds themselves and the six "
+        "index member lists are not holdings — so no source is ingested",
         ("etf_heldby",),
     ),
 )
 
-#: Key → reason, exactly for the keys missing from :data:`ROW_FIELDS`.
+def _refused_bucket_keys() -> dict[str, str]:
+    """Keys whose whole bucket family is refused — the family owns the sentence.
+
+    ``sh_insidertrans`` has a registered vocabulary (32 tokens) and not one of
+    them can run, so the key answers no value at all and belongs in the refusal
+    list beside the eleven groups above. Its sentence is **not** copied here: it
+    is read from the family, where the tokens and their reason live
+    (:data:`app.screen.buckets.INSIDER_TRANSACTIONS_REASON`), so the schema, the
+    document and the 422 cannot drift into three paraphrases.
+    """
+
+    refusals: dict[str, str] = {}
+    for key in (*buckets.KEYS, *buckets.WITHDRAWN_KEYS):
+        family = buckets.for_key(key)
+        if not family or any(item.available for item in family):
+            continue
+        reason = next((item.reason for item in family if item.reason), None)
+        if reason:
+            refusals[key] = reason
+    return refusals
+
+
+#: Key → reason for a key refused because its whole vocabulary is.
+BUCKET_REFUSALS: Mapping[str, str] = MappingProxyType(_refused_bucket_keys())
+
+#: Key → reason, for every key that can filter nothing: one sentence per group of
+#: keys, plus the key whose whole bucket family is refused. The last is **merged
+#: from** :data:`BUCKET_REFUSALS`, never retyped — the family owns that sentence,
+#: and ``_validate`` fails the import if the two ever disagree.
 UNAVAILABLE: Mapping[str, str] = MappingProxyType(
-    {key: reason for reason, keys in _GROUPS for key in keys}
+    {**{key: reason for reason, keys in _GROUPS for key in keys}, **BUCKET_REFUSALS}
 )
 
 
@@ -266,7 +319,10 @@ class Binding:
     (:mod:`app.screen.buckets`), which may read one column (``price:u5``), two
     (``targetprice:a50``) or a date against the market's clock (``earn:today``).
     A key can be both mapped and bucket-driven: ``sh_price`` still compares
-    ``price`` for ``{"op": "lt", "value": 5}``.
+    ``price`` for ``{"op": "lt", "value": 5}``. The fifth shape is the
+    **withdrawn** one (``sh_insidertrans``): it owns a registered vocabulary in
+    which every token is refused, so no value it can answer exists — it is a
+    refused key whose *tokens* carry the refusal.
     """
 
     key: str
@@ -280,6 +336,18 @@ class Binding:
 
     @property
     def is_available(self) -> bool:
+        """Can the key answer at least one value?
+
+        A bucket key whose whole family is refused (``sh_insidertrans``) answers
+        none, so it is refused exactly like the eleven keys with no column: the
+        published schema must not advertise a vocabulary for a key that can
+        filter nothing. What it still owns is the *token* level story — the
+        registry refuses each of its 32 ids by name — and that is
+        :mod:`app.screen.selection`'s job, not this flag's.
+        """
+
+        if self.reason is not None:
+            return False
         return self.field is not None or self.choice or self.bucket
 
     def as_dict(self) -> dict[str, object]:
@@ -362,7 +430,13 @@ def _validate() -> None:
             f"option-driven keys: {sorted(set(CHOICE_FIELDS) ^ set(choice_filters.CHOICES))}"
         )
 
-    covered = set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS) | set(UNAVAILABLE)
+    covered = (
+        set(ROW_FIELDS)
+        | set(CHOICE_FIELDS)
+        | set(BUCKET_KEYS)
+        | set(BUCKET_REFUSALS)
+        | set(UNAVAILABLE)
+    )
     missing = [key for key in keys if key not in covered]
     unknown = sorted(covered - set(keys))
     # A bucket key may also be a mapped key (``sh_price`` filters a column *and*
@@ -378,6 +452,26 @@ def _validate() -> None:
         raise RuntimeError(
             "every filter key needs exactly one disposition: "
             f"missing={missing}, unknown={unknown}, both={overlap}"
+        )
+    # A key refused because its whole vocabulary is refused is still one
+    # disposition, not two: its sentence is merged into UNAVAILABLE from the
+    # family (one owner), so the two must be the same string — not a paraphrase,
+    # and not a second table a later edit can forget. The reverse is a real bug:
+    # a key that can still filter a column is not unavailable because one family
+    # of tokens ran out.
+    contradicted = sorted(set(BUCKET_REFUSALS) & (set(ROW_FIELDS) | set(CHOICE_FIELDS)))
+    if contradicted:
+        raise RuntimeError(
+            "a key that filters a column or an option vocabulary cannot be "
+            f"refused for a refused bucket family: {contradicted}"
+        )
+    drifted = sorted(
+        key for key, reason in BUCKET_REFUSALS.items() if UNAVAILABLE.get(key) != reason
+    )
+    if drifted:
+        raise RuntimeError(
+            "the refusal list and the bucket family disagree on the sentence: "
+            f"{drifted}"
         )
     if len(keys) != 82:
         raise RuntimeError(f"the Finviz catalogue is 82 keys, got {len(keys)}")
@@ -436,8 +530,27 @@ def _validate() -> None:
 _validate()
 
 
+def unavailable_filter_key(key: object, found: Binding) -> UnavailableFilterKey:
+    """The 422 a refused key raises — one sentence, two entry points.
+
+    :func:`binding` raises it for the eleven keys with no column;
+    :mod:`app.screen.selection` raises it for a withdrawn bucket key whose value
+    is not one of its tokens. Two call sites, one sentence: a refusal that says
+    one thing in the schema and another over HTTP is a bug a caller cannot
+    debug.
+    """
+
+    return UnavailableFilterKey(
+        key,
+        f"filter key {key!r} ({found.label}) cannot be applied: it {found.reason}. "
+        "A filter that cannot change the result is refused instead of ignored, "
+        "because ignoring it would return the unfiltered screen as if it matched",
+        label=found.label,
+    )
+
+
 def binding(key: object) -> Binding:
-    """The binding for ``key``; unknown and unavailable keys raise, never ``None``.
+    """The binding for ``key``; unknown keys and column-less refusals raise.
 
     The failures are separate types because they mean different things to a
     caller: ``UnknownFilterKey`` is a typo or a key Finviz does not have, while
@@ -445,6 +558,11 @@ def binding(key: object) -> Binding:
     carries yet. An option-driven key is **available** and still returns
     ``field=None``: no single column could name it, and :attr:`Binding.choice`
     plus :mod:`app.screen.choice_filters` are where its columns live.
+
+    A **withdrawn bucket key** (``sh_insidertrans``) raises like any other refusal,
+    and that is the point: the key can answer no value. Its tokens are buckets,
+    so :mod:`app.screen.selection` lets a *token* answer first — the registry's
+    ``unavailable_bucket`` — and this function's sentence answers everything else.
     """
 
     if not isinstance(key, str) or not key:
@@ -462,13 +580,7 @@ def binding(key: object) -> Binding:
             "served at GET /screens/select/schema",
         )
     if not found.is_available:
-        raise UnavailableFilterKey(
-            key,
-            f"filter key {key!r} ({found.label}) cannot be applied: it {found.reason}. "
-            "A filter that cannot change the result is refused instead of ignored, "
-            "because ignoring it would return the unfiltered screen as if it matched",
-            label=found.label,
-        )
+        raise unavailable_filter_key(key, found)
     return found
 
 
@@ -477,7 +589,9 @@ def field_for(key: object) -> str:
 
     An option-driven key has no single column: it raises :class:`ChoiceFilterKey`
     naming the columns to use instead, because answering with one of them would
-    silently pick a window the caller never asked for.
+    silently pick a window the caller never asked for. A **bucket** key has no
+    column either — ``idx`` answers a set membership test and a withdrawn one
+    answers its own refusal — so neither is guessed at.
     """
 
     found = binding(key)
@@ -490,7 +604,16 @@ def field_for(key: object) -> str:
             "option tokens (app.screen.choice_filters)",
             label=found.label,
         )
-    assert found.field is not None  # binding() refuses the unavailable keys
+    if found.field is None:
+        if not found.is_available:
+            raise unavailable_filter_key(key, found)
+        raise ChoiceFilterKey(
+            key,
+            f"filter key {key!r} ({found.label}) filters through its bucket tokens "
+            "(app.screen.buckets), so it has no single row column; send op 'eq' "
+            f"with one of {', '.join(item.id for item in buckets.for_key(found.key))}",
+            label=found.label,
+        )
     return found.field
 
 
@@ -529,6 +652,7 @@ def unavailable_keys() -> tuple[str, ...]:
 __all__ = [
     "BINDINGS",
     "BUCKET_KEYS",
+    "BUCKET_REFUSALS",
     "CATALOGUE",
     "CHOICE_FIELDS",
     "ChoiceFilterKey",
@@ -544,5 +668,6 @@ __all__ = [
     "is_available",
     "mapped_keys",
     "reason_for",
+    "unavailable_filter_key",
     "unavailable_keys",
 ]

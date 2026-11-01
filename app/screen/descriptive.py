@@ -45,6 +45,15 @@ class. The document is built from memory (no scan, no store), so the route may
 hash its own body; availability is re-read on every call, so installing the
 membership snapshot moves both the answer and the ETag.
 
+Every control also states its ``tab`` and its ``disposition`` — ``scan_row``,
+``join``, ``derived``, ``new_source`` or ``unavailable`` — so a client groups the
+panel without a label map and can say *where a number comes from* without
+guessing. :data:`DISPOSITION_BY_KEY` is the one place that provenance is written,
+keyed by catalogue key, and :func:`_validate_dispositions` checks it against
+:mod:`app.screen.filter_fields` at import: the twelve keys the schema refuses are
+exactly the twelve the document calls unanswerable, and every key the schema can
+run is stated as answerable. One fact, two published shapes, no third copy.
+
 Ordering is an ORDER_BY name, not a closure
 -------------------------------------------
 Each signal declares ``sort`` — the :mod:`app.screen.rank` spelling of its own
@@ -61,7 +70,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
@@ -677,12 +686,16 @@ VENDORED_KEYS: tuple[str, ...] = (
 #: the 422 — so the document and the refusal cannot describe different gaps.
 _DILUTION_REASON = (
     "needs a dilution input (share-count history): the scan carries shares "
-    "outstanding only, so a dilution *risk* would have to be invented"
+    "outstanding today, not the series, so a dilution *risk* would have to be "
+    "invented — SEC `dei:EntityCommonStockSharesOutstanding` across filings "
+    "would answer it"
 )
 _TRADES_REASON = (
-    "needs a trade count (prints): the scan carries volume in shares and "
-    "turnover in currency, and neither is a number of trades — a trade count "
-    "cannot be derived from either, so the control is named and disabled"
+    "Elite-only in Finviz's panel, and it needs a trade count (prints): the scan "
+    "carries volume in shares and turnover in currency, the depth store has no "
+    "print count and FINRA publishes short-sale volume, so a trade count cannot "
+    "be derived from anything ingested — no source is ingested (Polygon.io "
+    "aggregates, IEX HIST or Databento would answer it)"
 )
 
 
@@ -720,13 +733,19 @@ class Option:
 
 @dataclass(frozen=True, slots=True)
 class Control:
-    """One control of the Descriptive group.
+    """One control of one tab.
 
     ``control`` says what the UI draws (``buckets``/``select``/``text``/
     ``number``/``order``/``signal``), ``form`` whether one value or several,
     ``op`` the operator a request uses, ``status`` whether it can run
     (``available``), cannot (``unavailable``) or is deliberately out of scope
     (``out_of_scope``, rendered exactly like unavailable).
+
+    ``tab`` and ``disposition`` are the client's grouping facts and are filled by
+    :func:`document`, not by the builders: the same ``_bucket_control`` serves a
+    descriptive control and a fundamental one, so the tab is a property of where
+    the control is published, and the disposition is read from
+    :data:`DISPOSITION_BY_KEY` (one owner per key).
     """
 
     id: str
@@ -744,12 +763,16 @@ class Control:
     note: str | None = None
     options_source: str | None = None
     predicate_template: str | None = None
+    tab: str | None = None
+    disposition: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "label": self.label,
             "key": self.key,
+            "tab": self.tab,
+            "disposition": self.disposition,
             "control": self.control,
             "form": self.form,
             "op": self.op,
@@ -1152,6 +1175,168 @@ GROUPS_BY_TAB: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 
+#: How a control is answered — the audit's five words, and the whole vocabulary.
+#: A sixth would be a client-side invention, so the set is published here and
+#: pinned by `tests/test_screen_descriptive_groups.py`.
+DISPOSITIONS: frozenset[str] = frozenset(
+    {"scan_row", "join", "derived", "new_source", "unavailable"}
+)
+
+#: The three that answer a value today. `new_source` names what *would* unblock a
+#: control and `unavailable` says the data cannot answer it; neither runs.
+ANSWERABLE_DISPOSITIONS: frozenset[str] = frozenset({"scan_row", "join", "derived"})
+
+#: The one place a control's provenance is stated: catalogue key → disposition.
+#:
+#: The word follows the **code**, not the plan's prose, because the document is a
+#: product surface and a client groups its controls by it:
+#:
+#: * ``scan_row`` — the row field the predicate reads is a column the bulk scan
+#:   writes (:data:`app.screen.universe.PARITY_FIELDS` or
+#:   :data:`app.screen.universe.UNIVERSE_COLUMNS`). ``fa_pe`` is here: ``pe_ttm``
+#:   is a scan parity cell (52.78 % non-null), even though the *tokens* are
+#:   compiled against depth spellings;
+#: * ``join`` — the value arrives from the depth store
+#:   (:data:`app.screen.universe.DEPTH_FIELDS`, the overlay's
+#:   ``SCAN_NULL_CELLS``) or from one of the two joins the row layer owns
+#:   (:data:`app.screen.fundamentals.FUNDAMENTALS_ROW_FIELDS`,
+#:   :data:`app.screen.facts.FACTS_ROW_FIELDS`), or is a membership list
+#:   (``idx``);
+#: * ``derived`` — a formula over cells the row already carries: the SMA and
+#:   range *distances* (``(price / level − 1) × 100``), the Finviz 1..5
+#:   recommendation score, change-from-open and the signals;
+#: * ``new_source`` — nothing here measures it and the source that would is
+#:   named in the refusal (an Elite-only control is always this or
+#:   ``unavailable``);
+#: * ``unavailable`` — the cells exist and cannot answer the control (a text
+#:   spelling, a vendor ``"Yes"``/``"No"`` string, a withdrawn insider flow) or
+#:   no source is named at all.
+DISPOSITION_BY_KEY: Mapping[str, str] = MappingProxyType(
+    {
+        # -- descriptive: the row's own columns, one membership join ----------
+        "exch": "scan_row",
+        "idx": "join",
+        "sec": "scan_row",
+        "industry": "scan_row",
+        "geo": "scan_row",
+        "cap": "scan_row",
+        "fa_div": "scan_row",
+        "sh_short": "join",
+        "an_recom": "derived",
+        "sh_opt": "unavailable",
+        "earningsdate": "scan_row",
+        "sh_avgvol": "scan_row",
+        "sh_relvol": "scan_row",
+        "sh_curvol": "scan_row",
+        "sh_trades": "new_source",
+        "sh_price": "scan_row",
+        "targetprice": "scan_row",
+        "ipodate": "unavailable",
+        "sh_outstanding": "scan_row",
+        "sh_float": "scan_row",
+        "theme": "new_source",
+        "subtheme": "new_source",
+        # -- fundamental: valuation -------------------------------------------
+        "fa_pe": "scan_row",
+        "fa_fpe": "join",
+        "fa_peg": "scan_row",
+        "fa_ps": "join",
+        "fa_pb": "scan_row",
+        "fa_pc": "join",
+        "fa_pfcf": "scan_row",
+        "fa_evebitda": "scan_row",
+        "fa_evsales": "join",
+        # -- fundamental: growth (every cell is a depth growth rate) ----------
+        "fa_divgrowth": "join",
+        "fa_epsyoy": "join",
+        "fa_epsyoy1": "join",
+        "fa_epsqoq": "join",
+        "fa_epsyoyttm": "join",
+        "fa_eps3years": "join",
+        "fa_eps5years": "join",
+        "fa_estltgrowth": "join",
+        "fa_salesqoq": "join",
+        "fa_salesyoyttm": "join",
+        "fa_sales3years": "join",
+        "fa_sales5years": "join",
+        # -- fundamental: quality, leverage, ownership ------------------------
+        "fa_epsrev": "join",
+        "fa_roa": "scan_row",
+        "fa_roe": "scan_row",
+        "fa_roi": "scan_row",
+        "fa_curratio": "scan_row",
+        "fa_quickratio": "scan_row",
+        "fa_ltdebteq": "join",
+        "fa_debteq": "scan_row",
+        "fa_grossmargin": "scan_row",
+        "fa_opermargin": "scan_row",
+        "fa_netmargin": "scan_row",
+        "fa_payoutratio": "join",
+        "sh_insiderown": "join",
+        "sh_insidertrans": "unavailable",
+        "sh_instown": "join",
+        "sh_insttrans": "join",
+        # -- technical: price, oscillators ------------------------------------
+        "ta_perf": "scan_row",
+        "ta_perf2": "scan_row",
+        "ta_volatility": "scan_row",
+        "ta_rsi": "scan_row",
+        "ta_gap": "scan_row",
+        "ta_change": "scan_row",
+        # `change_from_open` is one of the three derived columns, not a parity
+        # cell: the scan sends close/change/gap and app.screen.derived owns the
+        # formula (T21's prose called it a parity cell; the code says otherwise).
+        "ta_changeopen": "derived",
+        "ta_beta": "scan_row",
+        "ta_averagetruerange": "scan_row",
+        # -- technical: trend and range (a distance over two cells) -----------
+        "ta_sma20": "derived",
+        "ta_sma50": "derived",
+        "ta_sma200": "derived",
+        "ta_highlow50d": "derived",
+        "ta_highlow52w": "derived",
+        "ta_alltime": "derived",
+        "ta_candlestick": "join",
+        # -- technical: out of scope ------------------------------------------
+        "ta_highlow20d": "new_source",
+        "ta_pattern": "new_source",
+        "ah_close": "new_source",
+        "ah_change": "new_source",
+        # -- news --------------------------------------------------------------
+        "news_date": "join",
+        "news_keywords": "new_source",
+        # -- etf ---------------------------------------------------------------
+        "etf_heldby": "new_source",
+    }
+)
+
+#: The three controls with no catalogue key of their own: `order` sorts scan
+#: columns, `signal` is a derived predicate, and `sh_dilution` is the one probe
+#: control the 82-key catalogue does not have (the probe has 83).
+DISPOSITION_BY_CONTROL: Mapping[str, str] = MappingProxyType(
+    {
+        "order": "scan_row",
+        "signal": "derived",
+        "sh_dilution": "new_source",
+    }
+)
+
+
+def disposition_for(control: Control) -> str:
+    """The disposition of one control: its key's row, or its id's for the three."""
+
+    if control.key is not None:
+        found = DISPOSITION_BY_KEY.get(control.key)
+        if found is not None:
+            return found
+    found = DISPOSITION_BY_CONTROL.get(control.id)
+    if found is None:
+        raise RuntimeError(
+            f"control {control.id!r} (key {control.key!r}) has no disposition: "
+            "state how its value is answered in DISPOSITION_BY_KEY"
+        )
+    return found
+
 
 def _choice_control(key: str, label: str) -> Control:
     """A key whose option vocabulary is the filter: one predicate per token."""
@@ -1243,6 +1428,20 @@ def membership() -> dict[str, Any]:
     }
 
 
+def _published(control: Control, tab: str) -> dict[str, Any]:
+    """One control's published form: which tab, and how it is answered.
+
+    Filled here rather than in every builder because the builders are shared
+    across tabs — the same `_bucket_control` serves `cap` (descriptive) and `pe`
+    (fundamental) — so the tab is a fact about *where* the control is published,
+    and `disposition_for` keeps the provenance in one table.
+    """
+
+    return replace(
+        control, tab=tab, disposition=disposition_for(control)
+    ).as_dict()
+
+
 def document() -> dict[str, Any]:
     """The whole filter document — five tabs — from memory, no scan, no store.
 
@@ -1251,6 +1450,11 @@ def document() -> dict[str, Any]:
     the route may hash its own body. Availability is re-read on every call
     (``buckets.for_key`` asks the snapshot), so installing or removing the
     membership file moves the answer — and therefore the tag — without a restart.
+
+    Every control carries its ``tab`` and its ``disposition``: a client groups
+    the panel by the first and renders the second as "where this number comes
+    from" without hardcoding a label-to-tab map that would drift the first time
+    Finviz moves a control.
     """
 
     return {
@@ -1260,7 +1464,7 @@ def document() -> dict[str, Any]:
                 "id": tab,
                 "label": TAB_LABELS[tab],
                 "controls": [
-                    control.as_dict()
+                    _published(control, tab)
                     for control in (
                         _controls() if tab == "descriptive" else _tab_controls(tab)
                     )
@@ -1453,6 +1657,62 @@ def _validate_groups() -> None:
 
 
 _validate_groups()
+
+
+def _validate_dispositions() -> None:
+    """Fail at import: one disposition per control, agreeing with the schema.
+
+    Three claims are checked, because each one has already been a bug somewhere
+    else in this codebase:
+
+    * every catalogue key states exactly one disposition, and every stated word
+      is one of the five;
+    * the document's disposition is the schema's — a key `filter_fields` refuses
+      is never published as answerable, and a key it can run is never published
+      as `new_source` or `unavailable` (one fact, two surfaces);
+    * a control's `available` flag is its disposition's: `unavailable` and
+      `new_source` controls do not run, and an answerable control does.
+    """
+
+    from app.screen import filter_fields
+
+    missing = sorted(set(FILTER_CATALOG) - set(DISPOSITION_BY_KEY))
+    extra = sorted(set(DISPOSITION_BY_KEY) - set(FILTER_CATALOG))
+    if missing or extra:
+        raise RuntimeError(
+            "every catalogue key needs exactly one disposition: "
+            f"missing={missing}, extra={extra}"
+        )
+    unknown = sorted(set(DISPOSITION_BY_KEY.values()) - DISPOSITIONS)
+    if unknown:
+        raise RuntimeError(f"dispositions outside the five-word vocabulary: {unknown}")
+
+    refused = set(filter_fields.unavailable_keys())
+    for key, word in DISPOSITION_BY_KEY.items():
+        answerable = word in ANSWERABLE_DISPOSITIONS
+        if answerable and key in refused:
+            raise RuntimeError(
+                f"key {key!r} is published as {word!r} but filter_fields refuses it"
+            )
+        if not answerable and key not in refused:
+            raise RuntimeError(
+                f"key {key!r} is published as {word!r} but filter_fields can run it"
+            )
+
+    for tab in TAB_LABELS:
+        controls = _controls() if tab == "descriptive" else _tab_controls(tab)
+        for control in controls:
+            word = disposition_for(control)
+            if control.available is not (word in ANSWERABLE_DISPOSITIONS):
+                raise RuntimeError(
+                    f"control {control.id!r} is available={control.available} but "
+                    f"states disposition {word!r}"
+                )
+            if not control.available and not control.reason:
+                raise RuntimeError(f"disabled control {control.id!r} has no reason")
+
+
+_validate_dispositions()
 
 
 def _validate() -> None:
