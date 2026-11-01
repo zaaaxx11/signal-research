@@ -35,9 +35,22 @@ function money(value: number | null, digits = 2): string {
   });
 }
 
+/** Price move behind a percentage: prev = last / (1 + pct/100). */
+function absolute(row: HomeSideRow): number | null {
+  const price = num(row, "price");
+  const pct = num(row, "change_pct");
+  if (price === null || pct === null || pct <= -100) return null;
+  return price - price / (1 + pct / 100);
+}
+
 function percent(value: number | null): string {
   if (value === null) return EMPTY;
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function signedMoney(value: number | null, digits = 2): string {
+  if (value === null) return EMPTY;
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
 function deltaClass(value: number | null): string {
@@ -126,7 +139,7 @@ export function FuturesTable({ rows }: { readonly rows: readonly HomeSideRow[] |
                 <Td>{text(row, "name") ?? text(row, "symbol") ?? EMPTY}</Td>
                 <Td right>{money(num(row, "price"))}</Td>
                 <Td right className={deltaClass(change)}>
-                  {percent(change)}
+                  {signedMoney(absolute(row))}
                 </Td>
                 <Td right className={deltaClass(change)}>
                   {percent(change)}
@@ -164,7 +177,7 @@ export function ForexTable({ rows }: { readonly rows: readonly HomeSideRow[] | n
                 <Td>{text(row, "name") ?? text(row, "symbol") ?? EMPTY}</Td>
                 <Td right>{money(num(row, "price"), 4)}</Td>
                 <Td right className={deltaClass(change)}>
-                  {percent(change)}
+                  {signedMoney(absolute(row), 4)}
                 </Td>
                 <Td right className={deltaClass(change)}>
                   {percent(change)}
@@ -358,13 +371,11 @@ export function EconomicTable({ rows }: { readonly rows: readonly HomeSideRow[] 
 export function SideColumn({
   futures,
   forex,
-  ipos,
   insiderTop,
   economic,
 }: {
   readonly futures: readonly HomeSideRow[] | null;
   readonly forex: readonly HomeSideRow[] | null;
-  readonly ipos: readonly HomeSideRow[] | null;
   readonly insiderTop: readonly HomeSideRow[] | null;
   readonly economic: readonly HomeSideRow[] | null;
 }) {
@@ -373,7 +384,6 @@ export function SideColumn({
       <EconomicTable rows={economic} />
       <FuturesTable rows={futures} />
       <ForexTable rows={forex} />
-      <IpoGrid rows={ipos} />
       <InsiderTopTable rows={insiderTop} />
     </div>
   );

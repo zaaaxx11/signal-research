@@ -1358,7 +1358,9 @@ async def build_document(
     forex_rows = await forex_work
     if forex_rows is None:
         unavailable.append("forex")
-    ipos = ipos_of(universe)
+    # No IPO table: `ipo_date` from the scan is not a listing feed (it returned
+    # PAXG, a gold token). A block without a source is a block that lies.
+    ipos = None
     if filings is None:
         unavailable.append("filings")
     news = await headlines

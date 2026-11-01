@@ -145,7 +145,6 @@ export function HomePage() {
           <SideColumn
             futures={report?.futures ?? null}
             forex={report?.forex ?? null}
-            ipos={report?.ipos ?? null}
             insiderTop={report?.insiderTop ?? null}
             economic={report?.economic ?? null}
           />
