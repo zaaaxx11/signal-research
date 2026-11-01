@@ -22,6 +22,14 @@
  * a 25-bar one. The popup is `pointer-events: none` for the same reason the
  * map's is: a tooltip that can take the pointer freezes the surface under it.
  *
+ * **Studies are chips, not settings.** SMA 20/50/200 and an RSI pane are
+ * switched on above the plot by a `role="group"` of `aria-pressed` buttons —
+ * the same pattern as the range selector, and reachable by the same Tab. The
+ * selection is component state: not a URL parameter, not `localStorage`, so a
+ * reload is a clean instrument rather than a puzzle about why three lines are
+ * missing. The bar renderer draws them; the canvas painter does not, so the
+ * chips appear only where there is something behind them.
+ *
  * **The canvas is an image, and it has a text twin.** `role="img"` plus a label
  * that states the symbol, range and first/last close is what a screen reader
  * hears; the visually hidden table carries first, last, high and low for a
@@ -41,6 +49,7 @@ import { cn } from "@/lib/utils";
 import { toBars } from "./bars";
 import { barTime } from "./format";
 import { chartGeometry, nearestIndex } from "./geometry";
+import { INDICATOR_IDS, INDICATOR_LABELS, type IndicatorId } from "./indicators";
 import { ChartBarsLazy } from "./lazy";
 import { paintChart, type ChartKind } from "./paint";
 import { mergeChartTheme, readChartTheme, type ChartTheme } from "./theme";
@@ -87,6 +96,34 @@ export interface ChartProps {
 
 const POPUP_WIDTH = 184;
 
+/**
+ * The two rows above the plot, in px. `height` is the whole instrument, so the
+ * plot is what is left; the numbers are declared here once and used by the
+ * layout and by the height handed to the library.
+ */
+const TOOLBAR_HEIGHT = 28;
+const STUDIES_HEIGHT = 24;
+
+/**
+ * The studies a chart opens with: the 50-bar average, the one a reader of a
+ * daily chart expects to find without asking. Everything else is opt-in, and
+ * nothing is remembered — the chips are a view of this series, not a setting,
+ * so a reload starts from the same place as a first visit.
+ */
+const DEFAULT_STUDIES: readonly IndicatorId[] = ["sma50"];
+
+/**
+ * The chip's little dash, and (through `ChartTheme`) the line it stands for.
+ * CSS variables rather than resolved values because a chip is a DOM node: the
+ * live stylesheet applies the theme, including a `[data-theme]` scope.
+ */
+const CHIP_INK: Readonly<Record<IndicatorId, string>> = {
+  sma20: "var(--accent)",
+  sma50: "var(--fg-muted)",
+  sma200: "var(--fg-subtle)",
+  rsi: "var(--accent)",
+};
+
 function toneClass(percent: number | null): string {
   if (percent === null || percent === 0) return "text-flat";
   return percent > 0 ? "text-up" : "text-down";
@@ -127,6 +164,12 @@ export function Chart({
   onData,
 }: ChartProps) {
   const [range, setRange] = React.useState<ChartRange>(initialRange);
+  /**
+   * The studies the reader has switched on. Local state on purpose: a study is
+   * a view of this instrument, not a saved preference, so a reload opens on
+   * `DEFAULT_STUDIES` like every other visit.
+   */
+  const [studies, setStudies] = React.useState<readonly IndicatorId[]>(DEFAULT_STUDIES);
   const view = useChartData(symbol, range);
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -214,7 +257,25 @@ export function Chart({
     () => (renderer === "bars" && series !== null ? toBars(series) : []),
     [renderer, series],
   );
-  const plotHeight = Math.max(1, height - (compact ? 0 : 28));
+  // The chips exist only where a study can be drawn: the bar renderer, at a
+  // size that can hold a line. The canvas painter has no overlay layer and a
+  // 36 px strip has no room, so neither offers a switch it cannot honour.
+  const showStudies = !compact && renderer === "bars";
+  const chrome = compact ? 0 : TOOLBAR_HEIGHT + (showStudies ? STUDIES_HEIGHT : 0);
+  const plotHeight = Math.max(1, height - chrome);
+
+  /**
+   * One chip, flipped. The result is rebuilt in catalogue order so the table's
+   * columns and the drawing order do not depend on the order of clicks.
+   */
+  const toggleStudy = (id: IndicatorId) => {
+    setStudies((current) => {
+      const next = current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id];
+      return INDICATOR_IDS.filter((value) => next.includes(value));
+    });
+  };
 
   // Paint once per geometry/theme/hover. `receivedAt` is stamped by the hook,
   // so the canvas can report "data landed → first paint" for the proof harness.
@@ -376,6 +437,43 @@ export function Chart({
         </div>
       ) : null}
 
+      {showStudies ? (
+        <div
+          data-testid="chart-studies"
+          role="group"
+          aria-label={`Technical indicators for ${symbol}`}
+          className="flex h-6 shrink-0 items-center gap-1 border-b border-line px-1"
+        >
+          {INDICATOR_IDS.map((id) => {
+            const on = studies.includes(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                data-testid={`chart-indicator-${id}`}
+                aria-pressed={on}
+                onClick={() => toggleStudy(id)}
+                className={cn(
+                  "flex items-center gap-1 rounded-sm border px-1.5 py-0 font-mono text-label uppercase tracking-[0.08em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus",
+                  on
+                    ? "border-line-strong bg-row-selected text-fg"
+                    : "border-transparent text-fg-subtle hover:bg-row-hover hover:text-fg",
+                )}
+              >
+                {/* The dash is the legend: the same slot the line is drawn in. */}
+                <span
+                  aria-hidden="true"
+                  data-testid={`chart-indicator-swatch-${id}`}
+                  className="h-0.5 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: CHIP_INK[id] }}
+                />
+                {INDICATOR_LABELS[id]}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       <div ref={wrapRef} data-testid="chart-plot" className="relative min-h-0 w-full flex-1">
         {showCanvas && renderer === "canvas" ? (
           <canvas
@@ -434,6 +532,7 @@ export function Chart({
             height={plotHeight}
             label={label}
             showVolume={showVolume}
+            indicators={showStudies ? studies : undefined}
           />
         ) : null}
 

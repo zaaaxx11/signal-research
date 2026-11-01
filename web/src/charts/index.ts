@@ -18,6 +18,24 @@ export { Chart, type ChartProps } from "./Chart";
  */
 export { barData, toBars, utcLabel, type BarPayload, type ChartBar } from "./bars";
 export {
+  INDICATOR_COLUMNS,
+  INDICATOR_IDS,
+  INDICATOR_LABELS,
+  RSI_PERIOD,
+  SMA_BY_ID,
+  SMA_PERIODS,
+  ema,
+  isIndicatorId,
+  orderIndicators,
+  rsi,
+  sma,
+  type IndicatorId,
+  type Point,
+  type SmaId,
+  type SmaPeriod,
+  type Slot,
+} from "./indicators";
+export {
   AXIS_BOTTOM,
   AXIS_RIGHT,
   GAP_BREAK,

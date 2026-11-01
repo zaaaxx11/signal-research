@@ -221,6 +221,43 @@ describe("ChartBars — the text twin", () => {
   });
 });
 
+describe("ChartBars — studies", () => {
+  it("adds a switched-on study's column to the text twin, empty through the warm-up", () => {
+    render(<ChartBars bars={BARS} height={180} label="S&P 500 chart" indicators={["sma50"]} />);
+
+    const table = screen.getByTestId("chart-bars-table");
+    const headers = [...table.querySelectorAll("thead th")].map((cell) => cell.textContent);
+    expect(headers).toEqual(["Time", "Open", "High", "Low", "Close", "SMA 50"]);
+
+    // Three bars cannot warm up a 50-bar average: the cells exist and are blank.
+    const cells = [...table.querySelectorAll("tbody td[data-study='sma50']")];
+    expect(cells).toHaveLength(3);
+    expect(cells.map((cell) => cell.textContent)).toEqual(["", "", ""]);
+    // But the column is named in the caption, with its period.
+    expect(table.querySelector("caption")?.textContent).toContain("SMA 50 (50-bar simple");
+  });
+
+  it("draws the study as a line series appended to the price pane", () => {
+    render(<ChartBars bars={BARS} height={180} label="S&P 500 chart" indicators={["sma20"]} />);
+
+    expect(lastChart()?.series.map((series) => series.kind)).toEqual(["Bar", "Histogram", "Line"]);
+    expect(lastChart()?.series[2]?.pane).toBe(0);
+    // Not enough history for a 20-bar average: an empty line, not a fake point.
+    expect(lastChart()?.series[2]?.data).toEqual([]);
+  });
+
+  it("ignores studies on a 36 px strip, where three lines would be noise", () => {
+    render(
+      <ChartBars bars={BARS} height={36} label="S&P 500 strip" indicators={["sma50", "rsi"]} />,
+    );
+
+    expect(lastChart()?.series.map((series) => series.kind)).toEqual(["Bar", "Histogram"]);
+    expect(lastChart()?.addPane).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chart-bars").getAttribute("data-indicators")).toBe("sma50,rsi");
+    expect(screen.getByTestId("chart-bars").getAttribute("data-rsi")).toBe("off");
+  });
+});
+
 describe("ChartBars — motion", () => {
   it("animates the entrance by default", () => {
     render(<ChartBars bars={BARS} height={180} label="S&P 500 chart" />);
