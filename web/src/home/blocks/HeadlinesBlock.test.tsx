@@ -25,7 +25,7 @@ describe("HeadlinesBlock", () => {
     render(<HeadlinesBlock state={READY} news={report.news} />);
 
     const links = screen.getByTestId("home-headlines").querySelectorAll("[data-news-link]");
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(5);
     expect(links[0]?.getAttribute("target")).toBe("_blank");
     expect(links[0]?.getAttribute("rel")).toBe("noopener noreferrer");
     expect(links[0]?.textContent).toContain("Futures slide");

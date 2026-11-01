@@ -80,6 +80,9 @@ export interface HomeBreadth {
   readonly newLows: number | null;
   readonly above50: number | null;
   readonly below50: number | null;
+  /** Shares traded in names that rose, and in names that fell. */
+  readonly upVolume: number | null;
+  readonly downVolume: number | null;
 }
 
 export interface HomeSpark {
@@ -256,6 +259,8 @@ function readBreadth(raw: unknown): HomeBreadth | null {
     newLows: firstNumber(raw, ["new_lows", "newLows"]),
     above50: firstNumber(raw, ["above_50", "above50"]),
     below50: firstNumber(raw, ["below_50", "below50"]),
+    upVolume: firstNumber(raw, ["up_volume", "upVolume"]),
+    downVolume: firstNumber(raw, ["down_volume", "downVolume"]),
   };
 }
 

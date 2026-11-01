@@ -145,6 +145,40 @@ async def test_order_is_newest_first_and_an_undated_story_sorts_last(
     assert body["items"][-1]["published_at"] is None
 
 
+async def test_an_auto_written_ownership_post_is_not_a_headline(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The template posts are filings, not news: the desk must not lead with one."""
+
+    feed = FakeFeed(
+        {
+            "SPY": [
+                # Six shapes observed live, all within five minutes.
+                story("Mn Services Vermogensbeheer B.V. Acquires 26,400 Shares of NVIDIA Corporation $NVDA", "https://e.test/13f-1"),
+                story("NVIDIA Corporation $NVDA Shares Newly Acquired by Pacifica Partners Inc.", "https://e.test/13f-2"),
+                story("Stableford Capital II LLC Sells 13,531 Shares of NVIDIA Corporation $NVDA", "https://e.test/13f-3"),
+                story("49,999 Amazon.com, Inc. $AMZN Shares Acquired by Sumitomo Mitsui", "https://e.test/13f-4"),
+                story("Apple Inc. $AAPL Stock: Kintegral Advisory LLC Boosts Holdings", "https://e.test/13f-5"),
+                story("Invesco QQQ $QQQ Stock Sold by Elevation Capital Advisory LLC", "https://e.test/13f-6"),
+                story("Nvidia falls as orders slow into the weekend", "https://e.test/real-1"),
+                story("Microsoft acquires gaming studio in all-cash deal", "https://e.test/real-2"),
+                story("Fed officials split on the pace of cuts, minutes show", "https://e.test/real-3"),
+            ]
+        }
+    )
+    async with news_client(tmp_path, monkeypatch, feed) as (client, _app):
+        body = (await client.get(ROUTE)).json()
+
+    headlines = [row["headline"] for row in body["items"]]
+    # Same timestamp, so the tie-break is headline ascending — a total order, not
+    # the order the fake happened to answer in.
+    assert headlines == [
+        "Fed officials split on the pace of cuts, minutes show",
+        "Microsoft acquires gaming studio in all-cash deal",
+        "Nvidia falls as orders slow into the weekend",
+    ], headlines
+
+
 async def test_a_link_that_is_not_http_is_not_published(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

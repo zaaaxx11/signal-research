@@ -34,7 +34,7 @@ describe("readHome", () => {
     expect(report.map?.tiles).toBe(600);
     expect(report.map?.tilesTotal).toBe(5573);
     expect(report.map?.sectors).toHaveLength(7);
-    expect(report.news).toHaveLength(3);
+    expect(report.news).toHaveLength(8);
     expect(report.filings).toHaveLength(5);
     expect(report.unavailable).toEqual([]);
   });
@@ -65,7 +65,7 @@ describe("readHome", () => {
     expect(report.unavailable).toEqual(["filings"]);
     // The other six blocks still read: one dead source is not a dead document.
     expect(report.indices).toHaveLength(5);
-    expect(report.news).toHaveLength(3);
+    expect(report.news).toHaveLength(8);
   });
 
   it("treats an empty array as an answer, not as a failure", () => {

@@ -20,8 +20,8 @@ describe("BreadthTiles", () => {
     expect(screen.getByTestId("breadth-tile-declining").textContent).toContain("3,932");
     expect(screen.getByTestId("breadth-tile-newHighs").textContent).toContain("45");
     expect(screen.getByTestId("breadth-tile-newLows").textContent).toContain("54");
-    expect(screen.getByTestId("breadth-tile-above50").textContent).toContain("2,104");
-    expect(screen.getByTestId("breadth-tile-below50").textContent).toContain("3,472");
+    expect(screen.getByTestId("breadth-tile-upVolume").textContent).toContain("6.91B");
+    expect(screen.getByTestId("breadth-tile-downVolume").textContent).toContain("11.20B");
     expect(document.querySelectorAll('[data-testid^="breadth-tile-"]')).toHaveLength(6);
   });
 

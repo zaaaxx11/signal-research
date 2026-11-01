@@ -66,6 +66,8 @@ export function homeDocument(overrides: WireOverrides = {}): Record<string, unkn
       new_lows: 54,
       above_50: 2104,
       below_50: 3472,
+      up_volume: 6_912_400_000,
+      down_volume: 11_204_800_000,
     },
     sparks: [
       { symbol: "AAPL", name: "Apple Inc.", price: 344.63, change_pct: -1.23, volume: 42_421_212, closes: series(344.63, 30, 0.8) },
@@ -110,6 +112,11 @@ export function homeDocument(overrides: WireOverrides = {}): Record<string, unkn
         source: "AP",
         published_at: "2026-10-31T16:05:00Z",
       },
+      { headline: "Retail sales beat forecasts as discounts fade", url: "https://example.com/news/retail", source: "Reuters", published_at: "2026-10-31T15:20:00Z" },
+      { headline: "Chip equipment orders slow for a third month", url: "https://example.com/news/semis", source: "Bloomberg", published_at: "2026-10-31T14:02:00Z" },
+      { headline: "Treasury yields steady before the auction", url: "https://example.com/news/yields", source: "CNBC", published_at: "2026-10-31T13:41:00Z" },
+      { headline: "Airline bookings hold up despite fare increases", url: "https://example.com/news/airlines", source: "AP", published_at: "2026-10-31T12:55:00Z" },
+      { headline: "Dollar slips as rate-cut odds rise", url: "https://example.com/news/dollar", source: "Reuters", published_at: "2026-10-31T12:03:00Z" },
     ],
     filings: [
       { symbol: "AAPL", owner: "Newstead Jennifer", role: "General Counsel", filed: "2026-10-29" },

@@ -195,7 +195,7 @@ MOVER_GROUPS: tuple[str, ...] = ("gainers", "new_high", "overbought", "new_low")
 MAP_TILES = 600
 
 #: How many headlines the dashboard shows, and how many Form 4 rows.
-NEWS_ITEMS = 3
+NEWS_ITEMS = 8
 FILINGS_SYMBOLS = 5
 
 #: How long a derived series (price, change, closes) is reused. It is the
@@ -271,7 +271,7 @@ def breadth_of(
     rows: Iterable[Mapping[str, Any]],
     *,
     sma50: Mapping[str, float | None] | None = None,
-) -> dict[str, int]:
+) -> dict[str, float]:
     """Count ``rows`` in one pass: the partition, the extremes and the 50-day.
 
     ``sma50`` is the depth store's **signed percent** distance from the 50-day
@@ -299,6 +299,8 @@ def breadth_of(
     new_lows = 0
     above = 0
     below = 0
+    up_volume = 0.0
+    down_volume = 0.0
 
     for row in rows:
         universe += 1
@@ -313,6 +315,17 @@ def breadth_of(
             declining += 1
         else:
             unchanged += 1
+
+        # Volume follows the same direction as the count, but only for a row
+        # whose side is known: an unknown change has no side to attribute its
+        # shares to, and a missing volume is not zero shares traded.
+        if change is not None and change != 0:
+            volume = number(row.get("volume"))
+            if volume is not None and volume > 0:
+                if change > 0:
+                    up_volume += volume
+                else:
+                    down_volume += volume
 
         price = number(row.get("price"))
         if price is not None and price > 0:
@@ -341,6 +354,8 @@ def breadth_of(
         "new_lows": new_lows,
         "above_50": above,
         "below_50": below,
+        "up_volume": round(up_volume, 2),
+        "down_volume": round(down_volume, 2),
     }
 
 
@@ -903,7 +918,7 @@ def home_document(
     *,
     as_of: str,
     indices: list[dict[str, Any]] | None,
-    breadth: dict[str, int] | None,
+    breadth: dict[str, float] | None,
     sparks: list[dict[str, Any]] | None,
     movers: list[dict[str, Any]] | None,
     map_block: dict[str, Any] | None,

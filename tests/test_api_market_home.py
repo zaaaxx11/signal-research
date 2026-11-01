@@ -83,6 +83,8 @@ _BREADTH_KEYS = frozenset(
         "new_lows",
         "above_50",
         "below_50",
+        "up_volume",
+        "down_volume",
     }
 )
 _FILING_KEYS = frozenset({"symbol", "owner", "role", "filed"})
@@ -622,6 +624,10 @@ async def test_breadth_partitions_the_universe_and_skips_missing_metrics(
     assert breadth["unchanged"] == 2, "a flat row and a null change both count as not moving"
     assert breadth["new_highs"] == 1
     assert breadth["new_lows"] == 1
+    # Two thousand shares on each side: the flat row and the row with no change
+    # have no side to attribute their volume to.
+    assert breadth["up_volume"] == 2_000.0
+    assert breadth["down_volume"] == 2_000.0
 
 
 async def test_a_null_sma50_is_neither_above_nor_below(
@@ -795,7 +801,7 @@ async def test_the_map_is_the_six_hundred_largest_tiles_and_keeps_sectors_whole(
 # ---------------------------------------------------------------------------
 
 
-async def test_news_is_the_first_three_items_of_the_market_merge(
+async def test_news_is_the_first_eight_items_of_the_market_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rows = _small_rows(8)
@@ -803,10 +809,10 @@ async def test_news_is_the_first_three_items_of_the_market_merge(
         tmp_path, monkeypatch, rows=rows, depth={}, charts=_charts_for(rows)
     ) as harness:
         home = (await harness.get("/market/home", region="us")).json()
-        feed = (await harness.get("/market/news", limit="3")).json()
+        feed = (await harness.get("/market/news", limit="8")).json()
 
-    assert len(home["news"]) == 3
-    for mine, theirs in zip(home["news"], feed["items"][:3], strict=True):
+    assert len(home["news"]) == 8
+    for mine, theirs in zip(home["news"], feed["items"][:8], strict=True):
         assert mine["headline"] == theirs["headline"]
         assert mine["url"] == theirs["url"]
         assert mine["published_at"] == theirs["published_at"]

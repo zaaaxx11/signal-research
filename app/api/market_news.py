@@ -43,6 +43,7 @@ inside the window is a 304 decided before any work.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -156,6 +157,48 @@ def _items(document: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
     return raw if isinstance(raw, list) else ()
 
 
+def _generated(headline: str) -> bool:
+    """True for the auto-written 13F/ownership posts the wires publish by the ton.
+
+    Observed live, all six from the same five minutes: "… Acquires 26,400 Shares
+    of NVIDIA", "NVIDIA Shares Newly Acquired by Pacifica", "… Sells 13,531
+    Shares", "49,999 … Shares Acquired by Sumitomo", "Apple Stock: Kintegral
+    Boosts Holdings", "Invesco QQQ Stock Sold by Elevation".
+
+    These are filings turned into sentences by a template. The patterns are
+    narrow on purpose: a story that merely mentions "shares" — "Nvidia shares
+    fall as orders slow" — does not match, and neither does real deal news like
+    "Microsoft acquires gaming studio" (no share count, no holdings verb).
+    """
+
+    text = " ".join(headline.split()).lower()
+    return _TEMPLATE_PATTERNS.search(text) is not None
+
+
+#: The template's shapes: a share count, a passive "shares acquired by", a
+#: holdings verb, or "stock sold by". Compiled once; matching is pure.
+_TEMPLATE_PATTERNS = re.compile(
+    r"(\b\d[\d,]*\s+shares?\b)"
+    r"|(\bshares?\b\s+(newly\s+)?(acquired|sold|purchased|bought)\b)"
+    r"|(\bshares?\s+\w+\s+(acquired|sold|purchased|bought)\s+by\b)"
+    r"|(\b(boost|boosts|boosted|raise|raises|raised|lower|lowered|cut|cuts|trim|trims|trimmed)s?\b\s+holdings?\b)"
+    r"|(\bholdings?\b\s+(raised|lowered|cut|boosted|increased|reduced|decreased)\b)"
+    r"|(\bstock\b\s+(sold|bought|purchased|acquired)\b)"
+    # "Meta Platforms, Inc. $META Stock: B.O.S.S. Retirement Advisors LLC Lowers
+    # Stake" — the ticker prefix plus a colon is the wire's own template marker.
+    r"|(\bstock\s*:)"
+    # "… Trims Position", "… Grows Position", "… Decreases Position": a verb
+    # immediately before the noun, not the noun alone (a story about a company's
+    # "position in AI" is news, not a filing).
+    r"|(\b(lowers?|lowered|grows?|grew|trims?|trimmed|decreases?|decreased|increases?|increased|boosts?|boosted|raises?|raised|cuts?|cut)\b\s+(its\s+)?(stake|position)\b)"
+    # The passive form: "Stock Position Boosted by …", "Holdings Raised by …".
+    r"|(\b(stake|position|holdings?)\b\s+(boosted|raised|lowered|cut|trimmed|increased|decreased)\b)"
+    # Aggregator index pages, not stories ("… Latest Stock News & Headlines").
+    r"|(\b(latest stock news|news & headlines|press release & webcast)\b)",
+    re.IGNORECASE,
+)
+
+
 def merge(documents: Iterable[tuple[str, Mapping[str, Any]]]) -> list[Row]:
     """One story per URL, with the symbols that carried it, newest first."""
 
@@ -165,6 +208,11 @@ def merge(documents: Iterable[tuple[str, Mapping[str, Any]]]) -> list[Row]:
             headline = item.get("headline")
             url = _http_url(item.get("url"))
             if not isinstance(headline, str) or not headline.strip() or url is None:
+                continue
+            if _generated(headline):
+                # A template, not a story. Dropping it here means every surface
+                # that reads the merge — the news page and the dashboard's desk —
+                # agrees about what counts as a headline.
                 continue
             key = _dedupe_key(url)
             at = _moment(item.get("published_at"))

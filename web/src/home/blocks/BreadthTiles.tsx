@@ -1,5 +1,14 @@
 /**
- * Six breadth tiles: two directions, two extremes, and the 50-day split.
+ * Six breadth tiles: who is buying, who is selling, and where the extremes are.
+ *
+ *   Advancing / Declining   companies up and down today
+ *   New highs / New lows    companies at their 52-week extreme
+ *   Up volume / Down volume shares traded in the names that rose / fell
+ *
+ * The volume pair is what makes the count pair honest: 1,500 names rising on
+ * thin volume and 900 falling on heavy volume is a selling market, and the
+ * counts alone would say the opposite. Both use the same share formatter as
+ * every other volume in the product.
  *
  * The tiles are counts, never shares of a bar: "1,557 advancing" is a fact, and
  * a 27.9 % bar beside it is the same fact drawn twice. The universe is printed
@@ -10,7 +19,7 @@
 
 import type { BlockState, HomeBreadth } from "../home";
 import { BLOCK_HEIGHT, HomeBlock, SkeletonTiles } from "./HomeBlock";
-import { Count } from "./Values";
+import { Count, Volume } from "./Values";
 
 // Auto-fit, not a fixed count: six tiles on a wide panel, three on a tablet,
 // two on a phone, and every tile the same width because the row divides itself.
@@ -19,15 +28,16 @@ const COLUMNS = "grid-cols-[repeat(auto-fit,minmax(128px,1fr))]";
 interface Tile {
   readonly key: keyof HomeBreadth;
   readonly label: string;
+  readonly kind: "count" | "volume";
 }
 
 const TILES: readonly Tile[] = [
-  { key: "advancing", label: "Advancing" },
-  { key: "declining", label: "Declining" },
-  { key: "newHighs", label: "New highs" },
-  { key: "newLows", label: "New lows" },
-  { key: "above50", label: "Above 50-day" },
-  { key: "below50", label: "Below 50-day" },
+  { key: "advancing", label: "Advancing", kind: "count" },
+  { key: "declining", label: "Declining", kind: "count" },
+  { key: "newHighs", label: "New highs", kind: "count" },
+  { key: "newLows", label: "New lows", kind: "count" },
+  { key: "upVolume", label: "Up volume", kind: "volume" },
+  { key: "downVolume", label: "Down volume", kind: "volume" },
 ];
 
 export interface BreadthTilesProps {
@@ -59,11 +69,19 @@ export function BreadthTiles({ state, breadth, className }: BreadthTilesProps) {
                   {tile.label}
                 </dt>
                 <dd className="leading-none">
-                  <Count
-                    value={breadth[tile.key]}
-                    missing={tile.label.toLowerCase()}
-                    className="text-[15px]"
-                  />
+                  {tile.kind === "volume" ? (
+                    <Volume
+                      value={breadth[tile.key]}
+                      missing={tile.label.toLowerCase()}
+                      className="text-[15px]"
+                    />
+                  ) : (
+                    <Count
+                      value={breadth[tile.key]}
+                      missing={tile.label.toLowerCase()}
+                      className="text-[15px]"
+                    />
+                  )}
                 </dd>
               </div>
             ))}
