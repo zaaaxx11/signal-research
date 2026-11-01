@@ -18,7 +18,9 @@ import type { BlockState, HomeFiling } from "../home";
 import { BLOCK_HEIGHT, HomeBlock } from "./HomeBlock";
 import { SkeletonBar } from "./HomeBlock";
 
-const COLUMNS = "grid-cols-1 min-[700px]:grid-cols-2 min-[1100px]:grid-cols-5";
+// Auto-fit: five filings across a wide strip, one per row on a phone, with the
+// row always filled edge to edge.
+const COLUMNS = "grid-cols-[repeat(auto-fit,minmax(190px,1fr))]";
 
 export interface InsiderStripProps {
   readonly state: BlockState;

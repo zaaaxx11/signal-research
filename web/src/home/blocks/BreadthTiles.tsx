@@ -12,7 +12,9 @@ import type { BlockState, HomeBreadth } from "../home";
 import { BLOCK_HEIGHT, HomeBlock, SkeletonTiles } from "./HomeBlock";
 import { Count } from "./Values";
 
-const COLUMNS = "grid-cols-2 min-[700px]:grid-cols-3 min-[900px]:grid-cols-6";
+// Auto-fit, not a fixed count: six tiles on a wide panel, three on a tablet,
+// two on a phone, and every tile the same width because the row divides itself.
+const COLUMNS = "grid-cols-[repeat(auto-fit,minmax(128px,1fr))]";
 
 interface Tile {
   readonly key: keyof HomeBreadth;

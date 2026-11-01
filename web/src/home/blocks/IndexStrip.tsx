@@ -19,7 +19,18 @@ import { SparkCard } from "./SparkCard";
 import { Sparkline } from "./Sparkline";
 
 const COLUMNS = "grid-cols-2 min-[700px]:grid-cols-4 min-[1100px]:grid-cols-8";
-const MESSAGE_SPAN = "col-span-2 min-[700px]:col-span-4 min-[1100px]:col-span-8";
+
+/**
+ * The strip scrolls sideways.
+ *
+ * Eight tiles at a comfortable width do not fit a 900 px window, and the two
+ * alternatives are worse: shrinking them turns a sparkline into a line, and
+ * wrapping them into a second row makes the strip claim two rows of the page's
+ * height for one idea. The tiles keep their width, the row scrolls, and the
+ * scroll snaps to a tile so a wheel or a swipe lands on a card rather than
+ * between two.
+ */
+const TILE_WIDTH = "w-[148px] shrink-0 snap-start";
 
 export interface IndexStripProps {
   readonly indicesState: BlockState;
@@ -33,7 +44,7 @@ function IndexTile({ index }: { index: HomeIndex }) {
   return (
     <div
       data-testid={`index-card-${index.symbol}`}
-      className="flex min-w-0 flex-col gap-1 rounded-sm border border-line bg-surface-sunken p-1.5"
+      className={`${TILE_WIDTH} flex min-w-0 flex-col gap-1 rounded-sm border border-line bg-surface-sunken p-1.5`}
     >
       <h3 className="truncate text-[10px] uppercase tracking-[0.05em] text-fg-subtle" title={index.label}>
         {index.label}
@@ -82,17 +93,20 @@ export function IndexStrip({
           }
         />
       ) : (
-        <div className={`grid gap-2 p-2 ${COLUMNS}`}>
+        <div
+          data-testid="strip-scroll"
+          className="flex snap-x snap-mandatory gap-2 overflow-x-auto p-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong"
+        >
           {indices === null ? (
             <p
               data-testid="indices-reason"
               title={indicesState.reason ?? undefined}
-              className={`${MESSAGE_SPAN} text-[11px] text-fg-subtle`}
+              className="min-w-[220px] text-[11px] text-fg-subtle"
             >
               {indicesState.reason}
             </p>
           ) : indices.length === 0 ? (
-            <p className={`${MESSAGE_SPAN} text-[11px] text-fg-subtle`}>
+            <p className="min-w-[220px] text-[11px] text-fg-subtle">
               No index quotes in this response.
             </p>
           ) : (
@@ -103,12 +117,12 @@ export function IndexStrip({
             <p
               data-testid="sparks-reason"
               title={sparksState.reason ?? undefined}
-              className={`${MESSAGE_SPAN} text-[11px] text-fg-subtle`}
+              className="min-w-[220px] text-[11px] text-fg-subtle"
             >
               {sparksState.reason}
             </p>
           ) : sparks.length === 0 ? (
-            <p className={`${MESSAGE_SPAN} text-[11px] text-fg-subtle`}>
+            <p className="min-w-[220px] text-[11px] text-fg-subtle">
               No ticker sparks in this response.
             </p>
           ) : (
