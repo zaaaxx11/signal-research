@@ -36,7 +36,7 @@ describe("appHref", () => {
     expect(appHref("/")).toBe("/app/");
     expect(appHref("/screener")).toBe("/app/screener");
     expect(appHref("/screener/etf")).toBe("/app/screener/etf");
-    expect(appHref("/soon/maps")).toBe("/app/soon/maps");
+    expect(appHref("/map")).toBe("/app/map");
   });
 
   it("refuses a relative path", () => {
@@ -133,17 +133,17 @@ describe("Link", () => {
     const user = userEvent.setup();
     render(
       <div>
-        <Link to="/soon/maps">Maps</Link>
+        <Link to="/soon/news">News</Link>
         <Where />
       </div>,
     );
 
-    const anchor = screen.getByRole("link", { name: "Maps" });
-    expect(anchor.getAttribute("href")).toBe("/app/soon/maps");
+    const anchor = screen.getByRole("link", { name: "News" });
+    expect(anchor.getAttribute("href")).toBe("/app/soon/news");
     expect(screen.getByTestId("where").textContent).toBe("home");
 
     await user.click(anchor);
-    expect(window.location.pathname).toBe("/app/soon/maps");
+    expect(window.location.pathname).toBe("/app/soon/news");
     expect(screen.getByTestId("where").textContent).toBe("soon");
   });
 

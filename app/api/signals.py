@@ -59,8 +59,12 @@ because they are the only part a reader can check by hand:
   ``atr_14 / price`` **expressed in percent** (``* 100``) so the fallback is
   comparable to the primary cell, which the provider reports in percent. Two
   different units in one order is a table sorted by accident;
-* ``insider_buying`` — ``insider_trans > 0``, descending;
-  ``insider_selling`` — ``insider_trans < 0``, ascending;
+* ``insider_buying`` / ``insider_selling`` — **withdrawn**: ``insider_trans``
+  is a vendor field whose own numbers cannot be read as a flow (TSLA 76.0,
+  META 45.9, GME 8.7 — a mixture of ownership levels and junk), so a table
+  claiming "insider buying" would publish an interpretation the data does not
+  support. Both are ``available: false``; the Insider page reads real Form 4
+  filings per company instead.
 * ``upgrades`` / ``downgrades`` — **not computable**: no analyst-ratings source
   exists in this deployment. They are published ``available: false`` with the
   reason and no rows. Inventing them from ``recommendation`` would be inventing
@@ -486,19 +490,22 @@ SIGNALS: tuple[SignalRule, ...] = (
     SignalRule(
         id="insider_buying",
         label="Insider Buying",
-        criterion="insider_trans > 0",
-        metric="insider_trans",
-        measure=_insider,
-        accepts=_bought,
+        criterion="a company-level insider purchase, which this build reads from filings, not from insider_trans",
+        metric="Form 4 purchases",
+        measure=_no_measure,
+        accepts=_never,
+        available=False,
+        reason="insider flow needs filings, not a vendor field",
     ),
     SignalRule(
         id="insider_selling",
         label="Insider Selling",
-        criterion="insider_trans < 0",
-        metric="insider_trans",
-        measure=_insider,
-        accepts=_sold,
-        order="asc",
+        criterion="a company-level insider sale, which this build reads from filings, not from insider_trans",
+        metric="Form 4 sales",
+        measure=_no_measure,
+        accepts=_never,
+        available=False,
+        reason="insider flow needs filings, not a vendor field",
     ),
     SignalRule(
         id="upgrades",

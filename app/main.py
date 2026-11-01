@@ -28,8 +28,13 @@ from starlette.types import Scope
 
 from app import __version__
 from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
+from app.api import alt as alt_api
+from app.api import calendar as calendar_api
+from app.api import chart as chart_api
 from app.api import engine as engine_api
+from app.api import groups as groups_api
 from app.api import logos as logos_api
+from app.api import map as map_api
 from app.api import signals
 from app.api.cache import matches
 from app.auth import ApiError
@@ -795,6 +800,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: computable today), from one pass over the selector's universe and the
     #: same scan cache — so the page and a screen describe one population.
     mount_router(application, signals.router)
+    #: ``GET /market/map``: the treemap's inputs — every tile of the selector's
+    #: universe with its cap and its change — from one scan, one build, one pass,
+    #: memoised per scan generation. The largest body in the app (~173 KB).
+    mount_router(application, map_api.router)
+    #: ``GET /market/groups``: the sector table beside that treemap, from the
+    #: *same* pass, so a sector's weighted move is one number in two documents.
+    mount_router(application, groups_api.router)
+    #: ``GET /market/calendar``: earnings dates inside a window, from the depth
+    #: store alone — no scan, so its validator is the store's file version.
+    mount_router(application, calendar_api.router)
+    #: ``GET /market/chart/{symbol}``: the OHLC series a browser draws, parsed once
+    #: and kept for five minutes; its validator is the series' own inputs.
+    mount_router(application, chart_api.router)
+    #: ``GET /market/alt``: crypto, futures and FX — the markets the selector's
+    #: universe does not carry — from one batched read per class, kept for a
+    #: minute. ``GET /market/quotes``: the batch lookup a watchlist calls, reading
+    #: equities from the scan and the rest through the same alt reader.
+    mount_router(application, alt_api.router)
+    #: ``GET /market/insider``: the insider index — net share change, ranked —
+    #: from one join of the depth store and one pass over the selector's universe.
     mount_router(application, news.router)
     #: ``GET /logos/{symbol}``: the brand mark on its own URL, so a 100-row
     #: projection carries none of its bytes and every row still has a ``src``.

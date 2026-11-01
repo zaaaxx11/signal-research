@@ -33,6 +33,18 @@ import { StockPage } from "@/stock/StockPage";
 import { DETAIL_CHUNK_ATTEMPTS, detailChunk, loadDetailPanel } from "@/detail/load";
 import type { SymbolHit } from "@/lib/api";
 import { navigate, useRoute, useSearch } from "@/shell/routes";
+import {
+  loadCalendarPage,
+  loadChartsPage,
+  loadCryptoPage,
+  loadForexPage,
+  loadFuturesPage,
+  loadGroupsPage,
+  loadInsiderPage,
+  loadMapPage,
+  loadPortfolioPage,
+  loadWatchlistPage,
+} from "@/shell/lazyPages";
 
 // The chunk's loader and retry budget are re-exported here because this is
 // where the panel first lived and where its tests point; the implementation is
@@ -82,6 +94,23 @@ function SkipLink() {
   );
 }
 
+/**
+ * What a lazy page shows while its chunk travels.
+ *
+ * Reserves the viewport under the nav and says what is coming, so the shell does
+ * not jump when the page arrives and a slow network is not mistaken for a blank
+ * page. `role="status"` is the one live region on the page at that moment.
+ */
+function PageSkeleton({ label }: { label: string }) {
+  return (
+    <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
+      <p role="status" className="text-ui text-fg-subtle">
+        {label}…
+      </p>
+    </main>
+  );
+}
+
 export function App() {
   const route = useRoute();
   const searchQuery = useSearch();
@@ -96,6 +125,16 @@ export function App() {
     // would re-suspend on every row click even after the chunk has landed.
     [detailAttempt],
   );
+  const MapPage = React.useMemo(() => React.lazy(loadMapPage), []);
+  const GroupsPage = React.useMemo(() => React.lazy(loadGroupsPage), []);
+  const CalendarPage = React.useMemo(() => React.lazy(loadCalendarPage), []);
+  const ChartsPage = React.useMemo(() => React.lazy(loadChartsPage), []);
+  const InsiderPage = React.useMemo(() => React.lazy(loadInsiderPage), []);
+  const CryptoPage = React.useMemo(() => React.lazy(loadCryptoPage), []);
+  const FuturesPage = React.useMemo(() => React.lazy(loadFuturesPage), []);
+  const ForexPage = React.useMemo(() => React.lazy(loadForexPage), []);
+  const WatchlistPage = React.useMemo(() => React.lazy(loadWatchlistPage), []);
+  const PortfolioPage = React.useMemo(() => React.lazy(loadPortfolioPage), []);
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // "/" focuses the one symbol search; the filter palette keeps ⌘K (it lives in
@@ -181,6 +220,46 @@ export function App() {
         />
       ) : route.kind === "stock" ? (
         <StockPage symbol={route.symbol} onClose={() => navigate("/")} />
+      ) : route.kind === "map" ? (
+        <React.Suspense fallback={<PageSkeleton label="Drawing the market map" />}>
+          <MapPage />
+        </React.Suspense>
+      ) : route.kind === "groups" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading sector groups" />}>
+          <GroupsPage />
+        </React.Suspense>
+      ) : route.kind === "calendar" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading the earnings calendar" />}>
+          <CalendarPage />
+        </React.Suspense>
+      ) : route.kind === "charts" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading charts" />}>
+          <ChartsPage />
+        </React.Suspense>
+      ) : route.kind === "insider" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading insider activity" />}>
+          <InsiderPage />
+        </React.Suspense>
+      ) : route.kind === "crypto" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading crypto" />}>
+          <CryptoPage />
+        </React.Suspense>
+      ) : route.kind === "futures" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading futures" />}>
+          <FuturesPage />
+        </React.Suspense>
+      ) : route.kind === "forex" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading forex" />}>
+          <ForexPage />
+        </React.Suspense>
+      ) : route.kind === "watchlist" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading your watchlist" />}>
+          <WatchlistPage />
+        </React.Suspense>
+      ) : route.kind === "portfolio" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading your portfolio" />}>
+          <PortfolioPage />
+        </React.Suspense>
       ) : route.kind === "soon" ? (
         <SoonPage slug={route.slug} />
       ) : (

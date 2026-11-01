@@ -20,20 +20,20 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Home", path: "/" },
   { label: "Stock Screener", path: "/screener" },
   { label: "ETF Screener", path: "/screener/etf" },
-  { label: "Maps", path: "/soon/maps" },
-  { label: "Charts", path: "/soon/charts" },
+  { label: "Maps", path: "/map" },
+  { label: "Charts", path: "/charts" },
   // The news surface has no page of its own yet: the view catalogue does not
   // carry a `news` view, so pointing at the screener would open the wrong
   // content under the right name. The soon page names it honestly.
   { label: "News", path: "/soon/news" },
-  { label: "Groups", path: "/soon/groups" },
-  { label: "Insider", path: "/soon/insider" },
-  { label: "Futures", path: "/soon/futures" },
-  { label: "Forex", path: "/soon/forex" },
-  { label: "Crypto", path: "/soon/crypto" },
-  { label: "Watchlist", path: "/soon/watchlist" },
-  { label: "Portfolio", path: "/soon/portfolio" },
-  { label: "Calendar", path: "/soon/calendar" },
+  { label: "Groups", path: "/groups" },
+  { label: "Insider", path: "/insider" },
+  { label: "Futures", path: "/futures" },
+  { label: "Forex", path: "/forex" },
+  { label: "Crypto", path: "/crypto" },
+  { label: "Watchlist", path: "/watchlist" },
+  { label: "Portfolio", path: "/portfolio" },
+  { label: "Calendar", path: "/calendar" },
 ] as const;
 
 /** The path part of an href, for comparing against a route. */

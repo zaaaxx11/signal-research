@@ -55,7 +55,7 @@ describe("SiteNav", () => {
     }
     expect(links[1]?.getAttribute("href")).toBe("/app/screener");
     expect(links[2]?.getAttribute("href")).toBe("/app/screener/etf");
-    expect(links[3]?.getAttribute("href")).toBe("/app/soon/maps");
+    expect(links[3]?.getAttribute("href")).toBe("/app/map");
   });
 
   it("carries no account or marketing links", () => {

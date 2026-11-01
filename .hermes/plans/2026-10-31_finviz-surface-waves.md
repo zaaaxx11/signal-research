@@ -59,6 +59,42 @@ charts                 belum ada cache OHLC; perlu endpoint chart yang memakai
                        egress ladder yang sama + cache 5–15 menit
 ```
 
+
+## Wave 4 — kontrak yang akan dibangun
+
+```text
+GET /market/alt?class=crypto|futures|forex&per=50
+  { as_of, class, universe_total, measured, per, method,
+    rows:[{symbol,name,price,change_pct,volume,currency}] }
+  sumber: Yahoo chart per simbol (probe: BTC-USD, ES=F, EURUSD=X menjawab),
+  cache 60 s, ETag, HEAD. Daftar simbol kurasi (crypto ~40, futures ~25, forex ~20);
+  baris tanpa harga dilewati, `measured` menghitung yang terukur.
+
+GET /market/quotes?symbols=AAPL,BTC-USD
+  { as_of, rows:[{symbol,price,change_pct,currency,class}] }
+  saham dari baris scan (data kita), crypto/fx/futures dari jalur alt yang sama.
+
+Watchlist / Portfolio
+  localStorage (bukan akun): "saved in this browser" ditulis terang.
+  Portfolio: {symbol, qty, cost} → P&L dihitung klien; harga dari /market/quotes.
+  Tidak ada login, tidak ada server state, tidak ada klaim sinkron.
+```
+
+
+## Status eksekusi (2026-11-01)
+
+```text
+Wave 1  ✅ nav 14 · Home 9 tabel + 4 penolakan jujur · 20 baris/halaman · /stock/{symbol}
+Wave 2  ✅ /map (kanvas, 5.573 kotak, hover popup) · /groups (21 sektor) · /calendar (18 hari)
+Wave 3  ✅ /charts (5 indeks) · /insider (Form 4 per perusahaan) · chart di halaman ticker
+Wave 4  ✅ /crypto (40) · /futures (25) · /forex (20) · /watchlist · /portfolio (localStorage)
+Sisa    /news masih /soon/news — satu-satunya section yang belum punya halaman
+```
+
+Keputusan data yang mengubah rencana: tabel Insider Buying/Selling di Home **dicabut**.
+`insider_trans` tidak bisa dibaca sebagai arus (TSLA 76,0 · META 45,9 · GME 8,7),
+jadi `/market/signals` menolaknya dengan alasan dan halaman Insider membaca Form 4 asli.
+
 ## Prinsip yang dipegang
 
 ```text

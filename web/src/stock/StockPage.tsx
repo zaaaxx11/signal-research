@@ -10,12 +10,18 @@
  * pay for the detail surface's bundle to draw a table of tickers. A chunk that
  * cannot be downloaded costs the page's panel, not the route — the boundary
  * names it and retries once.
+ *
+ * The price chart sits above the panel and is lazy on its own: a reader who
+ * came for the fundamentals should not download the canvas renderer, and a
+ * chart that fails to load must not take the fundamentals with it. Two
+ * boundaries, two chunks, two failures that stay local.
  */
 
 import * as React from "react";
 
 import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { loadDetailPanel } from "@/detail/load";
+import { loadStockChart } from "@/charts/load";
 import { Link } from "@/shell/routes";
 
 export interface StockPageProps {
@@ -28,6 +34,7 @@ export function StockPage({ symbol, onClose }: StockPageProps) {
   // Bumped by a failed load's "Try again": a new lazy type re-runs the import.
   const [attempt, setAttempt] = React.useState(0);
   const Panel = React.useMemo(() => React.lazy(loadDetailPanel), [attempt]);
+  const Chart = React.useMemo(() => React.lazy(loadStockChart), []);
 
   return (
     <main
@@ -41,6 +48,19 @@ export function StockPage({ symbol, onClose }: StockPageProps) {
         </Link>
         <span className="font-mono text-data font-semibold text-fg">{symbol}</span>
       </div>
+
+      <React.Suspense
+        fallback={<div aria-busy="true" aria-label={`Loading the chart for ${symbol}`} className="h-[280px] shrink-0 border-b border-line bg-surface" />}
+      >
+        <ErrorBoundary
+          resetKey={`${symbol}:chart`}
+          label={`Chart for ${symbol}`}
+          hint="The chart code could not be downloaded; the details below are still live."
+          className="shrink-0 border-b border-line"
+        >
+          <Chart symbol={symbol} />
+        </ErrorBoundary>
+      </React.Suspense>
 
       <div className="flex min-h-0 flex-1 flex-col">
         <ErrorBoundary

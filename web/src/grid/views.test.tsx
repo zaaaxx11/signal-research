@@ -172,7 +172,18 @@ describe("the catalogue is the only source of views and columns", () => {
           // not screener views). This assertion is about the code that draws
           // the view strip and builds the request — which is exactly the code
           // that must not know a view's name.
-          if (entry === "detail" || entry === "breadth") continue;
+          // `map`, `groups` and `calendar` are their own surfaces too: they
+          // carry vocabularies (a tile's `value`, a sector's label) that have
+          // nothing to do with the screener's view strip.
+          if (
+            entry === "detail" ||
+            entry === "breadth" ||
+            entry === "map" ||
+            entry === "groups" ||
+            entry === "calendar"
+          ) {
+            continue;
+          }
           walk(full);
           continue;
         }

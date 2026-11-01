@@ -16,17 +16,7 @@ import { Link } from "./routes";
 import { type SoonSlug } from "./routes";
 
 const COPY: Record<SoonSlug, string> = {
-  maps: "A sector map, drawn from the same rows the screener serves.",
   news: "Headlines per symbol, once the news surface has a page of its own.",
-  charts: "Per-symbol price history, once the chart series is exposed.",
-  groups: "Sector and industry aggregates: counts, averages and breadth.",
-  insider: "Form 4 filings, once the insider register is presented.",
-  futures: "Contract months and rolls, once the futures universe exists.",
-  forex: "Currency pairs, once the forex universe exists.",
-  crypto: "Digital assets, once the crypto universe exists.",
-  watchlist: "Saved tickers, once accounts exist.",
-  portfolio: "Positions and performance, once accounts exist.",
-  calendar: "Earnings dates, once the calendar view is built.",
 };
 
 export interface SoonPageProps {

@@ -176,12 +176,12 @@ describe("a ticker page", () => {
 describe("an unbuilt section", () => {
   it("renders /soon/{slug} inside the same shell, naming the section", async () => {
     stubApi();
-    window.history.replaceState(null, "", "/app/soon/maps");
+    window.history.replaceState(null, "", "/app/soon/news");
     render(<App />);
 
     const page = await screen.findByTestId("soon-page");
-    expect(page.getAttribute("data-slug")).toBe("maps");
-    expect(within(page).getByRole("heading", { level: 1 }).textContent).toBe("Maps");
+    expect(page.getAttribute("data-slug")).toBe("news");
+    expect(within(page).getByRole("heading", { level: 1 }).textContent).toBe("News");
     expect(page.textContent).toContain("not built yet");
     // The nav is still there: this is a page of the product, not a dead end.
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
@@ -194,11 +194,11 @@ describe("an unbuilt section", () => {
 
     await screen.findByTestId("signal-card-gainers");
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    await user.click(within(nav).getByRole("link", { name: "Charts" }));
+    await user.click(within(nav).getByRole("link", { name: "News" }));
 
-    expect(window.location.pathname).toBe("/app/soon/charts");
+    expect(window.location.pathname).toBe("/app/soon/news");
     const page = await screen.findByTestId("soon-page");
-    expect(page.getAttribute("data-slug")).toBe("charts");
+    expect(page.getAttribute("data-slug")).toBe("news");
   });
 });
 

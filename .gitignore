@@ -34,3 +34,6 @@ research/finviz-ui-raw/**/*.html
 
 # Raw capture dumps from the Finviz probe stay out of history (9.8 MB).
 research/fv-measure/*.json
+
+# scratch probes
+.probe_*.py

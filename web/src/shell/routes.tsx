@@ -42,29 +42,41 @@ export const APP_BASE = ENV_BASE === "/" ? "/app" : ENV_BASE.replace(/\/+$/, "")
  * point somewhere honest before its surface exists. The slug is part of the
  * URL, not an index into a list: a link keeps its meaning when the list grows.
  */
-export const SOON_SLUGS = [
-  "maps",
-  "news",
-  "charts",
-  "groups",
-  "insider",
-  "futures",
-  "forex",
-  "crypto",
-  "watchlist",
-  "portfolio",
-  "calendar",
-] as const;
+export const SOON_SLUGS = ["news"] as const;
 
 export type SoonSlug = (typeof SOON_SLUGS)[number];
 
 /** The paths this build answers. Used by the nav test to prove no dead links. */
-export const ROUTE_PATHS = ["/", "/screener", "/screener/etf"] as const;
+export const ROUTE_PATHS = [
+  "/",
+  "/screener",
+  "/screener/etf",
+  "/map",
+  "/groups",
+  "/calendar",
+  "/charts",
+  "/insider",
+  "/crypto",
+  "/futures",
+  "/forex",
+  "/watchlist",
+  "/portfolio",
+] as const;
 
 export type Route =
   | { kind: "home" }
   | { kind: "screener"; assetClass: "stock" | "etf" }
   | { kind: "stock"; symbol: string }
+  | { kind: "map" }
+  | { kind: "groups" }
+  | { kind: "calendar" }
+  | { kind: "charts" }
+  | { kind: "insider" }
+  | { kind: "crypto" }
+  | { kind: "futures" }
+  | { kind: "forex" }
+  | { kind: "watchlist" }
+  | { kind: "portfolio" }
   | { kind: "soon"; slug: SoonSlug }
   | { kind: "notfound"; path: string };
 
@@ -93,6 +105,16 @@ export function parseRoute(pathname: string): Route {
   if (path === "/") return { kind: "home" };
   if (path === "/screener") return { kind: "screener", assetClass: "stock" };
   if (path === "/screener/etf") return { kind: "screener", assetClass: "etf" };
+  if (path === "/map") return { kind: "map" };
+  if (path === "/groups") return { kind: "groups" };
+  if (path === "/calendar") return { kind: "calendar" };
+  if (path === "/charts") return { kind: "charts" };
+  if (path === "/insider") return { kind: "insider" };
+  if (path === "/crypto") return { kind: "crypto" };
+  if (path === "/futures") return { kind: "futures" };
+  if (path === "/forex") return { kind: "forex" };
+  if (path === "/watchlist") return { kind: "watchlist" };
+  if (path === "/portfolio") return { kind: "portfolio" };
 
   if (path.startsWith("/stock/")) {
     const raw = path.slice("/stock/".length);
