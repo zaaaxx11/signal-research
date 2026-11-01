@@ -130,6 +130,8 @@ from app.auth import ApiError, owner_fingerprint
 from app.branding import logo_for
 from app.export.manifest import file_sha256
 from app.runtime import Runtime
+from app.screen import descriptive
+from app.screen import index_membership
 from app.screen.export import (
     DATA_FORMATS,
     EXPORT_FORMATS,
@@ -365,6 +367,28 @@ async def _store_identity(store: Any, table: str) -> str:
     return f"{int(row.get('n') or 0)}:{row.get('m') or '-'}"
 
 
+def _membership_identity() -> str:
+    """The index-membership snapshot this answer's ``idx`` filter reads.
+
+    ``<as_of>:<counts>`` — the stamp *and* the four list lengths, because a
+    snapshot rewritten in place keeps its ``as_of`` while a reconstitution moves
+    a count. ``absent`` when there is no snapshot: that is a different answer
+    (``idx`` is a 422), not an empty one, so it must not hash like a live file.
+
+    Read from the module's cache (~2 µs), never from disk: this runs on the
+    revalidation path, whose whole point is to decide a ``304`` without touching
+    a store.
+    """
+
+    snapshot = index_membership.load()
+    if not snapshot.available:
+        return "absent"
+    counts = ",".join(
+        str(snapshot.counts.get(name, 0)) for name in index_membership.INDICES
+    )
+    return f"{snapshot.as_of}:{counts}"
+
+
 def _data_revision(
     *,
     snapshot_id: str | None,
@@ -374,6 +398,7 @@ def _data_revision(
     fundamentals: str,
     facts: str,
     brand: str,
+    members: str,
     answer: str | None = None,
 ) -> str:
     """Every input that can change the body, in one auditable line.
@@ -386,6 +411,13 @@ def _data_revision(
       once, on its next request, which is a ``200`` — the safe direction. The
       old string could not be kept because it contained the answer, and the
       answer is the one thing this route may no longer build before deciding.
+    * ``v3`` — ``members=`` arrived (plan T10). ``idx`` reads
+      ``index_members``, a cell :func:`app.screen.index_membership.enrich_rows`
+      attaches from a vendored snapshot; that snapshot is now an input of every
+      answer that can carry an ``idx`` filter, so replacing it has to move the
+      tag. Without the bump, installing a new list would ``304`` rows filtered
+      by the old one. Same bargain as ``v2``: every warm tag moves once, and
+      moves toward a ``200``.
     * ``snapshot=`` — the stored snapshot a ticker list was resolved in: its id
       and its own ``as_of``. A criteria query has none (it scans live), hence
       ``-``. The snapshot's *rows* are not read: symbols mode resolves tickers
@@ -404,6 +436,7 @@ def _data_revision(
       already had, never a stale ``304``.
     * ``fund=`` / ``facts=`` — the two joins (:func:`_store_identity`).
     * ``logo=`` — the vendored brand set (:func:`_brand_identity`).
+    * ``members=`` — the index-membership snapshot (:func:`_membership_identity`).
     * ``answer=`` — present **only for ``fill_wide``**, whose cells are live
       page fetches that no store revision can name. That mode keeps the old
       behaviour exactly: build, digest the answer, compare afterwards.
@@ -413,13 +446,14 @@ def _data_revision(
     """
 
     line = (
-        "v2"
+        "v3"
         f";snapshot={snapshot_id or '-'}@{snapshot_as_of or '-'}"
         f";depth={depth}"
         f";scan={scan}"
         f";fund={fundamentals}"
         f";facts={facts}"
         f";logo={brand}"
+        f";members={members}"
     )
     if answer is not None:
         line += f";answer={answer}"
@@ -1037,6 +1071,39 @@ async def selection_schema() -> dict[str, object]:
     return SELECTION_REQUEST_SCHEMA
 
 
+@router.get("/filters")
+async def filters(request: Request) -> Response:
+    """The Descriptive group as one document: controls, options, predicates.
+
+    This is the single source the panel is built from (plan D1). One document,
+    one module (:mod:`app.screen.descriptive`), one route beside
+    ``/screens/select``: a client renders the controls, their options and their
+    availability from this answer and never hardcodes a Finviz label, token or
+    range again — the F1 bug class, where the panel and the server disagreed
+    about a vocabulary.
+
+    It is built from memory (~2 ms: the catalogue, the bucket registry, the
+    vendored labels and the membership snapshot; no scan, no store, no join),
+    so unlike ``/screens/select`` it may hash its own **body**. The tag is
+    therefore strong: the bytes are a pure function of the inputs, and there is
+    no read clock in the document to weaken it. A ``304`` carries no body and
+    revalidation costs one encode + one sha256.
+
+    Availability is a runtime fact, re-read on every call: remove the
+    membership snapshot and ``idx`` answers ``available: false`` with the
+    reason, which moves the body and therefore the tag. No restart is needed,
+    and no client can cache ``idx`` as available past the file's life.
+    """
+
+    document = descriptive.document()
+    body = _encoded(document)
+    etag = f'"flt-{hashlib.sha256(body).hexdigest()[:32]}"'
+    headers = cache_headers(etag)
+    if not_modified(request, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
 @router.post("/select")
 async def select(request: Request) -> Any:
     """Answer a two-mode selection: a criteria query or an explicit ticker list.
@@ -1151,6 +1218,7 @@ async def select(request: Request) -> Any:
     plan = _scan_plan(selection=selection, region=region, family=family, source=source)
     depth_revision = _depth_identity()
     brand_revision = _brand_identity()
+    membership_revision = _membership_identity()
     fundamentals_revision = await _store_identity(
         getattr(runtime, "fundamentals_store", None), FUNDAMENTALS_TABLE
     )
@@ -1167,6 +1235,7 @@ async def select(request: Request) -> Any:
             fundamentals=fundamentals_revision,
             facts=facts_revision,
             brand=brand_revision,
+            members=membership_revision,
             answer=answer,
         )
 
@@ -1235,6 +1304,16 @@ async def select(request: Request) -> Any:
     # ``None`` where the store has no answer (unknown matches no filter), and a
     # missing table is no enrichment rather than a failed selection.
     universe = await enrich_facts(universe, getattr(runtime, "facts_store", None))
+
+    # `idx` reads `index_members`, a cell no scan and no store carries: the four
+    # Finviz lists are vendored (app.screen.index_membership) and attached here,
+    # once per selection, after every join (nothing else writes the cell). It is
+    # **internal**: never a catalog column, never projectable through `columns`
+    # (the 116-column freeze), read only by the `idx` bucket. Without this line
+    # the bucket would see a missing cell and answer zero rows — the honest
+    # answer to a question nobody asked, which is exactly what T10 exists to
+    # prevent.
+    universe = index_membership.enrich_rows(universe)
 
     moment = datetime.now(UTC).isoformat(timespec="microseconds")
     answer = select_rows(

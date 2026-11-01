@@ -161,6 +161,34 @@ def test_a_derived_key_is_mapped_not_refused(key: str, field: str) -> None:
     assert FIELDS[field] == "number"
 
 
+def test_the_index_key_is_a_bucket_and_not_a_column() -> None:
+    """``idx`` is the one key answered by a set test instead of a row column.
+
+    Plan T6 moved it out of the refused tuple and T11 pins the shape: a caller
+    still sends ``{"key": "idx", "op": "eq", "value": "sp500"}``, the binding has
+    no field, and the four options are bucket ids — not numbers a comparison
+    could take.
+    """
+
+    from app.screen import buckets
+
+    found = binding("idx")
+    assert found.is_available is True
+    assert found.field is None, "no row column carries index membership"
+    assert found.kind is None
+    assert found.bucket is True
+    assert found.choice is False
+    assert found.reason is None
+    assert found.as_dict()["bucket"] is True
+    assert "idx" not in ROW_FIELDS
+    assert "idx" in mapped_keys() and "idx" not in unavailable_keys()
+    assert BUCKET_KEYS == frozenset(buckets.KEYS)
+
+    family = buckets.for_key("idx")
+    assert [item.id for item in family] == ["idx:sp500", "idx:ndx", "idx:dji", "idx:rut"]
+    assert all(item.key == "idx" for item in family)
+
+
 def test_only_the_declared_keys_left_the_refusal_list() -> None:
     """No other key became available by accident."""
 

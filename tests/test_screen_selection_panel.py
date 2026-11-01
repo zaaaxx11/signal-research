@@ -381,6 +381,7 @@ def test_the_default_template_is_canonical() -> None:
         "mode",
         "region",
         "asset_class",
+        "signal",
         "filters",
         "sort",
         "limit",

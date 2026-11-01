@@ -1,12 +1,20 @@
-"""Ranking: three transparent sorts, no composite score.
+"""Ranking: one visible metric per sort, no composite score.
 
 A composite score cannot be audited: nobody can explain why a row is 7th, and
 an export of it is not reproducible across runs. Transparency here means one
-visible metric per sort (PLAN-screen.md §3):
+visible metric per order (PLAN-screen.md §3), and since the descriptive panel
+can order by any metric it shows, the vocabulary is **derived** from the
+catalog's numeric fields (:data:`app.screen.filters.FIELDS`) rather than written
+down a second time:
 
-* ``market_cap`` → ``market_cap_usd`` desc,
-* ``turnover``   → ``turnover`` (traded value, local currency) desc,
-* ``gainers``    → ``change_pct`` desc.
+* ``<field>`` — descending, e.g. ``market_cap_usd``, ``pe_ttm``;
+* ``-<field>`` — ascending, e.g. ``-pe_ttm`` (Finviz's own ``o=-marketcap``).
+
+Three legacy names survive as aliases (``market_cap`` → ``market_cap_usd``,
+``gainers`` → ``change_pct``, ``turnover`` → ``turnover``), because
+``GET /screens?sort=``, the export manifest and every bookmark use them. They
+are *aliases*, not a second vocabulary: :func:`order_metric` resolves them to the
+same column the catalog spelling names.
 
 The sort is **deterministic**: equal values break on ``symbol``, so the same
 universe produces the same order twice — and so page N and page N+1 cannot
@@ -14,34 +22,63 @@ contain the same issuer. A stable sort alone was not enough: it preserves the
 *provider's* arrival order, and the provider reshuffles equal-valued rows between
 two calls (measured: five 20-row pages, two symbols repeated). Ordering the ties
 by symbol is the only tie-break that depends on the row instead of on the network.
-Missing values sort last, never as ``0`` (a missing market cap is not a small
-company).
+
+Missing values sort **last in both directions**: a missing market cap is not a
+small company, and an ascending P/E sort that floated nulls to the top would
+turn "the cheapest" into "the ones nobody reported".
 """
 
 from __future__ import annotations
 
+import math
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
-#: The closed vocabulary the API exposes (``GET /screens?sort=``).
+from app.screen.filters import FIELDS
+
+#: The closed vocabulary ``GET /screens?sort=`` exposes — the browse route's
+#: three buttons. Kept narrower than :data:`ORDER_BY` on purpose: that route
+#: shows the top 20 of a snapshot by one of three metrics, and widening it would
+#: change a published contract nobody asked to change. ``/screens/select`` is the
+#: route that orders by any numeric column.
 SORTS: tuple[str, ...] = ("market_cap", "turnover", "gainers")
 
-#: Which visible metric each sort orders by.
-SORT_METRICS: dict[str, str] = {
-    "market_cap": "market_cap_usd",
-    "turnover": "turnover",
-    "gainers": "change_pct",
-}
+#: Every column a selection may order by: the catalog's numeric fields, sorted
+#: so the published list is stable. Derived, never retyped — a metric added to
+#: ``FIELDS`` becomes orderable in the same edit that makes it filterable.
+ORDER_BY: tuple[str, ...] = tuple(
+    sorted(name for name, kind in FIELDS.items() if kind == "number")
+)
+
+#: Legacy spellings → the column they mean. ``turnover`` maps to itself on
+#: purpose: it is a real catalog column, and the alias table is where a reader
+#: looks to find out that it needs no translation.
+ALIASES: Mapping[str, str] = MappingProxyType(
+    {
+        "market_cap": "market_cap_usd",
+        "gainers": "change_pct",
+        "turnover": "turnover",
+    }
+)
 
 
-def metric_for(sort: str) -> str:
-    """The column ``sort`` orders by; an unknown sort is a caller error."""
+def order_metric(sort: str) -> tuple[str, bool]:
+    """``sort`` → ``(column, ascending)``; a leading ``-`` is ascending.
 
-    try:
-        return SORT_METRICS[sort]
-    except KeyError as exc:
+    Raises :class:`ValueError` naming the accepted catalog fields for anything
+    that is not a numeric column — a text field is not an order, and neither is
+    a typo. ``\"\"`` and ``\"-\"`` are refused for the same reason.
+    """
+
+    text = sort if isinstance(sort, str) else str(sort)
+    name = text[1:] if text.startswith("-") else text
+    column = ALIASES.get(name, name)
+    if column not in FIELDS or FIELDS[column] != "number":
         raise ValueError(
-            f"unknown sort {sort!r}; expected one of {', '.join(SORTS)}"
-        ) from exc
+            f"unknown sort {sort!r}; expected one of {', '.join(ORDER_BY)} "
+            f"(a leading '-' orders ascending)"
+        )
+    return column, text.startswith("-")
 
 
 def _value(row: Mapping[str, Any], column: str) -> float | None:
@@ -49,23 +86,26 @@ def _value(row: Mapping[str, Any], column: str) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    # ``NaN``/``±inf`` compare false in every direction: they would keep or drop
+    # a row at random, so they are unknown, exactly like a null.
+    return number if math.isfinite(number) else None
 
 
-def _key(row: Mapping[str, Any], column: str) -> tuple[int, float]:
-    """Descending sort with the missing values last.
+def _key(row: Mapping[str, Any], column: str, ascending: bool) -> tuple[int, float]:
+    """``(0, ±value)`` for a present value and ``(1, 0.0)`` for a missing one.
 
-    ``(1, value)`` for a present value and ``(0, 0.0)`` for a missing one: with
-    ``reverse=True`` the first component puts every present value ahead of every
-    missing one, and the value itself decides inside each group.
+    The first component puts every present value ahead of every missing one in
+    **both** directions — that is what "missing sorts last" means — and the
+    sign puts the present values in the requested order.
     """
 
     value = _value(row, column)
     if value is None:
-        return (0, 0.0)
-    return (1, value)
+        return (1, 0.0)
+    return (0, value if ascending else -value)
 
 
 def _symbol(row: Mapping[str, Any]) -> str:
@@ -81,17 +121,17 @@ def rank_rows(rows: Iterable[Mapping[str, Any]], sort: str = "market_cap") -> li
     Two passes, not one: the first fixes the tie order on the ticker, and the
     second is a *stable* sort by the metric, so equal metrics keep the symbol
     order the first pass established. A single key tuple would have to reverse
-    the symbol along with the metric (``reverse=True`` applies to the whole key),
-    which would order ties Z→A.
+    the symbol along with the metric, which would order ties Z→A on a
+    descending sort.
 
     Returns new dictionaries (the caller's rows are not mutated) so a ranked
     view can coexist with the universe it came from.
     """
 
-    column = metric_for(sort)
+    column, ascending = order_metric(sort)
     materialised = [dict(row) for row in rows]
     materialised.sort(key=_symbol)
-    materialised.sort(key=lambda row: _key(row, column), reverse=True)
+    materialised.sort(key=lambda row: _key(row, column, ascending))
     ranked: list[dict[str, Any]] = []
     for position, row in enumerate(materialised, start=1):
         row["rank"] = position
@@ -107,4 +147,11 @@ def top_rows(rows: Sequence[Mapping[str, Any]], count: int) -> list[dict[str, An
     return [dict(row) for row in rows[:count]]
 
 
-__all__ = ["SORTS", "SORT_METRICS", "metric_for", "rank_rows", "top_rows"]
+__all__ = [
+    "ALIASES",
+    "ORDER_BY",
+    "SORTS",
+    "order_metric",
+    "rank_rows",
+    "top_rows",
+]

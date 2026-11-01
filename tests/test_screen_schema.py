@@ -219,6 +219,97 @@ def test_the_published_description_names_both_vocabularies() -> None:
     assert "82 Finviz" in document["description"]
 
 
+# ---------------------------------------------------------------------------
+# The descriptive sweep (plan T11)
+# ---------------------------------------------------------------------------
+
+
+def test_the_published_sort_vocabulary_is_the_catalog_and_its_aliases() -> None:
+    """Every orderable column, both directions, plus the three legacy names."""
+
+    from app.screen.rank import ALIASES, ORDER_BY
+
+    document = json.loads(REQUEST_ARTIFACT.read_text(encoding="utf-8"))
+    sort = document["properties"]["criteria"]["properties"]["sort"]
+    enum = set(sort["enum"])
+
+    assert set(ORDER_BY) <= enum, "every numeric catalog field is orderable"
+    assert {f"-{name}" for name in ORDER_BY} <= enum, "a leading '-' is ascending"
+    assert set(ALIASES) <= enum, "the three legacy names still validate"
+    assert "sector" not in enum, "a text column is not an order"
+    assert "marketcap" not in enum, "Finviz's own spelling is not our vocabulary"
+    assert sort["default"] == "market_cap"
+    assert "ascending" in sort["description"]
+
+    # The artifact is the module's document, so the enum cannot have been
+    # hand-edited into a wider or narrower list.
+    from app.screen.selection import SELECTION_REQUEST_SCHEMA
+
+    assert SELECTION_REQUEST_SCHEMA["properties"]["criteria"]["properties"]["sort"] == sort
+
+
+def test_the_published_request_carries_the_signal() -> None:
+    """``signal`` is a top-level criteria knob with the frozen 27 ids."""
+
+    from app.screen.descriptive import SIGNALS
+    from app.screen.selection import SELECTION_REQUEST_SCHEMA
+
+    signal = SELECTION_REQUEST_SCHEMA["properties"]["signal"]
+    assert signal["enum"] == [item.id for item in SIGNALS]
+    assert len(signal["enum"]) == 27
+    assert "criteria" in signal["description"], (
+        "the description has to say a symbols selection does not take it"
+    )
+    assert "unavailable_signal" in signal["description"], (
+        "a client author has to know an unavailable id is a 422"
+    )
+    # A criteria body that names it is valid; a symbols body that names it is not.
+    symbols_branch = SELECTION_REQUEST_SCHEMA["allOf"][1]["then"]
+    assert {"required": ["signal"]} in symbols_branch["not"]["anyOf"]
+
+
+def test_the_index_key_is_published_as_a_bucket_not_a_column() -> None:
+    """``idx`` has no column; the schema says so instead of promising a field."""
+
+    document = json.loads(REQUEST_ARTIFACT.read_text(encoding="utf-8"))
+    entry = document["x-filter-keys"]["idx"]
+
+    assert entry == {
+        "label": "Index",
+        "tab": "descriptive",
+        "field": None,
+        "bucket": True,
+    }
+    assert document["x-filter-key-count"] == 82
+    assert len(document["x-filter-keys"]) == 82
+    # The eleven bucket-driven columns are still columns *and* buckets.
+    assert document["x-filter-keys"]["sh_price"]["field"] == "price"
+    assert document["x-filter-keys"]["sh_price"]["bucket"] is True
+
+
+def test_the_served_schema_and_the_artifact_are_one_document() -> None:
+    """The three new facts are in the file, not only in the module.
+
+    The byte-for-byte test above is the gate; this one names *what* moved in
+    the descriptive sweep, so a future re-dump that silently reverts one of the
+    three fails with a sentence instead of a diff.
+    """
+
+    from app.screen.descriptive import SIGNALS
+    from app.screen.rank import ALIASES, ORDER_BY
+    from app.screen.selection import SELECTION_REQUEST_SCHEMA
+
+    artifact = json.loads(REQUEST_ARTIFACT.read_text(encoding="utf-8"))
+    assert artifact == SELECTION_REQUEST_SCHEMA
+
+    sort_enum = set(artifact["properties"]["criteria"]["properties"]["sort"]["enum"])
+    assert {*ORDER_BY, *ALIASES} <= sort_enum
+    assert artifact["properties"]["signal"]["enum"] == [item.id for item in SIGNALS]
+    assert artifact["x-filter-keys"]["idx"]["bucket"] is True
+    assert artifact["x-filter-keys"]["idx"]["field"] is None
+    assert artifact["x-filter-key-count"] == 82
+
+
 async def test_the_served_request_schema_is_the_repo_artifact(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

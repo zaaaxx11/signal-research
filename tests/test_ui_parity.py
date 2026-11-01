@@ -341,11 +341,13 @@ def test_the_old_filter_operators_are_in_the_dsl() -> None:
 
 
 def test_the_old_sort_select_is_the_registry_sort_vocabulary() -> None:
-    """The three sorts the old select offered are exactly the three the API serves.
+    """The three sorts the old select offered are exactly the browse vocabulary.
 
     ``ui/index.html`` offers market_cap/turnover/gainers; ``app.screen.rank.SORTS``
-    is the closed vocabulary of ``POST /screens/select``. Equality (not subset) is
-    the assertion: a sort added on one side only is either dead UI or a 422.
+    is the closed vocabulary of ``GET /screens`` (the browse display). Equality
+    (not subset) is the assertion: a sort added on one side only is either dead UI
+    or a 422. ``/screens/select`` orders by any numeric catalog field
+    (:data:`app.screen.rank.ORDER_BY`), which is a different route's contract.
     """
 
     assert old_sort_options() == ranking.SORTS

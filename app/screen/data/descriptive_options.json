@@ -1,0 +1,3366 @@
+{
+  "source": {
+    "path": "research/finviz-ui-raw/views/v111-filters.json",
+    "generator": "scripts/descriptive-options.py",
+    "keys": 23
+  },
+  "controls": {
+    "exch": {
+      "key": "exch",
+      "label": "Exchange",
+      "description": "Stock Exchange where a stock is listed.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "amex",
+          "label": "AMEX"
+        },
+        {
+          "token": "cboe",
+          "label": "CBOE"
+        },
+        {
+          "token": "nasd",
+          "label": "NASDAQ"
+        },
+        {
+          "token": "nyse",
+          "label": "NYSE"
+        },
+        {
+          "token": "txse",
+          "label": "TXSE"
+        }
+      ]
+    },
+    "idx": {
+      "key": "idx",
+      "label": "Index",
+      "description": "Major market Index that includes the stock.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "sp500",
+          "label": "S&P 500"
+        },
+        {
+          "token": "ndx",
+          "label": "NASDAQ 100"
+        },
+        {
+          "token": "dji",
+          "label": "DJIA"
+        },
+        {
+          "token": "rut",
+          "label": "RUSSELL 2000"
+        }
+      ]
+    },
+    "sec": {
+      "key": "sec",
+      "label": "Sector",
+      "description": "Sector in which a company operates.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "basicmaterials",
+          "label": "Basic Materials"
+        },
+        {
+          "token": "communicationservices",
+          "label": "Communication Services"
+        },
+        {
+          "token": "consumercyclical",
+          "label": "Consumer Cyclical"
+        },
+        {
+          "token": "consumerdefensive",
+          "label": "Consumer Defensive"
+        },
+        {
+          "token": "energy",
+          "label": "Energy"
+        },
+        {
+          "token": "financial",
+          "label": "Financial"
+        },
+        {
+          "token": "healthcare",
+          "label": "Healthcare"
+        },
+        {
+          "token": "industrials",
+          "label": "Industrials"
+        },
+        {
+          "token": "realestate",
+          "label": "Real Estate"
+        },
+        {
+          "token": "technology",
+          "label": "Technology"
+        },
+        {
+          "token": "utilities",
+          "label": "Utilities"
+        }
+      ]
+    },
+    "industry": {
+      "key": "industry",
+      "label": "Industry",
+      "description": "Industry in which a company operates.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "stocksexshell",
+          "label": "Stocks Only (ex-Shell Companies)"
+        },
+        {
+          "token": "shellcompanies",
+          "label": "Shell Companies"
+        },
+        {
+          "token": "advertisingagencies",
+          "label": "Advertising Agencies"
+        },
+        {
+          "token": "aerospacedefense",
+          "label": "Aerospace & Defense"
+        },
+        {
+          "token": "agriculturalinputs",
+          "label": "Agricultural Inputs"
+        },
+        {
+          "token": "airlines",
+          "label": "Airlines"
+        },
+        {
+          "token": "airportsairservices",
+          "label": "Airports & Air Services"
+        },
+        {
+          "token": "aluminum",
+          "label": "Aluminum"
+        },
+        {
+          "token": "apparelmanufacturing",
+          "label": "Apparel Manufacturing"
+        },
+        {
+          "token": "apparelretail",
+          "label": "Apparel Retail"
+        },
+        {
+          "token": "assetmanagement",
+          "label": "Asset Management"
+        },
+        {
+          "token": "automanufacturers",
+          "label": "Auto Manufacturers"
+        },
+        {
+          "token": "autoparts",
+          "label": "Auto Parts"
+        },
+        {
+          "token": "autotruckdealerships",
+          "label": "Auto & Truck Dealerships"
+        },
+        {
+          "token": "banksdiversified",
+          "label": "Banks - Diversified"
+        },
+        {
+          "token": "banksregional",
+          "label": "Banks - Regional"
+        },
+        {
+          "token": "beveragesbrewers",
+          "label": "Beverages - Brewers"
+        },
+        {
+          "token": "beveragesnonalcoholic",
+          "label": "Beverages - Non-Alcoholic"
+        },
+        {
+          "token": "beverageswineriesdistilleries",
+          "label": "Beverages - Wineries & Distilleries"
+        },
+        {
+          "token": "biotechnology",
+          "label": "Biotechnology"
+        },
+        {
+          "token": "broadcasting",
+          "label": "Broadcasting"
+        },
+        {
+          "token": "buildingmaterials",
+          "label": "Building Materials"
+        },
+        {
+          "token": "buildingproductsequipment",
+          "label": "Building Products & Equipment"
+        },
+        {
+          "token": "businessequipmentsupplies",
+          "label": "Business Equipment & Supplies"
+        },
+        {
+          "token": "capitalmarkets",
+          "label": "Capital Markets"
+        },
+        {
+          "token": "chemicals",
+          "label": "Chemicals"
+        },
+        {
+          "token": "cokingcoal",
+          "label": "Coking Coal"
+        },
+        {
+          "token": "communicationequipment",
+          "label": "Communication Equipment"
+        },
+        {
+          "token": "computerhardware",
+          "label": "Computer Hardware"
+        },
+        {
+          "token": "confectioners",
+          "label": "Confectioners"
+        },
+        {
+          "token": "conglomerates",
+          "label": "Conglomerates"
+        },
+        {
+          "token": "consultingservices",
+          "label": "Consulting Services"
+        },
+        {
+          "token": "consumerelectronics",
+          "label": "Consumer Electronics"
+        },
+        {
+          "token": "copper",
+          "label": "Copper"
+        },
+        {
+          "token": "creditservices",
+          "label": "Credit Services"
+        },
+        {
+          "token": "departmentstores",
+          "label": "Department Stores"
+        },
+        {
+          "token": "diagnosticsresearch",
+          "label": "Diagnostics & Research"
+        },
+        {
+          "token": "discountstores",
+          "label": "Discount Stores"
+        },
+        {
+          "token": "drugmanufacturersgeneral",
+          "label": "Drug Manufacturers - General"
+        },
+        {
+          "token": "drugmanufacturersspecialtygeneric",
+          "label": "Drug Manufacturers - Specialty & Generic"
+        },
+        {
+          "token": "educationtrainingservices",
+          "label": "Education & Training Services"
+        },
+        {
+          "token": "electricalequipmentparts",
+          "label": "Electrical Equipment & Parts"
+        },
+        {
+          "token": "electroniccomponents",
+          "label": "Electronic Components"
+        },
+        {
+          "token": "electronicgamingmultimedia",
+          "label": "Electronic Gaming & Multimedia"
+        },
+        {
+          "token": "electronicscomputerdistribution",
+          "label": "Electronics & Computer Distribution"
+        },
+        {
+          "token": "engineeringconstruction",
+          "label": "Engineering & Construction"
+        },
+        {
+          "token": "entertainment",
+          "label": "Entertainment"
+        },
+        {
+          "token": "farmheavyconstructionmachinery",
+          "label": "Farm & Heavy Construction Machinery"
+        },
+        {
+          "token": "farmproducts",
+          "label": "Farm Products"
+        },
+        {
+          "token": "financialconglomerates",
+          "label": "Financial Conglomerates"
+        },
+        {
+          "token": "financialdatastockexchanges",
+          "label": "Financial Data & Stock Exchanges"
+        },
+        {
+          "token": "fooddistribution",
+          "label": "Food Distribution"
+        },
+        {
+          "token": "footwearaccessories",
+          "label": "Footwear & Accessories"
+        },
+        {
+          "token": "furnishingsfixturesappliances",
+          "label": "Furnishings, Fixtures & Appliances"
+        },
+        {
+          "token": "gambling",
+          "label": "Gambling"
+        },
+        {
+          "token": "gold",
+          "label": "Gold"
+        },
+        {
+          "token": "grocerystores",
+          "label": "Grocery Stores"
+        },
+        {
+          "token": "healthcareplans",
+          "label": "Healthcare Plans"
+        },
+        {
+          "token": "healthinformationservices",
+          "label": "Health Information Services"
+        },
+        {
+          "token": "homeimprovementretail",
+          "label": "Home Improvement Retail"
+        },
+        {
+          "token": "householdpersonalproducts",
+          "label": "Household & Personal Products"
+        },
+        {
+          "token": "industrialdistribution",
+          "label": "Industrial Distribution"
+        },
+        {
+          "token": "informationtechnologyservices",
+          "label": "Information Technology Services"
+        },
+        {
+          "token": "infrastructureoperations",
+          "label": "Infrastructure Operations"
+        },
+        {
+          "token": "insurancebrokers",
+          "label": "Insurance Brokers"
+        },
+        {
+          "token": "insurancediversified",
+          "label": "Insurance - Diversified"
+        },
+        {
+          "token": "insurancelife",
+          "label": "Insurance - Life"
+        },
+        {
+          "token": "insurancepropertycasualty",
+          "label": "Insurance - Property & Casualty"
+        },
+        {
+          "token": "insurancereinsurance",
+          "label": "Insurance - Reinsurance"
+        },
+        {
+          "token": "insurancespecialty",
+          "label": "Insurance - Specialty"
+        },
+        {
+          "token": "integratedfreightlogistics",
+          "label": "Integrated Freight & Logistics"
+        },
+        {
+          "token": "internetcontentinformation",
+          "label": "Internet Content & Information"
+        },
+        {
+          "token": "internetretail",
+          "label": "Internet Retail"
+        },
+        {
+          "token": "leisure",
+          "label": "Leisure"
+        },
+        {
+          "token": "lodging",
+          "label": "Lodging"
+        },
+        {
+          "token": "lumberwoodproduction",
+          "label": "Lumber & Wood Production"
+        },
+        {
+          "token": "luxurygoods",
+          "label": "Luxury Goods"
+        },
+        {
+          "token": "marineshipping",
+          "label": "Marine Shipping"
+        },
+        {
+          "token": "medicalcarefacilities",
+          "label": "Medical Care Facilities"
+        },
+        {
+          "token": "medicaldevices",
+          "label": "Medical Devices"
+        },
+        {
+          "token": "medicaldistribution",
+          "label": "Medical Distribution"
+        },
+        {
+          "token": "medicalinstrumentssupplies",
+          "label": "Medical Instruments & Supplies"
+        },
+        {
+          "token": "metalfabrication",
+          "label": "Metal Fabrication"
+        },
+        {
+          "token": "mortgagefinance",
+          "label": "Mortgage Finance"
+        },
+        {
+          "token": "oilgasdrilling",
+          "label": "Oil & Gas Drilling"
+        },
+        {
+          "token": "oilgasep",
+          "label": "Oil & Gas E&P"
+        },
+        {
+          "token": "oilgasequipmentservices",
+          "label": "Oil & Gas Equipment & Services"
+        },
+        {
+          "token": "oilgasintegrated",
+          "label": "Oil & Gas Integrated"
+        },
+        {
+          "token": "oilgasmidstream",
+          "label": "Oil & Gas Midstream"
+        },
+        {
+          "token": "oilgasrefiningmarketing",
+          "label": "Oil & Gas Refining & Marketing"
+        },
+        {
+          "token": "otherindustrialmetalsmining",
+          "label": "Other Industrial Metals & Mining"
+        },
+        {
+          "token": "otherpreciousmetalsmining",
+          "label": "Other Precious Metals & Mining"
+        },
+        {
+          "token": "packagedfoods",
+          "label": "Packaged Foods"
+        },
+        {
+          "token": "packagingcontainers",
+          "label": "Packaging & Containers"
+        },
+        {
+          "token": "paperpaperproducts",
+          "label": "Paper & Paper Products"
+        },
+        {
+          "token": "personalservices",
+          "label": "Personal Services"
+        },
+        {
+          "token": "pharmaceuticalretailers",
+          "label": "Pharmaceutical Retailers"
+        },
+        {
+          "token": "pollutiontreatmentcontrols",
+          "label": "Pollution & Treatment Controls"
+        },
+        {
+          "token": "publishing",
+          "label": "Publishing"
+        },
+        {
+          "token": "railroads",
+          "label": "Railroads"
+        },
+        {
+          "token": "realestatedevelopment",
+          "label": "Real Estate - Development"
+        },
+        {
+          "token": "realestatediversified",
+          "label": "Real Estate - Diversified"
+        },
+        {
+          "token": "realestateservices",
+          "label": "Real Estate Services"
+        },
+        {
+          "token": "recreationalvehicles",
+          "label": "Recreational Vehicles"
+        },
+        {
+          "token": "reitdiversified",
+          "label": "REIT - Diversified"
+        },
+        {
+          "token": "reithealthcarefacilities",
+          "label": "REIT - Healthcare Facilities"
+        },
+        {
+          "token": "reithotelmotel",
+          "label": "REIT - Hotel & Motel"
+        },
+        {
+          "token": "reitindustrial",
+          "label": "REIT - Industrial"
+        },
+        {
+          "token": "reitmortgage",
+          "label": "REIT - Mortgage"
+        },
+        {
+          "token": "reitoffice",
+          "label": "REIT - Office"
+        },
+        {
+          "token": "reitresidential",
+          "label": "REIT - Residential"
+        },
+        {
+          "token": "reitretail",
+          "label": "REIT - Retail"
+        },
+        {
+          "token": "reitspecialty",
+          "label": "REIT - Specialty"
+        },
+        {
+          "token": "rentalleasingservices",
+          "label": "Rental & Leasing Services"
+        },
+        {
+          "token": "residentialconstruction",
+          "label": "Residential Construction"
+        },
+        {
+          "token": "resortscasinos",
+          "label": "Resorts & Casinos"
+        },
+        {
+          "token": "restaurants",
+          "label": "Restaurants"
+        },
+        {
+          "token": "scientifictechnicalinstruments",
+          "label": "Scientific & Technical Instruments"
+        },
+        {
+          "token": "securityprotectionservices",
+          "label": "Security & Protection Services"
+        },
+        {
+          "token": "semiconductorequipmentmaterials",
+          "label": "Semiconductor Equipment & Materials"
+        },
+        {
+          "token": "semiconductors",
+          "label": "Semiconductors"
+        },
+        {
+          "token": "silver",
+          "label": "Silver"
+        },
+        {
+          "token": "softwareapplication",
+          "label": "Software - Application"
+        },
+        {
+          "token": "softwareinfrastructure",
+          "label": "Software - Infrastructure"
+        },
+        {
+          "token": "solar",
+          "label": "Solar"
+        },
+        {
+          "token": "specialtybusinessservices",
+          "label": "Specialty Business Services"
+        },
+        {
+          "token": "specialtychemicals",
+          "label": "Specialty Chemicals"
+        },
+        {
+          "token": "specialtyindustrialmachinery",
+          "label": "Specialty Industrial Machinery"
+        },
+        {
+          "token": "specialtyretail",
+          "label": "Specialty Retail"
+        },
+        {
+          "token": "staffingemploymentservices",
+          "label": "Staffing & Employment Services"
+        },
+        {
+          "token": "steel",
+          "label": "Steel"
+        },
+        {
+          "token": "telecomservices",
+          "label": "Telecom Services"
+        },
+        {
+          "token": "textilemanufacturing",
+          "label": "Textile Manufacturing"
+        },
+        {
+          "token": "thermalcoal",
+          "label": "Thermal Coal"
+        },
+        {
+          "token": "tobacco",
+          "label": "Tobacco"
+        },
+        {
+          "token": "toolsaccessories",
+          "label": "Tools & Accessories"
+        },
+        {
+          "token": "travelservices",
+          "label": "Travel Services"
+        },
+        {
+          "token": "trucking",
+          "label": "Trucking"
+        },
+        {
+          "token": "uranium",
+          "label": "Uranium"
+        },
+        {
+          "token": "utilitiesdiversified",
+          "label": "Utilities - Diversified"
+        },
+        {
+          "token": "utilitiesindependentpowerproducers",
+          "label": "Utilities - Independent Power Producers"
+        },
+        {
+          "token": "utilitiesregulatedelectric",
+          "label": "Utilities - Regulated Electric"
+        },
+        {
+          "token": "utilitiesregulatedgas",
+          "label": "Utilities - Regulated Gas"
+        },
+        {
+          "token": "utilitiesregulatedwater",
+          "label": "Utilities - Regulated Water"
+        },
+        {
+          "token": "utilitiesrenewable",
+          "label": "Utilities - Renewable"
+        },
+        {
+          "token": "wastemanagement",
+          "label": "Waste Management"
+        }
+      ]
+    },
+    "geo": {
+      "key": "geo",
+      "label": "Country",
+      "description": "Country where the company is headquartered.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "usa",
+          "label": "USA"
+        },
+        {
+          "token": "notusa",
+          "label": "Foreign (ex-USA)"
+        },
+        {
+          "token": "asia",
+          "label": "Asia"
+        },
+        {
+          "token": "europe",
+          "label": "Europe"
+        },
+        {
+          "token": "latinamerica",
+          "label": "Latin America"
+        },
+        {
+          "token": "bric",
+          "label": "BRIC"
+        },
+        {
+          "token": "argentina",
+          "label": "Argentina"
+        },
+        {
+          "token": "australia",
+          "label": "Australia"
+        },
+        {
+          "token": "bahamas",
+          "label": "Bahamas"
+        },
+        {
+          "token": "belgium",
+          "label": "Belgium"
+        },
+        {
+          "token": "benelux",
+          "label": "BeNeLux"
+        },
+        {
+          "token": "bermuda",
+          "label": "Bermuda"
+        },
+        {
+          "token": "brazil",
+          "label": "Brazil"
+        },
+        {
+          "token": "canada",
+          "label": "Canada"
+        },
+        {
+          "token": "caymanislands",
+          "label": "Cayman Islands"
+        },
+        {
+          "token": "chile",
+          "label": "Chile"
+        },
+        {
+          "token": "china",
+          "label": "China"
+        },
+        {
+          "token": "chinahongkong",
+          "label": "China & Hong Kong"
+        },
+        {
+          "token": "colombia",
+          "label": "Colombia"
+        },
+        {
+          "token": "cyprus",
+          "label": "Cyprus"
+        },
+        {
+          "token": "denmark",
+          "label": "Denmark"
+        },
+        {
+          "token": "finland",
+          "label": "Finland"
+        },
+        {
+          "token": "france",
+          "label": "France"
+        },
+        {
+          "token": "germany",
+          "label": "Germany"
+        },
+        {
+          "token": "greece",
+          "label": "Greece"
+        },
+        {
+          "token": "hongkong",
+          "label": "Hong Kong"
+        },
+        {
+          "token": "hungary",
+          "label": "Hungary"
+        },
+        {
+          "token": "iceland",
+          "label": "Iceland"
+        },
+        {
+          "token": "india",
+          "label": "India"
+        },
+        {
+          "token": "indonesia",
+          "label": "Indonesia"
+        },
+        {
+          "token": "ireland",
+          "label": "Ireland"
+        },
+        {
+          "token": "israel",
+          "label": "Israel"
+        },
+        {
+          "token": "italy",
+          "label": "Italy"
+        },
+        {
+          "token": "japan",
+          "label": "Japan"
+        },
+        {
+          "token": "jordan",
+          "label": "Jordan"
+        },
+        {
+          "token": "kazakhstan",
+          "label": "Kazakhstan"
+        },
+        {
+          "token": "luxembourg",
+          "label": "Luxembourg"
+        },
+        {
+          "token": "malaysia",
+          "label": "Malaysia"
+        },
+        {
+          "token": "malta",
+          "label": "Malta"
+        },
+        {
+          "token": "mexico",
+          "label": "Mexico"
+        },
+        {
+          "token": "monaco",
+          "label": "Monaco"
+        },
+        {
+          "token": "netherlands",
+          "label": "Netherlands"
+        },
+        {
+          "token": "newzealand",
+          "label": "New Zealand"
+        },
+        {
+          "token": "norway",
+          "label": "Norway"
+        },
+        {
+          "token": "panama",
+          "label": "Panama"
+        },
+        {
+          "token": "peru",
+          "label": "Peru"
+        },
+        {
+          "token": "philippines",
+          "label": "Philippines"
+        },
+        {
+          "token": "portugal",
+          "label": "Portugal"
+        },
+        {
+          "token": "russia",
+          "label": "Russia"
+        },
+        {
+          "token": "singapore",
+          "label": "Singapore"
+        },
+        {
+          "token": "southafrica",
+          "label": "South Africa"
+        },
+        {
+          "token": "southkorea",
+          "label": "South Korea"
+        },
+        {
+          "token": "spain",
+          "label": "Spain"
+        },
+        {
+          "token": "sweden",
+          "label": "Sweden"
+        },
+        {
+          "token": "switzerland",
+          "label": "Switzerland"
+        },
+        {
+          "token": "taiwan",
+          "label": "Taiwan"
+        },
+        {
+          "token": "thailand",
+          "label": "Thailand"
+        },
+        {
+          "token": "turkey",
+          "label": "Turkey"
+        },
+        {
+          "token": "unitedarabemirates",
+          "label": "United Arab Emirates"
+        },
+        {
+          "token": "unitedkingdom",
+          "label": "United Kingdom"
+        },
+        {
+          "token": "uruguay",
+          "label": "Uruguay"
+        },
+        {
+          "token": "vietnam",
+          "label": "Vietnam"
+        }
+      ]
+    },
+    "cap": {
+      "key": "cap",
+      "label": "Market Cap.",
+      "description": "Total market value of a company's outstanding shares (share price x shares outstanding).",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": "B",
+      "options": [
+        {
+          "token": "mega",
+          "label": "Mega ($200bln and more)"
+        },
+        {
+          "token": "large",
+          "label": "Large ($10bln to $200bln)"
+        },
+        {
+          "token": "mid",
+          "label": "Mid ($2bln to $10bln)"
+        },
+        {
+          "token": "small",
+          "label": "Small ($300mln to $2bln)"
+        },
+        {
+          "token": "micro",
+          "label": "Micro ($50mln to $300mln)"
+        },
+        {
+          "token": "nano",
+          "label": "Nano (under $50mln)"
+        },
+        {
+          "token": "largeover",
+          "label": "+Large (over $10bln)"
+        },
+        {
+          "token": "midover",
+          "label": "+Mid (over $2bln)"
+        },
+        {
+          "token": "smallover",
+          "label": "+Small (over $300mln)"
+        },
+        {
+          "token": "microover",
+          "label": "+Micro (over $50mln)"
+        },
+        {
+          "token": "largeunder",
+          "label": "-Large (under $200bln)"
+        },
+        {
+          "token": "midunder",
+          "label": "-Mid (under $10bln)"
+        },
+        {
+          "token": "smallunder",
+          "label": "-Small (under $2bln)"
+        },
+        {
+          "token": "microunder",
+          "label": "-Micro (under $300mln)"
+        }
+      ]
+    },
+    "fa_div": {
+      "key": "fa_div",
+      "label": "Dividend Yield",
+      "description": "Annual dividend income as a percentage of the current stock price. <br><br>If there is no forward dividend estimate available, trailing twelve month (TTM) value is used.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": "%",
+      "options": [
+        {
+          "token": "none",
+          "label": "None (0%)"
+        },
+        {
+          "token": "pos",
+          "label": "Positive (>0%)"
+        },
+        {
+          "token": "high",
+          "label": "High (>5%)"
+        },
+        {
+          "token": "veryhigh",
+          "label": "Very High (>10%)"
+        },
+        {
+          "token": "o1",
+          "label": "Over 1%"
+        },
+        {
+          "token": "o2",
+          "label": "Over 2%"
+        },
+        {
+          "token": "o3",
+          "label": "Over 3%"
+        },
+        {
+          "token": "o4",
+          "label": "Over 4%"
+        },
+        {
+          "token": "o5",
+          "label": "Over 5%"
+        },
+        {
+          "token": "o6",
+          "label": "Over 6%"
+        },
+        {
+          "token": "o7",
+          "label": "Over 7%"
+        },
+        {
+          "token": "o8",
+          "label": "Over 8%"
+        },
+        {
+          "token": "o9",
+          "label": "Over 9%"
+        },
+        {
+          "token": "o10",
+          "label": "Over 10%"
+        }
+      ]
+    },
+    "sh_short": {
+      "key": "sh_short",
+      "label": "Short Float",
+      "description": "Percentage of publicly traded shares sold short.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": "%",
+      "options": [
+        {
+          "token": "low",
+          "label": "Low (<5%)"
+        },
+        {
+          "token": "high",
+          "label": "High (>20%)"
+        },
+        {
+          "token": "u5",
+          "label": "Under 5%"
+        },
+        {
+          "token": "u10",
+          "label": "Under 10%"
+        },
+        {
+          "token": "u15",
+          "label": "Under 15%"
+        },
+        {
+          "token": "u20",
+          "label": "Under 20%"
+        },
+        {
+          "token": "u25",
+          "label": "Under 25%"
+        },
+        {
+          "token": "u30",
+          "label": "Under 30%"
+        },
+        {
+          "token": "o5",
+          "label": "Over 5%"
+        },
+        {
+          "token": "o10",
+          "label": "Over 10%"
+        },
+        {
+          "token": "o15",
+          "label": "Over 15%"
+        },
+        {
+          "token": "o20",
+          "label": "Over 20%"
+        },
+        {
+          "token": "o25",
+          "label": "Over 25%"
+        },
+        {
+          "token": "o30",
+          "label": "Over 30%"
+        }
+      ]
+    },
+    "an_recom": {
+      "key": "an_recom",
+      "label": "Analyst Recom.",
+      "description": "Consensus analyst rating on a stock.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "strongbuy",
+          "label": "Strong Buy (1)"
+        },
+        {
+          "token": "buybetter",
+          "label": "Buy or better"
+        },
+        {
+          "token": "buy",
+          "label": "Buy"
+        },
+        {
+          "token": "holdbetter",
+          "label": "Hold or better"
+        },
+        {
+          "token": "hold",
+          "label": "Hold"
+        },
+        {
+          "token": "holdworse",
+          "label": "Hold or worse"
+        },
+        {
+          "token": "sell",
+          "label": "Sell"
+        },
+        {
+          "token": "sellworse",
+          "label": "Sell or worse"
+        },
+        {
+          "token": "strongsell",
+          "label": "Strong Sell (5)"
+        }
+      ]
+    },
+    "sh_opt": {
+      "key": "sh_opt",
+      "label": "Option/Short",
+      "description": "Stocks with options and/or available to sell short.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "option",
+          "label": "Optionable"
+        },
+        {
+          "token": "short",
+          "label": "Shortable"
+        },
+        {
+          "token": "notoption",
+          "label": "Not optionable"
+        },
+        {
+          "token": "notshort",
+          "label": "Not shortable"
+        },
+        {
+          "token": "optionshort",
+          "label": "Optionable and shortable"
+        },
+        {
+          "token": "optionnotshort",
+          "label": "Optionable and not shortable"
+        },
+        {
+          "token": "notoptionshort",
+          "label": "Not optionable and shortable"
+        },
+        {
+          "token": "notoptionnotshort",
+          "label": "Not optionable and not shortable"
+        }
+      ]
+    },
+    "earningsdate": {
+      "key": "earningsdate",
+      "label": "Earnings Date",
+      "description": "Date when company is expected to report earnings.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "today",
+          "label": "Today"
+        },
+        {
+          "token": "todaybefore",
+          "label": "Today Before Market Open"
+        },
+        {
+          "token": "todayafter",
+          "label": "Today After Market Close"
+        },
+        {
+          "token": "tomorrow",
+          "label": "Tomorrow"
+        },
+        {
+          "token": "tomorrowbefore",
+          "label": "Tomorrow Before Market Open"
+        },
+        {
+          "token": "tomorrowafter",
+          "label": "Tomorrow After Market Close"
+        },
+        {
+          "token": "yesterday",
+          "label": "Yesterday"
+        },
+        {
+          "token": "yesterdaybefore",
+          "label": "Yesterday Before Market Open"
+        },
+        {
+          "token": "yesterdayafter",
+          "label": "Yesterday After Market Close"
+        },
+        {
+          "token": "nextdays5",
+          "label": "Next 5 Days"
+        },
+        {
+          "token": "prevdays5",
+          "label": "Previous 5 Days"
+        },
+        {
+          "token": "thisweek",
+          "label": "This Week"
+        },
+        {
+          "token": "nextweek",
+          "label": "Next Week"
+        },
+        {
+          "token": "prevweek",
+          "label": "Previous Week"
+        },
+        {
+          "token": "thismonth",
+          "label": "This Month"
+        }
+      ]
+    },
+    "sh_avgvol": {
+      "key": "sh_avgvol",
+      "label": "Average Volume",
+      "description": "Average number of shares traded per day.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": "K",
+      "options": [
+        {
+          "token": "u50",
+          "label": "Under 50K"
+        },
+        {
+          "token": "u100",
+          "label": "Under 100K"
+        },
+        {
+          "token": "u500",
+          "label": "Under 500K"
+        },
+        {
+          "token": "u750",
+          "label": "Under 750K"
+        },
+        {
+          "token": "u1000",
+          "label": "Under 1M"
+        },
+        {
+          "token": "o50",
+          "label": "Over 50K"
+        },
+        {
+          "token": "o100",
+          "label": "Over 100K"
+        },
+        {
+          "token": "o200",
+          "label": "Over 200K"
+        },
+        {
+          "token": "o300",
+          "label": "Over 300K"
+        },
+        {
+          "token": "o400",
+          "label": "Over 400K"
+        },
+        {
+          "token": "o500",
+          "label": "Over 500K"
+        },
+        {
+          "token": "o750",
+          "label": "Over 750K"
+        },
+        {
+          "token": "o1000",
+          "label": "Over 1M"
+        },
+        {
+          "token": "o2000",
+          "label": "Over 2M"
+        },
+        {
+          "token": "100to500",
+          "label": "100K to 500K"
+        },
+        {
+          "token": "100to1000",
+          "label": "100K to 1M"
+        },
+        {
+          "token": "500to1000",
+          "label": "500K to 1M"
+        },
+        {
+          "token": "500to10000",
+          "label": "500K to 10M"
+        }
+      ]
+    },
+    "sh_relvol": {
+      "key": "sh_relvol",
+      "label": "Relative Volume",
+      "description": "Ratio of current volume compared to 3-month average, adjusted intraday.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "o10",
+          "label": "Over 10"
+        },
+        {
+          "token": "o5",
+          "label": "Over 5"
+        },
+        {
+          "token": "o3",
+          "label": "Over 3"
+        },
+        {
+          "token": "o2",
+          "label": "Over 2"
+        },
+        {
+          "token": "o1.5",
+          "label": "Over 1.5"
+        },
+        {
+          "token": "o1",
+          "label": "Over 1"
+        },
+        {
+          "token": "o0.75",
+          "label": "Over 0.75"
+        },
+        {
+          "token": "o0.5",
+          "label": "Over 0.5"
+        },
+        {
+          "token": "o0.25",
+          "label": "Over 0.25"
+        },
+        {
+          "token": "u2",
+          "label": "Under 2"
+        },
+        {
+          "token": "u1.5",
+          "label": "Under 1.5"
+        },
+        {
+          "token": "u1",
+          "label": "Under 1"
+        },
+        {
+          "token": "u0.75",
+          "label": "Under 0.75"
+        },
+        {
+          "token": "u0.5",
+          "label": "Under 0.5"
+        },
+        {
+          "token": "u0.25",
+          "label": "Under 0.25"
+        },
+        {
+          "token": "u0.1",
+          "label": "Under 0.1"
+        }
+      ]
+    },
+    "sh_curvol": {
+      "key": "sh_curvol",
+      "label": "Current Volume",
+      "description": "Number of shares traded today.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": []
+    },
+    "sh_trades": {
+      "key": "sh_trades",
+      "label": "Trades",
+      "description": "Number of trades today.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": "K",
+      "options": [
+        {
+          "token": "u100",
+          "label": "Under 100"
+        },
+        {
+          "token": "u500",
+          "label": "Under 500"
+        },
+        {
+          "token": "u1000",
+          "label": "Under 1K"
+        },
+        {
+          "token": "u5000",
+          "label": "Under 5K"
+        },
+        {
+          "token": "u10000",
+          "label": "Under 10K"
+        },
+        {
+          "token": "o0",
+          "label": "Over 0"
+        },
+        {
+          "token": "o100",
+          "label": "Over 100"
+        },
+        {
+          "token": "o500",
+          "label": "Over 500"
+        },
+        {
+          "token": "o1000",
+          "label": "Over 1K"
+        },
+        {
+          "token": "o5000",
+          "label": "Over 5K"
+        },
+        {
+          "token": "o10000",
+          "label": "Over 10K"
+        },
+        {
+          "token": "o15000",
+          "label": "Over 15K"
+        },
+        {
+          "token": "o20000",
+          "label": "Over 20K"
+        },
+        {
+          "token": "o50000",
+          "label": "Over 50K"
+        },
+        {
+          "token": "o100000",
+          "label": "Over 100K"
+        }
+      ]
+    },
+    "sh_price": {
+      "key": "sh_price",
+      "label": "Price $",
+      "description": "The current stock price.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": "$",
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "u1",
+          "label": "Under $1"
+        },
+        {
+          "token": "u2",
+          "label": "Under $2"
+        },
+        {
+          "token": "u3",
+          "label": "Under $3"
+        },
+        {
+          "token": "u4",
+          "label": "Under $4"
+        },
+        {
+          "token": "u5",
+          "label": "Under $5"
+        },
+        {
+          "token": "u7",
+          "label": "Under $7"
+        },
+        {
+          "token": "u10",
+          "label": "Under $10"
+        },
+        {
+          "token": "u15",
+          "label": "Under $15"
+        },
+        {
+          "token": "u20",
+          "label": "Under $20"
+        },
+        {
+          "token": "u30",
+          "label": "Under $30"
+        },
+        {
+          "token": "u40",
+          "label": "Under $40"
+        },
+        {
+          "token": "u50",
+          "label": "Under $50"
+        },
+        {
+          "token": "o1",
+          "label": "Over $1"
+        },
+        {
+          "token": "o2",
+          "label": "Over $2"
+        },
+        {
+          "token": "o3",
+          "label": "Over $3"
+        },
+        {
+          "token": "o4",
+          "label": "Over $4"
+        },
+        {
+          "token": "o5",
+          "label": "Over $5"
+        },
+        {
+          "token": "o7",
+          "label": "Over $7"
+        },
+        {
+          "token": "o10",
+          "label": "Over $10"
+        },
+        {
+          "token": "o15",
+          "label": "Over $15"
+        },
+        {
+          "token": "o20",
+          "label": "Over $20"
+        },
+        {
+          "token": "o30",
+          "label": "Over $30"
+        },
+        {
+          "token": "o40",
+          "label": "Over $40"
+        },
+        {
+          "token": "o50",
+          "label": "Over $50"
+        },
+        {
+          "token": "o60",
+          "label": "Over $60"
+        },
+        {
+          "token": "o70",
+          "label": "Over $70"
+        },
+        {
+          "token": "o80",
+          "label": "Over $80"
+        },
+        {
+          "token": "o90",
+          "label": "Over $90"
+        },
+        {
+          "token": "o100",
+          "label": "Over $100"
+        },
+        {
+          "token": "1to5",
+          "label": "$1 to $5"
+        },
+        {
+          "token": "1to10",
+          "label": "$1 to $10"
+        },
+        {
+          "token": "1to20",
+          "label": "$1 to $20"
+        },
+        {
+          "token": "5to10",
+          "label": "$5 to $10"
+        },
+        {
+          "token": "5to20",
+          "label": "$5 to $20"
+        },
+        {
+          "token": "5to50",
+          "label": "$5 to $50"
+        },
+        {
+          "token": "10to20",
+          "label": "$10 to $20"
+        },
+        {
+          "token": "10to50",
+          "label": "$10 to $50"
+        },
+        {
+          "token": "20to50",
+          "label": "$20 to $50"
+        },
+        {
+          "token": "50to100",
+          "label": "$50 to $100"
+        }
+      ]
+    },
+    "targetprice": {
+      "key": "targetprice",
+      "label": "Target Price",
+      "description": "Average projected price by Analysts.",
+      "uiType": "select",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "a50",
+          "label": "50% Above Price"
+        },
+        {
+          "token": "a40",
+          "label": "40% Above Price"
+        },
+        {
+          "token": "a30",
+          "label": "30% Above Price"
+        },
+        {
+          "token": "a20",
+          "label": "20% Above Price"
+        },
+        {
+          "token": "a10",
+          "label": "10% Above Price"
+        },
+        {
+          "token": "a5",
+          "label": "5% Above Price"
+        },
+        {
+          "token": "above",
+          "label": "Above Price"
+        },
+        {
+          "token": "below",
+          "label": "Below Price"
+        },
+        {
+          "token": "b5",
+          "label": "5% Below Price"
+        },
+        {
+          "token": "b10",
+          "label": "10% Below Price"
+        },
+        {
+          "token": "b20",
+          "label": "20% Below Price"
+        },
+        {
+          "token": "b30",
+          "label": "30% Below Price"
+        },
+        {
+          "token": "b40",
+          "label": "40% Below Price"
+        },
+        {
+          "token": "b50",
+          "label": "50% Below Price"
+        }
+      ]
+    },
+    "ipodate": {
+      "key": "ipodate",
+      "label": "IPO Date",
+      "description": "Date the company first became publicly traded.",
+      "uiType": "select",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "today",
+          "label": "Today"
+        },
+        {
+          "token": "yesterday",
+          "label": "Yesterday"
+        },
+        {
+          "token": "prevweek",
+          "label": "In the last week"
+        },
+        {
+          "token": "prevmonth",
+          "label": "In the last month"
+        },
+        {
+          "token": "prevquarter",
+          "label": "In the last quarter"
+        },
+        {
+          "token": "prevyear",
+          "label": "In the last year"
+        },
+        {
+          "token": "prev2yrs",
+          "label": "In the last 2 years"
+        },
+        {
+          "token": "prev3yrs",
+          "label": "In the last 3 years"
+        },
+        {
+          "token": "prev5yrs",
+          "label": "In the last 5 years"
+        },
+        {
+          "token": "more1",
+          "label": "More than a year ago"
+        },
+        {
+          "token": "more5",
+          "label": "More than 5 years ago"
+        },
+        {
+          "token": "more10",
+          "label": "More than 10 years ago"
+        },
+        {
+          "token": "more15",
+          "label": "More than 15 years ago"
+        },
+        {
+          "token": "more20",
+          "label": "More than 20 years ago"
+        },
+        {
+          "token": "more25",
+          "label": "More than 25 years ago"
+        }
+      ]
+    },
+    "sh_outstanding": {
+      "key": "sh_outstanding",
+      "label": "Shares Outstanding",
+      "description": "Total number of shares issued and currently held by investors.",
+      "uiType": "floatRangeSelect",
+      "rangePrefix": null,
+      "rangeSuffix": "M",
+      "options": [
+        {
+          "token": "u1",
+          "label": "Under 1M"
+        },
+        {
+          "token": "u5",
+          "label": "Under 5M"
+        },
+        {
+          "token": "u10",
+          "label": "Under 10M"
+        },
+        {
+          "token": "u20",
+          "label": "Under 20M"
+        },
+        {
+          "token": "u50",
+          "label": "Under 50M"
+        },
+        {
+          "token": "u100",
+          "label": "Under 100M"
+        },
+        {
+          "token": "o1",
+          "label": "Over 1M"
+        },
+        {
+          "token": "o2",
+          "label": "Over 2M"
+        },
+        {
+          "token": "o5",
+          "label": "Over 5M"
+        },
+        {
+          "token": "o10",
+          "label": "Over 10M"
+        },
+        {
+          "token": "o20",
+          "label": "Over 20M"
+        },
+        {
+          "token": "o50",
+          "label": "Over 50M"
+        },
+        {
+          "token": "o100",
+          "label": "Over 100M"
+        },
+        {
+          "token": "o200",
+          "label": "Over 200M"
+        },
+        {
+          "token": "o500",
+          "label": "Over 500M"
+        },
+        {
+          "token": "o1000",
+          "label": "Over 1000M"
+        }
+      ]
+    },
+    "sh_float": {
+      "key": "sh_float",
+      "label": "Float",
+      "description": "The number of shares available for public trading. Doesn't include shares held by insiders.",
+      "uiType": "select",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "u1",
+          "label": "Under 1M"
+        },
+        {
+          "token": "u5",
+          "label": "Under 5M"
+        },
+        {
+          "token": "u10",
+          "label": "Under 10M"
+        },
+        {
+          "token": "u20",
+          "label": "Under 20M"
+        },
+        {
+          "token": "u50",
+          "label": "Under 50M"
+        },
+        {
+          "token": "u100",
+          "label": "Under 100M"
+        },
+        {
+          "token": "o1",
+          "label": "Over 1M"
+        },
+        {
+          "token": "o2",
+          "label": "Over 2M"
+        },
+        {
+          "token": "o5",
+          "label": "Over 5M"
+        },
+        {
+          "token": "o10",
+          "label": "Over 10M"
+        },
+        {
+          "token": "o20",
+          "label": "Over 20M"
+        },
+        {
+          "token": "o50",
+          "label": "Over 50M"
+        },
+        {
+          "token": "o100",
+          "label": "Over 100M"
+        },
+        {
+          "token": "o200",
+          "label": "Over 200M"
+        },
+        {
+          "token": "o500",
+          "label": "Over 500M"
+        },
+        {
+          "token": "o1000",
+          "label": "Over 1000M"
+        },
+        {
+          "token": "u10p",
+          "label": "Under 10%"
+        },
+        {
+          "token": "u20p",
+          "label": "Under 20%"
+        },
+        {
+          "token": "u30p",
+          "label": "Under 30%"
+        },
+        {
+          "token": "u40p",
+          "label": "Under 40%"
+        },
+        {
+          "token": "u50p",
+          "label": "Under 50%"
+        },
+        {
+          "token": "u60p",
+          "label": "Under 60%"
+        },
+        {
+          "token": "u70p",
+          "label": "Under 70%"
+        },
+        {
+          "token": "u80p",
+          "label": "Under 80%"
+        },
+        {
+          "token": "u90p",
+          "label": "Under 90%"
+        },
+        {
+          "token": "o10p",
+          "label": "Over 10%"
+        },
+        {
+          "token": "o20p",
+          "label": "Over 20%"
+        },
+        {
+          "token": "o30p",
+          "label": "Over 30%"
+        },
+        {
+          "token": "o40p",
+          "label": "Over 40%"
+        },
+        {
+          "token": "o50p",
+          "label": "Over 50%"
+        },
+        {
+          "token": "o60p",
+          "label": "Over 60%"
+        },
+        {
+          "token": "o70p",
+          "label": "Over 70%"
+        },
+        {
+          "token": "o80p",
+          "label": "Over 80%"
+        },
+        {
+          "token": "o90p",
+          "label": "Over 90%"
+        }
+      ]
+    },
+    "theme": {
+      "key": "theme",
+      "label": "Theme",
+      "description": "Investing themes associated with the company.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "agingpopulationlongevity",
+          "label": "Aging Population & Longevity"
+        },
+        {
+          "token": "agriculturefoodtech",
+          "label": "Agriculture & FoodTech"
+        },
+        {
+          "token": "artificialintelligence",
+          "label": "Artificial Intelligence"
+        },
+        {
+          "token": "autonomoussystems",
+          "label": "Autonomous Systems"
+        },
+        {
+          "token": "bigdata",
+          "label": "Big Data"
+        },
+        {
+          "token": "biometrics",
+          "label": "Biometrics"
+        },
+        {
+          "token": "cloudcomputing",
+          "label": "Cloud Computing"
+        },
+        {
+          "token": "commoditiesagriculture",
+          "label": "Commodities - Agriculture"
+        },
+        {
+          "token": "commoditiesenergy",
+          "label": "Commodities - Energy"
+        },
+        {
+          "token": "commoditiesmetals",
+          "label": "Commodities - Metals"
+        },
+        {
+          "token": "consumergoods",
+          "label": "Consumer Goods"
+        },
+        {
+          "token": "cryptoblockchain",
+          "label": "Crypto & Blockchain"
+        },
+        {
+          "token": "cybersecurity",
+          "label": "Cybersecurity"
+        },
+        {
+          "token": "defenseaerospace",
+          "label": "Defense & Aerospace"
+        },
+        {
+          "token": "digitalentertainment",
+          "label": "Digital Entertainment"
+        },
+        {
+          "token": "ecommerce",
+          "label": "E-commerce"
+        },
+        {
+          "token": "educationtechnology",
+          "label": "Education Technology"
+        },
+        {
+          "token": "electricvehicles",
+          "label": "Electric Vehicles"
+        },
+        {
+          "token": "energyrenewable",
+          "label": "Energy - Renewable"
+        },
+        {
+          "token": "energytraditional",
+          "label": "Energy - Traditional"
+        },
+        {
+          "token": "environmentalsustainability",
+          "label": "Environmental Sustainability"
+        },
+        {
+          "token": "fintech",
+          "label": "FinTech"
+        },
+        {
+          "token": "hardware",
+          "label": "Hardware"
+        },
+        {
+          "token": "healthcarebiotech",
+          "label": "Healthcare & Biotech"
+        },
+        {
+          "token": "healthyfoodnutrition",
+          "label": "Healthy Food & Nutrition"
+        },
+        {
+          "token": "industrialautomation",
+          "label": "Industrial Automation"
+        },
+        {
+          "token": "internetofthings",
+          "label": "Internet of Things"
+        },
+        {
+          "token": "nanotechnology",
+          "label": "Nanotechnology"
+        },
+        {
+          "token": "quantumcomputing",
+          "label": "Quantum Computing"
+        },
+        {
+          "token": "realestatereits",
+          "label": "Real Estate & REITs"
+        },
+        {
+          "token": "robotics",
+          "label": "Robotics"
+        },
+        {
+          "token": "semiconductors",
+          "label": "Semiconductors"
+        },
+        {
+          "token": "smarthome",
+          "label": "Smart Home"
+        },
+        {
+          "token": "socialmedia",
+          "label": "Social Media"
+        },
+        {
+          "token": "software",
+          "label": "Software"
+        },
+        {
+          "token": "spacetech",
+          "label": "Space Tech"
+        },
+        {
+          "token": "telecommunications",
+          "label": "Telecommunications"
+        },
+        {
+          "token": "transportationlogistics",
+          "label": "Transportation & Logistics"
+        },
+        {
+          "token": "virtualaugmentedreality",
+          "label": "Virtual & Augmented Reality"
+        },
+        {
+          "token": "wearables",
+          "label": "Wearables"
+        }
+      ]
+    },
+    "subtheme": {
+      "key": "subtheme",
+      "label": "Sub-theme",
+      "description": "Investing sub-themes associated with the company.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "agriculturealtprotein",
+          "label": "Agriculture - Alternative Proteins"
+        },
+        {
+          "token": "agriculturecropinputs",
+          "label": "Agriculture - Agricultural Inputs & Crop Science"
+        },
+        {
+          "token": "agricultureindoorfarming",
+          "label": "Agriculture - Controlled Environment Agriculture"
+        },
+        {
+          "token": "agricultureprocessing",
+          "label": "Agriculture - Agri-Food Processing & Distribution"
+        },
+        {
+          "token": "agriculturesmartfarming",
+          "label": "Agriculture - Precision Agriculture & Farm Automation"
+        },
+        {
+          "token": "aiadssearch",
+          "label": "AI - Ads, Search & Recommendations"
+        },
+        {
+          "token": "aiagi",
+          "label": "AI - AGI, general intelligence"
+        },
+        {
+          "token": "aiapplications",
+          "label": "AI - Apps, Domain-Specific AI"
+        },
+        {
+          "token": "aicloud",
+          "label": "AI - Cloud & Infrastructure"
+        },
+        {
+          "token": "aicompute",
+          "label": "AI - Compute & Acceleration"
+        },
+        {
+          "token": "aidata",
+          "label": "AI - Data Infrastructure & Enablement"
+        },
+        {
+          "token": "aiedge",
+          "label": "AI - Edge & Embedded Systems"
+        },
+        {
+          "token": "aienergy",
+          "label": "AI - Power & Energy Solutions"
+        },
+        {
+          "token": "aienterprise",
+          "label": "AI - Enterprise Productivity & Software Integration"
+        },
+        {
+          "token": "aimodels",
+          "label": "AI - Foundation Models & Platforms"
+        },
+        {
+          "token": "ainetworking",
+          "label": "AI - Networking & Systems Optimization"
+        },
+        {
+          "token": "airobotics",
+          "label": "AI - Robotics & Automation"
+        },
+        {
+          "token": "aisecurity",
+          "label": "AI - Cybersecurity"
+        },
+        {
+          "token": "automationautomation",
+          "label": "Automation - Factory & Process Automation Systems"
+        },
+        {
+          "token": "automationdprinting",
+          "label": "Automation - Additive Manufacturing, 3D Printing"
+        },
+        {
+          "token": "automationiot",
+          "label": "Automation - Industrial IoT, Connectivity"
+        },
+        {
+          "token": "automationlogistics",
+          "label": "Automation - Smart Logistics & Warehouse Automation"
+        },
+        {
+          "token": "automationmachinevision",
+          "label": "Automation - Industrial Sensors & Machine Vision"
+        },
+        {
+          "token": "automationrobotics",
+          "label": "Automation - Industrial Robotics & Autonomous Systems"
+        },
+        {
+          "token": "automationsoftware",
+          "label": "Automation - Industrial Software & Digital Twin"
+        },
+        {
+          "token": "autonomousavmobility",
+          "label": "Autonomous  - Vehicles & Mobility"
+        },
+        {
+          "token": "autonomousdefense",
+          "label": "Autonomous  - Aerospace, Defense & Drones"
+        },
+        {
+          "token": "autonomousindustrial",
+          "label": "Autonomous  - Industrial & Logistics Automation"
+        },
+        {
+          "token": "autonomousmachinevision",
+          "label": "Autonomous  - Sensors & Perception Systems"
+        },
+        {
+          "token": "autonomoussoftware",
+          "label": "Autonomous  - Software & Cloud Infrastructure"
+        },
+        {
+          "token": "autonomousspecialized",
+          "label": "Autonomous  - Maritime, Agriculture & Specialized Autonomy"
+        },
+        {
+          "token": "bigdataaiplatforms",
+          "label": "Big Data - AI Platforms & Predictive Analytics"
+        },
+        {
+          "token": "bigdataanalyticsbi",
+          "label": "Big Data - Analytics & Business Intelligence"
+        },
+        {
+          "token": "bigdatainfrastructure",
+          "label": "Big Data - Infrastructure & Storage"
+        },
+        {
+          "token": "bigdataproviders",
+          "label": "Big Data - Data Generation, Sourcing & Providers"
+        },
+        {
+          "token": "biometricsgovdefense",
+          "label": "Biometrics - Government, Defense & Public Security"
+        },
+        {
+          "token": "biometricshardware",
+          "label": "Biometrics - Biometric Sensors & Hardware"
+        },
+        {
+          "token": "biometricsidentity",
+          "label": "Biometrics - Identity Verification & Security"
+        },
+        {
+          "token": "biometricssoftware",
+          "label": "Biometrics - Recognition & Analytics"
+        },
+        {
+          "token": "blockchainenterprise",
+          "label": "Blockchain - Enterprise Blockchain Solutions"
+        },
+        {
+          "token": "blockchaininfrastructure",
+          "label": "Blockchain - Blockchain Infrastructure"
+        },
+        {
+          "token": "blockchainmining",
+          "label": "Blockchain - Cryptocurrency Mining & Staking"
+        },
+        {
+          "token": "blockchainpayments",
+          "label": "Blockchain - Financial Services & Payments"
+        },
+        {
+          "token": "blockchainplatforms",
+          "label": "Blockchain - Cryptocurrency Platforms"
+        },
+        {
+          "token": "blockchaintokenization",
+          "label": "Blockchain - Tokenization & Digital Assets"
+        },
+        {
+          "token": "clouddatabases",
+          "label": "Cloud - Data Platforms & Databases"
+        },
+        {
+          "token": "clouddatacenters",
+          "label": "Cloud - Data Centers"
+        },
+        {
+          "token": "clouddevops",
+          "label": "Cloud - DevOps, Observability"
+        },
+        {
+          "token": "cloudedge",
+          "label": "Cloud - Edge, CDN, Zero-Trust Networking"
+        },
+        {
+          "token": "cloudhardware",
+          "label": "Cloud - Hardware, Networking & OEM"
+        },
+        {
+          "token": "cloudhsaas",
+          "label": "Cloud - Horizontal SaaS & Cloud Applications"
+        },
+        {
+          "token": "cloudhybridcloud",
+          "label": "Cloud - Hybrid Cloud"
+        },
+        {
+          "token": "cloudhyperscalers",
+          "label": "Cloud - Hyperscalers"
+        },
+        {
+          "token": "cloudmulticloud",
+          "label": "Cloud - Multi-Cloud Management"
+        },
+        {
+          "token": "cloudpaas",
+          "label": "Cloud - Platforms & Services, PaaS"
+        },
+        {
+          "token": "cloudsecurity",
+          "label": "Cloud - Security"
+        },
+        {
+          "token": "cloudserverless",
+          "label": "Cloud - Serverless Computing"
+        },
+        {
+          "token": "commagribiofuels",
+          "label": "Comm Agri - Renewable Fuels & Biofuels"
+        },
+        {
+          "token": "commagrifertilizers",
+          "label": "Comm Agri - Fertilizers, Crop Inputs & Seeds"
+        },
+        {
+          "token": "commagrigrains",
+          "label": "Comm Agri - Grains & Oilseeds"
+        },
+        {
+          "token": "commagrilivestock",
+          "label": "Comm Agri - Livestock & Animal Protein"
+        },
+        {
+          "token": "commagrisofts",
+          "label": "Comm Agri - Softs & Plantation Crops"
+        },
+        {
+          "token": "commenergybiofuels",
+          "label": "Comm Energy - Biofuels & Renewable Fuels"
+        },
+        {
+          "token": "commenergygaslng",
+          "label": "Comm Energy - Natural Gas & LNG"
+        },
+        {
+          "token": "commenergyoil",
+          "label": "Comm Energy - Crude Oil"
+        },
+        {
+          "token": "commenergyuranium",
+          "label": "Comm Energy - Uranium & Nuclear Fuels"
+        },
+        {
+          "token": "commmetalsbattery",
+          "label": "Comm Metals - Battery & Energy Transition Metals"
+        },
+        {
+          "token": "commmetalsgold",
+          "label": "Comm Metals - Gold"
+        },
+        {
+          "token": "commmetalsindustrial",
+          "label": "Comm Metals - Industrial & Base Metals"
+        },
+        {
+          "token": "commmetalsprecious",
+          "label": "Comm Metals - Precious Metals"
+        },
+        {
+          "token": "commmetalsrareearth",
+          "label": "Comm Metals - Rare Earth & Strategic Materials"
+        },
+        {
+          "token": "commmetalsrecycling",
+          "label": "Comm Metals - Recycling & Circular Materials"
+        },
+        {
+          "token": "commmetalssilver",
+          "label": "Comm Metals - Silver"
+        },
+        {
+          "token": "consumerapparel",
+          "label": "Consumer - Apparel & E-Commerce Retail"
+        },
+        {
+          "token": "consumerfarmdirect",
+          "label": "Consumer - Farming & Direct Marketplaces"
+        },
+        {
+          "token": "consumerfood",
+          "label": "Consumer - Health, Food & Beverages"
+        },
+        {
+          "token": "consumerhousehold",
+          "label": "Consumer - Smart Homes & Household Products"
+        },
+        {
+          "token": "consumerluxury",
+          "label": "Consumer - Modern Luxury & Lifestyle"
+        },
+        {
+          "token": "consumersecondhand",
+          "label": "Consumer - Resale & Sharing Platforms"
+        },
+        {
+          "token": "cybersecurityappsecurity",
+          "label": "Cybersecurity - Application Security"
+        },
+        {
+          "token": "cybersecuritycloud",
+          "label": "Cybersecurity - Cloud Security"
+        },
+        {
+          "token": "cybersecurityendpoint",
+          "label": "Cybersecurity - Endpoint Security"
+        },
+        {
+          "token": "cybersecurityidentityiam",
+          "label": "Cybersecurity - Identity & Access Management"
+        },
+        {
+          "token": "cybersecuritynetwork",
+          "label": "Cybersecurity - Network Security"
+        },
+        {
+          "token": "cybersecuritysiem",
+          "label": "Cybersecurity - Security Information & Event Management"
+        },
+        {
+          "token": "cybersecuritythreatops",
+          "label": "Cybersecurity - Threat Intelligence"
+        },
+        {
+          "token": "cybersecurityzerotrust",
+          "label": "Cybersecurity - Zero Trust"
+        },
+        {
+          "token": "defenseaviation",
+          "label": "Defense - Next-Generation Aircraft & Maintenance"
+        },
+        {
+          "token": "defensecyberdefense",
+          "label": "Defense - Cyber Defense & Electronic Warfare"
+        },
+        {
+          "token": "defensedrones",
+          "label": "Defense - Drones & Anti-Drone Systems"
+        },
+        {
+          "token": "defensemanufacturing",
+          "label": "Defense - Secure Defense Supply Chains"
+        },
+        {
+          "token": "defensemissiles",
+          "label": "Defense - Missile Defense & Long-Range Weapons"
+        },
+        {
+          "token": "defensespacetech",
+          "label": "Defense - Space Technology & Satellite Services"
+        },
+        {
+          "token": "defenseweapons",
+          "label": "Defense - Precision Weapons & Ammunition Resupply"
+        },
+        {
+          "token": "ecommerceadsmedia",
+          "label": "E-commerce - Retail Media & Advertising"
+        },
+        {
+          "token": "ecommercedtc",
+          "label": "E-commerce - Direct-to-Consumer"
+        },
+        {
+          "token": "ecommercegrocery",
+          "label": "E-commerce - Grocery & Local Commerce Platforms"
+        },
+        {
+          "token": "ecommercelogistics",
+          "label": "E-commerce - Logistics & Delivery"
+        },
+        {
+          "token": "ecommercemarketplaces",
+          "label": "E-commerce - Online Marketplaces"
+        },
+        {
+          "token": "ecommerceomnichannel",
+          "label": "E-commerce - Omnichannel Retailers, Online & Physical Stores"
+        },
+        {
+          "token": "ecommerceplatforms",
+          "label": "E-commerce - Platforms"
+        },
+        {
+          "token": "ecommercesecondhand",
+          "label": "E-commerce - Recommerce, Secondhand Marketplaces"
+        },
+        {
+          "token": "ecommercesocial",
+          "label": "E-commerce - Social & Influencer Commerce"
+        },
+        {
+          "token": "educationcurriculum",
+          "label": "Education - Digital Curriculum"
+        },
+        {
+          "token": "educationinfrastructure",
+          "label": "Education - Infrastructure"
+        },
+        {
+          "token": "educationplatforms",
+          "label": "Education - Online Learning Platforms"
+        },
+        {
+          "token": "educationworkforce",
+          "label": "Education - Workforce Training"
+        },
+        {
+          "token": "energybasemajors",
+          "label": "Energy Base - Integrated Energy Majors"
+        },
+        {
+          "token": "energybasenuclear",
+          "label": "Energy Base - Nuclear Power & Advanced Reactors"
+        },
+        {
+          "token": "energybaseoilproduction",
+          "label": "Energy Base - Oil & Gas Exploration & Production"
+        },
+        {
+          "token": "energybaseoilrefining",
+          "label": "Energy Base - Refining & Midstream Infrastructure"
+        },
+        {
+          "token": "energybaseoilservices",
+          "label": "Energy Base - Oilfield Services & Equipment"
+        },
+        {
+          "token": "energybasethermal",
+          "label": "Energy Base - Coal & Thermal Power Generation"
+        },
+        {
+          "token": "energybaseutilities",
+          "label": "Energy Base - Utilities & Conventional Power Operators"
+        },
+        {
+          "token": "energycleanbatteries",
+          "label": "Energy Clean - Batteries & Storage"
+        },
+        {
+          "token": "energycleanbiofuels",
+          "label": "Energy Clean - Fuels & Bioenergy"
+        },
+        {
+          "token": "energycleangeothermal",
+          "label": "Energy Clean - Geothermal"
+        },
+        {
+          "token": "energycleanhydrogen",
+          "label": "Energy Clean - Hydrogen & Fuel Cells"
+        },
+        {
+          "token": "energycleanmaterials",
+          "label": "Energy Clean - Materials & Critical Metals"
+        },
+        {
+          "token": "energycleansmartgrid",
+          "label": "Energy Clean - Smart Grid & Electrification"
+        },
+        {
+          "token": "energycleansolar",
+          "label": "Energy Clean - Solar"
+        },
+        {
+          "token": "energycleanutilities",
+          "label": "Energy Clean - Utilities & Clean Power Operators"
+        },
+        {
+          "token": "energycleanwind",
+          "label": "Energy Clean - Wind"
+        },
+        {
+          "token": "entertainmentbetting",
+          "label": "Entertainment - Sports Betting, Wagering & Prediction Markets"
+        },
+        {
+          "token": "entertainmentgambling",
+          "label": "Entertainment - iGaming & Online Gambling"
+        },
+        {
+          "token": "entertainmentgaming",
+          "label": "Entertainment - Game Publishers & Developers"
+        },
+        {
+          "token": "entertainmentinfrastructure",
+          "label": "Entertainment - Streaming & Gaming Infrastructure"
+        },
+        {
+          "token": "entertainmentmusic",
+          "label": "Entertainment - Music & Audio Streaming"
+        },
+        {
+          "token": "entertainmentvideo",
+          "label": "Entertainment - Video Streaming"
+        },
+        {
+          "token": "environmentalagriculture",
+          "label": "Environmental - Sustainable Agriculture & Resource Management"
+        },
+        {
+          "token": "environmentalairquality",
+          "label": "Environmental - Clean Technologies & Pollution Control"
+        },
+        {
+          "token": "environmentalclimate",
+          "label": "Environmental - Climate Technologies & Carbon Solutions"
+        },
+        {
+          "token": "environmentalwaste",
+          "label": "Environmental - Waste Management & Recycling"
+        },
+        {
+          "token": "environmentalwater",
+          "label": "Environmental - Water Infrastructure & Treatment"
+        },
+        {
+          "token": "evsbatteries",
+          "label": "EVs - Batteries & Materials"
+        },
+        {
+          "token": "evscharging",
+          "label": "EVs - Charging & Infrastructure"
+        },
+        {
+          "token": "evschips",
+          "label": "EVs - Auto Semiconductors & Power Electronics"
+        },
+        {
+          "token": "evsfleets",
+          "label": "EVs - Fleet Management & Telematics"
+        },
+        {
+          "token": "evsmanufacturers",
+          "label": "EVs - Manufacturers"
+        },
+        {
+          "token": "evsselfdriving",
+          "label": "EVs - Autonomous Driving"
+        },
+        {
+          "token": "evssuppliers",
+          "label": "EVs - Key Suppliers & Autonomy Tech"
+        },
+        {
+          "token": "fintechblockchain",
+          "label": "FinTech - Crypto, Blockchain & Tokenization"
+        },
+        {
+          "token": "fintechexchanges",
+          "label": "FinTech - Exchanges & Market Infrastructure"
+        },
+        {
+          "token": "fintechinsurance",
+          "label": "FinTech - InsurTech & Embedded Insurance"
+        },
+        {
+          "token": "fintechlending",
+          "label": "FinTech - Lending, Credit & BNPL"
+        },
+        {
+          "token": "fintechneobanks",
+          "label": "FinTech - Digital Banking & Neobanks"
+        },
+        {
+          "token": "fintechpayments",
+          "label": "FinTech - Digital Payments & Merchant Infrastructure"
+        },
+        {
+          "token": "fintechtrading",
+          "label": "FinTech - Trading Platforms & WealthTech"
+        },
+        {
+          "token": "hardwaredatacenters",
+          "label": "Hardware - Data Center Infrastructure"
+        },
+        {
+          "token": "hardwareelectronics",
+          "label": "Hardware - Consumer Electronics, Gaming PCs & Consoles"
+        },
+        {
+          "token": "hardwaregaming",
+          "label": "Hardware - Gaming & Immersive Pheriperals"
+        },
+        {
+          "token": "hardwareindustrialiot",
+          "label": "Hardware - Industrial & IoT"
+        },
+        {
+          "token": "hardwarenetworking",
+          "label": "Hardware - Networking Equipment"
+        },
+        {
+          "token": "hardwarenextgen",
+          "label": "Hardware - Next-Gen & Specialty"
+        },
+        {
+          "token": "hardwarepcsdevices",
+          "label": "Hardware - Personal Computing & Devices"
+        },
+        {
+          "token": "hardwareprinting",
+          "label": "Hardware - Printing & Imaging"
+        },
+        {
+          "token": "hardwareservers",
+          "label": "Hardware - Servers, OEMs & Enterprise Systems"
+        },
+        {
+          "token": "hardwarestorage",
+          "label": "Hardware - Storage"
+        },
+        {
+          "token": "hardwaretelecom",
+          "label": "Hardware - Communications & Telecom"
+        },
+        {
+          "token": "healthcaredevices",
+          "label": "Healthcare - Medical Devices & HealthTech Hardware"
+        },
+        {
+          "token": "healthcarediagnostics",
+          "label": "Healthcare - Diagnostics, Biomarkers & Liquid Biopsy"
+        },
+        {
+          "token": "healthcaregenomics",
+          "label": "Healthcare - Genomics & Personalized Medicine"
+        },
+        {
+          "token": "healthcareitdata",
+          "label": "Healthcare - IT, Services & Data Infrastructure"
+        },
+        {
+          "token": "healthcaremetabolic",
+          "label": "Healthcare - Metabolic & Cardiometabolic"
+        },
+        {
+          "token": "healthcarenextgen",
+          "label": "Healthcare - Next-Gen Biotech Platforms"
+        },
+        {
+          "token": "healthcareoncology",
+          "label": "Healthcare - Oncology & Precision Cancer Therapeutics"
+        },
+        {
+          "token": "healthcaretelemedicine",
+          "label": "Healthcare - Digital Health, Telemedicine & Remote Care"
+        },
+        {
+          "token": "healthcaretherapeutics",
+          "label": "Healthcare - Regenerative Medicine, Psychedelics, Cannabis"
+        },
+        {
+          "token": "iotedgedevices",
+          "label": "IoT - Connected Devices & Sensors"
+        },
+        {
+          "token": "iotenterprise",
+          "label": "IoT - Industrial & Enterprise IoT"
+        },
+        {
+          "token": "iothardware",
+          "label": "IoT - Edge Computing & Hardware Infrastructure"
+        },
+        {
+          "token": "iotnetworking",
+          "label": "IoT - Connectivity & Networks"
+        },
+        {
+          "token": "iotsecurity",
+          "label": "IoT - Security & Data Management"
+        },
+        {
+          "token": "iotsoftware",
+          "label": "IoT - Platforms, Software & Analytics"
+        },
+        {
+          "token": "longevityagingpharma",
+          "label": "Longevity - Age-Related Pharmaceuticals & Biotech"
+        },
+        {
+          "token": "longevityhealthcare",
+          "label": "Longevity - Healthcare & Medical Devices"
+        },
+        {
+          "token": "longevityhealthyaging",
+          "label": "Longevity - Healthy Aging & Nutrition"
+        },
+        {
+          "token": "longevityseniorliving",
+          "label": "Longevity - Senior Living & Assisted Care"
+        },
+        {
+          "token": "nanotechelectronics",
+          "label": "NanoTech - Nanoelectronics & Semiconductors"
+        },
+        {
+          "token": "nanotechenergy",
+          "label": "NanoTech - Energy & Environment"
+        },
+        {
+          "token": "nanotechmaterials",
+          "label": "NanoTech - Nanomaterials & Manufacturing"
+        },
+        {
+          "token": "nanotechmedicine",
+          "label": "NanoTech - Nanomedicine & Drug Delivery"
+        },
+        {
+          "token": "nanotechproducts",
+          "label": "NanoTech - Consumer & Industrial Products"
+        },
+        {
+          "token": "nanotechresearchtools",
+          "label": "NanoTech - Research Tools & Advanced Instruments"
+        },
+        {
+          "token": "nutritionaltprotein",
+          "label": "Nutrition - Plant-Based Foods & Meat Alternatives"
+        },
+        {
+          "token": "nutritionmealdelivery",
+          "label": "Nutrition - Food Delivery & Meal Kits"
+        },
+        {
+          "token": "nutritionretailers",
+          "label": "Nutrition - Organic & Natural Food Retailers"
+        },
+        {
+          "token": "nutritionsupplements",
+          "label": "Nutrition - Functional & Nutritional Supplements"
+        },
+        {
+          "token": "quantumapplications",
+          "label": "Quantum  - Applications"
+        },
+        {
+          "token": "quantumcloud",
+          "label": "Quantum  - Cloud Ecosystems"
+        },
+        {
+          "token": "quantumenablingtech",
+          "label": "Quantum  - Enabling Technologies"
+        },
+        {
+          "token": "quantumhardware",
+          "label": "Quantum  - Hardware Platforms"
+        },
+        {
+          "token": "quantumnetworking",
+          "label": "Quantum  - Networking & Security"
+        },
+        {
+          "token": "quantumsoftware",
+          "label": "Quantum  - Software & Tools"
+        },
+        {
+          "token": "realestatehealthcare",
+          "label": "Real Estate - Healthcare & Senior Living"
+        },
+        {
+          "token": "realestatehousing",
+          "label": "Real Estate - Housing, Urban Living & Demographics"
+        },
+        {
+          "token": "realestateittelecom",
+          "label": "Real Estate - Digital Infrastructure"
+        },
+        {
+          "token": "realestateoffice",
+          "label": "Real Estate - Office & Commercial Workspaces"
+        },
+        {
+          "token": "realestateretail",
+          "label": "Real Estate - Retail & Consumer Real Estate"
+        },
+        {
+          "token": "realestatetourism",
+          "label": "Real Estate - Travel, Leisure & Entertainment Properties"
+        },
+        {
+          "token": "realestatewarehousing",
+          "label": "Real Estate - E-Commerce, Warehousing & Logistics"
+        },
+        {
+          "token": "roboticsautomation",
+          "label": "Robotics - Industrial Automation"
+        },
+        {
+          "token": "roboticsavmobility",
+          "label": "Robotics - Autonomous Vehicles & Mobility"
+        },
+        {
+          "token": "roboticsconsumer",
+          "label": "Robotics - Service & Consumer Robotics"
+        },
+        {
+          "token": "roboticslogistics",
+          "label": "Robotics - Logistics & Warehouse Robotics"
+        },
+        {
+          "token": "roboticsmachinevision",
+          "label": "Robotics - Sensors & Vision Systems"
+        },
+        {
+          "token": "roboticsmedical",
+          "label": "Robotics - Medical & Surgical Robotics"
+        },
+        {
+          "token": "semisanalog",
+          "label": "Semis - Analog, Mixed-Signal & Power Management"
+        },
+        {
+          "token": "semiscompute",
+          "label": "Semis - Logic & CPUs, GPUs, Accelerators"
+        },
+        {
+          "token": "semisdesigntools",
+          "label": "Semis - EDA Tools & Design Software"
+        },
+        {
+          "token": "semisfoundries",
+          "label": "Semis - Foundries & Manufacturing"
+        },
+        {
+          "token": "semislithography",
+          "label": "Semis - Equipment, Lithography & Deposition"
+        },
+        {
+          "token": "semismemory",
+          "label": "Semis - Memory & Storage"
+        },
+        {
+          "token": "semisnextgen",
+          "label": "Semis - Emerging Technologies"
+        },
+        {
+          "token": "semispackaging",
+          "label": "Semis - Testing, Packaging & Assembly"
+        },
+        {
+          "token": "semiswireless",
+          "label": "Semis - Wireless & Connectivity"
+        },
+        {
+          "token": "smarthomeautomation",
+          "label": "Smart Home - Automation & Control Systems"
+        },
+        {
+          "token": "smarthomedevices",
+          "label": "Smart Home - Connected Devices & Appliances"
+        },
+        {
+          "token": "smarthomeenergy",
+          "label": "Smart Home - Energy & Utilities"
+        },
+        {
+          "token": "smarthomenetworking",
+          "label": "Smart Home - Connectivity & Networking"
+        },
+        {
+          "token": "smarthomesecurity",
+          "label": "Smart Home - Security & Monitoring"
+        },
+        {
+          "token": "smarthomevoiceai",
+          "label": "Smart Home - Voice Assistants & AI Integration"
+        },
+        {
+          "token": "socialadvertising",
+          "label": "Social - Advertising Platforms"
+        },
+        {
+          "token": "socialgaming",
+          "label": "Social - Gaming Platforms"
+        },
+        {
+          "token": "socialnetworks",
+          "label": "Social - Networks & Communication Platforms"
+        },
+        {
+          "token": "socialniche",
+          "label": "Social - Niche Platforms"
+        },
+        {
+          "token": "socialvisualcontent",
+          "label": "Social - Image & Video Content Platforms"
+        },
+        {
+          "token": "softwarecollaboration",
+          "label": "Software - Collaboration & Communications"
+        },
+        {
+          "token": "softwarecrm",
+          "label": "Software - Customer Relationship Management & Marketing"
+        },
+        {
+          "token": "softwaredataanalytics",
+          "label": "Software - Data & Analytics"
+        },
+        {
+          "token": "softwaredesign",
+          "label": "Software - Design, Creativity & Engineering"
+        },
+        {
+          "token": "softwaredevops",
+          "label": "Software - DevOps, Management & Observability"
+        },
+        {
+          "token": "softwareecommerce",
+          "label": "Software - E-Commerce & Digital Platforms"
+        },
+        {
+          "token": "softwareenterprise",
+          "label": "Software - Enterprise Resource Planning & Management"
+        },
+        {
+          "token": "softwaregaming",
+          "label": "Software - Gaming & Platforms"
+        },
+        {
+          "token": "softwarehsaas",
+          "label": "Software - Horizontal SaaS Platforms"
+        },
+        {
+          "token": "softwareos",
+          "label": "Software - Operating Systems"
+        },
+        {
+          "token": "softwaresecurity",
+          "label": "Software - Cybersecurity"
+        },
+        {
+          "token": "softwarevsaas",
+          "label": "Software - Vertical SaaS Platforms"
+        },
+        {
+          "token": "spacedataanalytics",
+          "label": "Space - Data Analytics & Earth Observation"
+        },
+        {
+          "token": "spacedefense",
+          "label": "Space - Defense & Cybersecurity"
+        },
+        {
+          "token": "spaceinfrastructure",
+          "label": "Space - Infrastructure & Exploration"
+        },
+        {
+          "token": "spacelaunch",
+          "label": "Space - Logistics & Launch Services"
+        },
+        {
+          "token": "spacesatellites",
+          "label": "Space - Satellite Networks & Connectivity"
+        },
+        {
+          "token": "telecomcloudedge",
+          "label": "Telecom - Cloud & Edge Connectivity"
+        },
+        {
+          "token": "telecomenterprise",
+          "label": "Telecom - Enterprise & Unified Communications"
+        },
+        {
+          "token": "telecomg",
+          "label": "Telecom - 5G Technology & Semiconductors"
+        },
+        {
+          "token": "telecominfrastructure",
+          "label": "Telecom - Infrastructure & Equipment"
+        },
+        {
+          "token": "telecomsatcom",
+          "label": "Telecom - Satellite & Space Communication"
+        },
+        {
+          "token": "telecomwireless",
+          "label": "Telecom - Wireless Networks & Carriers"
+        },
+        {
+          "token": "transportationaircargo",
+          "label": "Transportation - Air Freight & Express Delivery"
+        },
+        {
+          "token": "transportationairtravel",
+          "label": "Transportation - Air Travel & Passenger Transportation"
+        },
+        {
+          "token": "transportationinfrastructure",
+          "label": "Transportation - Infrastructure & Equipment"
+        },
+        {
+          "token": "transportationmaritime",
+          "label": "Transportation - Marine Shipping & Ports"
+        },
+        {
+          "token": "transportationnextgen",
+          "label": "Transportation - Urban Mobility & Emerging Transport Tech"
+        },
+        {
+          "token": "transportationrail",
+          "label": "Transportation - Freight Rail & Infrastructure"
+        },
+        {
+          "token": "transportationtrucking",
+          "label": "Transportation - Trucking, LTL & Ground Freight"
+        },
+        {
+          "token": "transportationwarehousing",
+          "label": "Transportation - Logistics, Warehousing & Supply Chain Solutions"
+        },
+        {
+          "token": "varealityapplications",
+          "label": "V/A Reality - Content & Applications"
+        },
+        {
+          "token": "varealityenterprise",
+          "label": "V/A Reality - Enterprise & Industrial Solutions"
+        },
+        {
+          "token": "varealityhardware",
+          "label": "V/A Reality - Headsets & Hardware"
+        },
+        {
+          "token": "varealityinfrastructure",
+          "label": "V/A Reality - Infrastructure & Cloud Rendering"
+        },
+        {
+          "token": "varealitysoftware",
+          "label": "V/A Reality - Software Platforms & Operating Systems"
+        },
+        {
+          "token": "wearablesimmersive",
+          "label": "Wearables - Audio-Visual Immersive Devices"
+        },
+        {
+          "token": "wearablesmedical",
+          "label": "Wearables - Health Monitoring & Medical Devices"
+        },
+        {
+          "token": "wearablessmartwatches",
+          "label": "Wearables - Smartwatches & Fitness Devices"
+        },
+        {
+          "token": "wearablessoftware",
+          "label": "Wearables - Software & Ecosystems"
+        },
+        {
+          "token": "wearablessport",
+          "label": "Wearables - Sports, Fitness & Lifestyle Applications"
+        }
+      ]
+    },
+    "sh_dilution": {
+      "key": "sh_dilution",
+      "label": "Dilution Risk",
+      "description": "Overall risk of new share issuance, based on offering ability, cash need, overhang and dilution history.",
+      "uiType": "modalSelect",
+      "rangePrefix": null,
+      "rangeSuffix": null,
+      "options": [
+        {
+          "token": "severe",
+          "label": "Severe"
+        },
+        {
+          "token": "high",
+          "label": "High"
+        },
+        {
+          "token": "moderate",
+          "label": "Moderate"
+        },
+        {
+          "token": "low",
+          "label": "Low"
+        },
+        {
+          "token": "minimal",
+          "label": "Minimal"
+        }
+      ]
+    }
+  }
+}

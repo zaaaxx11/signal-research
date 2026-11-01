@@ -135,6 +135,7 @@ from app.engine.catalog import CATALOG_BY_KEY
 from app.screen import buckets
 from app.screen import choice_filters
 from app.screen import columns as column_map
+from app.screen import descriptive
 from app.screen import rank as ranking
 from app.screen import views as screen_views
 from app.screen.filter_fields import (
@@ -181,6 +182,9 @@ DEFAULT_SORT = "market_cap"
 #: Top-level keys a selection may carry (the strict contract). ``limit`` is here
 #: for ``symbols`` mode, which has no ``criteria`` block to put it in; a criteria
 #: query must still send it inside ``criteria``, where the hint points it.
+#: ``signal`` is top-level because it names the **population**, not a predicate
+#: inside the query: Finviz's signal set is a different question ("show me the
+#: most active names"), not another filter ANDed onto one.
 SELECTION_KEYS: frozenset[str] = frozenset(
     {
         "mode",
@@ -194,6 +198,7 @@ SELECTION_KEYS: frozenset[str] = frozenset(
         "fill_wide",
         "columns",
         "limit",
+        "signal",
     }
 )
 
@@ -346,6 +351,10 @@ class SelectionRequest:
     symbols: tuple[str, ...]
     source: str | None
     snapshot_id: str | None
+    #: The Finviz signal whose population this query runs over, or ``None`` for
+    #: the whole universe. A signal narrows the population and, when the
+    #: request names no ``sort``, supplies the order its measure implies.
+    signal: str | None = None
     asset_class: str | None = None
     view: str | None = None
     offset: int = 0
@@ -400,14 +409,44 @@ def _limit(raw: Any) -> int:
     return min(raw, PANEL_LIMIT)
 
 
-def _sort(raw: Any) -> str:
+def _sort(raw: Any) -> str | None:
+    """The order the page is ranked by: a numeric catalog field, ``-`` ascending.
+
+    ``None`` means the payload named no sort at all, which is **not** the same
+    answer as ``market_cap``: a signal's own measure becomes the default order
+    when one is present (:mod:`app.screen.descriptive`), and a query with
+    neither a sort nor a signal falls back to :data:`DEFAULT_SORT`. The
+    distinction is resolved in :func:`_parse_criteria`, so a request that names
+    ``market_cap`` explicitly and one that names nothing still answer with the
+    same applied order.
+
+    Anything else is a ``422 unknown_sort`` naming the accepted fields —
+    including a text column (``sector`` is not an order) and a misspelling.
+    """
+
     if raw is None:
-        return DEFAULT_SORT
-    if raw not in ranking.SORTS:
-        raise SelectionError(
-            f"unknown sort {raw!r}; expected one of {', '.join(ranking.SORTS)}"
-        )
+        return None
+    try:
+        ranking.order_metric(raw)
+    except ValueError as exc:
+        raise SelectionError(str(exc), code="unknown_sort") from exc
     return str(raw)
+
+
+def _signal(raw: Any) -> descriptive.Signal | None:
+    """The signal the payload names, or ``None``. Two refusals, both 422.
+
+    An unknown id is a typo (``unknown_signal``); an id the build cannot compute
+    is ``unavailable_signal`` naming the metric it needs. Neither is ever an
+    empty page — a caller reads an empty page as the signal's population.
+    """
+
+    if raw is None:
+        return None
+    try:
+        return descriptive.signal(raw)
+    except descriptive.SignalError as exc:
+        raise SelectionError(str(exc), code=exc.code) from exc
 
 
 def _asset_class(raw: Any) -> str | None:
@@ -786,17 +825,25 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
         family = asset_class_for(str(region), family_raw)
     except ValueError as exc:
         raise SelectionError(str(exc)) from exc
+    # The signal is resolved before the sort because it can *become* the order:
+    # a signal names a population and its own measure, so an absent `sort` means
+    # "the signal's order", not "market cap". An explicit sort always wins.
+    chosen = _signal(payload.get("signal"))
+    sort = _sort(block.get("sort"))
+    if sort is None:
+        sort = descriptive.default_sort(chosen) if chosen is not None else DEFAULT_SORT
     return SelectionRequest(
         mode="criteria",
         region=str(region),
         filters=_filters(block.get("filters"), region=str(region)),
-        sort=_sort(block.get("sort")),
+        sort=sort,
         limit=_limit(block.get("limit")),
         offset=_offset(block.get("offset")),
         common_only=_common_only(block.get("common_only")),
         symbols=(),
         source=None,
         snapshot_id=None,
+        signal=chosen.id if chosen is not None else None,
         asset_class=family,
         view=view,
         fill_wide=_fill_wide(payload.get("fill_wide")),
@@ -805,7 +852,7 @@ def _parse_criteria(payload: Mapping[str, Any]) -> SelectionRequest:
 
 
 def _parse_symbols(payload: Mapping[str, Any]) -> SelectionRequest:
-    for name in ("region", "criteria"):
+    for name in ("region", "criteria", "signal"):
         if name in payload:
             raise SelectionError(
                 f"mode 'symbols' takes its universe from 'snapshot_id' and does not "
@@ -1001,6 +1048,12 @@ def _selected(
 
     matched = apply_filters(rows, _predicates(request), region=request.region)
     matched = buckets.apply_bucket_filters(matched, request.filters, as_of=as_of)
+    if request.signal is not None:
+        # The signal's population, applied where every other filter runs: after
+        # the DSL and the buckets, before the rank — so `total` counts the
+        # signal's rows and the page numbers them 1..n.
+        chosen = descriptive.signal(request.signal)
+        matched = [dict(row) for row in matched if chosen.accepts(row)]
     ranked = ranking.rank_rows(matched, request.sort or DEFAULT_SORT)
     page = ranked[request.offset :]
     return ranking.top_rows(page, request.limit), len(matched)
@@ -1182,6 +1235,7 @@ def canonical_request(request: SelectionRequest) -> dict[str, Any]:
         "mode": request.mode,
         "region": request.region,
         "asset_class": request.asset_class,
+        "signal": request.signal,
         "filters": [criterion.as_dict() for criterion in request.filters],
         "sort": request.sort,
         "limit": request.limit,
@@ -1302,6 +1356,19 @@ _BUCKET_ONLY: tuple[str, ...] = tuple(
 _FILTER_ALIASES: dict[str, dict[str, object]] = _filter_alias_extension()
 
 
+def _sort_vocabulary() -> list[str]:
+    """Every spelling ``criteria.sort`` accepts, sorted.
+
+    Both directions of every numeric catalog field (``pe_ttm`` descending,
+    ``-pe_ttm`` ascending — Finviz's ``o=-marketcap``) plus the three legacy
+    names the browse route and every bookmark still use. Derived from
+    :mod:`app.screen.rank`, so the published enum cannot outlive the validator.
+    """
+
+    names = set(ranking.ORDER_BY) | set(ranking.ALIASES)
+    return sorted(names | {f"-{name}" for name in names})
+
+
 def _filter_value_schema() -> dict[str, object]:
     scalar: dict[str, object] = {"type": ["number", "string", "boolean"]}
     return {
@@ -1311,7 +1378,11 @@ def _filter_value_schema() -> dict[str, object]:
             f"option-driven key ({', '.join(CHOICE_FIELDS)}) the value is the "
             "Finviz option token itself (`1w10u`, `dup`, `wo2`), and the predicate "
             "each token compiles to is published under "
-            "`x-filter-keys.<key>.choice.options`. For `exch` the value is a MIC "
+            "`x-filter-keys.<key>.choice.options`. For a key whose entry carries "
+            "`bucket: true` the value is one of the bucket ids that key publishes "
+            "(`price:u5`, `cap:mega`, `idx:sp500`), with `op: eq`; the predicate "
+            "each id runs is in `GET /screens/filters` and in the key's own "
+            "`x-filter-keys` entry. For `exch` the value is a MIC "
             "(`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published "
             "under `x-filter-keys.exch.aliases`; any other value on the US tabs "
             "is a 422 `unknown_value` whose message lists the accepted codes, "
@@ -1347,7 +1418,12 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "`x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to "
         "one row column, and a key no column can answer is a 422 that names it. "
         "The two tables together are the vocabulary a filter picker is built "
-        "from."
+        "from. `criteria.sort` orders by any numeric catalog field (`-field` "
+        "ascends), and the top-level `signal` narrows the whole query to one of "
+        "Finviz's signal populations. `GET /screens/filters` publishes the "
+        "Descriptive group itself — every control, its options, its availability "
+        "and the predicate each option compiles to — so a panel never hardcodes "
+        "a vocabulary the server owns."
     ),
     "type": "object",
     "additionalProperties": False,
@@ -1360,6 +1436,22 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "region": {
             "enum": list(REGIONS),
             "description": "Criteria only: the universe tab to query.",
+        },
+        "signal": {
+            "enum": [item.id for item in descriptive.SIGNALS],
+            "description": (
+                "Criteria only: one of Finviz's "
+                f"{len(descriptive.SIGNALS)} signals. "
+                f"{len(descriptive.AVAILABLE)} can run here "
+                f"({', '.join(descriptive.AVAILABLE)}); the other "
+                f"{len(descriptive.SIGNALS) - len(descriptive.AVAILABLE)} are a 422 "
+                "`unavailable_signal` naming the metric they would need "
+                "(analyst revisions, an earnings session stamp, the news store, "
+                "chart-pattern detection). A signal sets the **population**, and "
+                "when `criteria.sort` is absent its own measure becomes the "
+                "order (`top-losers` ascends); an explicit sort always wins. A "
+                "`symbols` selection does not take it."
+            ),
         },
         "asset_class": {
             "enum": list(ASSET_CLASSES),
@@ -1437,9 +1529,18 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                     ),
                 },
                 "sort": {
-                    "enum": list(ranking.SORTS),
+                    "enum": _sort_vocabulary(),
                     "default": DEFAULT_SORT,
-                    "description": "The one visible metric the page is ordered by.",
+                    "description": (
+                        "The one metric the page is ordered by: any numeric "
+                        "catalog field, descending, or `-<field>` for ascending "
+                        "(Finviz's own `o=-marketcap`). The three legacy names "
+                        "`market_cap`, `turnover` and `gainers` still resolve. A "
+                        "text column is not an order — `sector` is a 422 "
+                        "`unknown_sort` naming the accepted fields. When `signal` "
+                        "is named and this is absent, the signal's own measure "
+                        "becomes the order; an explicit sort always wins."
+                    ),
                 },
                 "limit": {
                     "type": "integer",
@@ -1519,7 +1620,13 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
             "if": {"required": ["mode"], "properties": {"mode": {"const": "symbols"}}},
             "then": {
                 "required": ["symbols", "source", "snapshot_id"],
-                "not": {"anyOf": [{"required": ["region"]}, {"required": ["criteria"]}]},
+                "not": {
+                    "anyOf": [
+                        {"required": ["region"]},
+                        {"required": ["criteria"]},
+                        {"required": ["signal"]},
+                    ]
+                },
             },
         },
     ],
@@ -1533,7 +1640,11 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                 "One predicate: exactly one of `key` (a Finviz filter key, "
                 "resolved to its row column) or `field` (the column itself), plus "
                 "an operator and a value. A key whose entry in `x-filter-keys` "
-                "carries `choice` takes `op: eq` and an option token as `value`."
+                "carries `choice` takes `op: eq` and an option token as `value`; "
+                "a key whose entry carries `bucket` also takes one of its named "
+                "bucket ids that way (`price:u5`, `cap:mega`, `idx:sp500`), and "
+                "`GET /screens/filters` publishes every id with the predicate it "
+                "compiles to."
             ),
             "properties": {
                 "key": {

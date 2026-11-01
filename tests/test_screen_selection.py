@@ -57,7 +57,7 @@ from app.screen.filter_fields import (
 from app.screen.facts import FACTS_FILTER_KEYS
 from app.screen.filters import FIELDS, FILTER_CATALOG, OPERATORS
 from app.screen.fundamentals import FUNDAMENTALS_FILTER_KEYS
-from app.screen.rank import SORTS
+from app.screen.rank import ALIASES, ORDER_BY
 from app.screen.selection import (
     PANEL_LIMIT,
     MODES,
@@ -414,10 +414,16 @@ def test_criteria_mode_needs_a_known_region(region: str | None) -> None:
 
 
 def test_an_unknown_sort_is_rejected() -> None:
+    """The vocabulary is the catalog's numeric fields, and the refusal says so."""
+
     with pytest.raises(SelectionError) as caught:
         parse_selection(criteria(sort="momentum"))
     assert "unknown sort" in str(caught.value)
-    assert ", ".join(SORTS) in str(caught.value)
+    assert caught.value.code == "unknown_sort"
+    # Since T8 the accepted names are the catalog's numeric fields, so the
+    # message names those rather than the browse route's three buttons.
+    assert "market_cap_usd" in str(caught.value)
+    assert "pe_ttm" in str(caught.value)
 
 
 @pytest.mark.parametrize("limit", [0, -1, True, "20", 2.5, []])
@@ -893,7 +899,12 @@ def test_the_schema_vocabularies_are_the_code_vocabularies() -> None:
     properties = SELECTION_REQUEST_SCHEMA["properties"]
     assert properties["mode"]["enum"] == list(MODES)
     assert properties["region"]["enum"] == list(REGIONS)
-    assert properties["criteria"]["properties"]["sort"]["enum"] == list(SORTS)
+    # Since T8 the order vocabulary is the catalog's numeric fields, both
+    # directions, plus the legacy aliases — derived, never retyped.
+    names = set(ORDER_BY) | set(ALIASES)
+    assert properties["criteria"]["properties"]["sort"]["enum"] == sorted(
+        names | {f"-{name}" for name in names}
+    )
     assert properties["criteria"]["properties"]["limit"]["minimum"] == 1
     assert properties["criteria"]["properties"]["limit"]["default"] == PANEL_LIMIT
     assert "maximum" not in properties["criteria"]["properties"]["limit"], (
