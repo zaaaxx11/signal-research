@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { IndexStrip } from "./IndexStrip";
@@ -8,7 +8,18 @@ import { homeDocument, stubCanvas, stubResizeObserver } from "../__fixtures__/ho
 /**
  * The strip's promises: five index cards and three sparks from one document,
  * eight tiles that never wrap, and two halves that fail independently.
+ *
+ * The index tiles carry `lightweight-charts` bars now, which is a canvas
+ * library: it is mocked here (`charts/__fixtures__/lightweight`) so the test
+ * can prove what the tile owns — one chart per index, 36 px tall, with the
+ * same bars in a visually hidden table — rather than asserting pixels jsdom
+ * cannot paint.
  */
+
+vi.mock("lightweight-charts", async () => {
+  const { fakeLightweightCharts } = await import("@/charts/__fixtures__/lightweight");
+  return fakeLightweightCharts();
+});
 
 beforeEach(() => {
   stubCanvas();
@@ -71,6 +82,44 @@ describe("IndexStrip", () => {
     expect(screen.getByTestId("sparkline-AAPL").getAttribute("aria-label")).toContain(
       "AAPL: last $344.63",
     );
+  });
+
+  it("gives every index tile a 36 px bar chart and its data table", async () => {
+    const report = readHome(homeDocument());
+    render(
+      <IndexStrip indicesState={READY} indices={report.indices} sparksState={READY} sparks={report.sparks} />,
+    );
+
+    for (const symbol of ["^GSPC", "^IXIC", "^DJI", "^RUT", "^VIX"]) {
+      const card = screen.getByTestId(`index-card-${symbol}`);
+      const chart = await within(card).findByTestId("chart-bars");
+
+      expect(chart.getAttribute("data-height")).toBe("36");
+      expect(chart.getAttribute("data-bars")).toBe("30");
+      // The canvas is opaque; the table is the same 30 closes for a reader
+      // who is not looking at it.
+      const table = within(card).getByTestId("chart-bars-table");
+      expect(table.tagName).toBe("TABLE");
+      expect(table.closest(".sr-only")).not.toBeNull();
+      expect(table.querySelectorAll("tbody tr")).toHaveLength(30);
+      expect(within(card).getByRole("img").getAttribute("aria-label")).toContain("30 closes");
+    }
+
+    // Five canvases, not eight: the spark cards keep the lightweight painter.
+    expect(document.querySelectorAll('[data-testid="chart-bars"]')).toHaveLength(5);
+    expect(document.querySelectorAll('[data-testid^="sparkline-"]')).toHaveLength(3);
+  });
+
+  it("caps the strip at the five index tiles, not the eight tiles", async () => {
+    const report = readHome(homeDocument());
+    render(
+      <IndexStrip indicesState={READY} indices={report.indices} sparksState={READY} sparks={report.sparks} />,
+    );
+
+    // Wait for the lazy chunk, then count: a chart per index and no more.
+    await within(screen.getByTestId("index-card-^GSPC")).findByTestId("chart-bars");
+    expect(document.querySelectorAll('[data-testid="chart-bars"]')).toHaveLength(5);
+    expect(document.querySelectorAll('[data-testid^="spark-card-"]')).toHaveLength(3);
   });
 
   it("keeps the sparks when the indices half failed", () => {

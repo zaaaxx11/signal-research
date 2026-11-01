@@ -13,7 +13,16 @@ import { homeDocument, stubCanvas, stubResizeObserver } from "./__fixtures__/hom
  * * a `null` block prints the reason from `unavailable` and draws no fake zeroes;
  * * a failure names itself per block and one Retry refetches exactly once;
  * * the skeletons occupy the same boxes the content will.
+ *
+ * The strip's index tiles draw `lightweight-charts` bars; the library is mocked
+ * here so the page test stays about the page (its own chart tests live beside
+ * the component).
  */
+
+vi.mock("lightweight-charts", async () => {
+  const { fakeLightweightCharts } = await import("@/charts/__fixtures__/lightweight");
+  return fakeLightweightCharts();
+});
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

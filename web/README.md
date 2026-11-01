@@ -242,7 +242,7 @@ Phase 5's detail panel.
 
 All direct dependencies, exact-pinned (no `^`), npm-installed, none with an
 install script of their own. Licence and last-publish date read from
-`registry.npmjs.org` on 2026-10-30.
+`registry.npmjs.org` on 2026-10-30 (and 2026-11-01 for `lightweight-charts`).
 
 | Package | Version | Licence | Published | Note |
 |---|---|---|---|---|
@@ -254,6 +254,7 @@ install script of their own. Licence and last-publish date read from
 | `lucide-react` | 1.65.0 | **ISC** | 2026-10-30 | active (published today) |
 | `cmdk` | 1.1.1 | MIT | 2025-03-14 | slow cadence, no open blocker |
 | `react-resizable-panels` | 4.15.3 | MIT | 2026-10-30 | active |
+| `lightweight-charts` | 5.2.1 | **Apache-2.0** | 2026-08-12 | bar charts; bundled lazily, licence + NOTICE in `legal/` |
 | `tailwindcss`, `@tailwindcss/vite` | 4.3.3 | MIT | 2026-07-16 | active |
 | `tw-animate-css` | 1.4.0 | MIT | 2025-09-24 | tiny keyframe set for shadcn states |
 | `vite` | 7.3.7 | MIT | 2026-10-06 | plan pins Vite 7; Vite 8 exists |
@@ -302,9 +303,17 @@ It is blocked now, by this repository, because it buys nothing here.
 `modulepreload` in `dist/index.html`. Lazy chunks are reported and not counted.
 
 ```
-initial JS   85.6 KB gzip  (87,615 B)   of 180 KB  — 47.5 %
-CSS           9.3 KB gzip  (51,743 B raw)
+initial JS   147.0 KB gzip  (150,478 B)  of 180 KB  — 81.6 %
+lazy JS       111.0 KB gzip  (chart renderer 55.0 KB of it)
+CSS            13.4 KB gzip  (73,759 B raw)
 ```
+
+The chart renderer is the one large lazy chunk: `lightweight-charts` (Apache-2.0,
+NOTICE in `legal/`) is reached only through `src/charts/lazy.tsx`'s `import()`,
+so `/charts`, `/stock/{symbol}` and Home's index strip download it after first
+paint. `src/charts/bundle.test.ts` walks the static import graph from
+`src/main.tsx` and fails if the library (or `ChartBars`) becomes statically
+reachable.
 
 `tests/test_web_app_mount.py` re-measures this independently in Python and
 asserts the same ceiling, then runs the node script twice: once at the real

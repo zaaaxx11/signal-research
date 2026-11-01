@@ -8,6 +8,15 @@
  * which owns the only three things that need a browser: measurement, pointer
  * hit-testing and the canvas backing store.
  *
+ * **Two renderers, one instrument.** `renderer="bars"` (used by the charts
+ * route and the stock page) hands the same parsed series to
+ * `lightweight-charts` through `ChartBars`, imported dynamically so the library
+ * is a chunk of its own. Everything else here is shared: the read, the range
+ * selector, the four states, the label and the live region. The canvas painter
+ * stays the default for anything that has not asked for bars, and its
+ * arithmetic-driven hover is a canvas-only feature — the library brings its own
+ * crosshair.
+ *
  * **Hover is arithmetic.** `nearestIndex` searches the points the painter used;
  * no element exists per bar, so a 250-bar series cannot get slower to hover than
  * a 25-bar one. The popup is `pointer-events: none` for the same reason the
@@ -29,8 +38,10 @@ import * as React from "react";
 import { formatChange, formatPrice, formatVolume } from "@/home/signals";
 import { cn } from "@/lib/utils";
 
+import { toBars } from "./bars";
 import { barTime } from "./format";
 import { chartGeometry, nearestIndex } from "./geometry";
+import { ChartBarsLazy } from "./lazy";
 import { paintChart, type ChartKind } from "./paint";
 import { mergeChartTheme, readChartTheme, type ChartTheme } from "./theme";
 import {
@@ -50,7 +61,21 @@ export interface ChartProps {
   readonly initialRange?: ChartRange;
   /** Total height in CSS px, toolbar included. */
   readonly height?: number;
+  /** Canvas renderer only: a line or candles. Bars are always OHLC bars. */
   readonly kind?: ChartKind;
+  /**
+   * Which engine draws the series.
+   *
+   * `canvas` is the hand-rolled painter: no dependency, a line or candles, a
+   * hover readout driven by arithmetic. `bars` hands the same payload to
+   * `lightweight-charts` through a lazily imported `ChartBars` — real OHLC
+   * bars, its own crosshair, and the same accessible table. The toolbar, the
+   * states and the data read are identical for both, which is why this is a
+   * prop and not a second component.
+   */
+  readonly renderer?: "canvas" | "bars";
+  /** Bars only: draw the volume histogram under the price series. */
+  readonly showVolume?: boolean;
   /** A gallery card: no toolbar, no range buttons, just the picture. */
   readonly compact?: boolean;
   readonly className?: string;
@@ -94,6 +119,8 @@ export function Chart({
   initialRange = "1d",
   height = 320,
   kind = "line",
+  renderer = "canvas",
+  showVolume = false,
   compact = false,
   className,
   theme: baseTheme,
@@ -165,8 +192,10 @@ export function Chart({
   }, [base]);
 
   const series = view.series;
+  // The bar renderer does not need a geometry: the library lays out its own
+  // scales, and the hover readout below is a property of the canvas painter.
   const geometry = React.useMemo(() => {
-    if (series === null) return null;
+    if (series === null || renderer === "bars") return null;
     return chartGeometry({
       width: size.w,
       height: size.h,
@@ -176,7 +205,16 @@ export function Chart({
       timezone: series.timezone,
       showVolume: true,
     });
-  }, [series, size.w, size.h]);
+  }, [series, size.w, size.h, renderer]);
+
+  // The same payload the canvas painter would have read, in the shape
+  // `lightweight-charts` accepts. `toBars` is pure and memoised on the series,
+  // so a hover or a resize does not rebuild 78 bars.
+  const barSeries = React.useMemo(
+    () => (renderer === "bars" && series !== null ? toBars(series) : []),
+    [renderer, series],
+  );
+  const plotHeight = Math.max(1, height - (compact ? 0 : 28));
 
   // Paint once per geometry/theme/hover. `receivedAt` is stamped by the hook,
   // so the canvas can report "data landed → first paint" for the proof harness.
@@ -284,6 +322,7 @@ export function Chart({
       data-symbol={symbol}
       data-range={range}
       data-state={view.status}
+      data-renderer={renderer}
       aria-busy={view.status === "loading"}
       style={{ height }}
       className={cn("flex min-w-0 flex-col overflow-hidden bg-surface", className)}
@@ -338,7 +377,7 @@ export function Chart({
       ) : null}
 
       <div ref={wrapRef} data-testid="chart-plot" className="relative min-h-0 w-full flex-1">
-        {showCanvas ? (
+        {showCanvas && renderer === "canvas" ? (
           <canvas
             ref={canvasRef}
             data-testid="chart-canvas"
@@ -386,6 +425,15 @@ export function Chart({
                   return;
               }
             }}
+          />
+        ) : null}
+
+        {showCanvas && renderer === "bars" ? (
+          <ChartBarsLazy
+            bars={barSeries}
+            height={plotHeight}
+            label={label}
+            showVolume={showVolume}
           />
         ) : null}
 
@@ -487,9 +535,10 @@ export function Chart({
       </div>
 
       <p id={helpId} className="sr-only">
-        {symbol} price chart. Use the arrow keys to move the readout across the series, Home and
-        End to jump to the first or last bar, and Escape to clear it. The same first, last, high
-        and low values are listed in the table below.
+        {symbol} price chart.{" "}
+        {renderer === "bars"
+          ? "This chart is drawn on a canvas; the same bars are listed as a table below, with open, high, low, close and volume for each one."
+          : "Use the arrow keys to move the readout across the series, Home and End to jump to the first or last bar, and Escape to clear it. The same first, last, high and low values are listed in the table below."}
       </p>
 
       <p data-testid="chart-announcer" role="status" aria-live="polite" className="sr-only">
@@ -498,7 +547,12 @@ export function Chart({
           : ""}
       </p>
 
-      {ready && bars.length > 0 && first !== undefined && last !== undefined && bounds !== null ? (
+      {renderer === "canvas" &&
+      ready &&
+      bars.length > 0 &&
+      first !== undefined &&
+      last !== undefined &&
+      bounds !== null ? (
         <div data-testid="chart-summary-wrap" className="sr-only">
           <table data-testid="chart-summary">
             <caption>

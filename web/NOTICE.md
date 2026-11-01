@@ -35,12 +35,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## lightweight-charts 5.2.1 (Apache-2.0)
+
+`lightweight-charts` draws the bar charts on Home's index strip, `/charts` and
+`/stock/{symbol}`. It is installed from the public npm registry, but unlike a
+dev-only dependency its code is **bundled into the shipped artefact** (the
+lazily imported `assets/ChartBars-*.js`), so Apache-2.0 §4 requires the licence
+and the upstream NOTICE to travel with the distribution.
+
+* `legal/lightweight-charts-LICENSE.txt` — the Apache License 2.0 text, copied
+  verbatim from the published package
+  (`node_modules/lightweight-charts/LICENSE`).
+* `legal/lightweight-charts-NOTICE.txt` — the upstream NOTICE, copied verbatim
+  from `tradingview/lightweight-charts` at tag `v5.2.1`
+  (<https://github.com/tradingview/lightweight-charts/blob/v5.2.1/NOTICE>).
+  The npm tarball omits this file, so it is taken from the tagged source rather
+  than dropped.
+
+No source file from the library is modified or copied into `src/`; it is used
+through its public API only, and every colour it paints is one of this
+product's own CSS tokens.
+
 ## npm dependencies
 
 Every direct dependency is listed with its licence in `README.md`. They are
 installed from the public npm registry and their licence texts ship inside
 `node_modules/` as published; no licence file is copied into this directory
-because nothing here is redistributed as source.
+because nothing here is redistributed as source — the one exception is
+`lightweight-charts`, whose code is bundled and whose Apache-2.0 notice is
+therefore carried in `legal/` (see above).
 
 ## What is *not* here
 

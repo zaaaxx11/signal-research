@@ -10,6 +10,13 @@
 export { ChartsPage, CHART_INDICES, type ChartIndex, type ChartsPageProps } from "./ChartsPage";
 export { StockChart, STOCK_CHART_HEIGHT, type StockChartProps } from "./StockChart";
 export { Chart, type ChartProps } from "./Chart";
+/**
+ * The bar adapter only. `ChartBars` and the library behind it are deliberately
+ * absent from this barrel: a static re-export here would make every importer of
+ * `@/charts` pull the 55 KB gzip renderer into whatever chunk asked for a type.
+ * Components reach the renderer through `./lazy`.
+ */
+export { barData, toBars, utcLabel, type BarPayload, type ChartBar } from "./bars";
 export {
   AXIS_BOTTOM,
   AXIS_RIGHT,

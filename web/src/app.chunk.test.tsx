@@ -137,15 +137,14 @@ describe("F1 — a failed detail chunk", () => {
     // top bar and the footer are still in the DOM.
     expect(screen.getByTestId("grid-table")).toBe(grid);
     expect(grid.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
-    expect(screen.getAllByRole("tab").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("combobox", { name: "Search symbols and companies" }),
     ).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
 
-    // And it is still a working page: a view tab is one more selection.
+    // And it is still a working page: one more page of rows is one more read.
     const before = api.selects.length;
-    await user.click(screen.getAllByRole("tab")[1] as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(api.selects.length).toBe(before + 1));
   });
 

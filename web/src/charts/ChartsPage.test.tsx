@@ -11,9 +11,17 @@ import { CHART_INDICES, ChartsPage } from "./ChartsPage";
  * The gallery end to end: five independent reads, five cards, and a field that
  * replaces the gallery with one instrument.
  *
- * The request assertions are the contract most likely to regress: one request
- * per index on mount, one per typed symbol, and no request for an empty field.
+ * The charts are drawn by `lightweight-charts`, which is a canvas library and
+ * therefore mocked here (`__fixtures__/lightweight`); what this file owns is
+ * the route: one request per index on mount, one per typed symbol, no request
+ * for an empty field, and a header that reads the same payload the picture
+ * does.
  */
+
+vi.mock("lightweight-charts", async () => {
+  const { fakeLightweightCharts } = await import("./__fixtures__/lightweight");
+  return fakeLightweightCharts();
+});
 
 beforeEach(() => {
   installCanvas({ width: 520, height: 132 });
@@ -30,7 +38,7 @@ function serveAll(): ReturnType<typeof vi.fn> {
 }
 
 async function waitForGallery(): Promise<void> {
-  await waitFor(() => expect(screen.getAllByTestId("chart-canvas")).toHaveLength(5));
+  await waitFor(() => expect(screen.getAllByTestId("chart-bars")).toHaveLength(5));
 }
 
 describe("ChartsPage — gallery", () => {
@@ -105,10 +113,10 @@ describe("ChartsPage — gallery", () => {
     );
     render(<ChartsPage />);
 
-    await waitFor(() => expect(screen.getAllByTestId("chart-canvas")).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByTestId("chart-bars")).toHaveLength(4));
     const vix = screen.getByTestId("chart-card-^VIX");
     expect(within(vix).getByTestId("chart-error").textContent).toContain("No chart for ^VIX");
-    expect(within(screen.getByTestId("chart-card-^GSPC")).getByTestId("chart-canvas")).toBeTruthy();
+    expect(within(screen.getByTestId("chart-card-^GSPC")).getByTestId("chart-bars")).toBeTruthy();
   });
 });
 
@@ -129,7 +137,7 @@ describe("ChartsPage — one symbol", () => {
 
     await waitFor(() => expect(mock).toHaveBeenCalledTimes(6));
     expect(String(mock.mock.calls[5]?.[0])).toBe("/market/chart/AAPL?range=1d");
-    expect(await screen.findByTestId("chart-canvas")).toBeTruthy();
+    expect(await screen.findByTestId("chart-bars")).toBeTruthy();
   });
 
   it("does not swap or fetch for an empty field", async () => {

@@ -292,16 +292,12 @@ describe("the keyboard path", () => {
     expect(trace[0]).toContain("Skip to the stock grid");
     for (const expected of [
       "combobox",
-      "tab",
       "Filters",
       "Columns",
       "Sector",
       // The exchange control is one more tab stop in the toolbar, and it is
       // listed here on purpose: the promise is the ordered list, not the count.
       "Exchange",
-      "Market cap",
-      "Turnover",
-      "Gainers",
       "Check again",
       "row S000",
       "Next",

@@ -4,10 +4,10 @@
  *
  * The nav promises "Charts", so the page opens with the five instruments a
  * market reader checks first — S&P 500, Nasdaq 100, Dow, Russell 2000 and VIX —
- * each in a compact card with its 1-day line and the change against the prior
- * close. The field at the top swaps the gallery for a single full-sized chart;
- * clearing it restores the gallery. That is the whole navigation model: no
- * dropdown, no second route, no modal.
+ * each in a compact card with its 1-day bar chart and the change against the
+ * prior close. The field at the top swaps the gallery for a single full-sized
+ * chart; clearing it restores the gallery. That is the whole navigation model:
+ * no dropdown, no second route, no modal.
  *
  * Each card owns its own read (`useChartData` through `Chart`) rather than
  * sharing one payload, because the five are five independent symbols and one
@@ -81,7 +81,7 @@ function ChartCard({ index }: { readonly index: ChartIndex }) {
         </span>
       </header>
 
-      <Chart symbol={index.symbol} height={132} compact onData={onData} />
+      <Chart symbol={index.symbol} height={180} compact renderer="bars" onData={onData} />
     </article>
   );
 }
@@ -181,7 +181,13 @@ export function ChartsPage({ initialSymbol }: ChartsPageProps) {
               <h2 className="font-mono text-title font-semibold text-fg">{symbol}</h2>
               <p className="text-label text-fg-subtle">Price chart</p>
             </div>
-            <Chart symbol={symbol} height={360} kind="line" className="rounded-md border border-line" />
+            <Chart
+              symbol={symbol}
+              height={360}
+              renderer="bars"
+              showVolume
+              className="rounded-md border border-line"
+            />
           </section>
         )}
       </div>

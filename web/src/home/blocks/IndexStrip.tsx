@@ -10,13 +10,35 @@
  * The row is 2-up on a phone, 4-up on a tablet and 8-up from 1100 px, which is
  * exactly the payload's eight tiles: nothing wraps, nothing is hidden, and the
  * reserved height is the same before and after the answer lands.
+ *
+ * **The index tiles now carry bars.** Each of the five gets the last 30 closes
+ * as a 36 px bar chart — the same `toBars` adapter and the same `ChartBars`
+ * component the charts page and the stock page use, so the strip cannot drift
+ * from them. Two costs are paid deliberately:
+ *
+ *   * the library is behind `ChartBarsLazy`'s `import()`, so Home's first
+ *     paint never downloads it (the initial budget is a gate, not a wish);
+ *   * a chart is only mounted for a tile that is actually on screen. The strip
+ *     scrolls sideways, and a tile two screens to the right is a canvas nobody
+ *     is looking at. `useChartVisible` mounts it the first time it intersects
+ *     and never unmounts it (re-mounting on scroll-back would re-download the
+ *     chunk's work for no new information). In jsdom, which has no
+ *     `IntersectionObserver`, every tile is visible — the honest fallback.
+ *
+ * The spark cards are not index tiles: they keep the lightweight canvas
+ * sparkline, because eight charts in one row is eight renderers for one idea.
  */
+
+import * as React from "react";
+
+import { toBars, type ChartBar } from "@/charts/bars";
+import { ChartBarsLazy } from "@/charts/lazy";
+import { formatPrice } from "@/home/signals";
 
 import type { BlockState, HomeIndex, HomeSpark } from "../home";
 import { BLOCK_HEIGHT, BlockMessage, Card, SkeletonTiles } from "./HomeBlock";
 import { Delta, Price } from "./Values";
 import { SparkCard } from "./SparkCard";
-import { Sparkline } from "./Sparkline";
 
 const COLUMNS = "grid-cols-2 min-[700px]:grid-cols-4 min-[1100px]:grid-cols-8";
 
@@ -32,6 +54,50 @@ const COLUMNS = "grid-cols-2 min-[700px]:grid-cols-4 min-[1100px]:grid-cols-8";
  */
 const TILE_WIDTH = "w-[148px] shrink-0 snap-start";
 
+/** The chart's height in the tile, and the box reserved before it arrives. */
+const TILE_CHART_HEIGHT = 36;
+
+/** How many closes the tile plots: the last month of sessions, oldest first. */
+const TILE_CLOSES = 30;
+
+/**
+ * Has this box ever been on screen?
+ *
+ * `rootMargin` is vertical only: the strip's own horizontal clipping is what
+ * decides a tile's intersection, and a margin to the left would mount the two
+ * tiles the reader just scrolled past. `once` is the point — a chart that
+ * unmounted on scroll-away would throw its canvas away and build it again.
+ */
+function useChartVisible(ref: React.RefObject<HTMLDivElement | null>): boolean {
+  const [visible, setVisible] = React.useState(() => typeof IntersectionObserver === "undefined");
+
+  React.useEffect(() => {
+    const node = ref.current;
+    if (node === null || visible || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setVisible(true);
+        observer.disconnect();
+      },
+      { rootMargin: "120px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref, visible]);
+
+  return visible;
+}
+
+/** The sentence the canvas cannot say: what the bars are and where they end. */
+export function indexBarsLabel(index: HomeIndex, bars: readonly ChartBar[]): string {
+  const first = bars[0];
+  const last = bars[bars.length - 1];
+  if (first === undefined || last === undefined) return `${index.label}: no closes to draw`;
+  const count = `${bars.length} ${bars.length === 1 ? "close" : "closes"}`;
+  return `${index.label}: ${count}, ${formatPrice(first.close)} to ${formatPrice(last.close)}`;
+}
+
 export interface IndexStripProps {
   readonly indicesState: BlockState;
   readonly indices: readonly HomeIndex[] | null;
@@ -41,6 +107,13 @@ export interface IndexStripProps {
 }
 
 function IndexTile({ index }: { index: HomeIndex }) {
+  const chartRef = React.useRef<HTMLDivElement>(null);
+  const visible = useChartVisible(chartRef);
+  const bars = React.useMemo(
+    () => toBars({ closes: index.closes.slice(-TILE_CLOSES) }),
+    [index.closes],
+  );
+
   return (
     <div
       data-testid={`index-card-${index.symbol}`}
@@ -53,13 +126,18 @@ function IndexTile({ index }: { index: HomeIndex }) {
         <Price value={index.price} className="text-[13px] leading-none" />
         <Delta value={index.changePct} missing={`${index.label} change`} className="text-[11px]" />
       </div>
-      <Sparkline
-        closes={index.closes}
-        symbol={index.symbol}
-        price={index.price}
-        changePct={index.changePct}
-        height={18}
-      />
+      <div ref={chartRef} style={{ height: TILE_CHART_HEIGHT }} className="w-full min-w-0">
+        {visible ? (
+          <ChartBarsLazy
+            bars={bars}
+            height={TILE_CHART_HEIGHT}
+            label={indexBarsLabel(index, bars)}
+          />
+        ) : (
+          // A tile the reader has not scrolled to yet: the same box, no canvas.
+          <span aria-hidden="true" className="block h-full w-full" />
+        )}
+      </div>
     </div>
   );
 }
@@ -83,7 +161,7 @@ export function IndexStrip({
       actions={<span className="shrink-0 text-[10px] text-fg-subtle">Delayed</span>}
     >
       {loading ? (
-        <SkeletonTiles count={8} columns={COLUMNS} height={72} testId="strip-skeleton" />
+        <SkeletonTiles count={8} columns={COLUMNS} height={90} testId="strip-skeleton" />
       ) : errored ? (
         <BlockMessage
           id="strip"

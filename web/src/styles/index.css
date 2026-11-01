@@ -343,3 +343,34 @@ body {
     overflow-x: auto;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Charts: one entrance fade, and no motion when the reader asked for still.
+ *
+ * `lightweight-charts` paints synchronously on mount; a 180 ms opacity fade is
+ * the only thing between "a card with a hole" and "a card with a chart". The
+ * class is not rendered at all when the component read
+ * `prefers-reduced-motion: reduce`, and this block is the second line of
+ * defence for a mount that happened before the preference was read (and for
+ * the global duration collapse above, which would otherwise leave a 0.01 ms
+ * animation — harmless here, but stated rather than assumed).
+ * ------------------------------------------------------------------------ */
+@keyframes zt-chart-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.zt-chart-in {
+  animation: zt-chart-in 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zt-chart-in {
+    animation: none !important;
+    opacity: 1;
+  }
+}

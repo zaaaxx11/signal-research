@@ -3,9 +3,11 @@
  *
  * No `<main>`, no page heading, no symbol strip — `StockPage` already owns the
  * address and the ticker. This component only reserves the height the detail
- * panel lays out and delegates every decision to `Chart`. Candles are the
- * default here because a stock page is read by people who expect them; the
- * gallery uses lines, which are legible at card size.
+ * panel lays out and delegates every decision to `Chart`. Bars are the series
+ * here: a stock page is read by people who expect OHLC, and the range selector
+ * above them is the same one every chart in the product uses. The library
+ * behind the picture is a lazy chunk of its own, so a reader who came for the
+ * fundamentals never downloads a renderer.
  */
 
 import { cn } from "@/lib/utils";
@@ -39,7 +41,8 @@ export function StockChart({
         symbol={symbol}
         initialRange={initialRange}
         height={height}
-        kind="candle"
+        renderer="bars"
+        showVolume
         className="rounded-md border border-line"
       />
     </div>
