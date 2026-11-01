@@ -1,11 +1,10 @@
 /**
  * The 14 sections, in the order the product states them.
  *
- * Each one is a real path. A section with no surface yet points at
- * `/soon/{slug}` — one page that names it — so the nav never contains a link
- * that 404s or a `href="#"` that does nothing. The list is data, not markup,
- * because three things read it and must agree: the nav itself, the route test
- * that proves every href resolves, and the soon page's title.
+ * Each one is a real path with a real page. There is no placeholder section
+ * and no `href="#"`: the list is data, not markup, because two things read it
+ * and must agree — the nav itself and the route test that proves every href
+ * resolves.
  */
 
 import type { Route } from "./routes";
@@ -22,10 +21,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "ETF Screener", path: "/screener/etf" },
   { label: "Maps", path: "/map" },
   { label: "Charts", path: "/charts" },
-  // The news surface has no page of its own yet: the view catalogue does not
-  // carry a `news` view, so pointing at the screener would open the wrong
-  // content under the right name. The soon page names it honestly.
-  { label: "News", path: "/soon/news" },
+  { label: "News", path: "/news" },
   { label: "Groups", path: "/groups" },
   { label: "Insider", path: "/insider" },
   { label: "Futures", path: "/futures" },
@@ -58,10 +54,6 @@ export function isActive(item: NavItem, route: Route, search: string): boolean {
   }
   if (item.path === "/screener?view=news") {
     return route.kind === "screener" && route.assetClass === "stock" && isNews(search);
-  }
-  if (item.path.startsWith("/soon/")) {
-    const slug = item.path.slice("/soon/".length);
-    return route.kind === "soon" && route.slug === slug;
   }
   return false;
 }

@@ -35,17 +35,6 @@ import * as React from "react";
 const ENV_BASE = import.meta.env.BASE_URL || "/app/";
 export const APP_BASE = ENV_BASE === "/" ? "/app" : ENV_BASE.replace(/\/+$/, "");
 
-/**
- * The sections that are not built yet.
- *
- * One page (`/soon/{slug}`) names whichever of these it is, so a nav item can
- * point somewhere honest before its surface exists. The slug is part of the
- * URL, not an index into a list: a link keeps its meaning when the list grows.
- */
-export const SOON_SLUGS = ["news"] as const;
-
-export type SoonSlug = (typeof SOON_SLUGS)[number];
-
 /** The paths this build answers. Used by the nav test to prove no dead links. */
 export const ROUTE_PATHS = [
   "/",
@@ -61,6 +50,7 @@ export const ROUTE_PATHS = [
   "/forex",
   "/watchlist",
   "/portfolio",
+  "/news",
 ] as const;
 
 export type Route =
@@ -77,7 +67,7 @@ export type Route =
   | { kind: "forex" }
   | { kind: "watchlist" }
   | { kind: "portfolio" }
-  | { kind: "soon"; slug: SoonSlug }
+  | { kind: "news" }
   | { kind: "notfound"; path: string };
 
 /** A route's href, mount included. `/` becomes `/app/`, not `/app`. */
@@ -115,6 +105,7 @@ export function parseRoute(pathname: string): Route {
   if (path === "/forex") return { kind: "forex" };
   if (path === "/watchlist") return { kind: "watchlist" };
   if (path === "/portfolio") return { kind: "portfolio" };
+  if (path === "/news") return { kind: "news" };
 
   if (path.startsWith("/stock/")) {
     const raw = path.slice("/stock/".length);
@@ -128,13 +119,6 @@ export function parseRoute(pathname: string): Route {
     return { kind: "notfound", path };
   }
 
-  if (path.startsWith("/soon/")) {
-    const slug = path.slice("/soon/".length);
-    if ((SOON_SLUGS as readonly string[]).includes(slug)) {
-      return { kind: "soon", slug: slug as SoonSlug };
-    }
-    return { kind: "notfound", path };
-  }
 
   return { kind: "notfound", path };
 }

@@ -8,8 +8,7 @@
  * file proves the app then picks the right surface out of that one document.
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/app";
@@ -170,35 +169,6 @@ describe("a ticker page", () => {
     expect(screen.getByTestId("stock-page").getAttribute("data-symbol")).toBe("AAPL");
     // No grid request: the page is the panel.
     expect(api.selects).toHaveLength(0);
-  });
-});
-
-describe("an unbuilt section", () => {
-  it("renders /soon/{slug} inside the same shell, naming the section", async () => {
-    stubApi();
-    window.history.replaceState(null, "", "/app/soon/news");
-    render(<App />);
-
-    const page = await screen.findByTestId("soon-page");
-    expect(page.getAttribute("data-slug")).toBe("news");
-    expect(within(page).getByRole("heading", { level: 1 }).textContent).toBe("News");
-    expect(page.textContent).toContain("not built yet");
-    // The nav is still there: this is a page of the product, not a dead end.
-    expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
-  });
-
-  it("routes a nav click to the soon page without a reload", async () => {
-    stubApi();
-    const user = userEvent.setup();
-    render(<App />);
-
-    await screen.findByTestId("signal-card-gainers");
-    const nav = screen.getByRole("navigation", { name: "Primary" });
-    await user.click(within(nav).getByRole("link", { name: "News" }));
-
-    expect(window.location.pathname).toBe("/app/soon/news");
-    const page = await screen.findByTestId("soon-page");
-    expect(page.getAttribute("data-slug")).toBe("news");
   });
 });
 

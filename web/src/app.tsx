@@ -28,7 +28,6 @@ import { ScreenerScreen } from "@/screener/ScreenerScreen";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { NotFoundPage } from "@/shell/NotFoundPage";
 import { SiteNav } from "@/shell/SiteNav";
-import { SoonPage } from "@/shell/SoonPage";
 import { StockPage } from "@/stock/StockPage";
 import { DETAIL_CHUNK_ATTEMPTS, detailChunk, loadDetailPanel } from "@/detail/load";
 import type { SymbolHit } from "@/lib/api";
@@ -42,6 +41,7 @@ import {
   loadGroupsPage,
   loadInsiderPage,
   loadMapPage,
+  loadNewsPage,
   loadPortfolioPage,
   loadWatchlistPage,
 } from "@/shell/lazyPages";
@@ -135,6 +135,7 @@ export function App() {
   const ForexPage = React.useMemo(() => React.lazy(loadForexPage), []);
   const WatchlistPage = React.useMemo(() => React.lazy(loadWatchlistPage), []);
   const PortfolioPage = React.useMemo(() => React.lazy(loadPortfolioPage), []);
+  const NewsPage = React.useMemo(() => React.lazy(loadNewsPage), []);
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // "/" focuses the one symbol search; the filter palette keeps ⌘K (it lives in
@@ -260,8 +261,10 @@ export function App() {
         <React.Suspense fallback={<PageSkeleton label="Loading your portfolio" />}>
           <PortfolioPage />
         </React.Suspense>
-      ) : route.kind === "soon" ? (
-        <SoonPage slug={route.slug} />
+      ) : route.kind === "news" ? (
+        <React.Suspense fallback={<PageSkeleton label="Loading headlines" />}>
+          <NewsPage />
+        </React.Suspense>
       ) : (
         <NotFoundPage path={route.path} />
       )}

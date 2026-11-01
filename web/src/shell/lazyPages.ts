@@ -22,3 +22,4 @@ export const loadWatchlistPage = () =>
   import("@/lists").then((m) => ({ default: m.WatchlistPage }));
 export const loadPortfolioPage = () =>
   import("@/lists").then((m) => ({ default: m.PortfolioPage }));
+export const loadNewsPage = () => import("@/news").then((m) => ({ default: m.NewsPage }));

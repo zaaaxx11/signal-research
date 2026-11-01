@@ -29,6 +29,7 @@ from starlette.types import Scope
 from app import __version__
 from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
 from app.api import alt as alt_api
+from app.api import market_news as market_news_api
 from app.api import calendar as calendar_api
 from app.api import chart as chart_api
 from app.api import engine as engine_api
@@ -193,7 +194,11 @@ class _SpaStaticFiles(StaticFiles):
             "legacy",
             "market",
             "markets",
-            "news",
+            # `news` is deliberately absent: the API's news namespace lives at
+            # the root (`/news/{symbol}`), and the product has a page at
+            # `/app/news`. Reserving the word would make the nav's News link a
+            # JSON 404 — the one thing this set exists to prevent is a *wrong*
+            # document, not a right one.
             "providers",
             "requests",
             "screens",
@@ -818,6 +823,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: minute. ``GET /market/quotes``: the batch lookup a watchlist calls, reading
     #: equities from the scan and the rest through the same alt reader.
     mount_router(application, alt_api.router)
+    mount_router(application, market_news_api.router)
     #: ``GET /market/insider``: the insider index — net share change, ranked —
     #: from one join of the depth store and one pass over the selector's universe.
     mount_router(application, news.router)

@@ -6,7 +6,6 @@ import { NAV_ITEMS } from "./nav";
 import {
   APP_BASE,
   ROUTE_PATHS,
-  SOON_SLUGS,
   Link,
   appHref,
   navigate,
@@ -72,14 +71,6 @@ describe("parseRoute", () => {
     expect(parseRoute("/app/stock/../etc")).toEqual({ kind: "notfound", path: "/stock/../etc" });
   });
 
-  it("names every unbuilt section, and nothing else", () => {
-    for (const slug of SOON_SLUGS) {
-      expect(parseRoute(`/app/soon/${slug}`)).toEqual({ kind: "soon", slug });
-    }
-    expect(parseRoute("/app/soon/login").kind).toBe("notfound");
-    expect(parseRoute("/app/soon/signup").kind).toBe("notfound");
-  });
-
   it("returns a not-found route for anything else", () => {
     expect(parseRoute("/app/nope")).toEqual({ kind: "notfound", path: "/nope" });
     expect(parseRoute("/app/screener/etf/extra").kind).toBe("notfound");
@@ -113,9 +104,10 @@ describe("the nav table", () => {
       expect(href).not.toBe("#");
 
       const pathname = href.slice(APP_BASE.length).split("?")[0] ?? "";
-      const built = (ROUTE_PATHS as readonly string[]).includes(pathname);
-      const soon = /^\/soon\/[a-z-]+$/.test(pathname);
-      expect(built || soon, `${item.label} → ${href} is neither a route nor /soon/*`).toBe(true);
+      expect(
+        (ROUTE_PATHS as readonly string[]).includes(pathname),
+        `${item.label} → ${href} is not a route this build answers`,
+      ).toBe(true);
 
       // And the parser agrees: no item may land on the 404 page.
       expect(parseRoute(pathname).kind, `${item.label} → ${pathname}`).not.toBe("notfound");
@@ -133,18 +125,18 @@ describe("Link", () => {
     const user = userEvent.setup();
     render(
       <div>
-        <Link to="/soon/news">News</Link>
+        <Link to="/news">News</Link>
         <Where />
       </div>,
     );
 
     const anchor = screen.getByRole("link", { name: "News" });
-    expect(anchor.getAttribute("href")).toBe("/app/soon/news");
+    expect(anchor.getAttribute("href")).toBe("/app/news");
     expect(screen.getByTestId("where").textContent).toBe("home");
 
     await user.click(anchor);
-    expect(window.location.pathname).toBe("/app/soon/news");
-    expect(screen.getByTestId("where").textContent).toBe("soon");
+    expect(window.location.pathname).toBe("/app/news");
+    expect(screen.getByTestId("where").textContent).toBe("news");
   });
 
   it("leaves a modified click to the browser", async () => {
