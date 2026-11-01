@@ -37,6 +37,7 @@ from app.fundamentals.snapshot import (
 )
 from app.screen import fundamentals as joined
 from app.screen.filter_fields import (
+    BUCKET_KEYS,
     CHOICE_FIELDS,
     ROW_FIELDS,
     UNAVAILABLE,
@@ -263,10 +264,10 @@ async def test_the_finviz_keys_resolve_to_the_joined_columns() -> None:
 
 
 def test_the_catalogue_moved_to_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 50
-    assert len(unavailable_keys()) == 32
+    assert len(mapped_keys()) == 51
+    assert len(unavailable_keys()) == 31
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
-    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
+    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert not set(mapped_keys()) & set(unavailable_keys())
 
 
@@ -347,13 +348,16 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
     published: dict[str, Any] = dict(extension)  # type: ignore[arg-type]
     mapped = {key: entry for key, entry in published.items() if entry["field"] is not None}
     chosen = {key: entry for key, entry in published.items() if "choice" in entry}
+    bucketed = {key: entry for key, entry in published.items() if entry.get("bucket") is True}
     refused = {
         key: entry
         for key, entry in published.items()
-        if entry["field"] is None and "choice" not in entry
+        if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 47 and len(chosen) == 3 and len(refused) == 32
-    assert set(mapped) | set(chosen) == set(mapped_keys())
+    assert len(mapped) == 47 and len(chosen) == 3 and len(refused) == 31
+    assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
+    assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
+    assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
     assert set(refused) == set(unavailable_keys())
     for key, field in P11G.items():
         assert mapped[key]["field"] == field
@@ -363,7 +367,8 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_joined_keys()
     description = predicate["key"]["description"]
     assert "The 47 that resolve to one row column" in description
     assert "the 3 that filter through their option vocabulary" in description
-    assert "the 32 that are refused" in description
+    assert "the 31 that are refused" in description
+    assert "(idx) that filters through a named bucket" in description
 
 
 # ---------------------------------------------------------------------------

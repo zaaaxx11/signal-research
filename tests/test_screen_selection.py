@@ -39,6 +39,7 @@ import pytest
 
 from app.screen import selection as selection_module
 from app.screen.filter_fields import (
+    BUCKET_KEYS,
     CATALOGUE,
     CHOICE_FIELDS,
     ROW_FIELDS,
@@ -135,14 +136,15 @@ def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> 
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 50, (
+    assert len(mapped_keys()) == 51, (
         "seven light columns, the twenty-nine parity metrics a bulk scan copies "
         "and whose columns are really filled, the three derived columns computed "
         "from those cells, the three fundamentals joined from the snapshot store, "
         "the two ratios computed from that snapshot, the three short/ownership "
-        "cells joined from the facts store, and the three option-driven keys"
+        "cells joined from the facts store, the three option-driven keys, and the "
+        "index key, which filters through its membership buckets (no column)"
     )
-    assert len(unavailable_keys()) == 32
+    assert len(unavailable_keys()) == 31
 
 
 def test_the_mapped_keys_are_the_columns_a_row_really_carries() -> None:
@@ -229,7 +231,10 @@ def test_a_key_outside_the_catalogue_is_unknown_and_lists_what_works() -> None:
 
 
 def test_reasons_name_the_metric_that_is_missing() -> None:
-    assert "index membership" in (reason_for("idx") or "")
+    assert reason_for("idx") is None, (
+        "idx filters a membership bucket now (app.screen.index_membership); a "
+        "refusal here would be a stale disposition"
+    )
     assert "dividend" in (reason_for("fa_divgrowth") or "")
     for key in ("ta_perf", "ta_perf2", "ta_volatility"):
         assert reason_for(key) is None, (
@@ -284,6 +289,10 @@ def test_no_placeholder_field_is_ever_offered() -> None:
         elif spec.choice:
             assert entry is not None and entry.field is None, (
                 f"{key} filters through its options: available, but with no column"
+            )
+        elif key in BUCKET_KEYS:
+            assert entry is not None and entry.field is None, (
+                f"{key} filters through a bucket: available, but with no column"
             )
         else:
             assert entry is None, f"{key} has no column but resolved to one"
@@ -567,7 +576,10 @@ def test_a_finviz_option_token_is_not_interpreted_as_a_value() -> None:
     with pytest.raises(SelectionError) as caught:
         parse_selection(criteria({"key": "cap", "op": "gte", "value": "mega"}))
     assert caught.value.code == "invalid_filter"
-    assert "expects a number" in str(caught.value)
+    assert "names its own comparison" in str(caught.value), (
+        "``mega`` is a bucket: it means market_cap_usd >= 200e9, so a second "
+        "comparison has nothing left to say"
+    )
 
 
 def test_filters_parse_into_in_and_between_tuples() -> None:
@@ -840,10 +852,11 @@ def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> No
     assert list(extension) == list(FILTER_CATALOG), "panel order, same as the catalogue"
     mapped = {key: entry for key, entry in extension.items() if entry["field"] is not None}
     chosen = {key: entry for key, entry in extension.items() if "choice" in entry}
+    bucketed = {key: entry for key, entry in extension.items() if entry.get("bucket") is True}
     refused = {
         key: entry
         for key, entry in extension.items()
-        if entry["field"] is None and "choice" not in entry
+        if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
     assert set(mapped) == set(ROW_FIELDS), (
         "the schema must publish every key that filters one row column today"
@@ -851,7 +864,10 @@ def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> No
     assert set(chosen) == set(choice_keys()), (
         "the three option-driven keys publish their vocabulary, not a column"
     )
-    assert set(mapped) | set(chosen) == set(mapped_keys())
+    assert set(bucketed) == set(BUCKET_KEYS), (
+        "every bucket-driven key publishes the flag, and only those keys do"
+    )
+    assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
     assert set(refused) == set(unavailable_keys())
     for key, entry in mapped.items():
         assert entry["field"] == FILTER_CATALOG[key].field

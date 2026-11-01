@@ -139,7 +139,7 @@ def _published(document: dict[str, Any]) -> tuple[set[str], set[str]]:
     usable = {
         key
         for key, entry in keys.items()
-        if entry.get("field") is not None or "choice" in entry
+        if entry.get("field") is not None or "choice" in entry or entry.get("bucket")
     }
     refused = set(keys) - usable
     return usable, refused

@@ -528,10 +528,12 @@ def test_a_catalogue_key_with_no_filterable_column_is_refused_by_name() -> None:
 
 
 def test_a_legacy_unavailable_key_keeps_its_own_refusal() -> None:
+    """``theme`` still has no classification source; ``idx`` now has a bucket."""
+
     with pytest.raises(SelectionError) as caught:
-        parse_selection(criteria({"key": "idx", "op": "eq", "value": "sp500"}))
+        parse_selection(criteria({"key": "theme", "op": "eq", "value": "ai"}))
     assert caught.value.code == "unavailable_filter_key"
-    assert "idx" in str(caught.value)
+    assert "theme" in str(caught.value)
 
 
 # ---------------------------------------------------------------------------

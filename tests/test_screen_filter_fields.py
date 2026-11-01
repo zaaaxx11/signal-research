@@ -36,6 +36,7 @@ import pytest
 
 from app.screen import choice_filters
 from app.screen.filter_fields import (
+    BUCKET_KEYS,
     CATALOGUE,
     CHOICE_FIELDS,
     ROW_FIELDS,
@@ -135,11 +136,14 @@ def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
 
-def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 50
-    assert len(unavailable_keys()) == 32
+def test_the_disposition_is_fifty_one_available_and_thirty_one_refused() -> None:
+    # 51 = 47 single-column keys + 3 option-driven keys + ``idx``, which is a
+    # bucket-only key: Finviz's four index lists are membership tests, not a
+    # column a scan carries (app.screen.index_membership).
+    assert len(mapped_keys()) == 51
+    assert len(unavailable_keys()) == 31
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
-    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
+    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert not set(mapped_keys()) & set(unavailable_keys()), "one disposition per key"
     assert choice_keys() == tuple(P11H), "panel order, three option-driven keys"
@@ -164,10 +168,14 @@ def test_only_the_declared_keys_left_the_refusal_list() -> None:
     mapped = (
         set(mapped_keys()) - set(P11H) - set(P11B) - set(P11G) - set(P11I) - set(P11J)
     )
-    assert len(mapped) == 36, "the P7 disposition of 36 single-column keys stands"
+    assert len(mapped) == 37, (
+        "the P7 disposition of 36 single-column keys stands, plus ``idx``, which "
+        "is available through a bucket and no column at all"
+    )
     refused = set(unavailable_keys())
     assert moved.isdisjoint(refused)
-    assert len(refused) == 46 - len(moved) == 32
+    # One more than the P11 moves: ``idx`` left the refusal list into a bucket.
+    assert len(refused) == 46 - len(moved) - 1 == 31
 
 
 def test_the_three_fact_keys_point_at_columns_the_join_really_writes() -> None:
@@ -296,14 +304,16 @@ def test_the_published_schema_reports_the_three_keys_as_available() -> None:
 
     mapped = {key for key, entry in published.items() if entry["field"] is not None}
     chosen = {key for key, entry in published.items() if "choice" in entry}
+    bucketed = {key for key, entry in published.items() if entry.get("bucket") is True}
     refused = {
         key
         for key, entry in published.items()
-        if entry["field"] is None and "choice" not in entry
+        if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
     assert mapped == set(ROW_FIELDS)
     assert chosen == set(P11H)
-    assert mapped | chosen == set(mapped_keys())
+    assert bucketed == set(BUCKET_KEYS), "the bucket flag is the one buckets table"
+    assert mapped | chosen | bucketed == set(mapped_keys())
     assert refused == set(unavailable_keys())
 
     for key, columns in P11H.items():
@@ -343,7 +353,7 @@ def test_the_published_choice_options_are_the_compiled_predicates() -> None:
 def test_the_refusals_that_remain_are_the_ones_that_still_miss_a_metric() -> None:
     """The two shapes of refusal that survive: no column, or a column always null."""
 
-    for key in ("idx", "theme", "sh_insidertrans", "ah_close", "ta_pattern", "etf_heldby"):
+    for key in ("theme", "sh_insidertrans", "ah_close", "ta_pattern", "etf_heldby"):
         assert reason_for(key), f"{key} has no metric; it must stay refused"
     assert "answered null for all" in (reason_for("ipodate") or "")
     for key in P11J:

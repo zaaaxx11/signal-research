@@ -39,6 +39,7 @@ from typing import Any, Callable
 import pytest
 
 from app.screen.filter_fields import (
+    BUCKET_KEYS,
     CHOICE_FIELDS,
     ROW_FIELDS,
     UNAVAILABLE,
@@ -140,9 +141,9 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 def test_the_disposition_is_fifty_available_and_thirty_two_refused() -> None:
-    assert len(mapped_keys()) == 50
-    assert len(unavailable_keys()) == 32
-    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS)
+    assert len(mapped_keys()) == 51
+    assert len(unavailable_keys()) == 31
+    assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert len(mapped_keys()) + len(unavailable_keys()) == 82
     assert set(ROW_FIELDS.values()) <= set(FIELDS)

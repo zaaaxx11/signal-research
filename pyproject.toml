@@ -40,6 +40,10 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.engine" = ["data/*.json"]
+# The vendored descriptive vocabulary: the index-membership snapshot and (T9) the
+# Finviz option lists. Editable installs read them from the checkout, so a missing
+# entry here only shows up from a wheel — which is exactly why it is stated.
+"app.screen" = ["data/*.json"]
 
 [tool.pytest.ini_options]
 minversion = "9.0"

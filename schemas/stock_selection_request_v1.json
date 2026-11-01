@@ -236,7 +236,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 Finviz filter keys. The 47 that resolve to one row column, the 3 that filter through their option vocabulary, and the 32 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 105 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 187 keys a filter may name, and any other key is a 422 that names it."
+          "description": "One of the 82 Finviz filter keys. The 47 that resolve to one row column, the 3 that filter through their option vocabulary, the 1 bucket-only key (idx) that filters through a named bucket, and the 31 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 105 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 187 keys a filter may name, and any other key is a 422 that names it."
         },
         "field": {
           "enum": [
@@ -383,7 +383,7 @@
       "label": "Index",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs index membership (S&P 500, Nasdaq-100, Dow, Russell): the scan has no index-constituent column, and a market-cap threshold is not a membership test"
+      "bucket": true
     },
     "sec": {
       "label": "Sector",
@@ -407,25 +407,29 @@
       "label": "Market Cap.",
       "tab": "descriptive",
       "field": "market_cap_usd",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "fa_div": {
       "label": "Dividend Yield",
       "tab": "descriptive",
       "field": "dividend_yield",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_short": {
       "label": "Short Float",
       "tab": "descriptive",
       "field": "short_float",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "an_recom": {
       "label": "Analyst Recom.",
       "tab": "descriptive",
       "field": "recom_finviz",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_opt": {
       "label": "Option/Short",
@@ -437,19 +441,22 @@
       "label": "Earnings Date",
       "tab": "descriptive",
       "field": "earnings_date",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_avgvol": {
       "label": "Average Volume",
       "tab": "descriptive",
       "field": "avg_volume_30d",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_relvol": {
       "label": "Relative Volume",
       "tab": "descriptive",
       "field": "rel_volume_10d",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_curvol": {
       "label": "Current Volume",
@@ -467,13 +474,15 @@
       "label": "Price $",
       "tab": "descriptive",
       "field": "price",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "targetprice": {
       "label": "Target Price",
       "tab": "descriptive",
       "field": "target_price",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "ipodate": {
       "label": "IPO Date",
@@ -485,13 +494,15 @@
       "label": "Shares Outstanding",
       "tab": "descriptive",
       "field": "shares_outstanding",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "sh_float": {
       "label": "Float",
       "tab": "descriptive",
       "field": "float_shares",
-      "kind": "number"
+      "kind": "number",
+      "bucket": true
     },
     "theme": {
       "label": "Theme",

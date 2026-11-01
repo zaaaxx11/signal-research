@@ -14,8 +14,9 @@ parameter. So the contract is: **a filter key either filters a row — directly,
 or through one of its option tokens — or the request is rejected (422) with the
 reason**, never applied as a no-op.
 
-Forty-seven keys can filter a row directly and three more through their option
-vocabulary — fifty live — while thirty-two are refused:
+Forty-seven keys can filter a row directly, three more through their option
+vocabulary and one (``idx``) through a named bucket — fifty-one live — while
+thirty-one are refused:
 
 * **Seven light columns** — exchange, sector, country, market cap, price,
   change %, current volume — have been on the browse row from the start;
@@ -66,8 +67,8 @@ vocabulary — fifty live — while thirty-two are refused:
   single column could name ten performance windows, so ``Binding.field`` stays
   ``None`` and ``Binding.choice`` is ``True``: the key is available, it just
   answers per token;
-* **thirty-two are refused**, each with the metric it needs: no column measures
-  it (index membership, theme, dividend growth and the two insider/institutional
+* **thirty-one are refused**, each with the metric it needs: no column measures
+  it (theme, dividend growth and the two insider/institutional
   *transaction* flows, news, ETF holdings, after-hours, patterns, 20/50-day and
   all-time extremes), or the column the provider offers answers **null for every
   row** (``ipo_date`` on both the US and the global scan), where a filter could
@@ -99,11 +100,20 @@ Three things this module refuses to invent:
   :mod:`app.screen.choice_filters` states that mapping once, with a column, an
   operator and a number per token.
 
-The mapping is not a second source of truth: :data:`ROW_FIELDS` and
-:data:`CHOICE_FIELDS` are *derived* from ``FILTER_CATALOG[*].field``/
-``[*].choice`` plus :mod:`app.screen.choice_filters`, and :func:`_validate`
-fails the process if the three ever disagree or if any of the 82 keys is left
-without a disposition.
+* **one is a bucket and no column at all** — ``idx``. Its four options are
+  membership tests, not a metric a scan carries, so it filters through
+  :mod:`app.screen.buckets` and :mod:`app.screen.index_membership` publishes the
+  lists. ``Binding.field`` stays ``None`` and ``Binding.bucket`` is ``True``; a
+  request still reads ``{"key": "idx", "op": "eq", "value": "sp500"}``. The
+  bucket flag also rides on the eleven *mapped* keys that accept their Finviz
+  tokens (``sh_price`` + ``price:u5``), because a token and a number are the same
+  key asked two ways.
+
+The mapping is not a second source of truth: :data:`ROW_FIELDS`,
+:data:`CHOICE_FIELDS` and :data:`BUCKET_KEYS` are *derived* from
+``FILTER_CATALOG[*].field``/``[*].choice`` plus :mod:`app.screen.choice_filters`
+and :mod:`app.screen.buckets`, and :func:`_validate` fails the process if the
+three ever disagree or if any of the 82 keys is left without a disposition.
 """
 
 from __future__ import annotations
@@ -112,7 +122,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
-from app.screen import choice_filters
+from app.screen import buckets, choice_filters
 from app.screen.filters import FIELDS, FILTER_CATALOG
 
 #: Finviz key → canonical row column, for every key the catalogue gives a field.
@@ -135,15 +145,15 @@ CHOICE_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 
+#: The Finviz keys that also accept one of their bucket tokens
+#: (``{"key": "sh_price", "op": "eq", "value": "price:u5"}``). Derived from
+#: :mod:`app.screen.buckets`, so the vocabulary and the flag that publishes it
+#: cannot drift; ``idx`` is the one key that is **only** a bucket (no column).
+BUCKET_KEYS: frozenset[str] = frozenset(buckets.KEYS)
+
 #: Why a key cannot filter yet: one sentence per group of keys, naming the metric
 #: the scan does not carry, so a 422 can say *what* is absent instead of "invalid".
 _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "needs index membership (S&P 500, Nasdaq-100, Dow, Russell): the scan "
-        "has no index-constituent column, and a market-cap threshold is not a "
-        "membership test",
-        ("idx",),
-    ),
     (
         "needs theme/sub-theme classification: the scan carries no theme column",
         ("theme", "subtheme"),
@@ -278,7 +288,12 @@ class Binding:
     once. A **choice** binding is the third shape: ``field`` is ``None`` because
     the key spans several columns, ``choice`` is ``True``, ``reason`` is ``None``
     and one option token compiles to one column predicate
-    (:mod:`app.screen.choice_filters`).
+    (:mod:`app.screen.choice_filters`). A **bucket** binding is the fourth: the
+    key accepts a token that names a server-side predicate
+    (:mod:`app.screen.buckets`), which may read one column (``price:u5``), two
+    (``targetprice:a50``) or a date against the market's clock (``earn:today``).
+    A key can be both mapped and bucket-driven: ``sh_price`` still compares
+    ``price`` for ``{"op": "lt", "value": 5}``.
     """
 
     key: str
@@ -288,10 +303,11 @@ class Binding:
     kind: str | None
     reason: str | None
     choice: bool = False
+    bucket: bool = False
 
     @property
     def is_available(self) -> bool:
-        return self.field is not None or self.choice
+        return self.field is not None or self.choice or self.bucket
 
     def as_dict(self) -> dict[str, object]:
         """The published form: what a client reads in the schema.
@@ -313,6 +329,8 @@ class Binding:
             entry["kind"] = self.kind
         if self.choice:
             entry["choice"] = choice_filters.describe(self.key)
+        if self.bucket:
+            entry["bucket"] = True
         if self.reason is not None:
             entry["reason"] = self.reason
         return entry
@@ -328,6 +346,7 @@ def _make(spec_key: str, field: str | None) -> Binding:
         kind=FIELDS[field] if field is not None else None,
         reason=UNAVAILABLE.get(spec_key),
         choice=spec.choice,
+        bucket=spec_key in BUCKET_KEYS,
     )
 
 
@@ -370,12 +389,16 @@ def _validate() -> None:
             f"option-driven keys: {sorted(set(CHOICE_FIELDS) ^ set(choice_filters.CHOICES))}"
         )
 
-    covered = set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(UNAVAILABLE)
+    covered = set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS) | set(UNAVAILABLE)
     missing = [key for key in keys if key not in covered]
     unknown = sorted(covered - set(keys))
+    # A bucket key may also be a mapped key (``sh_price`` filters a column *and*
+    # accepts ``price:u5``); what no key may be is refused twice, or answered by
+    # two different compilers.
     overlap = sorted(
         (set(ROW_FIELDS) & set(UNAVAILABLE))
         | (set(CHOICE_FIELDS) & set(UNAVAILABLE))
+        | (set(BUCKET_KEYS) & set(UNAVAILABLE))
         | (set(ROW_FIELDS) & set(CHOICE_FIELDS))
     )
     if missing or unknown or overlap:
@@ -399,6 +422,14 @@ def _validate() -> None:
     for key, reason in UNAVAILABLE.items():
         if not reason.strip():
             raise RuntimeError(f"filter key {key!r} has an empty unavailability reason")
+    for key in BUCKET_KEYS:
+        if key not in keys:
+            raise RuntimeError(f"bucket key {key!r} is not one of the 82 Finviz keys")
+        if not buckets.for_key(key):
+            raise RuntimeError(f"bucket key {key!r} has no bucket family")
+        field = ROW_FIELDS.get(key)
+        if field is not None and field not in FIELDS:
+            raise RuntimeError(f"bucket key {key!r} names non-existent row field {field!r}")
 
     # The parity table is the other half of the same claim: a field a key filters
     # must be a field a row can carry — a light column, a parity metric, a
@@ -452,7 +483,8 @@ def binding(key: object) -> Binding:
             key,
             f"unknown filter key {key!r}: it is not one of the 82 Finviz filter keys. "
             f"Keys that can filter a row today: {', '.join(ROW_FIELDS)}; "
-            f"option-driven keys: {', '.join(CHOICE_FIELDS)}. "
+            f"option-driven keys: {', '.join(CHOICE_FIELDS)}; "
+            f"bucket-driven keys: {', '.join(BUCKET_KEYS)}. "
             "The full catalogue, with the reason each other key is refused, is "
             "served at GET /screens/select/schema",
         )
@@ -523,6 +555,7 @@ def unavailable_keys() -> tuple[str, ...]:
 
 __all__ = [
     "BINDINGS",
+    "BUCKET_KEYS",
     "CATALOGUE",
     "CHOICE_FIELDS",
     "ChoiceFilterKey",

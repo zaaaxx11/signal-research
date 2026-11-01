@@ -33,7 +33,6 @@ import { useScreenState } from "@/filters/useScreenState";
 import { AllColumnsPanel } from "@/grid/AllColumnsPanel";
 import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { ScreenPanel } from "@/grid/ScreenPanel";
-import { ViewTabs } from "@/grid/ViewTabs";
 import { splitCatalogue } from "@/grid/catalogue";
 import { useColumnSelection } from "@/grid/columnSelection";
 import { withExchange } from "@/grid/exchanges";
@@ -136,25 +135,10 @@ export function ScreenerScreen({
     setFocusKey(null);
   };
 
-  const selectView = (name: string) => {
-    setWide(false);
-    screen.setView(name);
-  };
-
   return (
     <>
       <div className="flex items-stretch justify-between gap-2 border-b border-line bg-surface px-3 pt-0.5">
-        <div className="min-w-0 flex-1">
-          {catalogue.views.length > 0 && active ? (
-            <ViewTabs
-              views={catalogue.views}
-              active={wideActive ? "" : active.name}
-              onChange={selectView}
-            />
-          ) : (
-            <div className="h-8" aria-hidden="true" />
-          )}
-        </div>
+        <div className="min-w-0 flex-1" />
 
         {destination ? (
           <button

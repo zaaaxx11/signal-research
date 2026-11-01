@@ -19,7 +19,7 @@ two modes are different questions, not two spellings of one:
   and dated by the response's own ``as_of``, so a client can never mistake a
   fresh quote for the one the snapshot stored.
 
-Three rules the code has to earn:
+The rules the code has to earn:
 
 1. **No filter is ignored.** A criterion names either a canonical row column
    (``field``) or a Finviz filter key (``key``), and both paths end in
@@ -32,7 +32,20 @@ Three rules the code has to earn:
    "value": "1w10u"}`` — and :mod:`app.screen.choice_filters` compiles it into
    the same ``field op number`` predicate a ``field`` criterion would have
    produced.
-2. **One page holds at most :data:`PANEL_LIMIT` rows (100).** ``limit`` cannot
+2. **A bucket token is a criterion with no field.** Finviz's Descriptive panel
+   offers names, not ranges: ``price:u5``, ``cap:mega``, ``earn:todaybefore``,
+   ``idx:sp500``. Three of those four shapes cannot be written as one
+   ``field op value`` triple — ``targetprice:a50`` relates two columns,
+   ``earn:today`` needs New York's clock, ``idx:sp500`` is set membership — so
+   the token is compiled by :mod:`app.screen.buckets` and travels as
+   ``Criterion(field=None, key="sh_price", op="eq", value="price:u5")``. The
+   wire shape is unchanged (``{key, op, value}``); ``field=None`` is what splits
+   the two compilers, so :func:`_predicates` never hands a token to the DSL. A
+   token is canonicalised (case-folded, expanded to its full id) before it is
+   stored, which makes ``SP500`` and ``idx:sp500`` one question and one ETag; an
+   unknown token is ``422 unknown_bucket``, one whose source is missing is
+   ``422 unavailable_bucket``, and both name the ids that would have worked.
+3. **One page holds at most :data:`PANEL_LIMIT` rows (100).** ``limit`` cannot
    widen the page past the panel: a larger value is clamped (not an error,
    because the caller asked for a page that does not exist) and the envelope
    reports the applied ``limit``, so a client can see what it got. ``symbols``
@@ -40,7 +53,7 @@ Three rules the code has to earn:
    :data:`DISPLAY_LIMIT`, which is now the *browse* display only: a screener
    panel is 100 rows × 9–12 columns, and selling it five 20-row pages is how the
    same symbol appeared twice across a page boundary.
-3. **Same input, same output.** The executor is a pure function of
+4. **Same input, same output.** The executor is a pure function of
    ``(rows, request)``: filters AND in the order given, ``rank_rows`` orders by
    the metric and breaks ties on ``symbol`` (so page boundaries are stable even
    if the provider reshuffles equal-valued rows), and ``symbols`` keeps request
@@ -119,6 +132,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.engine.catalog import CATALOG_BY_KEY
+from app.screen import buckets
 from app.screen import choice_filters
 from app.screen import columns as column_map
 from app.screen import rank as ranking
@@ -288,15 +302,27 @@ class Criterion:
     ``field``/``op``/``value`` are the predicate its option token compiled to:
     both ends of the translation are visible, so a reader can check that
     ``1w10u`` really meant ``ret_1w <= -10`` without trusting the request.
+
+    ``field`` is ``None`` for a **bucket** criterion (``price:u5``, ``idx:sp500``):
+    the predicate lives in :mod:`app.screen.buckets`, the token is the canonical
+    id in ``value``, and the null field is the only marker that tells the
+    executor to use the second compiler — which is why it is published rather
+    than dropped.
     """
 
-    field: str
+    field: str | None
     op: str
     value: Any
     key: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """The wire form: ``in``/``between`` tuples become JSON arrays."""
+        """The wire form: ``in``/``between`` tuples become JSON arrays.
+
+        A bucket criterion publishes ``field: null`` and its token in ``value``
+        — the null is the thing that tells the executor which compiler to use,
+        so a "cleanup" that drops it would collide ``price:u5`` with
+        ``price:o5`` in the ETag digest.
+        """
 
         value = list(self.value) if isinstance(self.value, tuple) else self.value
         return {"key": self.key, "field": self.field, "op": self.op, "value": value}
@@ -471,6 +497,72 @@ def _choice_criterion(
     )
 
 
+def _numeric_literal(text: str) -> bool:
+    """Is ``text`` a number a comparison could take? (``"5"``, ``"-0.5"``.)"""
+
+    try:
+        float(text)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _bucket_criterion(
+    key: str, item: Mapping[str, Any], where: str
+) -> Criterion | None:
+    """One bucket token → one field-less :class:`Criterion`, or ``None``.
+
+    ``None`` means "not a bucket": the value is an ordinary number (or an
+    ``in``/``between`` list) and the filter DSL must judge it, because a bucket
+    key such as ``sh_price`` still answers ``{"op": "lt", "value": 5}``.
+
+    A value that names a bucket is **canonicalised** before it is stored — the
+    token is case-folded and expanded to its full ``<control>:<token>`` id — so
+    ``SP500``, ``sp500`` and ``idx:sp500`` are one question and therefore one
+    ETag. An id from another control (``price:u5`` sent to ``cap``) is refused:
+    the namespace is the half of the id that says which metric is meant.
+    """
+
+    control = buckets.control_for(key)
+    raw = item["value"]
+    if control is None or not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    if ":" in text:
+        namespace, _, token = text.partition(":")
+        if namespace.strip().casefold() != control.casefold():
+            accepted = ", ".join(item.id for item in buckets.for_key(key))
+            raise SelectionError(
+                f"{where} (key {key!r}): bucket {text!r} belongs to control "
+                f"{namespace.strip()!r}, but key {key!r} only accepts {control!r} "
+                f"ids ({accepted})",
+                code="unknown_bucket",
+            )
+        identifier = f"{control}:{token.strip()}"
+    else:
+        identifier = f"{control}:{text}"
+
+    try:
+        found = buckets.bucket(identifier)
+    except buckets.UnavailableBucket as exc:
+        raise SelectionError(f"{where} (key {key!r}): {exc}", code=exc.code) from exc
+    except buckets.UnknownBucket as exc:
+        if ":" not in text and _numeric_literal(text):
+            return None
+        raise SelectionError(f"{where} (key {key!r}): {exc}", code=exc.code) from exc
+
+    op = item["op"].strip().casefold() if isinstance(item["op"], str) else None
+    if op not in {"eq", "==", "="}:
+        raise SelectionError(
+            f"{where} (key {key!r}): bucket {found.id!r} names its own comparison "
+            f"({found.describe}), so op must be 'eq', got {item['op']!r}",
+            code="invalid_filter",
+        )
+    return Criterion(field=None, op="eq", value=found.id, key=key)
+
+
 def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion:
     """One filter object → one compiled :class:`Criterion`, or a 422.
 
@@ -527,8 +619,22 @@ def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion
         else:
             if resolved.choice:
                 return _choice_criterion(key_text, item, where)
+            if resolved.bucket:
+                by_bucket = _bucket_criterion(key_text, item, where)
+                if by_bucket is not None:
+                    return by_bucket
             column_value = resolved.field
-            assert column_value is not None  # binding() refuses the unavailable keys
+            if column_value is None:
+                # A bucket-only key (``idx``) has no column and no numeric form:
+                # the value must be one of its tokens, so the refusal names them.
+                family = buckets.for_key(key_text)
+                accepted = ", ".join(item.id for item in family)
+                raise SelectionError(
+                    f"{where} (key {key_text!r}) takes a bucket token as its value "
+                    f"(e.g. {{'key': {key_text!r}, 'op': 'eq', 'value': "
+                    f"{family[0].id!r}}}); accepted ids: {accepted}",
+                    code="invalid_filter",
+                )
             prefix = f"{where} (key {key!r})"
     else:
         column_value = field
@@ -857,16 +963,23 @@ class Selection:
 
 
 def _predicates(request: SelectionRequest) -> tuple[dict[str, Any], ...]:
-    """The compiled criteria as the filter DSL's object form (one translation)."""
+    """The DSL half of the criteria: every criterion that has a field.
+
+    A bucket criterion has ``field=None`` and is applied by
+    :func:`app.screen.buckets.apply_bucket_filters` instead. Dropping it here is
+    what keeps a token out of :func:`app.screen.filters.compile_filter`, where it
+    would be either a 422 or — worse — coerced into a number.
+    """
 
     return tuple(
         {"field": criterion.field, "op": criterion.op, "value": criterion.value}
         for criterion in request.filters
+        if criterion.field is not None
     )
 
 
 def _selected(
-    rows: Sequence[dict[str, Any]], request: SelectionRequest
+    rows: Sequence[dict[str, Any]], request: SelectionRequest, *, as_of: str
 ) -> tuple[list[dict[str, Any]], int]:
     """Criteria: AND the filters over the whole universe, then rank, then cut.
 
@@ -875,9 +988,19 @@ def _selected(
     them — ranking before filtering would number rows the caller never sees and
     cutting before counting would report the page as the market. ``total`` comes
     from the same pass that built the page, so the two can never disagree.
+
+    Two compilers, one predicate list each: the filter DSL over ``field``
+    criteria and :mod:`app.screen.buckets` over the field-less ones. They AND, so
+    the order between them is presentation only — the DSL first keeps the common
+    case (a numeric range) independent of a clock.
+
+    ``as_of`` is the answer's own read moment: ``earn:today`` is New York's day
+    *of this answer*, never ``date.today()`` inside a predicate, or two rows of
+    one page could be judged against two days.
     """
 
     matched = apply_filters(rows, _predicates(request), region=request.region)
+    matched = buckets.apply_bucket_filters(matched, request.filters, as_of=as_of)
     ranked = ranking.rank_rows(matched, request.sort or DEFAULT_SORT)
     page = ranked[request.offset :]
     return ranking.top_rows(page, request.limit), len(matched)
@@ -990,7 +1113,7 @@ def select_rows(
 
     universe = column_map.harmonise_rows(rows)
     if request.is_criteria:
-        selected, total = _selected(universe, request)
+        selected, total = _selected(universe, request, as_of=as_of)
         missing: tuple[str, ...] = ()
         sort: str | None = request.sort
         echoed_snapshot: str | None = None
@@ -1166,6 +1289,12 @@ def _filter_alias_extension() -> dict[str, dict[str, object]]:
         aliases[key] = entry
     return aliases
 
+
+#: The keys that are **only** a bucket (``idx``): no column, no option vocabulary.
+#: Derived so the published disposition cannot outlive the table it counts.
+_BUCKET_ONLY: tuple[str, ...] = tuple(
+    key for key in buckets.KEYS if key not in ROW_FIELDS
+)
 
 #: The alias half of the published vocabulary, built once at import: it is a pure
 #: function of the tables above, and the schema below reads it twice (count and
@@ -1413,8 +1542,11 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                         f"One of the {len(CATALOGUE)} Finviz filter keys. The "
                         f"{len(ROW_FIELDS)} that resolve to one row column, the "
                         f"{len(CHOICE_FIELDS)} that filter through their option "
-                        f"vocabulary, and the {len(unavailable_keys())} that are "
-                        "refused with their reason, are listed in x-filter-keys. "
+                        f"vocabulary, the {len(_BUCKET_ONLY)} bucket-only key "
+                        f"({', '.join(_BUCKET_ONLY)}) that filters through a "
+                        f"named bucket, and the "
+                        f"{len(unavailable_keys())} that are refused with their "
+                        "reason, are listed in x-filter-keys. "
                         f"A filter may also name one of the {len(_FILTER_ALIASES)} "
                         "catalogue spellings in x-filter-aliases (`pe`, `roic`, "
                         "`market_cap`), each published with the row column it "

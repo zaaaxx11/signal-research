@@ -34,8 +34,14 @@ facts columns** (:mod:`app.screen.facts`): ``short_float``, ``insider_own`` and
 scan does not. Three more
 keys — ``ta_perf``, ``ta_perf2`` and ``ta_volatility`` — are **choice** keys: they
 filter through Finviz's option vocabulary instead of one column, and
-:mod:`app.screen.choice_filters` is their compiler, so **fifty keys can
-filter a row today** and thirty-two are refused.
+:mod:`app.screen.choice_filters` is their compiler. One more key — ``idx`` — is
+available through a **named bucket** rather than a column
+(:mod:`app.screen.buckets`, :mod:`app.screen.index_membership`), and eleven of
+the mapped keys also accept their probe tokens as buckets, so **fifty-one keys
+can filter a row today** and thirty-one are refused. The tokens themselves are
+not interpreted here: ``compile_filter`` compares a ``field`` to a number, and a
+description such as ``price:u5`` is a 422 until :mod:`app.screen.selection`
+routes it to the bucket compiler.
 
 The rule for the twenty-nine copies is **one quantity, one column, and the
 provider's window or unit in the name**. ``ta_beta`` therefore resolves to
@@ -69,7 +75,7 @@ there rather than to a column the scan does not have. ``short_float`` is answere
 by the **facts** store (:mod:`app.screen.facts`), together with insider and
 institutional ownership — cells the Finviz stock page prints and
 ``fundamentals_snapshots`` does not hold. ``ipo_date`` stays refused, and the
-thirty-two refusals in :mod:`app.screen.filter_fields` name the missing metric
+thirty-one refusals in :mod:`app.screen.filter_fields` name the missing metric
 instead.
 
 **A key that spans several columns is a choice, not a refusal.** ``ta_perf`` and
