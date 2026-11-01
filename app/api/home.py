@@ -195,7 +195,7 @@ MOVER_GROUPS: tuple[str, ...] = ("gainers", "new_high", "overbought", "new_low")
 MAP_TILES = 600
 
 #: How many headlines the dashboard shows, and how many Form 4 rows.
-NEWS_ITEMS = 8
+NEWS_ITEMS = 40
 FILINGS_SYMBOLS = 5
 
 #: How long a derived series (price, change, closes) is reused. It is the
@@ -271,6 +271,7 @@ def breadth_of(
     rows: Iterable[Mapping[str, Any]],
     *,
     sma50: Mapping[str, float | None] | None = None,
+    sma200: Mapping[str, float | None] | None = None,
 ) -> dict[str, float]:
     """Count ``rows`` in one pass: the partition, the extremes and the 50-day.
 
@@ -299,6 +300,8 @@ def breadth_of(
     new_lows = 0
     above = 0
     below = 0
+    above_200 = 0
+    below_200 = 0
     up_volume = 0.0
     down_volume = 0.0
 
@@ -337,13 +340,21 @@ def breadth_of(
                 new_lows += 1
 
         symbol = row.get("symbol")
-        sma = number(levels.get(symbol)) if isinstance(symbol, str) else None
-        if sma is None:
+        if not isinstance(symbol, str):
             continue
-        if sma > 0:
-            above += 1
-        elif sma < 0:
-            below += 1
+        sma = number(levels.get(symbol))
+        if sma is not None:
+            if sma > 0:
+                above += 1
+            elif sma < 0:
+                below += 1
+        long_levels = sma200 or {}
+        sma_long = number(long_levels.get(symbol))
+        if sma_long is not None:
+            if sma_long > 0:
+                above_200 += 1
+            elif sma_long < 0:
+                below_200 += 1
 
     return {
         "universe": universe,
@@ -354,13 +365,15 @@ def breadth_of(
         "new_lows": new_lows,
         "above_50": above,
         "below_50": below,
+        "above_200": above_200,
+        "below_200": below_200,
         "up_volume": round(up_volume, 2),
         "down_volume": round(down_volume, 2),
     }
 
 
-def sma50_by_symbol(
-    rows: Iterable[Mapping[str, Any]], *, settings: Any = None
+def sma_by_symbol(
+    rows: Iterable[Mapping[str, Any]], *, field: str = "sma50", settings: Any = None
 ) -> dict[str, float]:
     """Every row's ``sma50`` percent from the depth store, keyed by ticker.
 
@@ -386,10 +399,18 @@ def sma50_by_symbol(
         entry = _entry_for(symbol, table)
         if entry is None:
             continue
-        value = number(entry.get("sma50"))
+        value = number(entry.get(field))
         if value is not None:
             levels[symbol] = value
     return levels
+
+
+def sma50_by_symbol(
+    rows: Iterable[Mapping[str, Any]], *, settings: Any = None
+) -> dict[str, float]:
+    """The 50-day distance for every row that has one (see :func:`sma_by_symbol`)."""
+
+    return sma_by_symbol(rows, field="sma50", settings=settings)
 
 
 # ---------------------------------------------------------------------------
@@ -1120,7 +1141,9 @@ async def build_document(
     filings_work = asyncio.create_task(filings_block(request, active, caches))
 
     breadth = breadth_of(
-        universe, sma50=sma50_by_symbol(universe, settings=settings_of(request))
+        universe,
+        sma50=sma50_by_symbol(universe, settings=settings_of(request)),
+        sma200=sma_by_symbol(universe, field="sma200", settings=settings_of(request)),
     )
     # An empty table is a measurement — "nothing qualified today" — not a failed
     # source, so it is published as ``[]``; only a dead scan makes movers null.
@@ -1283,6 +1306,7 @@ __all__ = [
     "series_points",
     "settings_of",
     "sma50_by_symbol",
+    "sma_by_symbol",
     "spark_rows",
     "truncate_map",
 ]

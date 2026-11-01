@@ -39,15 +39,13 @@ afterEach(() => {
 });
 
 const BLOCKS = [
-  "headline",
   "strip",
   "breadth",
   "movers",
   "map",
   "signals",
-  "headlines",
-  "majors",
   "insider",
+  "news",
 ] as const;
 
 describe("HomePage", () => {
@@ -81,7 +79,9 @@ describe("HomePage", () => {
 
     for (const block of BLOCKS) {
       const headings = screen.getByTestId(`home-${block}`).querySelectorAll("h2");
-      expect(headings, block).toHaveLength(1);
+      // Breadth is a strip of figures, not a titled section: it is the one
+      // block without a heading, on purpose.
+      expect(headings, block).toHaveLength(block === "breadth" ? 0 : 1);
     }
     expect(document.querySelectorAll("h3").length).toBeGreaterThan(5);
   });
@@ -143,7 +143,7 @@ describe("HomePage", () => {
     await waitFor(() => expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"));
 
     expect(container.querySelector("script")).toBeNull();
-    expect(screen.getByTestId("home-headline").textContent).toContain(
+    expect(screen.getByTestId("home-news").textContent).toContain(
       "Markets <script>alert(1)</script> steady",
     );
   });

@@ -83,6 +83,8 @@ _BREADTH_KEYS = frozenset(
         "new_lows",
         "above_50",
         "below_50",
+        "above_200",
+        "below_200",
         "up_volume",
         "down_volume",
     }
@@ -801,7 +803,7 @@ async def test_the_map_is_the_six_hundred_largest_tiles_and_keeps_sectors_whole(
 # ---------------------------------------------------------------------------
 
 
-async def test_news_is_the_first_eight_items_of_the_market_merge(
+async def test_news_is_the_first_forty_items_of_the_market_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rows = _small_rows(8)
@@ -809,10 +811,10 @@ async def test_news_is_the_first_eight_items_of_the_market_merge(
         tmp_path, monkeypatch, rows=rows, depth={}, charts=_charts_for(rows)
     ) as harness:
         home = (await harness.get("/market/home", region="us")).json()
-        feed = (await harness.get("/market/news", limit="8")).json()
+        feed = (await harness.get("/market/news", limit="40")).json()
 
-    assert len(home["news"]) == 8
-    for mine, theirs in zip(home["news"], feed["items"][:8], strict=True):
+    assert len(home["news"]) == min(40, len(feed["items"]))
+    for mine, theirs in zip(home["news"], feed["items"], strict=True):
         assert mine["headline"] == theirs["headline"]
         assert mine["url"] == theirs["url"]
         assert mine["published_at"] == theirs["published_at"]

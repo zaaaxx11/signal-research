@@ -30,14 +30,12 @@ import * as React from "react";
 import { blockState } from "./home";
 import { useHome } from "./useHome";
 import { BreadthTiles } from "./blocks/BreadthTiles";
-import { HeadlineBar } from "./blocks/HeadlineBar";
-import { HeadlinesBlock } from "./blocks/HeadlinesBlock";
 import { HomeFooter } from "./blocks/HomeFooter";
 import { IndexStrip } from "./blocks/IndexStrip";
 import { InsiderStrip } from "./blocks/InsiderStrip";
-import { MajorsBlock } from "./blocks/MajorsBlock";
 import { MapBlock } from "./blocks/MapBlock";
 import { MoversBlock } from "./blocks/MoversBlock";
+import { NewsTable } from "./blocks/NewsTable";
 import { SignalsBlock } from "./blocks/SignalsBlock";
 
 /**
@@ -51,9 +49,6 @@ const SPAN = {
   full: "min-[900px]:col-span-12",
   movers: "min-[900px]:col-span-8",
   map: "min-[900px]:col-span-4",
-  signals: "min-[900px]:col-span-5",
-  headlines: "min-[900px]:col-span-4",
-  majors: "min-[900px]:col-span-3",
 } as const;
 
 export function HomePage() {
@@ -101,8 +96,6 @@ export function HomePage() {
         aria-busy={status === "loading" ? "true" : undefined}
         className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-12"
       >
-        <HeadlineBar state={state.news} news={report?.news ?? null} className={SPAN.full} />
-
         <IndexStrip
           indicesState={state.indices}
           indices={report?.indices ?? null}
@@ -116,11 +109,12 @@ export function HomePage() {
         <MoversBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.movers} />
         <MapBlock state={state.map} map={report?.map ?? null} className={SPAN.map} />
 
-        <SignalsBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.signals} />
-        <HeadlinesBlock state={state.news} news={report?.news ?? null} className={SPAN.headlines} />
-        <MajorsBlock state={state.indices} indices={report?.indices ?? null} className={SPAN.majors} />
+        <SignalsBlock state={state.movers} movers={report?.movers ?? null} className={SPAN.full} />
 
         <InsiderStrip state={state.filings} filings={report?.filings ?? null} className={SPAN.full} />
+
+        {/* The desk sits directly above the footer: one table, scrolled, full. */}
+        <NewsTable state={state.news} news={report?.news ?? null} className={SPAN.full} />
 
         <div className={SPAN.full}>
           <HomeFooter />

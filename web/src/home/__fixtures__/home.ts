@@ -66,6 +66,8 @@ export function homeDocument(overrides: WireOverrides = {}): Record<string, unkn
       new_lows: 54,
       above_50: 2104,
       below_50: 3472,
+      above_200: 2189,
+      below_200: 3387,
       up_volume: 6_912_400_000,
       down_volume: 11_204_800_000,
     },

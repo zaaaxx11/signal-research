@@ -41,6 +41,8 @@ export const BLOCK_HEIGHT = {
 export interface CardProps {
   readonly id: string;
   readonly title: string;
+  /** Omit the 26 px header entirely (see `HomeBlockProps.hideTitle`). */
+  readonly hideTitle?: boolean;
   readonly className?: string;
   readonly height?: number;
   readonly minHeight?: number;
@@ -48,7 +50,7 @@ export interface CardProps {
   readonly children: React.ReactNode;
 }
 
-export function Card({ id, title, className, height, minHeight, actions, children }: CardProps) {
+export function Card({ id, title, hideTitle = false, className, height, minHeight, actions, children }: CardProps) {
   return (
     <section
       data-testid={`home-${id}`}
@@ -59,10 +61,12 @@ export function Card({ id, title, className, height, minHeight, actions, childre
         className,
       )}
     >
-      <header className="flex h-[26px] shrink-0 items-center justify-between gap-2 border-b border-line-strong px-2">
-        <h2 className="truncate text-[12px] font-medium text-fg">{title}</h2>
-        {actions}
-      </header>
+      {hideTitle ? null : (
+        <header className="flex h-[26px] shrink-0 items-center justify-between gap-2 border-b border-line-strong px-2">
+          <h2 className="truncate text-[12px] font-medium text-fg">{title}</h2>
+          {actions}
+        </header>
+      )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
     </section>
   );
@@ -95,6 +99,8 @@ export function BlockMessage({
 export interface HomeBlockProps {
   readonly id: string;
   readonly title: string;
+  /** Omit the 26 px header: the block is a strip of figures, not a section. */
+  readonly hideTitle?: boolean;
   readonly state: BlockState;
   readonly skeleton: React.ReactNode;
   readonly className?: string;
@@ -114,6 +120,7 @@ export interface HomeBlockProps {
 export function HomeBlock({
   id,
   title,
+  hideTitle = false,
   state,
   skeleton,
   className,
@@ -126,6 +133,7 @@ export function HomeBlock({
     <Card
       id={id}
       title={title}
+      hideTitle={hideTitle}
       className={className}
       height={height}
       minHeight={minHeight}
