@@ -8,13 +8,18 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetFilterSchemaCache } from "@/filters/schema";
 import { filterSchemaWire } from "@/filters/__fixtures__/schema";
+import { VIEW_FIXTURE } from "@/grid/__fixtures__/views";
+import { isClientColumn } from "@/grid/columnMeta";
 
 import { ScreenerScreen } from "./ScreenerScreen";
+import { defaultColumns } from "./defaultColumns";
 import { resetFiltersDocumentCache } from "./filtersDocument";
+import { USER_PRESETS_KEY, serializeUserPresets } from "./userPresets";
 import { CAP_MEGA } from "./__fixtures__/filters";
 import { filterDocumentWire } from "./__fixtures__/filters";
 
@@ -48,11 +53,14 @@ interface WireBody {
   signal?: string;
 }
 
-function stubApi(selectAnswer?: (body: WireBody) => Response) {
+function stubApi(
+  selectAnswer?: (body: WireBody) => Response,
+  schema: Record<string, unknown> = filterSchemaWire(),
+) {
   const selects: WireBody[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url === "/screens/select/schema") return json(filterSchemaWire());
+    if (url === "/screens/select/schema") return json(schema);
     if (url === "/screens/filters") return json(filterDocumentWire());
     if (url === "/screens/select" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as WireBody;
@@ -69,11 +77,24 @@ function stubApi(selectAnswer?: (body: WireBody) => Response) {
   return { selects, fetchMock };
 }
 
-function renderScreen() {
+function renderScreen(detail: React.ReactNode = null) {
   return render(
-    <ScreenerScreen assetClass="stock" symbol={null} onSelectSymbol={vi.fn()} detail={null} />,
+    <ScreenerScreen assetClass="stock" symbol={null} onSelectSymbol={vi.fn()} detail={detail} />,
   );
 }
+
+/** A schema whose views carry the real catalogue keys, not `column_N` filler. */
+function realColumnSchema(): Record<string, unknown> {
+  return { ...filterSchemaWire(), views: VIEW_FIXTURE };
+}
+
+/** The union `splitCatalogue` reads when the schema serves no wide view. */
+const REAL_CATALOGUE = [...new Set(VIEW_FIXTURE.flatMap((view) => view.columns))];
+
+/** What the Summary tab asks for at the wire: the product default set. */
+const SUMMARY_WIRE_COLUMNS = defaultColumns(VIEW_FIXTURE[0]!.columns, REAL_CATALOGUE).filter(
+  (key) => !isClientColumn(key),
+);
 
 beforeEach(() => {
   // jsdom has no layout: without a measured container the table renders its
@@ -92,6 +113,7 @@ beforeEach(() => {
   } as DOMRect);
   resetFilterSchemaCache();
   resetFiltersDocumentCache();
+  window.localStorage.clear();
   window.history.replaceState(null, "", "/app/screener");
 });
 
@@ -155,6 +177,96 @@ describe("the screener screen", () => {
     expect(body?.criteria.filters).toEqual([{ key: "cap", op: "eq", value: "mega" }]);
     expect(within(screen.getByTestId("chip-bar")).getByText("Market Cap.")).toBeTruthy();
     expect(new URLSearchParams(window.location.search).get("view")).toBe("value");
+  });
+
+  it("keeps Summary on its own view and columns instead of falling through to Custom", async () => {
+    const user = userEvent.setup();
+    const api = stubApi(undefined, realColumnSchema());
+    renderScreen();
+
+    await waitFor(() => expect(api.selects).toHaveLength(1));
+    // The screen opens on the product's default set, and the bar says Summary —
+    // not Custom — because Summary resolves to that same set.
+    expect(api.selects[0]?.columns).toEqual(SUMMARY_WIRE_COLUMNS);
+    expect(screen.getByTestId("preset-summary").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("false");
+
+    await user.click(screen.getByTestId("preset-valuation"));
+    await waitFor(() => expect(api.selects).toHaveLength(2));
+    expect(screen.getByTestId("preset-summary").getAttribute("aria-pressed")).toBe("false");
+
+    await user.click(screen.getByTestId("preset-summary"));
+    await waitFor(() => expect(api.selects).toHaveLength(3));
+
+    const url = new URLSearchParams(window.location.search);
+    expect(url.get("view")).toBe("today");
+    expect(url.get("view")).not.toBe("custom");
+    expect(url.get("cols") ?? "").not.toContain("custom");
+    expect(screen.getByTestId("preset-summary").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("false");
+    // The Summary columns, not a silent Custom fallback.
+    expect(api.selects[2]?.columns).toEqual(SUMMARY_WIRE_COLUMNS);
+  });
+
+  it("treats Custom as a column set and renders no Columns card", async () => {
+    const user = userEvent.setup();
+    const api = stubApi(undefined, realColumnSchema());
+    renderScreen();
+
+    await waitFor(() => expect(api.selects).toHaveLength(1));
+    await user.click(screen.getByTestId("preset-custom"));
+
+    // No dialog, no "Columns 12 / 40" card: the tab is a column set, and the
+    // selection control lives in the header.
+    expect(screen.queryByTestId("column-picker")).toBeNull();
+    expect(document.body.textContent ?? "").not.toMatch(/Columns\s+\d+\s*\/\s*40/);
+
+    await waitFor(() => expect(api.selects).toHaveLength(2));
+    // Without a saved set, Custom is the served view's own columns.
+    expect(api.selects[1]?.columns).toEqual(VIEW_FIXTURE[0]!.columns);
+    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("today");
+  });
+
+  it("uses the selected saved set as the Custom tab's columns", async () => {
+    window.localStorage.setItem(
+      USER_PRESETS_KEY,
+      serializeUserPresets({
+        presets: [
+          { id: "my-stock-presets", name: "My stock presets", columns: [] },
+          { id: "cheap-1", name: "Cheap", columns: ["price", "pe", "market_cap"] },
+        ],
+        selected: "cheap-1",
+      }),
+    );
+    const user = userEvent.setup();
+    const api = stubApi(undefined, realColumnSchema());
+    renderScreen();
+
+    await waitFor(() => expect(api.selects).toHaveLength(1));
+    await user.click(screen.getByTestId("preset-custom"));
+    await waitFor(() => expect(api.selects).toHaveLength(2));
+
+    expect(api.selects[1]?.columns).toEqual(["price", "pe", "market_cap"]);
+    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("true");
+    // Still the view, never a `view=custom` fallback.
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("today");
+  });
+
+  it("opens the column picker from the header control, with the 40-column cap intact", async () => {
+    const user = userEvent.setup();
+    const api = stubApi(undefined, realColumnSchema());
+    renderScreen();
+
+    await waitFor(() => expect(api.selects).toHaveLength(1));
+    await user.click(screen.getByTestId("open-column-picker"));
+
+    const dialog = await screen.findByTestId("column-picker");
+    expect(within(dialog).getByTestId("column-picker-count").textContent).toMatch(/\/ 40$/);
+    // The picker is the header's, not the table view's: closing it leaves the
+    // table exactly as it was.
+    await user.click(within(dialog).getByRole("button", { name: "Close columns" }));
+    expect(screen.queryByTestId("column-picker")).toBeNull();
   });
 
   it("reproduces the screen from the URL after a reload", async () => {

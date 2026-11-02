@@ -54,6 +54,12 @@ describe("DetailPanel — shape", () => {
     expect(panel.getAttribute("data-docked")).toBe("right");
     // Docked, not overlaid: the root is a flex sibling, so the grid shrinks.
     expect(panel.className).not.toMatch(/\b(fixed|absolute)\b/);
+    // One frame language with the stocks table: same border width, colour and
+    // radius, and it stretches to the row's top and bottom edges.
+    expect(panel.className).toContain("rounded-md");
+    expect(panel.className).toContain("border-line");
+    expect(panel.className).toContain("self-stretch");
+    expect(panel.className).not.toMatch(/(^|\s)border-l(\s|$)/);
 
     expect(screen.getByRole("tab", { name: "Fundamentals" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Ownership" })).toBeTruthy();

@@ -110,9 +110,20 @@ export function useScreenState(
     setDropped([]);
   }, []);
 
-  const setView = React.useCallback((name: string) => {
-    mutate((previous) => ({ ...previous, view: name, page: 0 }));
-  }, [mutate]);
+  /**
+   * Only a view the schema served can become the screen's view.
+   *
+   * The guard is deliberate: the presets name views through one explicit map,
+   * and an id that is not in the served catalogue (`custom`, a tab id, a stale
+   * link) can never enter the state or the query string.
+   */
+  const setView = React.useCallback(
+    (name: string) => {
+      if (!namesRef.current.includes(name)) return;
+      mutate((previous) => ({ ...previous, view: name, page: 0 }));
+    },
+    [mutate],
+  );
 
   const setSort = React.useCallback((sort: string) => {
     mutate((previous) => ({ ...previous, sort, page: 0 }));

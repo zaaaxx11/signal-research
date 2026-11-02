@@ -370,7 +370,7 @@ export function DetailPanel({
       className={
         page
           ? "relative flex h-full min-h-0 flex-1 flex-col bg-surface"
-          : "relative flex h-full min-h-0 flex-none flex-col border-l border-line-strong bg-surface"
+          : "relative flex min-h-0 flex-none flex-col self-stretch rounded-md border border-line bg-surface"
       }
     >
 

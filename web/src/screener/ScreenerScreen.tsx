@@ -34,11 +34,12 @@ import { buildRegistry } from "@/filters/registry";
 import { useFilterSchema } from "@/filters/schema";
 import { useScreenState } from "@/filters/useScreenState";
 import { AllColumnsPanel } from "@/grid/AllColumnsPanel";
+import { ColumnPicker } from "@/grid/ColumnPicker";
 import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { ScreenPanel } from "@/grid/ScreenPanel";
 import { splitCatalogue } from "@/grid/catalogue";
 import { CLIENT_COLUMNS } from "@/grid/columnMeta";
-import { useColumnSelection } from "@/grid/columnSelection";
+import { sameColumns, useColumnSelection } from "@/grid/columnSelection";
 import { GRID_REGION_ID } from "@/shell/ids";
 
 import { ScreenerHeader } from "./ScreenerHeader";
@@ -131,6 +132,9 @@ export function ScreenerScreen({
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
+  const rowRef = React.useRef<HTMLDivElement>(null);
+  /** True only while the detail panel is the taller of the two panes. */
+  const [equalise, setEqualise] = React.useState(false);
 
   // ⌘K is the filter palette. "/" belongs to the nav's symbol search and is
   // handled by the shell, so the two chords never contend for one input.
@@ -156,6 +160,67 @@ export function ScreenerScreen({
   // be two requests for one screen.
   const columnsReady = columnSelection.ready || catalogue.keys.length === 0;
 
+  const summaryColumns = active ? defaults[active.name] ?? active.columns : [];
+  const currentColumns = active
+    ? columnSelection.columnsFor(active.name) ?? summaryColumns
+    : [];
+  /**
+   * What the Custom tab stands for: the reader's saved set when the Columns
+   * control has one, else the selection the link brought (`?cols=`), else the
+   * served view's own columns. It is a column set like any other tab — never a
+   * dialog, never a count card.
+   */
+  const selectedColumns = active ? columnSelection.columnsFor(active.name) : null;
+  const customColumns =
+    userPresets.selectedPreset.columns.length > 0
+      ? userPresets.selectedPreset.columns
+      : selectedColumns ?? active?.columns ?? [];
+
+  /**
+   * The table scrolls only to equalise a taller detail panel.
+   *
+   * The row stretches both panes top and bottom. When the panel's content is
+   * the taller of the two, the table becomes the row's scroll box; when the
+   * panel is shorter, the table keeps its natural height and no bar appears.
+   * The table is not a scroll box by default: `ScreenPanel` reads this flag.
+   */
+  React.useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const frame = row.querySelector<HTMLElement>('[data-testid="table-frame"]');
+    const panel = row.querySelector<HTMLElement>('[data-testid="detail-panel"]');
+    if (!frame || !panel) {
+      setEqualise(false);
+      return;
+    }
+    /**
+     * The table's *content* height.
+     *
+     * `frame.scrollHeight` would be the stretched card once the row grows to a
+     * taller panel, and the answer would flip on the next frame. The card's
+     * children (toolbar, grid, pager) keep their natural heights, so their sum
+     * is the number to compare; the fallback covers a first frame that has not
+     * laid them out yet.
+     */
+    const tableContentHeight = () => {
+      const parts = [...frame.children].reduce(
+        (sum, child) => sum + (child as HTMLElement).scrollHeight,
+        0,
+      );
+      return parts > 0 ? parts : frame.scrollHeight || frame.getBoundingClientRect().height;
+    };
+    const measure = () => {
+      const panelHeight = panel.scrollHeight || panel.getBoundingClientRect().height;
+      setEqualise(panelHeight > tableContentHeight());
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  });
+
   const closeDrawer = () => {
     setDrawerOpen(false);
     setFocusKey(null);
@@ -166,11 +231,12 @@ export function ScreenerScreen({
    *
    * A view preset is `?view=`; a preset with its own columns is `?cols=` for
    * the view already on screen. Neither touches `?f=`, which is the whole
-   * promise of the bar: columns change, rows do not. A preset whose view has
-   * been withdrawn falls back to the current view's own columns, which is what
-   * its title says it will do.
+   * promise of the bar: columns change, rows do not. A disabled tab never gets
+   * here — its view is gone and the header refuses the click — and `custom` is
+   * just another column set, never a view name.
    */
   const applyPreset = (entry: ResolvedPreset) => {
+    if (entry.disabled) return;
     if (entry.viewName !== null) {
       // The tab promises this view's columns; a custom selection stored for it
       // would silently show a different set under the same label.
@@ -187,10 +253,6 @@ export function ScreenerScreen({
     columnSelection.reset(screen.state.view);
   };
 
-  const currentColumns = active
-    ? columnSelection.columnsFor(active.name) ?? defaults[active.name] ?? active.columns
-    : [];
-
   return (
     <>
       <ScreenerHeader
@@ -199,6 +261,8 @@ export function ScreenerScreen({
         catalogue={pickerColumns}
         view={active?.name ?? ""}
         columns={currentColumns}
+        defaults={defaults}
+        customColumns={customColumns}
         onSelectPreset={applyPreset}
         userPresets={userPresets}
         onApplyColumns={(keys) => columnSelection.select(screen.state.view, keys)}
@@ -224,8 +288,12 @@ export function ScreenerScreen({
         }
       />
 
-      <main className="flex flex-1 flex-col gap-2 p-3">
-        <div className="flex flex-1 gap-2">
+      <main className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+        <div
+          ref={rowRef}
+          data-testid="screener-row"
+          className="flex min-h-0 flex-1 items-stretch gap-2"
+        >
           <div
             id={GRID_REGION_ID}
             // The skip link's destination. `tabIndex={-1}` makes it a programmatic
@@ -236,7 +304,7 @@ export function ScreenerScreen({
             role="region"
             aria-label="Stock grid"
             tabIndex={-1}
-            className="flex min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
+            className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
           >
             {schema.status === "error" ? (
               <section
@@ -292,18 +360,14 @@ export function ScreenerScreen({
                   onClearFilters={screen.clearFilters}
                   filterNotice={screen.notice}
                   onDismissFilterNotice={screen.dismissDropped}
-                  catalogue={pickerColumns}
                   columns={
                     columnSelection.columnsFor(active.name) ??
                     defaults[active.name] ??
                     active.columns
                   }
-                  onToggleColumn={(key) => columnSelection.toggle(active.name, key)}
-                  onResetColumns={() => columnSelection.reset(active.name)}
-                  pickerOpen={pickerOpen}
-                  onPickerOpenChange={setPickerOpen}
                   columnNotice={columnSelection.notice}
                   onDismissColumnNotice={columnSelection.dismiss}
+                  equalise={equalise}
                 />
               </ErrorBoundary>
             ) : (
@@ -354,6 +418,21 @@ export function ScreenerScreen({
             setFocusKey(key);
             setDrawerOpen(true);
           }}
+        />
+      ) : null}
+
+      {/* The column picker belongs to the header's Columns control, not to the
+          table view or to a tab. One dialog, opened from the masthead. */}
+      {active && pickerColumns.length > 0 ? (
+        <ColumnPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          keys={pickerColumns}
+          selected={currentColumns}
+          onToggle={(key) => columnSelection.toggle(active.name, key)}
+          onReset={() => columnSelection.reset(active.name)}
+          custom={!sameColumns(currentColumns, defaults[active.name] ?? active.columns)}
+          notice={columnSelection.notice}
         />
       ) : null}
     </>

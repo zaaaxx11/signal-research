@@ -190,7 +190,7 @@ export function App() {
               id="detail-slot"
               aria-busy="true"
               aria-label="Loading details"
-              className="w-[420px] flex-none rounded-md border border-line bg-surface"
+              className="w-[420px] flex-none self-stretch rounded-md border border-line bg-surface"
             />
           }
         >

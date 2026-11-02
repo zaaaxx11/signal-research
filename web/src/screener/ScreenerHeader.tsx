@@ -10,7 +10,8 @@
  * Three different ideas live here and are kept apart on purpose:
  *
  * * **Columns** is the reader's own set — named, saved in this browser and
- *   managed in a dialog. It is not a tab.
+ *   managed in a dialog — plus the picker that edits the columns on screen. It
+ *   is not a tab.
  * * **The tabs** are the product's built-in column sets: eighteen of them,
  *   always mounted. Choosing one cannot clear a filter, because it writes
  *   `?view=` (or `?cols=`) and leaves `?f=` alone.
@@ -64,9 +65,17 @@ export interface ScreenerHeaderProps {
   /** The view being drawn, and the columns it is drawing now. */
   view: string;
   columns: readonly string[];
+  /**
+   * Each served view's effective columns — what a click on that tab will draw.
+   * The screen replaces its opening view's list with the product default set,
+   * so the Summary tab must describe that same set to stay selected.
+   */
+  defaults?: Readonly<Record<string, readonly string[]>>;
+  /** The reader's own set: what the Custom tab stands for tonight. */
+  customColumns?: readonly string[];
   /** A built-in tab was chosen: the shell switches view or applies its columns. */
   onSelectPreset: (preset: ResolvedPreset) => void;
-  /** The reader asked for their own columns (the Custom tab). */
+  /** Opens the column picker; the control lives here, never in a tab. */
   onOpenColumnPicker?: () => void;
   /** The reader's saved column sets, and the operations the dialog offers. */
   userPresets: UserPresetsApi;
@@ -110,6 +119,8 @@ export function ScreenerHeader({
   catalogue,
   view,
   columns,
+  defaults,
+  customColumns,
   onSelectPreset,
   onOpenColumnPicker,
   userPresets,
@@ -136,11 +147,17 @@ export function ScreenerHeader({
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const reducedMotion = useReducedMotion();
 
-  const resolved = React.useMemo(() => resolvePresets(views, catalogue), [views, catalogue]);
+  const resolved = React.useMemo(
+    () => resolvePresets(views, catalogue, { defaults, customColumns }),
+    [views, catalogue, defaults, customColumns],
+  );
   const active = React.useMemo(
     () => activePresetId(resolved, view, columns),
     [resolved, view, columns],
   );
+  // A bar with no selected tab still owes the keyboard one stop: the first tab
+  // this build can actually honour carries it.
+  const firstEnabled = resolved.find((entry) => !entry.disabled)?.preset.id ?? "";
 
   const close = React.useCallback((returnFocus: boolean) => {
     setOpen(false);
@@ -232,13 +249,11 @@ export function ScreenerHeader({
    *
    * The Columns select and the tab bar are different vocabularies on purpose —
    * the select is the reader's own sets, the tabs are the product's — so this
-   * handler exists only for the tabs.
+   * handler exists only for the tabs. Custom is one of them: it applies its
+   * column set like any sibling and never opens the picker.
    */
   const choosePreset = (entry: ResolvedPreset) => {
-    if (entry.preset.custom && onOpenColumnPicker) {
-      onOpenColumnPicker();
-      return;
-    }
+    if (entry.disabled) return;
     onSelectPreset(entry);
   };
 
@@ -322,6 +337,17 @@ export function ScreenerHeader({
                 >
                   Manage
                 </button>
+                {onOpenColumnPicker ? (
+                  <button
+                    type="button"
+                    data-testid="open-column-picker"
+                    onClick={onOpenColumnPicker}
+                    title="Choose the columns the table draws. The panel holds 40."
+                    className="h-7 rounded-sm border border-line-strong bg-surface px-2 text-data text-fg transition-colors hover:border-fg"
+                  >
+                    Edit columns
+                  </button>
+                ) : null}
               </div>
 
               <label className="flex items-center gap-1.5">
@@ -544,6 +570,10 @@ export function ScreenerHeader({
                 key={entry.preset.id}
                 entry={entry}
                 active={entry.preset.id === active}
+                focusable={
+                  entry.preset.id === active ||
+                  (active === "" && entry.preset.id === firstEnabled)
+                }
                 onSelect={() => choosePreset(entry)}
               />
             ))}
@@ -805,14 +835,18 @@ function ScopeButton({
  *
  * The toolbar is one tab stop, not eighteen: the selected tab carries
  * `tabIndex={0}` and its siblings `-1`, and the arrow keys move between them.
+ * A tab whose view this build does not serve is disabled, keeps the reason in
+ * its title and accessible name, and is skipped by the arrow keys.
  */
 function PresetTab({
   entry,
   active,
+  focusable,
   onSelect,
 }: {
   entry: ResolvedPreset;
   active: boolean;
+  focusable: boolean;
   onSelect: () => void;
 }) {
   const ref = React.useRef<HTMLButtonElement>(null);
@@ -820,7 +854,10 @@ function PresetTab({
   const move = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     const bar = ref.current?.parentElement;
     if (!bar) return;
-    const buttons = [...bar.querySelectorAll<HTMLButtonElement>("button[data-preset]")];
+    const buttons = [
+      ...bar.querySelectorAll<HTMLButtonElement>("button[data-preset]:not(:disabled)"),
+    ];
+    if (buttons.length === 0) return;
     const at = buttons.indexOf(ref.current as HTMLButtonElement);
     let next = at;
     switch (event.key) {
@@ -849,10 +886,12 @@ function PresetTab({
       type="button"
       data-preset={entry.preset.id}
       data-testid={`preset-${entry.preset.id}`}
+      data-disabled={entry.disabled ? "true" : "false"}
       aria-pressed={active}
       aria-label={`${entry.preset.label} — ${entry.description}`}
       title={`${entry.preset.job} ${entry.note}`}
-      tabIndex={active ? 0 : -1}
+      disabled={entry.disabled}
+      tabIndex={focusable && !entry.disabled ? 0 : -1}
       onClick={onSelect}
       onKeyDown={move}
       className={cn(
@@ -860,6 +899,7 @@ function PresetTab({
         active
           ? "border-brand bg-surface-raised font-medium text-fg"
           : "border-transparent text-fg-muted hover:text-fg",
+        entry.disabled && "cursor-not-allowed text-fg-disabled hover:text-fg-disabled",
       )}
     >
       {entry.preset.label}

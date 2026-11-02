@@ -34,10 +34,10 @@ import {
   type ScreenRow,
   type ViewDefinition,
 } from "@/data/screens";
+import { cn } from "@/lib/utils";
 
 import { DataTable } from "./DataTable";
 import { isClientColumn } from "./columnMeta";
-import { ColumnPicker } from "./ColumnPicker";
 import { PendingBar } from "./PendingBar";
 import { pendingLabel, useDelayedFlag, useReducedMotion } from "./pending";
 import { sameColumns } from "./columnSelection";
@@ -88,20 +88,13 @@ export interface ScreenPanelProps {
   onClearFilters?: () => void;
   filterNotice?: string | null;
   onDismissFilterNotice?: () => void;
-  /** Every key the schema serves; the picker offers exactly these. */
-  catalogue?: readonly string[];
   /** The selection to draw; the view's own columns when omitted. */
   columns?: readonly string[];
-  onToggleColumn?: (key: string) => void;
-  onResetColumns?: () => void;
   /**
-   * The column picker's open state, when the shell owns the trigger.
-   *
-   * The header's Custom tab opens the same picker through this pair; the
-   * uncontrolled default keeps every existing panel test byte-identical.
+   * Scroll the card to equalise a taller detail panel. False by default: the
+   * table is not a scroll box, and the page owns its height.
    */
-  pickerOpen?: boolean;
-  onPickerOpenChange?: (open: boolean) => void;
+  equalise?: boolean;
   /** The cap sentence from the shell, shown above the grid and in the picker. */
   columnNotice?: string | null;
   onDismissColumnNotice?: () => void;
@@ -132,24 +125,14 @@ export function ScreenPanel({
   onClearFilters,
   filterNotice,
   onDismissFilterNotice,
-  catalogue,
   columns,
-  onToggleColumn,
-  onResetColumns,
-  pickerOpen,
-  onPickerOpenChange,
+  equalise = false,
   columnNotice,
   onDismissColumnNotice,
 }: ScreenPanelProps) {
   const activeFilters = filters ?? [];
   const filterKey = filtersSignature(activeFilters);
   const sort = sortProp ?? "market_cap";
-  const [internalPickerOpen, setInternalPickerOpen] = React.useState(false);
-  const showPicker = pickerOpen ?? internalPickerOpen;
-  const setPicker = (next: boolean) => {
-    if (pickerOpen === undefined) setInternalPickerOpen(next);
-    onPickerOpenChange?.(next);
-  };
 
   /** Rows per request: the toolbar's 20 / 50 / 100. */
   const [limit, setLimit] = React.useState<number>(PANEL_LIMIT);
@@ -208,7 +191,6 @@ export function ScreenPanel({
     () => (sameColumns(selection, view.columns) ? view.columns : [...selection]),
     [selection, view.columns],
   );
-  const custom = !sameColumns(effective, view.columns);
   const panelView = React.useMemo<ViewDefinition>(
     () => ({ ...view, columns: [...chosen] }),
     [chosen, view],
@@ -386,9 +368,16 @@ export function ScreenPanel({
   return (
     <section
       {...panel}
+      data-testid="table-frame"
+      data-equalise={equalise ? "true" : "false"}
       // `relative` is for the pending bar, which is positioned on the top edge
-      // so that appearing and disappearing costs no layout.
-      className="relative flex flex-col overflow-hidden rounded-md border border-line bg-surface"
+      // so that appearing and disappearing costs no layout. The card scrolls
+      // only when a taller detail panel asks it to (`equalise`); otherwise the
+      // page owns the vertical scroll and the table keeps its natural height.
+      className={cn(
+        "relative flex min-h-0 flex-1 flex-col rounded-md border border-line bg-surface",
+        equalise ? "overflow-y-auto" : "overflow-hidden",
+      )}
     >
       {showPending ? <PendingBar reducedMotion={reducedMotion} /> : null}
 
@@ -504,19 +493,6 @@ export function ScreenPanel({
       />
 
       <Pager pageIndex={pageIndex} pageCount={pageCount} onPage={changePage} busy={isFetching} />
-
-      {catalogue && catalogue.length > 0 ? (
-        <ColumnPicker
-          open={showPicker}
-          onClose={() => setPicker(false)}
-          keys={catalogue}
-          selected={effective}
-          onToggle={(key) => onToggleColumn?.(key)}
-          onReset={() => onResetColumns?.()}
-          custom={custom}
-          notice={columnNotice ?? null}
-        />
-      ) : null}
 
       <CompareDialog
         open={comparing}

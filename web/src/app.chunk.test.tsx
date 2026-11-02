@@ -69,12 +69,20 @@ function shellApi() {
 
 const CHUNK_ERROR = "Failed to fetch dynamically imported module";
 
-function rowFor(symbol: string): HTMLElement {
-  const row = screen
-    .getByTestId("grid-table")
-    .querySelector<HTMLElement>(`tbody tr[data-symbol="${symbol}"]`);
-  expect(row).not.toBeNull();
-  return row as HTMLElement;
+async function rowFor(symbol: string): Promise<HTMLElement> {
+  let row: HTMLElement | null = null;
+  // The table mounts before its rows land: `grid-table` exists in the loading
+  // frame, the POST's rows arrive a task later. Wait for the row itself rather
+  // than for the table that will hold it — under a loaded worker that gap is
+  // long enough to lose the race.
+  await waitFor(() => {
+    row =
+      screen
+        .getByTestId("grid-table")
+        .querySelector<HTMLElement>(`tbody tr[data-symbol="${symbol}"]`) ?? null;
+    expect(row).not.toBeNull();
+  });
+  return row as unknown as HTMLElement;
 }
 
 const originalLoad = detailChunk.load;
@@ -122,7 +130,7 @@ describe("F1 — a failed detail chunk", () => {
     const grid = await screen.findByTestId("grid-table");
     expect(grid.querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20);
 
-    await user.click(rowFor("S0"));
+    await user.click(await rowFor("S0"));
 
     // The boundary is where the rejection lands — not React's root.
     const crash = await screen.findByTestId("grid-crash", undefined, { timeout: 4_000 });
@@ -157,7 +165,7 @@ describe("F1 — a failed detail chunk", () => {
 
     render(<App />);
     await screen.findByTestId("grid-table");
-    await user.click(rowFor("S0"));
+    await user.click(await rowFor("S0"));
 
     expect(await screen.findByTestId("detail-panel", undefined, { timeout: 4_000 })).toBeTruthy();
     expect(load).toHaveBeenCalledTimes(2);
@@ -185,7 +193,7 @@ describe("F1 — a failed detail chunk", () => {
 
     render(<App />);
     await screen.findByTestId("grid-table");
-    await user.click(rowFor("S0"));
+    await user.click(await rowFor("S0"));
 
     const crash = await screen.findByTestId("grid-crash", undefined, { timeout: 4_000 });
     expect(load).toHaveBeenCalledTimes(2);

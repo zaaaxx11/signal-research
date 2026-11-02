@@ -7,17 +7,25 @@
  * distinction is the whole reason the bar sits beside the filter panel instead
  * of inside it.
  *
+ * Each of the nine view tabs maps to one served view through `TAB_TO_VIEW`,
+ * spelled once. A tab whose view this build no longer serves, and which has no
+ * column set of its own, is **disabled** and its title says which view is
+ * missing. No tab is ever redirected to another one — `custom` in particular is
+ * a column set, not a fallback.
+ *
  * Each preset resolves against what the server actually served, in three
  * steps:
  *
  * 1. a **view** the catalogue still publishes is the preset's columns and its
- *    name in the URL (`?view=value`);
+ *    name in the URL (`?view=value`). The columns are the ones the screen will
+ *    really draw for that view (`options.defaults`), so the Summary tab and the
+ *    product's opening column set are the same set;
  * 2. otherwise a **catalogue** column list — every key checked against the
  *    served catalogue, dropped when this build does not carry it, so nothing
  *    is invented and a renamed column degrades to a smaller set;
- * 3. otherwise the **default** columns of the current view, with the reason in
- *    the control's title and accessible name. A tab that cannot be honoured
- *    says so instead of pretending.
+ * 3. otherwise the tab is **disabled**, with the reason in its title and its
+ *    accessible name. A tab that cannot be honoured says so instead of
+ *    pretending.
  *
  * The labels are ours. They describe what the reader is looking at, and the
  * table below is the only place they are spelled.
@@ -39,21 +47,41 @@ export interface ColumnPreset {
   custom?: boolean;
 }
 
+/**
+ * The tab → view mapping, spelled once and never derived from a label.
+ *
+ * The ids on the left are ours; the names on the right are the API's. A tab
+ * whose view is missing from the served schema is disabled by `resolvePreset`
+ * — it is never pointed at another tab, and `custom` is not a view name any
+ * request can carry.
+ */
+export const TAB_TO_VIEW: Readonly<Record<string, string>> = {
+  summary: "today",
+  valuation: "value",
+  financials: "quality",
+  growth: "growth",
+  ownership: "ownership",
+  momentum: "momentum",
+  technical: "trend",
+  dividends: "income",
+  basics: "profile",
+};
+
 export const COLUMN_PRESETS: readonly ColumnPreset[] = [
-  { id: "summary", label: "Summary", view: "today", job: "The tape: price, change, range and volume." },
-  { id: "valuation", label: "Valuation", view: "value", job: "What the market pays for the business." },
-  { id: "financials", label: "Financials", view: "quality", job: "Margins, returns and balance-sheet health." },
-  { id: "growth", label: "Growth", view: "growth", job: "Earnings and sales, this year and the last five." },
-  { id: "ownership", label: "Ownership", view: "ownership", job: "Who holds the shares, and how much is short." },
-  { id: "momentum", label: "Momentum", view: "momentum", job: "Return over every window the scan carries." },
-  { id: "technical", label: "Technical", view: "trend", job: "Where price sits against its own averages." },
-  { id: "dividends", label: "Dividends", view: "income", job: "What the company pays, and how that has moved." },
-  { id: "basics", label: "Basics", view: "profile", job: "What the company is, and where it lists." },
+  { id: "summary", label: "Summary", view: TAB_TO_VIEW["summary"], job: "The tape: price, change, range and volume." },
+  { id: "valuation", label: "Valuation", view: TAB_TO_VIEW["valuation"], job: "What the market pays for the business." },
+  { id: "financials", label: "Financials", view: TAB_TO_VIEW["financials"], job: "Margins, returns and balance-sheet health." },
+  { id: "growth", label: "Growth", view: TAB_TO_VIEW["growth"], job: "Earnings and sales, this year and the last five." },
+  { id: "ownership", label: "Ownership", view: TAB_TO_VIEW["ownership"], job: "Who holds the shares, and how much is short." },
+  { id: "momentum", label: "Momentum", view: TAB_TO_VIEW["momentum"], job: "Return over every window the scan carries." },
+  { id: "technical", label: "Technical", view: TAB_TO_VIEW["technical"], job: "Where price sits against its own averages." },
+  { id: "dividends", label: "Dividends", view: TAB_TO_VIEW["dividends"], job: "What the company pays, and how that has moved." },
+  { id: "basics", label: "Basics", view: TAB_TO_VIEW["basics"], job: "What the company is, and where it lists." },
   {
     id: "custom",
     label: "Custom",
     custom: true,
-    job: "Your own column selection; the view's defaults until you change them.",
+    job: "Your own column set: the Columns control's selection, or the view's own columns.",
   },
   {
     id: "charts",
@@ -134,9 +162,10 @@ export const COLUMN_PRESETS: readonly ColumnPreset[] = [
 ];
 
 /**
- * How a preset was honoured. `default` is the honest fallback: the service
- * did not publish a view or a column this build carries, so the current
- * view's own columns stay and the control says why.
+ * How a preset was honoured. `view` switches the served view; `catalogue`
+ * applies a column set this build can serve; `custom` is the reader's set.
+ * `default` is the honest refusal: the view or columns the tab names are not
+ * served, so `disabled` is true and the tab says why.
  */
 export type PresetSource = "view" | "catalogue" | "default" | "custom";
 
@@ -153,6 +182,24 @@ export interface ResolvedPreset {
   note: string;
   /** The same fact, short enough for an accessible name. */
   description: string;
+  /**
+   * True when this tab cannot be honoured by this build. The button is
+   * disabled and its title says why; clicking it does nothing. A disabled tab
+   * is never redirected to another view or to Custom.
+   */
+  disabled: boolean;
+}
+
+/** What the screen knows that the preset table alone does not. */
+export interface PresetResolutionOptions {
+  /**
+   * Each served view's *effective* columns: what choosing that tab will draw.
+   * The screen replaces the opening view's list with the product default set,
+   * and the Summary tab has to describe that same set or it never matches.
+   */
+  defaults?: Readonly<Record<string, readonly string[]>>;
+  /** The reader's own set — whatever the header's Columns control shows. */
+  customColumns?: readonly string[] | null;
 }
 
 function unique(keys: readonly string[]): string[] {
@@ -170,29 +217,70 @@ function unique(keys: readonly string[]): string[] {
  * One preset against what was served.
  *
  * The lookup is by view *name*, never by the preset's label: a served view may
- * be relabelled without moving the tab, and a preset whose view was withdrawn
- * falls through to its catalogue list (or to the default) instead of pointing
- * at a name the schema no longer answers.
+ * be relabelled without moving the tab. A preset whose view was withdrawn is
+ * disabled with the missing name in its title — it is not pointed at the
+ * current view, at another tab, or at Custom.
  */
 export function resolvePreset(
   preset: ColumnPreset,
   views: readonly ViewDefinition[],
   catalogue: readonly string[],
+  options: PresetResolutionOptions = {},
 ): ResolvedPreset {
-  const base = { preset, missing: [] as readonly string[] };
+  const base = { preset, missing: [] as readonly string[], disabled: false };
 
-  if (preset.view) {
+  if (preset.view !== undefined) {
     const view = views.find((candidate) => candidate.name === preset.view);
-    if (view) {
+    if (!view) {
       return {
         ...base,
-        source: "view",
-        viewName: view.name,
-        columns: view.columns,
-        note: `${view.columns.length} columns from the “${view.label}” view.`,
-        description: `${view.columns.length} columns, the ${view.label} view`,
+        source: "default",
+        viewName: null,
+        columns: null,
+        disabled: true,
+        note: `The “${preset.view}” view is not served by this build, so this tab is unavailable.`,
+        description: `unavailable: the ${preset.view} view is not served`,
       };
     }
+    // The screen may draw a different list for a view than the schema spells
+    // (the opening view gets the product default set); the tab must describe
+    // the list a click will really produce.
+    const columns = options.defaults?.[view.name] ?? view.columns;
+    return {
+      ...base,
+      source: "view",
+      viewName: view.name,
+      columns,
+      note: `${columns.length} columns from the “${view.label}” view.`,
+      description: `${columns.length} columns, the ${view.label} view`,
+    };
+  }
+
+  if (preset.custom) {
+    const known = new Set(catalogue);
+    const kept = options.customColumns
+      ? unique(options.customColumns.filter((key) => known.has(key)))
+      : [];
+    if (kept.length > 0) {
+      return {
+        ...base,
+        source: "custom",
+        viewName: null,
+        columns: kept,
+        note: "Your own column set, as the Columns control has it.",
+        description: `${kept.length} of your own columns`,
+      };
+    }
+    // No saved set: the tab still stands for the reader's own columns, and
+    // applying it falls back to the current view's defaults.
+    return {
+      ...base,
+      source: "custom",
+      viewName: null,
+      columns: null,
+      note: "Your own columns; the view's defaults until you save a set.",
+      description: "your own columns",
+    };
   }
 
   if (preset.columns && preset.columns.length > 0) {
@@ -213,16 +301,15 @@ export function resolvePreset(
         description: `${kept.length} catalogue column${kept.length === 1 ? "" : "s"}, no view of its own yet`,
       };
     }
-  }
-
-  if (preset.custom) {
     return {
       ...base,
-      source: "custom",
+      missing,
+      source: "default",
       viewName: null,
       columns: null,
-      note: "Your own columns; the view's defaults until you rearrange them.",
-      description: "your own columns",
+      disabled: true,
+      note: `No column of this set is served by this build, so this tab is unavailable.`,
+      description: "unavailable: none of its columns are served",
     };
   }
 
@@ -231,8 +318,9 @@ export function resolvePreset(
     source: "default",
     viewName: null,
     columns: null,
-    note: "No view or column set this build can serve: the default columns stay on screen.",
-    description: "default columns, no view yet",
+    disabled: true,
+    note: "This tab maps to no view and no column set this build can serve.",
+    description: "unavailable: no view or columns yet",
   };
 }
 
@@ -240,16 +328,22 @@ export function resolvePreset(
 export function resolvePresets(
   views: readonly ViewDefinition[],
   catalogue: readonly string[],
+  options: PresetResolutionOptions = {},
 ): ResolvedPreset[] {
-  return COLUMN_PRESETS.map((preset) => resolvePreset(preset, views, catalogue));
+  return COLUMN_PRESETS.map((preset) => resolvePreset(preset, views, catalogue, options));
 }
 
 /**
  * The preset whose columns are exactly the ones on screen, or the Custom tab.
  *
  * Derived, never stored: the bar reflects the table, so a reader who rearranges
- * columns in the panel sees the bar stop claiming a preset — and a reload lands
- * on the same tab because `?cols=` reproduces the same comparison.
+ * columns in the control sees the bar stop claiming a preset — and a reload
+ * lands on the same tab because `?cols=` reproduces the same comparison.
+ *
+ * A disabled preset is never a match; neither is a preset that resolved to no
+ * columns. The final fallback is Custom — the reader's own set — and never a
+ * different view tab: clicking Summary cannot make the bar say Custom unless
+ * the columns on screen really are Custom's.
  */
 export function activePresetId(
   resolved: readonly ResolvedPreset[],
@@ -257,14 +351,20 @@ export function activePresetId(
   columns: readonly string[],
 ): string {
   for (const entry of resolved) {
-    if (entry.viewName !== null && entry.viewName === viewName && entry.columns !== null) {
-      if (sameList(entry.columns, columns)) return entry.preset.id;
+    if (entry.disabled || entry.columns === null) continue;
+    if (entry.viewName !== null) {
+      if (entry.viewName === viewName && sameList(entry.columns, columns)) {
+        return entry.preset.id;
+      }
+      continue;
     }
-    if (entry.source === "catalogue" && entry.columns !== null && sameList(entry.columns, columns)) {
-      return entry.preset.id;
-    }
+    if (sameList(entry.columns, columns)) return entry.preset.id;
   }
-  return resolved.find((entry) => entry.preset.custom)?.preset.id ?? resolved[0]?.preset.id ?? "";
+  return (
+    resolved.find((entry) => entry.preset.custom && !entry.disabled)?.preset.id ??
+    resolved.find((entry) => !entry.disabled)?.preset.id ??
+    ""
+  );
 }
 
 function sameList(left: readonly string[], right: readonly string[]): boolean {

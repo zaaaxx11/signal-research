@@ -13,6 +13,7 @@ import { VIEW_FIXTURE } from "@/grid/__fixtures__/views";
 
 import {
   COLUMN_PRESETS,
+  TAB_TO_VIEW,
   activePresetId,
   resolvePreset,
   resolvePresets,
@@ -101,15 +102,48 @@ describe("the column presets", () => {
     expect(entry.description).toMatch(/no view of its own yet/);
   });
 
-  it("falls back to the default columns, and says so, when a view is withdrawn", () => {
+  it("disables a tab whose view has been withdrawn, and names the view", () => {
     // A preset that names a view, against a catalogue that no longer serves it.
     const geared = { id: "gone", label: "Gone", view: "retired-view", job: "A tab whose view left." };
     const entry = resolvePreset(geared, VIEW_FIXTURE, CATALOGUE);
-    expect(entry.source).toBe("default");
+    expect(entry.disabled).toBe(true);
     expect(entry.viewName).toBeNull();
     expect(entry.columns).toBeNull();
-    expect(entry.note).toContain("default columns stay on screen");
-    expect(entry.description).toBe("default columns, no view yet");
+    expect(entry.note).toContain("retired-view");
+    expect(entry.description).toMatch(/unavailable/);
+  });
+
+  it("resolves each view tab only through the explicit tab-to-view table", () => {
+    expect(Object.keys(TAB_TO_VIEW)).toEqual([
+      "summary",
+      "valuation",
+      "financials",
+      "growth",
+      "ownership",
+      "momentum",
+      "technical",
+      "dividends",
+      "basics",
+    ]);
+    for (const [tab, view] of Object.entries(TAB_TO_VIEW)) {
+      const preset = COLUMN_PRESETS.find((candidate) => candidate.id === tab)!;
+      const entry = resolvePreset(preset, VIEW_FIXTURE, CATALOGUE);
+      expect(entry.viewName, `${tab} must map to ${view}`).toBe(view);
+      expect(entry.disabled).toBe(false);
+    }
+  });
+
+  it("takes the columns the screen will really draw for a view, not the raw served list", () => {
+    // The Summary tab opens on the product default set; if it resolved to the
+    // served view's own columns the bar fell through to Custom on every load.
+    const entry = resolvePreset(
+      COLUMN_PRESETS.find((preset) => preset.id === "summary")!,
+      VIEW_FIXTURE,
+      CATALOGUE,
+      { defaults: { today: ["company", "price"] } },
+    );
+    expect(entry.columns).toEqual(["company", "price"]);
+    expect(entry.description).toBe("2 columns, the Today view");
   });
 
   it("stands for the reader's own columns without pretending to be a preset", () => {

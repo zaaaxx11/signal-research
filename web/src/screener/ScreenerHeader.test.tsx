@@ -355,6 +355,35 @@ describe("the two column vocabularies", () => {
     expect(spies.onApplyColumns).not.toHaveBeenCalled();
   });
 
+  it("disables a tab whose view the schema no longer serves instead of redirecting it", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ views: VIEW_FIXTURE.filter((view) => view.name !== "today") });
+
+    const summary = screen.getByTestId("preset-summary") as HTMLButtonElement;
+    expect(summary.disabled).toBe(true);
+    expect(summary.getAttribute("title")).toMatch(/today/);
+    expect(summary.getAttribute("title")).toMatch(/not served|unavailable/i);
+    expect(summary.getAttribute("aria-label")).toMatch(/unavailable/i);
+
+    await user.click(summary);
+    expect(spies.onSelectPreset).not.toHaveBeenCalled();
+    expect(spies.onOpenColumnPicker).not.toHaveBeenCalled();
+  });
+
+  it("reaches every column picker from the header, not from a tab", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup();
+
+    const edit = screen.getByTestId("open-column-picker");
+    expect(edit.getAttribute("title")).toBeTruthy();
+    await user.click(edit);
+    expect(spies.onOpenColumnPicker).toHaveBeenCalledTimes(1);
+
+    // The Custom tab is a column set like its siblings: it never opens the card.
+    await user.click(screen.getByTestId("preset-custom"));
+    expect(spies.onOpenColumnPicker).toHaveBeenCalledTimes(1);
+  });
+
   it("opens with one saved set: My stock presets", () => {
     setup();
     const select = screen.getByTestId("columns-select") as HTMLSelectElement;
