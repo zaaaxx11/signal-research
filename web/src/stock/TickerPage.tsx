@@ -26,6 +26,7 @@ import { FilingsTab } from "./FilingsTab";
 import { Overview } from "./Overview";
 import { TickerActions, type TickerNotice } from "./TickerActions";
 import { TickerChart } from "./TickerChart";
+import { OptionsTab } from "./OptionsTab";
 import { TickerHeader } from "./TickerHeader";
 import { TickerTabs, TICKER_PANEL_ID, tabFromSearch, tabHref, tabId } from "./TickerTabs";
 import type { SnapshotSources } from "./snapshot";
@@ -88,6 +89,14 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
         return (
           <NewsTab symbol={symbol} state={resources.news} onRetry={resources.news.retry} />
         );
+      case "options":
+        return (
+          <OptionsTab
+            symbol={symbol}
+            state={resources.options}
+          />
+        );
+
       case "chart":
         return <TickerChart symbol={symbol} height={360} />;
       case "overview":

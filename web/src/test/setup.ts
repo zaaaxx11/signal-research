@@ -23,3 +23,4 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
 });
+import '@testing-library/jest-dom/vitest';

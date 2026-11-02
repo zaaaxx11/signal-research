@@ -610,3 +610,39 @@ export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.f
   vi.stubGlobal("fetch", mock);
   return mock;
 }
+
+export function optionsPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const baseStrikes: Record<string, unknown>[] = [
+    { strike: 275, type: "call", premium: 62.35, delta: 0.9877, gamma: 0.0010, theta: -0.1158, vega: 0.0080, rho: 0.05, volume: 1000, open_interest: 5000, implied_volatility: 1.361, expiry: "2026-11-04" },
+    { strike: 275, type: "put", premium: 2.15, delta: -0.0122, gamma: 0.0008, theta: -0.0021, vega: 0.0065, rho: -0.03, volume: 800, open_interest: 4000, implied_volatility: 0.85, expiry: "2026-11-04" },
+    { strike: 290, type: "call", premium: 15.30, delta: 0.65, gamma: 0.0025, theta: -0.08, vega: 0.012, rho: 0.04, volume: 500, open_interest: 3000, implied_volatility: 1.2, expiry: "2026-11-04" },
+    { strike: 290, type: "put", premium: 12.40, delta: -0.35, gamma: 0.0030, theta: -0.05, vega: 0.015, rho: -0.02, volume: 600, open_interest: 3500, implied_volatility: 1.1, expiry: "2026-11-04" },
+  ];
+
+  let strikes = baseStrikes;
+  let expiryDates: string[] = ["2026-11-04", "2026-11-06"];
+
+  if (overrides.shuffled) {
+    strikes = [...baseStrikes].reverse();
+  }
+  if (overrides.nullGamma) {
+    strikes = baseStrikes.map((s, i) => i === 2 ? { ...s, gamma: null } : s);
+  }
+  if (overrides.thirdExpiry) {
+    expiryDates = ["2026-11-04", "2026-11-06", "2026-11-10"];
+    strikes = [
+      ...baseStrikes,
+      { strike: 285, type: "call", premium: 25.50, delta: 0.80, gamma: 0.0020, theta: -0.10, vega: 0.015, rho: 0.04, volume: 700, open_interest: 4500, implied_volatility: 1.25, expiry: "2026-11-06" },
+      { strike: 285, type: "put", premium: 5.20, delta: -0.20, gamma: 0.0022, theta: -0.03, vega: 0.018, rho: -0.02, volume: 900, open_interest: 4200, implied_volatility: 1.15, expiry: "2026-11-06" },
+    ];
+  }
+
+  return {
+    symbol: "AAPL",
+    delayed_minutes: 15,
+    as_of: "2026-11-02T15:01:17Z",
+    expiry_dates: expiryDates,
+    selected_expiry: "2026-11-04",
+    strikes,
+  };
+}

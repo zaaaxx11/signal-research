@@ -1,5 +1,5 @@
 /**
- * The ticker tab strip: seven sections, one seam, one keyboard contract.
+ * The ticker tab strip: eight sections, one seam, one keyboard contract.
  *
  * The address bar is the source of truth (`?tab=statements`), not local state:
  * a shared link opens the same section, Back returns to the previous one, and
@@ -27,6 +27,7 @@ export const TICKER_TABS: readonly TickerTab[] = [
   { id: "filings", label: "Filings" },
   { id: "news", label: "News" },
   { id: "chart", label: "Chart" },
+  { id: "options", label: "Options" },
 ];
 
 export const DEFAULT_TAB: TickerTabId = "overview";

@@ -51,6 +51,9 @@ import {
   type ResourceState,
 } from "@/detail/useDetail";
 
+import { parseOptions, type OptionsChain } from "./options";
+
+
 export type TickerTabId =
   | "overview"
   | "statements"
@@ -58,7 +61,8 @@ export type TickerTabId =
   | "insider"
   | "filings"
   | "news"
-  | "chart";
+  | "chart"
+  | "options";
 
 export interface Peer {
   readonly symbol: string;
@@ -373,6 +377,11 @@ async function loadNews(symbol: string, signal: AbortSignal): Promise<NewsData |
   return parseNews(body);
 }
 
+async function loadOptions(symbol: string, signal: AbortSignal): Promise<OptionsChain | null> {
+  const body = await getJson(`/engine/options/${encodeURIComponent(symbol)}`, signal);
+  return parseOptions(body);
+}
+
 async function loadRow(symbol: string, signal: AbortSignal): Promise<OwnershipData | null> {
   const snapshot = await readSnapshotId();
   const answer = await postJsonConditional(
@@ -401,6 +410,7 @@ export interface TickerResources {
   readonly peers: Resource<PeersData>;
   readonly insiders: Resource<InsiderData>;
   readonly news: Resource<NewsData>;
+  readonly options: Resource<OptionsChain>;
 }
 
 export interface HeaderView {
@@ -488,6 +498,7 @@ export function useTicker(symbol: string, active: TickerTabId = "overview"): Tic
       overview || active === "insider" || active === "filings",
     ),
     news: useResource(symbol, loadNews, overview || active === "news"),
+    options: useResource(symbol, loadOptions, active === "options"),
   };
 }
 
