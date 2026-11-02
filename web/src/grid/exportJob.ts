@@ -24,7 +24,7 @@
  */
 
 import type { ScreenFilter } from "@/data/screens";
-import { readErrorMessage } from "@/lib/api";
+import { postFile, readErrorMessage } from "@/lib/api";
 
 /** The one export route. Absolute from the origin, like every path in `lib/api`. */
 export const EXPORT_URL = "/screens/export";
@@ -187,29 +187,19 @@ export async function requestExport(
   body: ExportBody,
   signal?: AbortSignal,
 ): Promise<ExportFile> {
-  const response = await fetch(EXPORT_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  const answer = await postFile(EXPORT_URL, body, signal);
 
-  if (!response.ok) {
-    let message = `The export failed (HTTP ${response.status})`;
-    try {
-      message = readErrorMessage(await response.json(), response.status);
-    } catch {
-      // A non-JSON body is still a failure; the status sentence stands.
-    }
-    throw new ExportError(response.status, message);
+  if (!answer.ok || answer.blob === null) {
+    throw new ExportError(
+      answer.status,
+      readErrorMessage(answer.body, answer.status),
+    );
   }
 
-  const blob = await response.blob();
-  const rowCount = Number.parseInt(response.headers.get("x-row-count") ?? "", 10);
   return {
-    blob,
-    filename: filenameFrom(response.headers.get("content-disposition")) ?? "ztockz-export.csv",
-    rowCount: Number.isFinite(rowCount) ? rowCount : 0,
+    blob: answer.blob,
+    filename: filenameFrom(answer.contentDisposition) ?? `ztockz-export.${body.format}`,
+    rowCount: answer.rowCount ?? 0,
   };
 }
 
