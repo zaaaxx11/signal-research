@@ -19,7 +19,6 @@ import {
   narrowToFilters,
   narrowToSignal,
   narrowIsEmpty,
-  type NarrowSpec,
 } from "./narrow";
 
 describe("narrowIsEmpty", () => {

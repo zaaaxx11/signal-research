@@ -26,7 +26,7 @@
 import type { ScreenFilter } from "@/data/screens";
 import { postFile, readErrorMessage } from "@/lib/api";
 
-import { narrowToFilters, narrowToSignal, narrowIsEmpty, type NarrowSpec } from "./narrow";
+import { narrowToFilters, narrowToSignal, type NarrowSpec } from "./narrow";
 
 /** The one export route. Absolute from the origin, like every path in `lib/api`. */
 export const EXPORT_URL = "/screens/export";
