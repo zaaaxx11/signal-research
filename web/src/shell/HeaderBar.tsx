@@ -24,6 +24,7 @@
  */
 
 import * as React from "react";
+import { BrandMark } from "./BrandMark";
 
 import { Clock } from "./Clock";
 import { SymbolSearch } from "./SymbolSearch";
@@ -117,12 +118,7 @@ export function HeaderBar({ route, search, onSelect, inputRef }: HeaderBarProps)
           aria-label="Ztockz home"
           className="flex shrink-0 items-center gap-1.5 pr-1 text-[13px] font-semibold text-fg"
         >
-          <span
-            aria-hidden="true"
-            className="flex size-[18px] items-center justify-center rounded-[3px] border border-line-strong bg-surface-sunken font-mono text-[11px] font-bold leading-none text-up"
-          >
-            Z
-          </span>
+          <BrandMark size={18} className="text-accent-text" />
           {/* Below 640 px the 18 px monogram is the whole brand: five letters of
               tracking is 60 px the search field needs more. */}
           <span className="hidden uppercase tracking-[0.16em] sm:inline">ZTOCKZ</span>
