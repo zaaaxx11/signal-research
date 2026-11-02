@@ -354,7 +354,7 @@ export function TableToolbar({
           aria-haspopup="menu"
           aria-expanded={menu === "export"}
           onClick={() => setMenu((value) => (value === "export" ? null : "export"))}
-          title="Download this screen as CSV, XLSX or JSON, or copy the API body"
+          title="Download this screen as CSV, XLSX or JSON, or copy the API URL"
           className={CONTROL}
         >
           <Icon name="download" />

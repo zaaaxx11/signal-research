@@ -1,241 +1,391 @@
 /**
- * Export, as the API does it.
+ * Export: pick what, pick how many, pick a format — then the file arrives.
  *
- * The menu offers CSV, XLSX, JSON and API. The three files are **server jobs**:
- * this dialog looks up the saved screen for the current market and ordering,
- * enqueues an export, polls the request until it says Success, and then hands
- * the reader the artifact link the job published. Nothing is serialised in the
- * browser — see `exportJob.ts` for why that boundary is deliberate.
+ * The screen's rows belong to the server (see `exportJob.ts`), so this dialog
+ * never serialises anything: it collects four answers, POSTs one body and hands
+ * the response's Blob to the browser. The four answers are:
  *
- * The API choice shows the same request the grid sends, with a copy button, so
- * a reader who wants the data live rather than as a file has the exact call.
+ * * **scope** — the whole screen, this page, the ticked rows, or a typed list.
+ *   A page and a selection are ticker lists, and they travel as `mode:
+ *   "symbols"`; the screen is its filters, and travels as `mode: "criteria"`.
+ *   Sending the page as "the screen" is the bug this distinction exists to
+ *   prevent: two different populations under one word.
+ * * **rows** — 200 by default and 200 at most. Typing 500 clamps the input to
+ *   200 *and says so*; a silent clamp would hand a reader a 200-row file they
+ *   believe holds 500. The API refuses a request over the cap instead, so the
+ *   two limits are one number in two places (the client's note and the 422).
+ * * **format** — CSV, XLSX, JSON, or the API pane (the URL, and nothing else:
+ *   there is no file to download for a URL).
+ * * **columns** — the grid's visible cells, so the file holds what the reader
+ *   is looking at rather than an arbitrary default.
+ *
+ * Every outcome is visible in place: a spinner while the request is open, a red
+ * failure with a **Retry** that resends the same body, and a green success that
+ * names the row count and the file. The download fires on success only — a
+ * failed request must never leave an empty file in the reader's Downloads.
  */
 
 import * as React from "react";
 
-import { postJsonConditional } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { DialogShell } from "./DialogShell";
 import {
+  DEFAULT_EXPORT_ROWS,
   EXPORT_FORMATS,
-  fileHref,
-  findScreenId,
-  isReady,
-  isSettled,
-  readExportJob,
-  startExport,
+  EXPORT_ROW_CLAMP,
+  EXPORT_URL,
+  MAX_EXPORT_ROWS,
+  SCOPE_LABELS,
+  buildExportBody,
+  clampRows,
+  downloadFile,
+  matchSummary,
+  parseTickers,
+  requestExport,
+  type ExportBody,
+  type ExportChoice,
+  type ExportCriteria,
   type ExportFormat,
-  type ExportJob,
+  type ExportScope,
 } from "./exportJob";
 
-export type ExportChoice = ExportFormat | "api";
-
-/** How often the dialog asks a running job for its state. */
-export const EXPORT_POLL_MS = 1_200;
+export type { ExportChoice } from "./exportJob";
 
 export interface ExportDialogProps {
   open: boolean;
   onClose: () => void;
+  /** The format the toolbar's menu opened with (or `api`). */
   choice: ExportChoice;
-  region: string;
-  sort: string;
-  /** The wire body a copy of the API call carries. */
-  apiBody: unknown;
-  /** What the export covers, in the reader's words. */
-  scopeNote: string;
+  /** The screen's filters and ordering; ignored for the ticker scopes. */
+  criteria: ExportCriteria;
+  /** The grid's visible cells, in the reader's order. */
+  columns?: readonly string[];
+  region?: string;
+  /** How many rows the screen matches — the live count line. */
+  matched: number;
+  /** The symbols on the page the reader is looking at. */
+  pageSymbols?: readonly string[];
+  /** The rows ticked in compare mode. */
+  selectedSymbols?: readonly string[];
+}
+
+type Phase = "idle" | "loading" | "error" | "done";
+
+const FORMAT_LABELS: Record<ExportChoice, string> = {
+  csv: "CSV",
+  xlsx: "XLSX",
+  json: "JSON",
+  api: "API",
+};
+
+const SCOPE_HINTS: Record<ExportScope, string> = {
+  screen: "Every row the screen matches, in its own order.",
+  page: "Only the rows on this page, in the order they are shown.",
+  selected: "Only the rows ticked for comparison.",
+  tickers: "The tickers you type, in the order you type them.",
+};
+
+function isFormat(value: ExportChoice): value is ExportFormat {
+  return value !== "api";
 }
 
 export function ExportDialog({
   open,
   onClose,
   choice,
-  region,
-  sort,
-  apiBody,
-  scopeNote,
+  criteria,
+  columns = [],
+  region = "us",
+  matched,
+  pageSymbols = [],
+  selectedSymbols = [],
 }: ExportDialogProps) {
-  const [job, setJob] = React.useState<ExportJob | null>(null);
-  const [phase, setPhase] = React.useState<"idle" | "working" | "ready" | "error">("idle");
+  const [format, setFormat] = React.useState<ExportChoice>(choice);
+  const [scope, setScope] = React.useState<ExportScope>("screen");
+  /** What the reader typed; the effective limit is derived and clamped from it. */
+  const [rowsText, setRowsText] = React.useState<string>(String(DEFAULT_EXPORT_ROWS));
+  const [tickerText, setTickerText] = React.useState("");
+  const [phase, setPhase] = React.useState<Phase>("idle");
   const [error, setError] = React.useState<string | null>(null);
-  const [copied, setCopied] = React.useState(false);
+  const [success, setSuccess] = React.useState<string | null>(null);
+  /** The body behind the last attempt, so Retry resends exactly it. */
+  const [attempt, setAttempt] = React.useState<ExportBody | null>(null);
 
   React.useEffect(() => {
-    if (!open) {
-      setJob(null);
-      setPhase("idle");
-      setError(null);
-      setCopied(false);
-    }
-  }, [open]);
+    if (!open) return;
+    setFormat(choice);
+    setScope("screen");
+    setRowsText(String(DEFAULT_EXPORT_ROWS));
+    setTickerText("");
+    setPhase("idle");
+    setError(null);
+    setSuccess(null);
+    setAttempt(null);
+  }, [open, choice]);
 
-  const apiText = React.useMemo(
-    () => `POST /screens/select\ncontent-type: application/json\n\n${JSON.stringify(apiBody, null, 2)}`,
-    [apiBody],
-  );
+  // The clamp is derived, not stored: a number typed past the cap is clamped
+  // *and* announced (the note below), while the field keeps the reader's digits
+  // until they leave it — correcting a keystroke under their cursor is worse
+  // than correcting it on blur.
+  const limit = clampRows(rowsText);
+  const rows = limit.rows;
+  const clamped = limit.clamped && rowsText.trim() !== String(rows);
 
-  /** Enqueue, then poll until the job settles or the dialog closes. */
-  const start = React.useCallback(
-    async (format: ExportFormat) => {
-      setPhase("working");
+  const typed = React.useMemo(() => parseTickers(tickerText), [tickerText]);
+  const symbols = React.useMemo<readonly string[]>(() => {
+    if (scope === "page") return pageSymbols;
+    if (scope === "selected") return selectedSymbols;
+    if (scope === "tickers") return typed;
+    return [];
+  }, [scope, pageSymbols, selectedSymbols, typed]);
+
+  const count = scope === "screen" ? matched : symbols.length;
+  const canRun =
+    isFormat(format) && phase !== "loading" && (scope === "screen" || symbols.length > 0);
+
+  const run = React.useCallback(
+    async (body: ExportBody) => {
+      setAttempt(body);
+      setPhase("loading");
       setError(null);
+      setSuccess(null);
       try {
-        const screenId = await findScreenId(region, sort);
-        const started = await startExport(screenId, format);
-        setJob(started);
+        const file = await requestExport(body);
+        // Only after the server answered with bytes: a failed request must not
+        // leave an empty download behind.
+        downloadFile(file);
+        setPhase("done");
+        setSuccess(
+          `Exported ${file.rowCount.toLocaleString("en-US")} ${
+            file.rowCount === 1 ? "row" : "rows"
+          } to ${file.filename}.`,
+        );
       } catch (cause) {
         setPhase("error");
-        setError(cause instanceof Error ? cause.message : "The export could not be started");
+        setError(cause instanceof Error ? cause.message : "The export could not be written");
       }
     },
-    [region, sort],
+    [],
   );
 
-  React.useEffect(() => {
-    if (!open || job === null || isSettled(job)) return;
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      readExportJob(job.id)
-        .then((next) => {
-          if (!alive) return;
-          setJob(next);
-          if (isReady(next)) setPhase("ready");
-          else if (isSettled(next)) {
-            setPhase("error");
-            setError(next.error ?? "The export job failed");
-          }
-        })
-        .catch((cause: unknown) => {
-          if (!alive) return;
-          setPhase("error");
-          setError(cause instanceof Error ? cause.message : "The export job could not be read");
-        });
-    }, EXPORT_POLL_MS);
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [open, job]);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(apiText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
+  const submit = () => {
+    if (!isFormat(format)) return;
+    const body = buildExportBody({
+      scope,
+      format,
+      rows,
+      region,
+      criteria,
+      symbols,
+      columns,
+    });
+    void run(body);
   };
 
-  const format = choice === "api" ? null : choice;
-  const href = job && format ? fileHref(job, format) : null;
+  const retry = () => {
+    if (attempt) void run(attempt);
+  };
 
   return (
     <DialogShell
       open={open}
       onClose={onClose}
-      title={choice === "api" ? "API request" : `Export ${choice.toUpperCase()}`}
-      description={choice === "api" ? "The exact call this screen makes." : scopeNote}
+      title={format === "api" ? "Export API" : `Export ${FORMAT_LABELS[format]}`}
+      description="A file of the server's rows — the same rows the screen shows, written by the screener."
+      size="md"
     >
-      {choice === "api" ? (
-        <div className="flex flex-col gap-2">
-          <pre
-            data-testid="export-api-body"
-            className="max-h-[320px] overflow-auto rounded-sm border border-line bg-surface-sunken p-2 font-mono text-data text-fg-muted"
-          >
-            {apiText}
-          </pre>
-          <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3">
+        <div role="group" aria-label="Format" className="flex flex-wrap items-center gap-1">
+          {[...EXPORT_FORMATS, "api" as const].map((option) => (
             <button
+              key={option}
               type="button"
-              onClick={() => void copy()}
-              className="h-7 rounded-sm border border-line-control px-2 text-ui text-fg transition-colors hover:border-brand"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-            <span aria-live="polite" className="text-data text-fg-subtle">
-              {copied ? "The request is on the clipboard." : ""}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          <p className="text-data text-fg-muted">
-            {phase === "idle"
-              ? `The server writes the ${choice.toUpperCase()} file from the saved screen for this market and ordering.`
-              : phase === "working"
-                ? "Writing the file on the server…"
-                : phase === "ready"
-                  ? "The file is ready."
-                  : "The export did not finish."}
-          </p>
-
-          {error ? (
-            <p role="alert" className="text-data text-alert">
-              {error}
-            </p>
-          ) : null}
-
-          {job ? (
-            <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-              job {job.id} · {job.status}
-            </p>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => format && void start(format)}
-              disabled={phase === "working"}
-              className={cn(
-                "h-7 rounded-sm border border-line-control px-2 text-ui text-fg transition-colors hover:border-brand",
-                phase === "working" && "opacity-50",
-              )}
-            >
-              {phase === "idle" ? "Prepare file" : "Prepare again"}
-            </button>
-
-            {href ? (
-              <a
-                href={href}
-                data-testid="export-link"
-                className="h-7 rounded-sm border border-brand px-2 leading-7 text-ui text-fg transition-colors hover:bg-row-selected"
-              >
-                Get the {format?.toUpperCase()} file
-              </a>
-            ) : null}
-
-            <select
-              aria-label="Export format"
-              value={format ?? "csv"}
-              onChange={(event) => {
-                setJob(null);
+              data-testid={`export-format-${option}`}
+              aria-pressed={format === option}
+              onClick={() => {
+                setFormat(option);
                 setPhase("idle");
                 setError(null);
-                void start(event.target.value as ExportFormat);
+                setSuccess(null);
+                setAttempt(null);
               }}
-              className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
+              className={cn(
+                "h-7 rounded-sm border px-2 text-ui transition-colors",
+                format === option
+                  ? "border-brand text-brand"
+                  : "border-line-control text-fg-muted hover:border-brand hover:text-fg",
+              )}
             >
-              {EXPORT_FORMATS.map((option) => (
-                <option key={option} value={option}>
-                  {option.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <p className="text-data text-fg-subtle">
-            A screen export is the server's snapshot for this market and ordering; the grid's
-            filters are not part of the file.
-          </p>
+              {FORMAT_LABELS[option]}
+            </button>
+          ))}
         </div>
-      )}
+
+        {format === "api" ? (
+          <div className="flex flex-col gap-2" data-testid="export-api-pane">
+            <p className="text-data text-fg-muted">
+              The export is one request. POST a body naming what to write and the answer is
+              the file itself — no job to poll.
+            </p>
+            <pre
+              data-testid="export-api-url"
+              className="overflow-auto rounded-sm border border-line bg-surface-sunken p-2 font-mono text-data text-fg"
+            >
+              {EXPORT_URL}
+            </pre>
+            <p className="text-data text-fg-subtle">
+              The API pane never downloads a file; it names the call.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div role="group" aria-label="Scope" className="flex flex-wrap items-center gap-1">
+              {(Object.keys(SCOPE_LABELS) as ExportScope[]).map((option) => {
+                const size =
+                  option === "page"
+                    ? pageSymbols.length
+                    : option === "selected"
+                      ? selectedSymbols.length
+                      : option === "tickers"
+                        ? typed.length
+                        : null;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    data-testid={`export-scope-${option}`}
+                    aria-pressed={scope === option}
+                    onClick={() => {
+                      setScope(option);
+                      setPhase("idle");
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    className={cn(
+                      "h-7 rounded-sm border px-2 text-ui transition-colors",
+                      scope === option
+                        ? "border-brand text-brand"
+                        : "border-line-control text-fg-muted hover:border-brand hover:text-fg",
+                    )}
+                  >
+                    {SCOPE_LABELS[option]}
+                    {size === null ? null : (
+                      <span className="ml-1 font-mono text-data text-fg-subtle">{size}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-data text-fg-subtle">{SCOPE_HINTS[scope]}</p>
+
+            {scope === "tickers" ? (
+              <label className="flex flex-col gap-1">
+                <span className="text-data text-fg-muted">Tickers</span>
+                <textarea
+                  data-testid="export-tickers"
+                  aria-label="Tickers to export"
+                  value={tickerText}
+                  onChange={(event) => setTickerText(event.target.value)}
+                  rows={2}
+                  placeholder="AAPL, MSFT, BRK.B"
+                  className="rounded-sm border border-line-control bg-surface-sunken p-2 font-mono text-data text-fg"
+                />
+              </label>
+            ) : null}
+
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-data text-fg-muted">Rows</span>
+                <input
+                  data-testid="export-rows"
+                  aria-label="Rows to export"
+                  type="number"
+                  min={1}
+                  max={MAX_EXPORT_ROWS}
+                  step={1}
+                  value={rowsText}
+                  onChange={(event) => setRowsText(event.target.value)}
+                  onBlur={() => setRowsText(String(rows))}
+                  className="h-7 w-20 rounded-sm border border-line-control bg-surface-sunken px-1.5 font-mono text-data text-fg"
+                />
+              </label>
+              <p data-testid="export-match" className="pb-1 text-data text-fg-muted">
+                {matchSummary(count, rows)}
+              </p>
+            </div>
+
+            {clamped ? (
+              <p data-testid="export-rows-note" className="text-data text-alert">
+                {EXPORT_ROW_CLAMP}
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                data-testid="export-run"
+                onClick={submit}
+                disabled={!canRun}
+                className={cn(
+                  "h-7 rounded-sm border border-brand px-2 text-ui text-fg transition-colors hover:bg-row-selected",
+                  !canRun && "opacity-50",
+                )}
+              >
+                Export {FORMAT_LABELS[format]}
+              </button>
+
+              {phase === "loading" ? (
+                <span className="flex items-center gap-1.5 text-data text-fg-muted">
+                  <span
+                    data-testid="export-spinner"
+                    aria-hidden="true"
+                    className="size-3 animate-spin rounded-full border-2 border-line border-t-brand"
+                  />
+                  <span role="status">Writing the file…</span>
+                </span>
+              ) : null}
+            </div>
+
+            {error ? (
+              <div
+                role="alert"
+                data-testid="export-error"
+                className="flex items-start justify-between gap-2 rounded-sm border border-down bg-surface-raised px-2 py-1.5"
+              >
+                <p className="text-data text-down">{error}</p>
+                {attempt ? (
+                  <button
+                    type="button"
+                    data-testid="export-retry"
+                    onClick={retry}
+                    className="shrink-0 rounded-sm border border-down px-1.5 text-data text-down hover:bg-row-selected"
+                  >
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {success ? (
+              <p
+                role="status"
+                data-testid="export-success"
+                className="rounded-sm border border-up bg-surface-raised px-2 py-1.5 text-data text-up"
+              >
+                {success}
+              </p>
+            ) : null}
+
+            <p className="text-data text-fg-subtle">
+              The file is written by the server from the screen's own rows. A venue is
+              exported as its code (<span className="font-mono">XNAS</span>), never as the
+              label the table draws.
+            </p>
+          </>
+        )}
+      </div>
     </DialogShell>
   );
-}
-
-/** One POST, for the API pane's "send it now" affordance. */
-export async function sendSelection(body: unknown): Promise<unknown> {
-  const answer = await postJsonConditional("/screens/select", body);
-  return answer.body;
 }

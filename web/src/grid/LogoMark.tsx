@@ -29,7 +29,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-import { LOGO_SIZE, logoPath } from "./logo";
+import { LOGO_SIZE, cachedLogo, forgetLogo, logoPath, rememberLogo } from "./logo";
 
 export type LogoState = "loading" | "loaded" | "failed";
 
@@ -47,7 +47,9 @@ export interface LogoMarkProps {
 
 export function LogoMark({ symbol, className, size }: LogoMarkProps) {
   const box = size ?? LOGO_SIZE;
-  const [state, setState] = React.useState<LogoState>("loading");
+  const [state, setState] = React.useState<LogoState>(() =>
+    cachedLogo(symbol) === undefined ? "loading" : "loaded",
+  );
   // The token doubles as "the first request failed": `null` means the plain URL
   // is in flight, a string means the one cache-busted retry is. Held in state
   // rather than computed in render so a re-render cannot change the URL and
@@ -65,6 +67,7 @@ export function LogoMark({ symbol, className, size }: LogoMarkProps) {
   const src = retry === null ? logoPath(symbol) : logoPath(symbol, retry);
 
   const handleError = () => {
+    forgetLogo(symbol);
     if (retry === null) {
       // Exactly one retry. The endpoint ignores the query; its only job is to
       // name a URL the browser has not already answered from its cache.
@@ -109,10 +112,13 @@ export function LogoMark({ symbol, className, size }: LogoMarkProps) {
           alt=""
           width={box}
           height={box}
-          loading="lazy"
+          loading="eager"
           decoding="async"
           data-testid={`logo-img-${symbol}`}
-          onLoad={() => setState("loaded")}
+          onLoad={() => {
+            rememberLogo(symbol, src);
+            setState("loaded");
+          }}
           onError={handleError}
           className={cn(
             "size-full object-contain",

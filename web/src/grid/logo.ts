@@ -27,3 +27,45 @@ export function logoPath(symbol: string, bust?: string | number): string {
   const path = `/logos/${encodeURIComponent(symbol)}`;
   return bust === undefined ? path : `${path}?v=${encodeURIComponent(String(bust))}`;
 }
+
+/* ---------------------------------------------------------------------------
+ * The session cache
+ *
+ * A row asks for the same forty marks every time the table re-renders, and a
+ * navigation unmounts every <img> it drew. Without a memo the next mount starts
+ * from the skeleton again and the reader sees the lane flash empty — the bug
+ * that made logos look "sometimes missing". The map remembers which URL the
+ * browser has already decoded, so a revisit paints on the first frame.
+ *
+ * An error deletes the entry: a broken mark must be allowed to try again on the
+ * next mount instead of freezing a failure for the whole session.
+ */
+const loaded = new Map<string, string>();
+
+/** The URL that already painted for ``symbol``, if any. */
+export function cachedLogo(symbol: string): string | undefined {
+  return loaded.get(symbol);
+}
+
+/** Remember that ``src`` painted, so the next mount skips the skeleton. */
+export function rememberLogo(symbol: string, src: string): void {
+  loaded.set(symbol, src);
+}
+
+/** Forget a mark that failed, so a later mount may retry it. */
+export function forgetLogo(symbol: string): void {
+  loaded.delete(symbol);
+}
+
+/** Warm the pipeline for the symbols a page is about to draw. */
+export function preloadLogos(symbols: readonly string[]): void {
+  if (typeof Image === "undefined") return;
+  for (const symbol of symbols) {
+    const src = cachedLogo(symbol) ?? logoPath(symbol);
+    if (cachedLogo(symbol) !== undefined) continue;
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => rememberLogo(symbol, src);
+    image.src = src;
+  }
+}

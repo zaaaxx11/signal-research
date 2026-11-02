@@ -108,12 +108,18 @@ used to print this route's ``total`` and the selection route's ``total`` under o
 label, "Universe", although the selection route answers over the whole market
 rather than the display's 100M-floor subset.
 
-Export is the two-scope bundle and it runs as a **response background task**,
-the same way ``POST /markets/enrich`` runs a job: the 202 body leaves first, the
-work is attached to the response instead of a bare ``create_task`` (which can be
-destroyed mid-write when the caller's loop goes away). Preflight happens before
-a job row exists — an unknown screen is a 404, an unknown format a 422, and
-neither leaves a Pending job behind to poll forever.
+Export is two routes with one pipeline. ``POST /screens/export`` is the
+synchronous one a reader waits on: a body names a query (or a ticker list), a
+format and a limit, and the answer **is** the file — at most
+:data:`app.screen.export_direct.MAX_ROWS` (200) rows, straight from the same
+universe and selection helpers the panel uses. ``POST /screens/{id}/export`` is
+the bundle (two scopes, a job row, artifacts to poll): it exists for the
+background export nobody is waiting on, and it runs as a **response background
+task**, the same way ``POST /markets/enrich`` runs a job — the 202 body leaves
+first, the work is attached to the response instead of a bare ``create_task``
+(which can be destroyed mid-write when the caller's loop goes away). Preflight
+happens before a job row exists — an unknown screen is a 404, an unknown format
+a 422, and neither leaves a Pending job behind to poll forever.
 """
 
 from __future__ import annotations
@@ -124,7 +130,7 @@ import json
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
@@ -141,7 +147,14 @@ from app.auth import ApiError, owner_fingerprint
 from app.branding import logo_for
 from app.export.manifest import file_sha256
 from app.runtime import Runtime
-from app.screen import after_hours, buckets, descriptive, entitlements, index_membership
+from app.screen import (
+    after_hours,
+    buckets,
+    descriptive,
+    entitlements,
+    export_direct,
+    index_membership,
+)
 from app.screen import options as screen_options
 from app.screen.export import (
     DATA_FORMATS,
@@ -946,6 +959,124 @@ async def _selection_scan(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _UniversePage:
+    """The rows a question runs over, and how the scan behind them was answered.
+
+    ``scan`` is the ``X-Scan-Cache`` value (``hit``/``miss``/``shared``) and
+    ``generation`` is the scan page's generation — the validator input
+    :func:`select` needs and the export does not. Both are carried rather than
+    re-read, because a lookup afterwards could name a page the caller did not
+    use.
+    """
+
+    rows: list[dict[str, Any]]
+    scan: str
+    generation: int
+
+
+async def _current_universe(
+    request: Request,
+    *,
+    selection: SelectionRequest,
+    plan: _ScanPlan,
+    region: str,
+    family: str,
+    source: str,
+) -> _UniversePage:
+    """The one population a selection and an export both run over.
+
+    ``POST /screens/select`` and ``POST /screens/export`` answer the same
+    question at different widths (a panel of 100 against a file of 200), and a
+    second copy of this pipeline would be a second population: the first time a
+    floor, a subtype gate or a join changed, the grid and the file it downloads
+    would disagree about which rows exist. So the whole build lives here —
+    scan, universe, depth overlay, the two store joins, the membership and
+    after-hours cells — and both routes call it.
+
+    A blocked scan is the route's 503, raised here because both routes answer it
+    the same way: the provider could not answer, and no snapshot is being
+    substituted for it.
+    """
+
+    # Depth is the broadest enrichment; it is read once per request, before the
+    # scan, and only by the requests that are going to build.
+    depth = current_depth()
+
+    try:
+        page, scan, generation = await _selection_scan(
+            request, plan, region=region, asset_class=family, source=source
+        )
+    except ScanError as exc:
+        raise ApiError(
+            status_code=503,
+            error="scanner_unavailable",
+            message=f"the scanner could not answer the selection: {exc}",
+        ) from exc
+
+    # The universe, not the display table: a total must count every match.
+    if selection.is_criteria:
+        universe = build_universe(
+            page.rows,
+            region=region,
+            min_market_cap=None if family == "etf" else 0,
+            columns=PARITY_COLUMNS,
+            allow_any_subtype=not selection.common_only,
+            asset_class=family,
+        )
+    else:
+        universe = build_universe(
+            page.rows,
+            region=region,
+            columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
+            asset_class=family,
+        )
+
+    # P11G/P11I: the scan answers null for forward P/E, P/S and payout ratio;
+    # those three cells, plus the ratios derived from the snapshot inputs, are
+    # owned by the fundamentals snapshot store. The join reads that
+    # table **once** for the whole universe (no per-symbol query), copies only
+    # fresh rows, and never invents a value: a symbol the store does not hold
+    # keeps ``None``, which matches no filter. A selection must not become a 500
+    # because the optional table was never migrated, so the join degrades to "no
+    # enrichment" and logs why; ``getattr`` is that same bargain for a runtime
+    # built by an older composition root.
+    # Depth is the broadest enrichment: it carries the columns no scan metric
+    # exists for. It is merged first so that a store which *owns* a cell
+    # (forward P/E, short float, insider own) still wins over it below.
+    if depth.symbols:
+        universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
+
+    universe = await enrich_rows(universe, getattr(runtime_of(request), "fundamentals_store", None))
+
+    # P11J: the three short/ownership cells (Short Float, Insider Own, Inst Own)
+    # have no scan metric at all; the facts store owns them. Same contract as
+    # the fundamentals join — one batch read per selection, fresh rows only,
+    # ``None`` where the store has no answer (unknown matches no filter), and a
+    # missing table is no enrichment rather than a failed selection.
+    universe = await enrich_facts(universe, getattr(runtime_of(request), "facts_store", None))
+
+    # `idx` reads `index_members`, a cell no scan and no store carries: the four
+    # Finviz lists are vendored (app.screen.index_membership) and attached here,
+    # once per selection, after every join (nothing else writes the cell). It is
+    # **internal**: never a catalog column, never projectable through `columns`
+    # (the 116-column freeze), read only by the `idx` bucket. Without this line
+    # the bucket would see a missing cell and answer zero rows — the honest
+    # answer to a question nobody asked, which is exactly what T10 exists to
+    # prevent.
+    universe = index_membership.enrich_rows(universe)
+
+    # `ah_close` / `ah_change` read two internal cells (`post_market_close`,
+    # `post_market_change`) that no scan and no store carries: the provider's
+    # post-market print is collected into one stamped snapshot
+    # (app.screen.after_hours) and attached here, once per selection, after every
+    # join. A symbol the snapshot did not price keeps no cell, so a bucket matches
+    # nothing for it — the honest answer during a regular session, never a value
+    # inferred from the last one.
+    universe = after_hours.enrich_rows(universe)
+    return _UniversePage(rows=universe, scan=scan, generation=generation)
+
+
 async def market_universe(request: Request) -> list[dict[str, Any]]:
     """The whole US stock universe, through the screener's own scan cache.
 
@@ -1416,81 +1547,13 @@ async def select(request: Request) -> Any:
             if not_modified(request, etag):
                 return _revalidated(etag, scan="hit")
 
-    # Depth is the broadest enrichment; it is read once per selection, before
-    # the scan, and only by the requests that are going to build.
-    depth = current_depth()
-
-    try:
-        page, scan, generation = await _selection_scan(
-            request, plan, region=region, asset_class=family, source=source
-        )
-    except ScanError as exc:
-        raise ApiError(
-            status_code=503,
-            error="scanner_unavailable",
-            message=f"the scanner could not answer the selection: {exc}",
-        ) from exc
-
-    # The universe, not the display table: the total must count every match.
-    if selection.is_criteria:
-        universe = build_universe(
-            page.rows,
-            region=region,
-            min_market_cap=None if family == "etf" else 0,
-            columns=PARITY_COLUMNS,
-            allow_any_subtype=not selection.common_only,
-            asset_class=family,
-        )
-    else:
-        universe = build_universe(
-            page.rows,
-            region=region,
-            columns=PARITY_COLUMNS if (selection.view or selection.columns) else None,
-            asset_class=family,
-        )
-
-    # P11G/P11I: the scan answers null for forward P/E, P/S and payout ratio;
-    # those three cells, plus the ratios derived from the snapshot inputs, are
-    # owned by the fundamentals snapshot store. The join reads that
-    # table **once** for the whole universe (no per-symbol query), copies only
-    # fresh rows, and never invents a value: a symbol the store does not hold
-    # keeps ``None``, which matches no filter. A selection must not become a 500
-    # because the optional table was never migrated, so the join degrades to "no
-    # enrichment" and logs why; ``getattr`` is that same bargain for a runtime
-    # built by an older composition root.
-    # Depth is the broadest enrichment: it carries the columns no scan metric
-    # exists for. It is merged first so that a store which *owns* a cell
-    # (forward P/E, short float, insider own) still wins over it below.
-    if depth.symbols:
-        universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
-
-    universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
-
-    # P11J: the three short/ownership cells (Short Float, Insider Own, Inst Own)
-    # have no scan metric at all; the facts store owns them. Same contract as
-    # the fundamentals join — one batch read per selection, fresh rows only,
-    # ``None`` where the store has no answer (unknown matches no filter), and a
-    # missing table is no enrichment rather than a failed selection.
-    universe = await enrich_facts(universe, getattr(runtime, "facts_store", None))
-
-    # `idx` reads `index_members`, a cell no scan and no store carries: the four
-    # Finviz lists are vendored (app.screen.index_membership) and attached here,
-    # once per selection, after every join (nothing else writes the cell). It is
-    # **internal**: never a catalog column, never projectable through `columns`
-    # (the 116-column freeze), read only by the `idx` bucket. Without this line
-    # the bucket would see a missing cell and answer zero rows — the honest
-    # answer to a question nobody asked, which is exactly what T10 exists to
-    # prevent.
-    universe = index_membership.enrich_rows(universe)
-
-    # `ah_close` / `ah_change` read two internal cells (`post_market_close`,
-    # `post_market_change`) that no scan and no store carries: the provider's
-    # post-market print is collected into one stamped snapshot
-    # (app.screen.after_hours) and attached here, once per selection, after every
-    # join. A symbol the snapshot did not price keeps no cell, so a bucket matches
-    # nothing for it — the honest answer during a regular session, never a value
-    # inferred from the last one.
-    universe = after_hours.enrich_rows(universe)
+    # One population, one build. The panel below and `POST /screens/export`
+    # read the same universe through the same helper, so a file cannot describe
+    # rows the grid never showed (or omit rows it did).
+    universe_page = await _current_universe(
+        request, selection=selection, plan=plan, region=region, family=family, source=source
+    )
+    universe = universe_page.rows
 
     answer = select_rows(
         universe,
@@ -1529,7 +1592,7 @@ async def select(request: Request) -> Any:
     )
     etag = _etag(
         revision=revision(
-            generation,
+            universe_page.generation,
             # `fill_wide` cells are live page fetches: no store revision names
             # them, so that mode keeps the old answer-digest behaviour.
             _answer_digest(document) if selection.fill_wide else None,
@@ -1545,10 +1608,113 @@ async def select(request: Request) -> Any:
     # (five views inside one window = one "miss" and four "hits"). It is the only
     # place the caching is visible to a client, and it is how the panel can tell
     # "refreshed" from "replayed" without a second request.
-    headers["X-Scan-Cache"] = scan
+    headers["X-Scan-Cache"] = universe_page.scan
     if not_modified(request, etag):
-        return _revalidated(etag, scan=scan)
+        return _revalidated(etag, scan=universe_page.scan)
     return Response(content=_encoded(document), media_type="application/json", headers=headers)
+
+
+@router.post("/export")
+async def export_file(request: Request) -> Response:
+    """Export the rows a body names, synchronously: the answer **is** the file.
+
+    One request, one file — no job id, no polling, no artifact to fetch. The body
+    is :func:`app.screen.export_direct.parse_export`'s: a mode (``criteria`` for
+    a query, ``symbols`` for a ticker list), the matching block, an optional
+    projection, a format and a limit.
+
+    The cap is :data:`app.screen.export_direct.MAX_ROWS` = 200, and a limit over
+    it is a 422 that names the cap rather than a silent clamp: a reader handed
+    200 of the 500 rows they asked for has been told the file is complete when
+    it is a prefix. ``limit: 0`` and an absent limit both mean the cap. Every
+    refusal happens **before** the scan, so a bad knob costs no provider call.
+
+    The rows are the selection route's own, through
+    :func:`_current_universe` and :func:`app.screen.selection.select_rows` — the
+    same scan, filters, ordering, column resolver and stores — so an exported
+    cell and a rendered cell cannot disagree about a value or about which rows
+    exist. Ticker mode resolves through the same symbol resolver, in the order
+    the caller named, and reports a ticker the universe does not carry in
+    ``missing`` instead of inventing a row for it.
+
+    Headers carry what a client cannot read from bytes alone:
+    ``Content-Disposition`` names the download, ``X-Row-Count`` states the rows
+    in the body (which is what the CSV/XLSX line count must equal) and
+    ``X-Total-Match`` the rows the question matched before the cap — the number
+    that makes "exporting 200 of 5,120" visible.
+    """
+
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ApiError(
+            status_code=422,
+            error="invalid_json",
+            message=f"the export body is not valid JSON: {exc}",
+        ) from exc
+
+    try:
+        spec = export_direct.parse_export(payload)
+    except export_direct.ExportError as exc:
+        raise ApiError(status_code=422, error=exc.code, message=str(exc)) from exc
+
+    if spec.mode == "criteria":
+        try:
+            selection = parse_selection(
+                export_direct.selection_body(spec),
+                plan=entitlements.resolve_plan(request.headers),
+            )
+        except SelectionError as exc:
+            raise ApiError(
+                status_code=exc.status_code, error=exc.code, message=str(exc)
+            ) from exc
+        region = selection.region or spec.region
+        source = SOURCE
+        family = selection.asset_class or asset_class_for(region)
+        # The panel's validator clamps a page to 100; an export is a file and may
+        # ask for its own, larger cap. The limit was already validated above, so
+        # this replaces the page size rather than bypassing a check.
+        selection = replace(selection, limit=spec.limit)
+    else:
+        region = spec.region
+        source = SOURCE
+        family = asset_class_for(region)
+        selection = export_direct.symbols_request(spec, asset_class=family)
+
+    moment = datetime.now(UTC).isoformat(timespec="microseconds")
+    plan = _scan_plan(selection=selection, region=region, family=family, source=source)
+    page = await _current_universe(
+        request, selection=selection, plan=plan, region=region, family=family, source=source
+    )
+
+    if selection.is_criteria:
+        answer = select_rows(
+            page.rows, selection, region=region, as_of=moment, source=source
+        )
+        rows = [dict(row) for row in answer.rows]
+        total = answer.total
+        missing: tuple[str, ...] = ()
+    else:
+        resolved, total, missing = export_direct.resolve_symbols(page.rows, selection)
+        rows = export_direct.project(resolved, spec.columns, as_of=moment)
+
+    body = export_direct.render(spec, rows, as_of=moment, total=total, missing=missing)
+    disposition = (
+        f'attachment; filename="{export_direct.filename(spec, as_of=moment)}"'
+    )
+    return Response(
+        content=body,
+        media_type=export_direct.media_type(spec),
+        headers={
+            "Content-Disposition": disposition,
+            "X-Row-Count": str(len(rows)),
+            # The match count *before* the cap: the number the dialog's
+            # "N match — exporting up to 200" line is built from.
+            "X-Total-Match": str(total),
+            # A live file is not a cached one: a proxy must not replay it.
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/{screen_id}/export", status_code=202)
@@ -1662,6 +1828,7 @@ __all__ = [
     "SCREEN_EXPORT_SERVICE",
     "browse",
     "export",
+    "export_file",
     "router",
     "run_screen_export",
     "select",

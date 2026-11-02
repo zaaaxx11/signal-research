@@ -26,7 +26,6 @@ import {
   MAX_COLUMNS,
   PANEL_LIMIT,
   queryKey,
-  requestBody,
   nextSort,
   sortDirection,
   sortLabel,
@@ -551,8 +550,6 @@ export function ScreenPanel({
     );
   }
 
-  const exportBody = query ? requestBody(query) : {};
-
   return (
     <section
       {...panel}
@@ -733,10 +730,12 @@ export function ScreenPanel({
         open={exporting !== null}
         onClose={() => setExporting(null)}
         choice={exporting ?? "csv"}
+        criteria={{ filters: toWire(activeFilters), sort }}
+        columns={selection}
         region="us"
-        sort={sort}
-        apiBody={exportBody}
-        scopeNote="The server writes this file from the saved screen for this market and ordering."
+        matched={total}
+        pageSymbols={rows.map((row) => String(row.symbol ?? "")).filter(Boolean)}
+        selectedSymbols={compareSelected}
       />
     </section>
   );
