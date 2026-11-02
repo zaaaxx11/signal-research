@@ -388,6 +388,56 @@ def test_an_absent_filter_list_is_the_identity() -> None:
     assert request.limit == PANEL_LIMIT
 
 
+#: A four-name universe. A symbol filter is a membership test over whatever
+#: rows the universe holds, so the rows are supplied and the executor is real.
+SYMBOL_ROWS: list[dict[str, Any]] = [
+    {"symbol": "AAPL", "price": 190.0, "market_cap_usd": 3e12},
+    {"symbol": "MSFT", "price": 410.0, "market_cap_usd": 3e12},
+    {"symbol": "BRK.B", "price": 470.0, "market_cap_usd": 1e12},
+    {"symbol": "TSLA", "price": 250.0, "market_cap_usd": 8e11},
+]
+
+
+def test_a_symbol_list_filter_returns_only_those_rows() -> None:
+    """``in`` on ``symbol`` is a membership test, not a substring scan."""
+
+    document = run(
+        criteria({"key": "symbol", "op": "in", "value": ["AAPL", "MSFT"]}),
+        rows=[dict(row) for row in SYMBOL_ROWS],
+    )
+
+    assert symbols_of(document) == ["AAPL", "MSFT"]
+    assert document["total"] == 2
+    echoed = document["filters"][0]
+    assert (echoed["key"], echoed["op"], echoed["value"]) == (
+        "symbol",
+        "in",
+        ["AAPL", "MSFT"],
+    )
+
+
+def test_a_class_share_ticker_is_normalised_to_the_providers_dot() -> None:
+    """``BRK-B`` and ``brk.b`` are the same instrument as the row's ``BRK.B``."""
+
+    for spelling in ("BRK-B", "brk.b"):
+        document = run(
+            criteria({"key": "symbol", "op": "in", "value": [spelling]}),
+            rows=[dict(row) for row in SYMBOL_ROWS],
+        )
+        assert symbols_of(document) == ["BRK.B"], spelling
+        assert document["filters"][0]["value"] == ["BRK.B"], spelling
+
+
+def test_two_spellings_of_one_ticker_are_one_member() -> None:
+    document = run(
+        criteria({"key": "symbol", "op": "in", "value": ["BRK.B", "BRK-B"]}),
+        rows=[dict(row) for row in SYMBOL_ROWS],
+    )
+
+    assert symbols_of(document) == ["BRK.B"]
+    assert document["filters"][0]["value"] == ["BRK.B"]
+
+
 @pytest.mark.parametrize(
     "payload",
     [

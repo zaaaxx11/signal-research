@@ -565,6 +565,34 @@ def _numeric_literal(text: str) -> bool:
     return True
 
 
+def _canonical_symbol(value: Any) -> Any:
+    """A ticker list in the provider's spelling: upper case, ``BRK.B`` not ``BRK-B``.
+
+    A class share is one instrument with two spellings — the provider's
+    ``BRK.B`` and the broker/reader's ``BRK-B`` — so a symbol criterion stores
+    the row's spelling before the ETag is derived. Normalising *here* is what
+    makes the two spellings one question (one tag) and one match, instead of a
+    correctly-typed filter that silently returns no rows.
+
+    Only ``symbol`` values pass through this: every other text column keeps its
+    exact bytes, which is the DSL's contract. Duplicates created by the
+    normalisation (``["BRK.B", "BRK-B"]``) collapse in first-seen order, so the
+    criterion names one member once.
+    """
+
+    if isinstance(value, str):
+        return value.strip().upper().replace("-", ".")
+    if isinstance(value, (list, tuple)):
+        items = [
+            normalised
+            for item in value
+            if isinstance(item, str)
+            for normalised in (_canonical_symbol(item),)
+        ]
+        return tuple(dict.fromkeys(items))
+    return value
+
+
 def _bucket_criterion(
     key: str, item: Mapping[str, Any], where: str
 ) -> Criterion | None:
@@ -734,10 +762,16 @@ def _criterion(item: Any, index: int, *, region: str | None = None) -> Criterion
         raise SelectionError(f"{prefix}: {exc}", code=exc.code) from exc
     except ValueError as exc:
         raise SelectionError(f"{prefix}: {exc}", code="invalid_filter") from exc
+    value = compiled.value
+    if compiled.field == "symbol":
+        # One instrument, one spelling: `BRK-B` is the row's `BRK.B`. Done after
+        # the DSL has type-checked the list, so a malformed value is still the
+        # DSL's refusal and not a normalisation surprise.
+        value = _canonical_symbol(value)
     return Criterion(
         field=compiled.field,
         op=compiled.op,
-        value=compiled.value,
+        value=value,
         key=str(key) if key is not None else None,
     )
 

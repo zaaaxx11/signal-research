@@ -398,6 +398,36 @@ async def test_a_representative_filter_answers_over_http(
         )
 
 
+async def test_a_symbol_list_filter_answers_only_those_rows(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """``{"key": "symbol", "op": "in", "value": [...]}`` over the real route.
+
+    The wire value is a list, which is the one filter shape a ticker input
+    writes; the answer is those rows and nothing else, and the envelope echoes
+    the canonical (upper-cased, dot-spelled) tickers the request became.
+    """
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        from app.api import screens as screens_api
+
+        monkeypatch.setattr(
+            screens_api, "build_universe", lambda _rows, **_: [dict(row) for row in BUCKET_ROWS]
+        )
+        response = await harness.client.post(
+            "/screens/select",
+            json=select_body([{"key": "symbol", "op": "in", "value": ["cheap", "RICH"]}]),
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert {row["symbol"] for row in body["rows"]} == {"CHEAP", "RICH"}
+    assert body["total"] == 2
+    assert body["filters"][0]["value"] == ["CHEAP", "RICH"], (
+        "the envelope echoes the canonical tickers, not the caller's spelling"
+    )
+
+
 async def test_an_unavailable_bucket_is_422_over_http(tmp_path: Path, monkeypatch: Any) -> None:
     async with S.screen_client(tmp_path, monkeypatch) as harness:
         response = await harness.client.post(
