@@ -89,7 +89,7 @@ DEFAULT_COLUMNS: tuple[str, ...] = (
 )
 
 _BODY_KEYS: frozenset[str] = frozenset(
-    {"mode", "criteria", "symbols", "columns", "format", "limit", "region"}
+    {"mode", "criteria", "symbols", "columns", "format", "limit", "region", "narrow", "signal"}
 )
 _CRITERIA_KEYS: frozenset[str] = frozenset({"filters", "sort", "view"})
 
@@ -107,6 +107,14 @@ class ExportError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class NarrowSpec:
+    """Narrow filters the client sends for page/selected scopes."""
+
+    filters: tuple[dict[str, Any], ...]
+    signal: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ExportSpec:
     """A validated export body: what to write, in what shape, how many rows."""
 
@@ -117,6 +125,8 @@ class ExportSpec:
     criteria: Mapping[str, Any] | None
     symbols: tuple[str, ...]
     columns: tuple[str, ...]
+    narrow: NarrowSpec | None
+    signal: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +200,43 @@ def _columns_of(raw: Any) -> tuple[str, ...]:
         raise ExportError(str(exc), code="invalid_columns") from exc
 
 
+def _optional_string(raw: Any) -> str | None:
+    """A string the caller may have sent, or None when absent or blank."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        return None
+    trimmed = raw.strip()
+    return trimmed if len(trimmed) > 0 else None
+
+
+def _read_narrow(raw: Any) -> NarrowSpec | None:
+    """Validate the narrow block, or None when absent."""
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ExportError(
+            "narrow must be an object with a 'filters' array",
+            code="invalid_narrow",
+        )
+    raw_filters = raw.get("filters")
+    if raw_filters is None:
+        raise ExportError(
+            "narrow must include a 'filters' array (empty is ok)",
+            code="invalid_narrow",
+        )
+    if not isinstance(raw_filters, (list, tuple)):
+        raise ExportError(
+            "narrow.filters must be an array",
+            code="invalid_narrow",
+        )
+    signal = _optional_string(raw.get("signal"))
+    return NarrowSpec(
+        filters=tuple(raw_filters),
+        signal=signal,
+    )
+
+
 def parse_export(payload: Any) -> ExportSpec:
     """Validate an export body; every refusal carries its own code."""
 
@@ -228,10 +275,19 @@ def parse_export(payload: Any) -> ExportSpec:
 
     columns = _columns_of(payload.get("columns"))
 
+    signal = _optional_string(payload.get("signal"))
+    narrow = _read_narrow(payload.get("narrow"))
+
     if mode == "criteria":
         if "symbols" in payload:
             raise ExportError(
                 "mode 'criteria' exports a query and does not take 'symbols'",
+                code="invalid_export_body",
+            )
+        if "narrow" in payload:
+            raise ExportError(
+                "mode 'criteria' merges narrow into criteria on the client; "
+                "send narrow dimensions as extra filters in criteria and signal at the top level",
                 code="invalid_export_body",
             )
         criteria = payload.get("criteria")
@@ -254,11 +310,18 @@ def parse_export(payload: Any) -> ExportSpec:
             criteria=dict(criteria),
             symbols=(),
             columns=columns,
+            narrow=None,
+            signal=signal,
         )
 
     if "criteria" in payload:
         raise ExportError(
             "mode 'symbols' exports a ticker list and does not take 'criteria'",
+            code="invalid_export_body",
+        )
+    if "signal" in payload:
+        raise ExportError(
+            "mode 'symbols' sends its signal inside the narrow block; remove the top-level 'signal' key",
             code="invalid_export_body",
         )
     return ExportSpec(
@@ -269,6 +332,8 @@ def parse_export(payload: Any) -> ExportSpec:
         criteria=None,
         symbols=_symbols(payload.get("symbols")),
         columns=columns,
+        narrow=narrow,
+        signal=None,
     )
 
 

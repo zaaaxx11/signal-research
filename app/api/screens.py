@@ -141,6 +141,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
 from app.api.cache import cache_headers, not_modified
+from app.screen.saved import SavedScreenStore
 from app.api.encoding import GZIP_MINIMUM, compress, wants_gzip
 from app.api.markets import runtime_of
 from app.auth import ApiError, owner_fingerprint
@@ -1825,13 +1826,107 @@ async def run_screen_export(
         await jobs.fail(job_id, error=f"{type(exc).__name__}: {exc}", retryable=False)
 
 
+class SaveScreenPayload(BaseModel):
+    """``POST /screens/saved`` body: a name and the full screener state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    state: dict[str, Any]
+
+
+class RenameScreenPayload(BaseModel):
+    """``PUT /screens/saved/{id}`` body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+
+# ---------------------------------------------------------------------------
+# Saved screens CRUD
+# ---------------------------------------------------------------------------
+
+_saved_store: SavedScreenStore | None = None
+
+
+def _get_saved_store() -> SavedScreenStore:
+    global _saved_store
+    if _saved_store is None:
+        _saved_store = SavedScreenStore()
+    return _saved_store
+
+
+@router.get("/saved")
+async def saved_list() -> list[dict[str, Any]]:
+    """All saved screens, newest first."""
+    screens = _get_saved_store().list()
+    screens.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+    return screens
+
+
+@router.post("/saved", status_code=201)
+async def saved_save(payload: SaveScreenPayload) -> dict[str, Any]:
+    """Save the current screener state under a name.
+
+    The state is captured verbatim — ``{filters, sort, view}``.  Columns are
+    deliberately not saved (view id only); the view's own column definition is
+    authoritative.
+    """
+    try:
+        saved = _get_saved_store().save(name=payload.name, state=payload.state)
+    except ValueError as exc:
+        raise ApiError(status_code=422, error="invalid_name", message=str(exc)) from exc
+    return {
+        "id": saved.id,
+        "name": saved.name,
+        "state": saved.state,
+        "created_at": saved.created_at,
+    }
+
+
+@router.put("/saved/{screen_id}")
+async def saved_rename(screen_id: str, payload: RenameScreenPayload) -> dict[str, Any]:
+    """Rename a saved screen."""
+    try:
+        result = _get_saved_store().rename(screen_id, payload.name)
+    except ValueError as exc:
+        raise ApiError(status_code=422, error="invalid_name", message=str(exc)) from exc
+    if result is None:
+        raise ApiError(
+            status_code=404,
+            error="saved_screen_not_found",
+            message=f"no saved screen with id {screen_id!r}",
+        )
+    return result
+
+
+@router.delete("/saved/{screen_id}", status_code=204)
+async def saved_delete(screen_id: str) -> Response:
+    """Delete a saved screen."""
+    deleted = _get_saved_store().delete(screen_id)
+    if not deleted:
+        raise ApiError(
+            status_code=404,
+            error="saved_screen_not_found",
+            message=f"no saved screen with id {screen_id!r}",
+        )
+    return Response(status_code=204)
+
+
 __all__ = [
     "SCREEN_EXPORT_SERVICE",
+    "SaveScreenPayload",
+    "RenameScreenPayload",
     "browse",
     "export",
     "export_file",
     "router",
     "run_screen_export",
+    "saved_delete",
+    "saved_list",
+    "saved_rename",
+    "saved_save",
     "select",
     "selection_schema",
 ]

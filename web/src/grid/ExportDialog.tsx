@@ -49,6 +49,7 @@ import {
   type ExportFormat,
   type ExportScope,
 } from "./exportJob";
+import { narrowIsEmpty, type NarrowSpec } from "./narrow";
 
 export type { ExportChoice } from "./exportJob";
 
@@ -111,6 +112,10 @@ export function ExportDialog({
   const [success, setSuccess] = React.useState<string | null>(null);
   /** The body behind the last attempt, so Retry resends exactly it. */
   const [attempt, setAttempt] = React.useState<ExportBody | null>(null);
+  /** The narrow dimensions: market_cap, performance, volume, sector. */
+  const [narrow, setNarrow] = React.useState<NarrowSpec>({});
+  /** Whether the narrow disclosure panel is open. */
+  const [narrowOpen, setNarrowOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -122,6 +127,8 @@ export function ExportDialog({
     setError(null);
     setSuccess(null);
     setAttempt(null);
+    setNarrow({});
+    setNarrowOpen(false);
   }, [open, choice]);
 
   // The clamp is derived, not stored: a number typed past the cap is clamped
@@ -141,8 +148,10 @@ export function ExportDialog({
   }, [scope, pageSymbols, selectedSymbols, typed]);
 
   const count = scope === "screen" ? matched : symbols.length;
+  // When narrowed, the button is disabled if no rows would be exported.
+  const narrowedEmpty = count === 0;
   const canRun =
-    isFormat(format) && phase !== "loading" && (scope === "screen" || symbols.length > 0);
+    isFormat(format) && phase !== "loading" && (scope === "screen" || symbols.length > 0) && !narrowedEmpty;
 
   const run = React.useCallback(
     async (body: ExportBody) => {
@@ -179,6 +188,7 @@ export function ExportDialog({
       criteria,
       symbols,
       columns,
+      narrow: narrowIsEmpty(narrow) ? undefined : narrow,
     });
     void run(body);
   };
@@ -290,6 +300,128 @@ export function ExportDialog({
                 />
               </label>
             ) : null}
+
+            {/* Narrow disclosure — collapsed by default, expands to four dimension controls */}
+            <div className="border-t border-line py-2">
+              <button
+                type="button"
+                data-testid="export-narrow-disclosure"
+                aria-expanded={narrowOpen}
+                onClick={() => setNarrowOpen((value) => !value)}
+                className={cn(
+                  "flex items-center gap-1 text-ui text-fg-muted transition-colors hover:text-fg",
+                  !narrowIsEmpty(narrow) && "text-brand",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block transition-transform",
+                    narrowOpen && "rotate-90",
+                  )}
+                  aria-hidden="true"
+                >
+                  ▶
+                </span>
+                Narrow
+                {!narrowIsEmpty(narrow) ? (
+                  <span className="ml-1 font-mono text-data text-brand">
+                    [{Object.keys(narrow).filter(
+                      (k) => narrow[k as keyof NarrowSpec] !== undefined,
+                    ).length}]
+                  </span>
+                ) : null}
+              </button>
+
+              {narrowOpen ? (
+                <div
+                  data-testid="export-narrow-panel"
+                  className="mt-2 ml-4 flex flex-wrap items-center gap-2"
+                >
+                  {/* Market cap */}
+                  <select
+                    data-testid="export-narrow-cap"
+                    aria-label="Market cap"
+                    value={narrow.market_cap ?? ""}
+                    onChange={(event) =>
+                      setNarrow((prev) => ({
+                        ...prev,
+                        market_cap: (event.target.value || undefined) as NarrowSpec["market_cap"],
+                      }))
+                    }
+                    className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
+                  >
+                    <option value="">Market cap</option>
+                    <option value="micro">Under $2B</option>
+                    <option value="small">$2–10B</option>
+                    <option value="mid">$10–200B</option>
+                    <option value="mega">$200B and up</option>
+                  </select>
+
+                  {/* Performance (signal) */}
+                  <select
+                    data-testid="export-narrow-performance"
+                    aria-label="Performance"
+                    value={narrow.performance ?? ""}
+                    onChange={(event) =>
+                      setNarrow((prev) => ({
+                        ...prev,
+                        performance: (event.target.value || undefined) as NarrowSpec["performance"],
+                      }))
+                    }
+                    className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
+                  >
+                    <option value="">Performance</option>
+                    <option value="gainers">Gainers</option>
+                    <option value="losers">Losers</option>
+                    <option value="new_high">New High</option>
+                    <option value="new_low">New Low</option>
+                    <option value="overbought">Overbought</option>
+                    <option value="oversold">Oversold</option>
+                    <option value="unusual_volume">Unusual Volume</option>
+                    <option value="most_active">Most Active</option>
+                    <option value="most_volatile">Most Volatile</option>
+                    <option value="insider_buying">Insider Buying</option>
+                    <option value="insider_selling">Insider Selling</option>
+                  </select>
+
+                  {/* Volume */}
+                  <select
+                    data-testid="export-narrow-volume"
+                    aria-label="Volume"
+                    value={narrow.volume ?? ""}
+                    onChange={(event) =>
+                      setNarrow((prev) => ({
+                        ...prev,
+                        volume: (event.target.value || undefined) as NarrowSpec["volume"],
+                      }))
+                    }
+                    className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
+                  >
+                    <option value="">Volume</option>
+                    <option value="u500k">Under 500K</option>
+                    <option value="500k-2m">500K–2M</option>
+                    <option value="2m-10m">2M–10M</option>
+                    <option value="o10m">10M and up</option>
+                  </select>
+
+                  {/* Sector */}
+                  <input
+                    data-testid="export-narrow-sector"
+                    aria-label="Sector"
+                    type="text"
+                    value={narrow.sector ?? ""}
+                    onChange={(event) =>
+                      setNarrow((prev) => ({
+                        ...prev,
+                        sector: event.target.value || undefined,
+                      }))
+                    }
+                    placeholder="Sector"
+                    className="h-7 w-28 rounded-sm border border-line-control bg-surface-sunken px-1.5 font-mono text-data text-fg"
+                  />
+                </div>
+              ) : null}
+            </div>
 
             <div className="flex flex-wrap items-end gap-2">
               <label className="flex flex-col gap-1">

@@ -26,6 +26,8 @@
 import type { ScreenFilter } from "@/data/screens";
 import { postFile, readErrorMessage } from "@/lib/api";
 
+import { narrowToFilters, narrowToSignal, narrowIsEmpty, type NarrowSpec } from "./narrow";
+
 /** The one export route. Absolute from the origin, like every path in `lib/api`. */
 export const EXPORT_URL = "/screens/export";
 
@@ -72,6 +74,9 @@ export interface ExportInput {
   symbols?: readonly string[];
   /** The cells the reader wants; empty asks for the row's own shape. */
   columns?: readonly string[];
+  /** Optional narrowing dimensions; ANDed with criteria for screen, sent
+   *  separately for page/selected, ignored for tickers. */
+  narrow?: NarrowSpec;
 }
 
 export interface ExportBody {
@@ -82,6 +87,10 @@ export interface ExportBody {
   columns?: string[];
   format: ExportFormat;
   limit: number;
+  /** Narrow filters to AND with the population (page/selected scopes). */
+  narrow?: { filters: unknown[]; signal?: string };
+  /** A performance signal slug, when narrow.performance was set. */
+  signal?: string;
 }
 
 export interface ExportFile {
@@ -146,19 +155,43 @@ export function buildExportBody(input: ExportInput): ExportBody {
     limit: rows,
   };
 
+  const narrowFilters = narrowToFilters(input.narrow);
+  const signal = narrowToSignal(input.narrow);
+
   if (input.scope === "screen") {
     const criteria = input.criteria ?? { filters: [] };
+    const mergedFilters = [...criteria.filters, ...narrowFilters];
     return {
       mode: "criteria",
       ...base,
       criteria: {
-        filters: [...criteria.filters],
+        filters: mergedFilters,
         ...(criteria.sort ? { sort: criteria.sort } : {}),
         ...(criteria.view ? { view: criteria.view } : {}),
       },
+      ...(signal ? { signal } : {}),
     };
   }
-  return { mode: "symbols", ...base, symbols: [...(input.symbols ?? [])] };
+
+  // Tickers: narrow is ignored (typed tickers are already what the reader wants)
+  if (input.scope === "tickers") {
+    return { mode: "symbols", ...base, symbols: [...(input.symbols ?? [])] };
+  }
+
+  // Page / Selected: narrow travels separately so the API can intersect it
+  return {
+    mode: "symbols",
+    ...base,
+    symbols: [...(input.symbols ?? [])],
+    ...(narrowFilters.length > 0 || signal
+      ? {
+          narrow: {
+            filters: narrowFilters,
+            ...(signal ? { signal } : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 /**

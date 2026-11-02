@@ -66,7 +66,7 @@ async function readJson(response: Response): Promise<unknown> {
 
 interface RequestOptions {
   signal?: AbortSignal;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   headers?: Record<string, string>;
   body?: string;
 }
@@ -244,6 +244,60 @@ function asHealthReport(value: unknown): HealthReport {
         ? (checks as Record<string, HealthCheck>)
         : {},
   };
+}
+
+/** One saved screen as the API answers it. */
+export interface SavedScreen {
+  id: string;
+  name: string;
+  state: Record<string, unknown>;
+  created_at: string;
+}
+
+/** Fetch all saved screens. */
+export async function listSavedScreens(signal?: AbortSignal): Promise<SavedScreen[]> {
+  const body = await getJson("/screens/saved", signal);
+  if (!Array.isArray(body)) throw new ApiError(200, "Unexpected saved screens payload");
+  return body as SavedScreen[];
+}
+
+/** Save the current screener state. */
+export async function saveScreen(
+  name: string,
+  state: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<SavedScreen> {
+  const answer = await request("/screens/saved", {
+    method: "POST",
+    body: JSON.stringify({ name, state }),
+    signal,
+  });
+  if (!answer.ok) throw new ApiError(answer.status, readErrorMessage(answer.body, answer.status));
+  return answer.body as SavedScreen;
+}
+
+/** Rename a saved screen. */
+export async function renameScreen(
+  id: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<SavedScreen> {
+  const answer = await request(`/screens/saved/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+    signal,
+  });
+  if (!answer.ok) throw new ApiError(answer.status, readErrorMessage(answer.body, answer.status));
+  return answer.body as SavedScreen;
+}
+
+/** Delete a saved screen. */
+export async function deleteScreen(id: string, signal?: AbortSignal): Promise<void> {
+  const answer = await request(`/screens/saved/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    signal,
+  });
+  if (!answer.ok) throw new ApiError(answer.status, readErrorMessage(answer.body, answer.status));
 }
 
 /**

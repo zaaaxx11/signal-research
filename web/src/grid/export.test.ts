@@ -22,6 +22,8 @@ import { describe, expect, it } from "vitest";
 
 import { columnSpec } from "./columnMeta";
 import { formatCell } from "./format";
+import { buildExportBody } from "./exportJob";
+import type { NarrowSpec } from "./narrow";
 
 const SRC = join(process.cwd(), "src");
 const DOWNLOAD_OWNER = join("grid", "exportJob.ts");
@@ -91,5 +93,116 @@ describe("the export boundary", () => {
     // is byte-identical after the render.
     expect(row.exchange).toBe("XNAS");
     expect(JSON.stringify(row)).toBe('{"symbol":"AAPL","exchange":"XNAS"}');
+  });
+});
+
+describe("buildExportBody with narrow", () => {
+  const baseInput = {
+    scope: "screen" as const,
+    format: "csv" as const,
+    rows: 200,
+    region: "us",
+    criteria: { filters: [{ key: "ta_beta", op: "lt" as const, value: 0.8 }], sort: "market_cap" },
+    columns: ["price", "change"],
+  };
+
+  it("merges narrow filters into criteria for the screen scope", () => {
+    const narrow: NarrowSpec = { market_cap: "mega", volume: "o10m" };
+    const body = buildExportBody({ ...baseInput, narrow });
+    expect(body.criteria?.filters).toEqual([
+      { key: "ta_beta", op: "lt", value: 0.8 },
+      { key: "cap", op: "gte", value: 200_000_000_000 },
+      { key: "sh_curvol", op: "gte", value: 10_000_000 },
+    ]);
+  });
+
+  it("adds performance as a top-level signal for screen scope", () => {
+    const narrow: NarrowSpec = { performance: "gainers" };
+    const body = buildExportBody({ ...baseInput, narrow });
+    expect(body.signal).toBe("gainers");
+    // performance does not appear in filters
+    expect(body.criteria?.filters).toEqual([
+      { key: "ta_beta", op: "lt", value: 0.8 },
+    ]);
+  });
+
+  it("adds sector as a sec eq filter in criteria", () => {
+    const narrow: NarrowSpec = { sector: "Electronic Technology" };
+    const body = buildExportBody({ ...baseInput, narrow });
+    expect(body.criteria?.filters).toEqual([
+      { key: "ta_beta", op: "lt", value: 0.8 },
+      { key: "sec", op: "eq", value: "Electronic Technology" },
+    ]);
+  });
+
+  it("includes narrow block for page scope (not merged into criteria)", () => {
+    const narrow: NarrowSpec = { market_cap: "small" };
+    const body = buildExportBody({
+      ...baseInput,
+      scope: "page",
+      criteria: undefined,
+      symbols: ["AAPL", "MSFT"],
+      narrow,
+    });
+    // page scope has no criteria; narrow goes in separate narrow field
+    expect(body.mode).toBe("symbols");
+    expect(body.narrow).toBeDefined();
+    expect(body.narrow?.filters).toEqual([
+      { key: "cap", op: "gte", value: 2_000_000_000 },
+      { key: "cap", op: "lt", value: 10_000_000_000 },
+    ]);
+  });
+
+  it("omits narrow for tickers scope", () => {
+    const narrow: NarrowSpec = { sector: "Finance" };
+    const body = buildExportBody({
+      ...baseInput,
+      scope: "tickers",
+      criteria: undefined,
+      symbols: ["AAPL"],
+      narrow,
+    });
+    expect(body.narrow).toBeUndefined();
+    expect(body.symbols).toEqual(["AAPL"]);
+  });
+
+  it("includes narrow for selected scope", () => {
+    const narrow: NarrowSpec = { volume: "500k-2m" };
+    const body = buildExportBody({
+      ...baseInput,
+      scope: "selected",
+      criteria: undefined,
+      symbols: ["NVDA"],
+      narrow,
+    });
+    expect(body.narrow?.filters).toEqual([
+      { key: "sh_curvol", op: "gte", value: 500_000 },
+      { key: "sh_curvol", op: "lt", value: 2_000_000 },
+    ]);
+  });
+
+  it("combines all narrow dimensions in screen criteria", () => {
+    const narrow: NarrowSpec = {
+      market_cap: "mid",
+      volume: "2m-10m",
+      sector: "Finance",
+      performance: "losers",
+    };
+    const body = buildExportBody({ ...baseInput, narrow });
+    expect(body.signal).toBe("losers");
+    expect(body.criteria?.filters).toEqual([
+      { key: "ta_beta", op: "lt", value: 0.8 },
+      { key: "cap", op: "gte", value: 10_000_000_000 },
+      { key: "cap", op: "lt", value: 200_000_000_000 },
+      { key: "sh_curvol", op: "gte", value: 2_000_000 },
+      { key: "sh_curvol", op: "lt", value: 10_000_000 },
+      { key: "sec", op: "eq", value: "Finance" },
+    ]);
+  });
+
+  it("no narrow means no narrow field in body", () => {
+    const body = buildExportBody(baseInput);
+    expect(body.narrow).toBeUndefined();
+    expect(body.signal).toBeUndefined();
   });
 });

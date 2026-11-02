@@ -230,3 +230,60 @@ describe("the export dialog", () => {
     expect(sentBody(fetchMock).symbols).toEqual(["MSFT", "AAPL"]);
   });
 });
+
+describe("the export dialog — narrow disclosure", () => {
+  it("shows a collapsed narrow disclosure when no narrow is set", () => {
+    renderDialog();
+    expect(screen.getByTestId("export-narrow-disclosure")).toBeTruthy();
+    // The narrow panel starts collapsed (no dimensions chosen)
+    expect(screen.queryByTestId("export-narrow-panel")).toBeNull();
+  });
+
+  it("expands the narrow panel when the disclosure is clicked", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByTestId("export-narrow-disclosure"));
+
+    expect(screen.getByTestId("export-narrow-panel")).toBeTruthy();
+    // All four dimension controls are present
+    expect(screen.getByTestId("export-narrow-cap")).toBeTruthy();
+    expect(screen.getByTestId("export-narrow-performance")).toBeTruthy();
+    expect(screen.getByTestId("export-narrow-volume")).toBeTruthy();
+    expect(screen.getByTestId("export-narrow-sector")).toBeTruthy();
+  });
+
+  it("disables the Export button and shows a reason when the narrowed count is 0", async () => {
+    const user = userEvent.setup();
+    renderDialog({ matched: 0 });
+
+    await user.click(screen.getByTestId("export-narrow-disclosure"));
+
+    // With matched=0, the button should be disabled and show a reason
+    expect((screen.getByTestId("export-run") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("export-match").textContent).toContain("0 match");
+  });
+
+  it("shows the narrowed count line with a note for page scope", async () => {
+    const user = userEvent.setup();
+    renderDialog({ pageSymbols: ["AAPL", "MSFT", "NVDA"] });
+
+    await user.click(screen.getByTestId("export-scope-page"));
+    await user.click(screen.getByTestId("export-narrow-disclosure"));
+
+    // For page scope with 3 symbols, the count shows "3 match"
+    expect(screen.getByTestId("export-match").textContent).toContain("3 match");
+  });
+
+  it("the narrow does not affect tickers scope count", async () => {
+    const user = userEvent.setup();
+    renderDialog({ matched: 0 });
+
+    await user.click(screen.getByTestId("export-scope-tickers"));
+    await user.type(screen.getByTestId("export-tickers"), "AAPL");
+
+    // For tickers, the narrow is ignored; count is from typed symbols
+    expect(screen.getByTestId("export-match").textContent).toContain("1 match");
+    expect((screen.getByTestId("export-run") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
