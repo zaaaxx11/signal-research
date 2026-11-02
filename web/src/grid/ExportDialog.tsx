@@ -224,10 +224,6 @@ export function ExportDialog({
 
         {format === "api" ? (
           <div className="flex flex-col gap-2" data-testid="export-api-pane">
-            <p className="text-data text-fg-muted">
-              The export is one request. POST a body naming what to write and the answer is
-              the file itself — no job to poll.
-            </p>
             <pre
               data-testid="export-api-url"
               className="overflow-auto rounded-sm border border-line bg-surface-sunken p-2 font-mono text-data text-fg"
@@ -235,7 +231,7 @@ export function ExportDialog({
               {EXPORT_URL}
             </pre>
             <p className="text-data text-fg-subtle">
-              The API pane never downloads a file; it names the call.
+              POST. This pane names the call; it never downloads a file.
             </p>
           </div>
         ) : (

@@ -1047,14 +1047,15 @@ async def _current_universe(
     if depth.symbols:
         universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
 
-    universe = await enrich_rows(universe, getattr(runtime_of(request), "fundamentals_store", None))
+    runtime = runtime_of(request)
+    universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
 
     # P11J: the three short/ownership cells (Short Float, Insider Own, Inst Own)
     # have no scan metric at all; the facts store owns them. Same contract as
     # the fundamentals join — one batch read per selection, fresh rows only,
     # ``None`` where the store has no answer (unknown matches no filter), and a
     # missing table is no enrichment rather than a failed selection.
-    universe = await enrich_facts(universe, getattr(runtime_of(request), "facts_store", None))
+    universe = await enrich_facts(universe, getattr(runtime, "facts_store", None))
 
     # `idx` reads `index_members`, a cell no scan and no store carries: the four
     # Finviz lists are vendored (app.screen.index_membership) and attached here,

@@ -63,9 +63,11 @@ async def test_limit_200_is_accepted_and_an_omitted_limit_exports_the_match(
         matched = await _select_total(harness)
         capped = await harness.client.post("/screens/export", json=_criteria(limit=200))
         default = await harness.client.post("/screens/export", json=_criteria())
+        zero = await harness.client.post("/screens/export", json=_criteria(limit=0))
 
     assert capped.status_code == 200, capped.text
     assert default.status_code == 200, default.text
+    assert zero.status_code == 200, zero.text
     capped_rows = int(capped.headers["x-row-count"])
     default_rows = int(default.headers["x-row-count"])
     assert capped_rows == min(matched, 200), (
@@ -76,6 +78,7 @@ async def test_limit_200_is_accepted_and_an_omitted_limit_exports_the_match(
         "an omitted limit means the full cap, so the whole match up to 200; got "
         f"{default_rows}"
     )
+    assert int(zero.headers["x-row-count"]) == default_rows, "0 is how a body spells 'the cap'"
     assert capped_rows == default_rows and capped_rows > 0
 
 
@@ -103,6 +106,10 @@ async def test_a_limit_under_the_cap_cuts_the_file_to_that_many_rows(
 
     assert response.status_code == 200, response.text
     assert int(response.headers["x-row-count"]) == 5
+    assert int(response.headers["x-total-match"]) > 5, (
+        "the file is capped; the header still reports the full match so the client "
+        "can say '5 of N'"
+    )
     table = list(csv.reader(io.StringIO(response.text)))
     assert len(table) == 6, "one header plus the five rows the limit asked for"
 
