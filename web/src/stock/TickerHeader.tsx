@@ -71,8 +71,8 @@ export function TickerHeader({ header, actions }: TickerHeaderProps): React.Reac
       className="shrink-0 border-b border-line bg-surface px-4 pb-2.5 pt-2"
     >
       <div className="mb-1 flex items-center gap-2">
-        <Link to="/" className="text-label uppercase tracking-[0.08em] text-fg-muted hover:text-brand">
-          ← Signals
+        <Link to="/screener" className="text-label uppercase tracking-[0.08em] text-fg-muted hover:text-brand">
+          ← Screener
         </Link>
         <span aria-hidden="true" className="text-fg-subtle">
           /

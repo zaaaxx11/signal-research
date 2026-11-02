@@ -13,6 +13,20 @@ import { ColumnPicker } from "./ColumnPicker";
 
 const KEYS = ["price", "pe", "peg", "market_cap"];
 
+/** The ten extra keys the picker offers in its own Computed group. */
+const COMPUTED = [
+  "ema_13",
+  "ema_21",
+  "ema_50",
+  "ema_100",
+  "ema_200",
+  "sma_13",
+  "sma_21",
+  "sma_100",
+  "momentum",
+  "perf_wtd",
+];
+
 function setup(overrides: Partial<React.ComponentProps<typeof ColumnPicker>> = {}) {
   const onToggle = vi.fn();
   const onReset = vi.fn();
@@ -95,5 +109,94 @@ describe("ColumnPicker", () => {
       name: "Reset to view",
     });
     expect((reset as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("ColumnPicker — Computed group", () => {
+  it("lists exactly the ten wired keys, every one enabled, and no per-symbol group", () => {
+    setup({ computedKeys: COMPUTED });
+    const dialog = screen.getByTestId("column-picker");
+    const group = screen.getByTestId("column-picker-computed-group");
+    const list = within(group).getByRole("list", { name: "Computed columns" });
+    const boxes = within(list).getAllByRole("checkbox") as HTMLInputElement[];
+
+    expect(within(group).getByText("Computed")).toBeTruthy();
+    expect(boxes).toHaveLength(10);
+    expect(boxes.map((box) => box.getAttribute("aria-label"))).toEqual([
+      "EMA 13 (ema_13)",
+      "EMA 21 (ema_21)",
+      "EMA 50 (ema_50)",
+      "EMA 100 (ema_100)",
+      "EMA 200 (ema_200)",
+      "SMA 13 (sma_13)",
+      "SMA 21 (sma_21)",
+      "SMA 100 (sma_100)",
+      "Momentum (price change, 10d) (momentum)",
+      "Perf WTD (perf_wtd)",
+    ]);
+    expect(boxes.every((box) => !box.disabled)).toBe(true);
+
+    // The disabled per-symbol group is gone, not merely collapsed: no checkbox
+    // in the dialog is disabled, and the group is not rendered under a synonym.
+    const everyBox = within(dialog).getAllByRole("checkbox") as HTMLInputElement[];
+    expect(everyBox.filter((box) => box.disabled)).toHaveLength(0);
+    expect(within(dialog).queryByText(/per-symbol/i)).toBeNull();
+    expect(within(dialog).queryByTestId("column-picker-symbol-group")).toBeNull();
+  });
+
+  it("keeps the catalogue list and the Computed group disjoint", () => {
+    setup({ computedKeys: COMPUTED });
+    const catalogue = screen.getByRole("list", { name: "Catalogue columns" });
+    const computed = screen.getByRole("list", { name: "Computed columns" });
+    const catalogueKeys = within(catalogue)
+      .getAllByRole("checkbox")
+      .map((box) => box.getAttribute("aria-label"));
+    const computedKeys = within(computed)
+      .getAllByRole("checkbox")
+      .map((box) => box.getAttribute("aria-label"));
+
+    expect(catalogueKeys).toHaveLength(KEYS.length);
+    expect(new Set([...catalogueKeys, ...computedKeys]).size).toBe(
+      KEYS.length + COMPUTED.length,
+    );
+  });
+
+  it("adds a computed key by its public name", async () => {
+    const { onToggle } = setup({ computedKeys: COMPUTED });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("checkbox", { name: /EMA 13 \(ema_13\)/ }));
+    expect(onToggle).toHaveBeenCalledWith("ema_13");
+    await user.click(screen.getByRole("checkbox", { name: /Perf WTD \(perf_wtd\)/ }));
+    expect(onToggle).toHaveBeenLastCalledWith("perf_wtd");
+  });
+
+  it("finds computed keys by label or key without leaking them into the catalogue", async () => {
+    setup({ computedKeys: COMPUTED });
+    const user = userEvent.setup();
+    const search = screen.getByRole("searchbox", { name: "Find a column" });
+
+    await user.type(search, "ema");
+    expect(
+      within(screen.getByRole("list", { name: "Catalogue columns" })).queryAllByRole(
+        "checkbox",
+      ),
+    ).toHaveLength(0);
+    expect(
+      within(screen.getByRole("list", { name: "Computed columns" })).getAllByRole(
+        "checkbox",
+      ),
+    ).toHaveLength(5);
+
+    await user.clear(search);
+    await user.type(search, "momentum");
+    expect(screen.getByRole("checkbox", { name: /Momentum \(price change, 10d\)/ })).toBeTruthy();
+  });
+
+  it("counts Computed keys against the same 40-column panel", () => {
+    setup({
+      computedKeys: COMPUTED,
+      selected: [...KEYS, ...COMPUTED],
+    });
+    expect(screen.getByTestId("column-picker-count").textContent).toBe("14 / 40");
   });
 });

@@ -42,6 +42,7 @@ import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { ScreenPanel } from "@/grid/ScreenPanel";
 import { splitCatalogue } from "@/grid/catalogue";
 import { CLIENT_COLUMNS } from "@/grid/columnMeta";
+import { COMPUTED_KEYS } from "@/grid/computedColumns";
 import { identityColumns, sameColumns, selectAllColumns, useColumnSelection } from "@/grid/columnSelection";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { navigate } from "@/shell/routes";
@@ -90,10 +91,16 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
     vocabulary.status !== "loading",
   );
   // The picker offers every column on screen — including the client-drawn row
-  // number — so one vocabulary names everything the table can draw.
-  const pickerColumns = React.useMemo(
+  // number — so one vocabulary names everything the table can draw. The ten
+  // Computed keys are extra vocabulary (`POST /screens/select` accepts them),
+  // but they render as their own group, so the catalogue list stays 116 + `no`.
+  const catalogueColumns = React.useMemo(
     () => [...catalogue.keys, ...CLIENT_COLUMNS],
     [catalogue.keys],
+  );
+  const pickerColumns = React.useMemo(
+    () => [...catalogueColumns, ...COMPUTED_KEYS],
+    [catalogueColumns],
   );
   /**
    * Each view's own columns, with the *first* view replaced by the product's
@@ -370,11 +377,12 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
         <ColumnPicker
           open={pickerOpen}
           onClose={() => setPickerOpen(false)}
-          keys={pickerColumns}
+          keys={catalogueColumns}
+          computedKeys={COMPUTED_KEYS}
           selected={currentColumns}
           onToggle={(key) => columnSelection.toggle(active.name, key)}
-          onSelectAll={() => columnSelection.select(active.name, selectAllColumns(pickerColumns))}
-          onClearAll={() => columnSelection.select(active.name, identityColumns(pickerColumns))}
+          onSelectAll={() => columnSelection.select(active.name, selectAllColumns(catalogueColumns))}
+          onClearAll={() => columnSelection.select(active.name, identityColumns(catalogueColumns))}
           onReset={() => columnSelection.reset(active.name)}
           custom={!sameColumns(currentColumns, defaults[active.name] ?? active.columns)}
           notice={columnSelection.notice}

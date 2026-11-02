@@ -1,0 +1,57 @@
+{
+  "manifest_version": "v1",
+  "job_id": "c1fd5382-73ed-4aa7-87bd-f6ec9d50e536",
+  "scope": "all",
+  "screen_id": "scr_us_market_cap_20261102T155956482790_2d3415f3",
+  "region": "us",
+  "sort": "market_cap",
+  "selection_id": null,
+  "filter_hash": "us:market_cap:v1",
+  "view": null,
+  "source_graph_version": "source-graph-v1",
+  "criteria_snapshot": null,
+  "as_of": "2026-11-02T15:59:56.482790+00:00",
+  "audit_provenance": {
+    "selection_id": "not-recorded",
+    "filter_hash": "screens.filters_hash",
+    "view": "not-recorded",
+    "source_graph_version": "reference/source_graph.json",
+    "criteria_snapshot": "not-recorded",
+    "as_of": "screens.as_of"
+  },
+  "created_at": "2026-11-02T16:00:26.071626+00:00",
+  "columns": [
+    "rank",
+    "symbol",
+    "name",
+    "exchange",
+    "country",
+    "sector",
+    "price",
+    "change_pct",
+    "volume",
+    "turnover",
+    "market_cap_usd",
+    "as_of",
+    "source"
+  ],
+  "row_count": 3896,
+  "deep_rows": 0,
+  "files_count": 1,
+  "files": [
+    {
+      "name": "c1fd5382-73ed-4aa7-87bd-f6ec9d50e536-all.json",
+      "bytes": 1350750,
+      "sha256": "43d018d7642fce823287381896da8bb3e15ee8c85036152c93a2d77bff7647e2",
+      "row_count": 3896
+    }
+  ],
+  "coverage": {
+    "rows_expected": 3896,
+    "rows_written": 3896,
+    "ratio": 1.0,
+    "by_format": {
+      "json": 3896
+    }
+  }
+}

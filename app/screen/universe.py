@@ -95,6 +95,7 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.screen import derived_columns as computed
 from app.screen.derived import (
     DERIVED_COLUMNS,
     DERIVED_FIELDS,
@@ -218,6 +219,22 @@ PARITY_FIELDS: Mapping[str, str] = {
     "SMA20": "sma_20",
     "SMA50": "sma_50",
     "SMA200": "sma_200",
+    # The nine native window metrics the screener exposes as **Computed**
+    # columns (app.screen.derived_columns). They are requested by every parity
+    # scan and copied verbatim like any other provider cell; the registry is
+    # what gives them a public key, a unit and a label. ``Perf.W`` (→ ``ret_1w``)
+    # is the tenth computed key and was already in this table.
+    "EMA13": "ema_13",
+    "EMA21": "ema_21",
+    "EMA50": "ema_50",
+    "EMA100": "ema_100",
+    "EMA200": "ema_200",
+    "SMA13": "sma_13",
+    "SMA21": "sma_21",
+    "SMA100": "sma_100",
+    # TradingView ``Mom``: close minus close 10 sessions back, a **price
+    # difference**, not a percent. The field carries the window.
+    "Mom": "momentum_10d",
     "RSI": "rsi_14",
     "beta_1_year": "beta_1y",
     "price_52_week_high": "high_52w",
@@ -719,7 +736,29 @@ def _validate_derived() -> None:
         raise RuntimeError(f"derived fields overwrite a copied cell: {shadowed}")
 
 
+def _validate_computed_columns() -> None:
+    """Fail at import if a computed column points at a cell no row carries.
+
+    The registry's public keys are validated where they are accepted
+    (:mod:`app.screen.selection`); the row-field half is validated here because
+    this module owns the parity copy. A field that no row carries would make
+    every computed column null for every symbol — a picker selling ten empty
+    cells.
+    """
+
+    unknown = sorted(
+        entry["field"]
+        for entry in computed.COMPUTED_COLUMNS.values()
+        if entry["field"] not in CARRIED_FIELDS
+    )
+    if unknown:
+        raise RuntimeError(
+            f"computed column(s) read row fields no row carries: {unknown}"
+        )
+
+
 _validate_derived()
+_validate_computed_columns()
 
 
 __all__ = [

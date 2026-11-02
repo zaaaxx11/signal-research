@@ -320,3 +320,29 @@ describe("a column with a display formatter", () => {
     expect(span.textContent).toBe("Electronic Technology");
   });
 });
+
+describe("Computed columns formatting", () => {
+  it("prints moving averages and momentum as prices at two decimals", () => {
+    expect(formatCell(343.8211, columnSpec("ema_13")).text).toBe("$343.82");
+    expect(formatCell(321.9515, columnSpec("sma_100")).text).toBe("$321.95");
+    // `Mom` is a price difference, not a percent: the sign belongs to the
+    // number, and no `%` may appear in the cell.
+    const momentum = formatCell(-0.88, columnSpec("momentum"));
+    expect(momentum.text).toBe("-$0.88");
+    expect(momentum.text).not.toContain("%");
+  });
+
+  it("prints week-to-date performance as a signed percent at two decimals", () => {
+    expect(formatCell(-0.5408, columnSpec("perf_wtd")).text).toBe("-0.54%");
+    expect(formatCell(1.2, columnSpec("perf_wtd")).text).toBe("+1.20%");
+    expect(formatCell(0, columnSpec("perf_wtd")).text).toBe("0.00%");
+  });
+
+  it("keeps absent computed cells absent rather than zero", () => {
+    for (const key of ["ema_13", "momentum", "perf_wtd"]) {
+      const cell = formatCell(null, columnSpec(key));
+      expect(cell.absent).toBe(true);
+      expect(cell.text).toBe("—");
+    }
+  });
+});

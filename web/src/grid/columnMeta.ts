@@ -174,6 +174,20 @@ export const COLUMN_META: Record<string, Meta> = {
   sma20: { label: "SMA 20", ...MONEY, min: 70 },
   sma50: { label: "SMA 50", ...MONEY, min: 70 },
   sma200: { label: "SMA 200", ...MONEY, min: 76 },
+  // The Computed group (`computedColumns.ts`): native scanner windows the
+  // 116-key catalogue does not name. Moving averages are prices; `perf_wtd`
+  // is a percent. `momentum` is TradingView's `Mom` — a price difference over
+  // ten sessions, so it is money-formatted and never carries a `%`.
+  ema_13: { label: "EMA 13", ...MONEY, min: 70 },
+  ema_21: { label: "EMA 21", ...MONEY, min: 70 },
+  ema_50: { label: "EMA 50", ...MONEY, min: 70 },
+  ema_100: { label: "EMA 100", ...MONEY, min: 76 },
+  ema_200: { label: "EMA 200", ...MONEY, min: 76 },
+  sma_13: { label: "SMA 13", ...MONEY, min: 70 },
+  sma_21: { label: "SMA 21", ...MONEY, min: 70 },
+  sma_100: { label: "SMA 100", ...MONEY, min: 76 },
+  momentum: { label: "Momentum (price change, 10d)", short: "Mom 10d", ...MONEY, min: 84 },
+  perf_wtd: { label: "Perf WTD", short: "WTD", ...DELTA, min: 72 },
   high_50d: { label: "50D High", ...MONEY, min: 84 },
   low_50d: { label: "50D Low", ...MONEY, min: 84 },
   high_52w: { label: "52W High", ...MONEY, min: 84 },

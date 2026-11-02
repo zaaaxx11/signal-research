@@ -35,6 +35,12 @@ export interface ColumnPickerProps {
   onClose: () => void;
   /** Every key the served catalogue offers. */
   keys: readonly string[];
+  /**
+   * The extra **Computed** keys — native scan metrics the 116-key catalogue
+   * does not name (`computedColumns.ts`). They are offered in their own group
+   * and never duplicated into the catalogue list.
+   */
+  computedKeys?: readonly string[];
   /** The selection currently on screen. */
   selected: readonly string[];
   onToggle: (key: string) => void;
@@ -49,10 +55,35 @@ export interface ColumnPickerProps {
   notice: string | null;
 }
 
+/** A stable empty list, so the default prop does not churn memo deps. */
+const NO_COMPUTED: readonly string[] = [];
+
+/**
+ * The keys a search needle keeps: the exact spelling or the human label.
+ *
+ * Labels come from `columnSpec`, never from the key, so "momentum" and
+ * "Momentum (price change, 10d)" both find the computed momentum column.
+ */
+function matchingColumns(
+  source: readonly string[],
+  query: string,
+): readonly string[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return source;
+  return source.filter((key) => {
+    const spec = columnSpec(key);
+    return (
+      key.toLowerCase().includes(needle) ||
+      spec.label.toLowerCase().includes(needle)
+    );
+  });
+}
+
 export function ColumnPicker({
   open,
   onClose,
   keys,
+  computedKeys = NO_COMPUTED,
   selected,
   onToggle,
   onSelectAll,
@@ -66,26 +97,32 @@ export function ColumnPicker({
   const selectAllRef = React.useRef<HTMLInputElement>(null);
   const chosen = React.useMemo(() => new Set(selected), [selected]);
 
+  /** Everything the picker offers: the catalogue and the Computed group. */
+  const offered = React.useMemo(
+    () => [...keys, ...computedKeys],
+    [keys, computedKeys],
+  );
+
   /**
    * The selection as this picker can count it: keys outside the offered
-   * catalogue (a link may name one) are not rows of this list, so they cannot
+   * vocabulary (a link may name one) are not rows of this list, so they cannot
    * make the box read "all".
    */
   const chosenOffered = React.useMemo(
-    () => selected.filter((key) => keys.includes(key)),
-    [selected, keys],
+    () => selected.filter((key) => offered.includes(key)),
+    [selected, offered],
   );
   /** As many as one panel can hold, given what is offered. */
-  const fullest = Math.min(keys.length, COLUMN_CAP);
+  const fullest = Math.min(offered.length, COLUMN_CAP);
   const allChecked = fullest > 0 && chosenOffered.length >= fullest;
   /** Mixed: something is ticked, but the panel is not as full as it can be. */
   const mixed = chosenOffered.length > 0 && !allChecked;
   /** The list a select-all produces, so the cut sentence is never a guess. */
   const cut = React.useMemo(
-    () => (keys.length > COLUMN_CAP ? selectAllColumns(keys) : []),
-    [keys],
+    () => (offered.length > COLUMN_CAP ? selectAllColumns(offered) : []),
+    [offered],
   );
-  const truncated = keys.length > COLUMN_CAP && sameColumns(chosenOffered, cut);
+  const truncated = offered.length > COLUMN_CAP && sameColumns(chosenOffered, cut);
 
   React.useEffect(() => {
     // `indeterminate` is a DOM property, not an attribute React can render:
@@ -114,14 +151,41 @@ export function ColumnPicker({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  const matches = React.useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle.length === 0) return keys;
-    return keys.filter((key) => {
-      const spec = columnSpec(key);
-      return key.toLowerCase().includes(needle) || spec.label.toLowerCase().includes(needle);
-    });
-  }, [keys, query]);
+  const matches = React.useMemo(
+    () => matchingColumns(keys, query),
+    [keys, query],
+  );
+  const computedMatches = React.useMemo(
+    () => matchingColumns(computedKeys, query),
+    [computedKeys, query],
+  );
+  const nothing = matches.length === 0 && computedMatches.length === 0;
+
+  /** One checkbox row; the catalogue and the Computed group share it. */
+  const renderRow = (key: string) => {
+    const spec = columnSpec(key);
+    const checked = chosen.has(key);
+    return (
+      <li key={key}>
+        <label
+          className={cn(
+            "flex cursor-default items-center gap-2 rounded-[1px] px-2 py-1 text-data hover:bg-row-hover",
+            checked ? "text-fg" : "text-fg-muted",
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => onToggle(key)}
+            aria-label={`${spec.label} (${key})`}
+            className="size-3 accent-[var(--accent)]"
+          />
+          <span className="min-w-0 flex-1 truncate">{spec.label}</span>
+          <span className="shrink-0 font-mono text-label text-fg-subtle">{key}</span>
+        </label>
+      </li>
+    );
+  };
 
   if (!open) return null;
 
@@ -197,7 +261,7 @@ export function ColumnPicker({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Find a column"
-            placeholder="Find a column — 116 keys, 40 per panel"
+            placeholder={`Find a column — ${offered.length} keys, ${COLUMN_CAP} per panel`}
             className="w-full rounded-sm border border-line bg-surface-sunken px-2 py-1 text-data text-fg placeholder:text-fg-subtle focus-visible:outline-2 focus-visible:outline-focus"
           />
         </div>
@@ -215,35 +279,33 @@ export function ColumnPicker({
           </p>
         ) : null}
 
-        <ul className="min-h-0 flex-1 overflow-y-auto px-1 py-1" aria-label="Catalogue columns">
-          {matches.map((key) => {
-            const spec = columnSpec(key);
-            const checked = chosen.has(key);
-            return (
-              <li key={key}>
-                <label
-                  className={cn(
-                    "flex cursor-default items-center gap-2 rounded-[1px] px-2 py-1 text-data hover:bg-row-hover",
-                    checked ? "text-fg" : "text-fg-muted",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => onToggle(key)}
-                    aria-label={`${spec.label} (${key})`}
-                    className="size-3 accent-[var(--accent)]"
-                  />
-                  <span className="min-w-0 flex-1 truncate">{spec.label}</span>
-                  <span className="shrink-0 font-mono text-label text-fg-subtle">{key}</span>
-                </label>
-              </li>
-            );
-          })}
-          {matches.length === 0 ? (
-            <li className="px-2 py-3 text-data text-fg-subtle">No catalogue key matches that.</li>
+        <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+          <ul aria-label="Catalogue columns">
+            {matches.map(renderRow)}
+          </ul>
+          {computedKeys.length > 0 ? (
+            <section
+              data-testid="column-picker-computed-group"
+              aria-labelledby="column-picker-computed-title"
+              className="mt-1 border-t border-line pt-1"
+            >
+              <p
+                id="column-picker-computed-title"
+                className="px-2 py-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
+              >
+                Computed
+              </p>
+              <ul aria-label="Computed columns">
+                {computedMatches.map(renderRow)}
+              </ul>
+            </section>
           ) : null}
-        </ul>
+          {nothing ? (
+            <p className="px-2 py-3 text-data text-fg-subtle">
+              No column matches that.
+            </p>
+          ) : null}
+        </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line bg-surface-sunken px-3 py-2">
           <button
@@ -255,7 +317,7 @@ export function ColumnPicker({
             Reset to view
           </button>
           <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-            {matches.length} shown
+            {matches.length + computedMatches.length} shown
           </span>
           <button
             type="button"

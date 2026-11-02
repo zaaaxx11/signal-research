@@ -181,6 +181,84 @@ export function snapshotPayload(symbol = "AAPL"): Record<string, unknown> {
   };
 }
 
+/**
+ * `GET /engine/technicals/{symbol}`: one daily-close document.
+ *
+ * The values are percent **points** for momentum and the two calendar returns,
+ * a 0–100 index for RSI, and quote-currency prices for the averages — the
+ * endpoint's own units map is the contract. Every requested window is present;
+ * a window the series cannot fill would be `null`.
+ */
+export function technicalsPayload(symbol = "AAPL"): Record<string, unknown> {
+  const values: Record<string, unknown> = {
+    sma_13: 341.22,
+    sma_21: 337.84,
+    sma_50: 330.11,
+    sma_100: 318.47,
+    sma_200: 295.6,
+    ema_13: 342.05,
+    ema_21: 338.9,
+    ema_50: 331.72,
+    ema_100: 320.35,
+    ema_200: 298.12,
+    rsi_14: 58.42,
+    momentum_10: 4.61,
+    perf_wtd: 2.17,
+    perf_mtd: 5.83,
+  };
+
+  const units: Record<string, string> = {};
+  for (const key of Object.keys(values)) {
+    units[key] = key.startsWith("sma_") || key.startsWith("ema_")
+      ? "price"
+      : key.startsWith("rsi_")
+        ? "index"
+        : "percent";
+  }
+
+  return {
+    symbol,
+    as_of: "2026-10-31",
+    series_length: 252,
+    values,
+    units,
+    missing: [],
+  };
+}
+
+/**
+ * `GET /engine/risk/{symbol}`: the benchmark-relative group.
+ *
+ * Percent **points** for alpha, volatility and max drawdown; plain ratios for
+ * beta, Sharpe and R². The endpoint may omit `units`; the client carries the
+ * fallback map (see `technicals.ts`).
+ */
+export function riskPayload(symbol = "AAPL"): Record<string, unknown> {
+  return {
+    symbol,
+    as_of: "2026-10-31",
+    window: "1y",
+    values: {
+      alpha: 4.82,
+      beta: 1.08,
+      correlation: 0.86,
+      r_squared: 0.74,
+      volatility: 21.43,
+      sharpe: 1.42,
+      max_drawdown: -18.35,
+    },
+    units: {
+      alpha: "percent",
+      beta: "ratio",
+      correlation: "ratio",
+      r_squared: "ratio",
+      volatility: "percent",
+      sharpe: "ratio",
+      max_drawdown: "percent",
+    },
+  };
+}
+
 export function securityPayload(symbol = "AAPL"): Record<string, unknown> {
   return {
     symbol,
@@ -426,6 +504,8 @@ export interface TickerRoutes {
   security?: RouteHandler;
   fundamentals?: RouteHandler;
   snapshot?: RouteHandler;
+  technicals?: RouteHandler;
+  risk?: RouteHandler;
   peers?: RouteHandler;
   insider?: RouteHandler;
   news?: RouteHandler;
@@ -458,21 +538,25 @@ export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.f
           ? routes.fundamentals
           : url.includes("/engine/snapshot/")
             ? routes.snapshot
-            : url.includes("/engine/peers/")
-            ? routes.peers
-            : url.includes("/engine/insider/")
-              ? routes.insider
-              : url.includes("/engine/statements/")
-                ? routes.statements
-                : url.startsWith("/news/")
-                  ? routes.news
-                  : url.includes("/market/chart/")
-                    ? routes.chart
-                    : url.includes("/screens/select")
-                      ? routes.select
-                      : url.includes("/screens")
-                        ? routes.screens
-                        : undefined;
+            : url.includes("/engine/technicals/")
+              ? routes.technicals
+              : url.includes("/engine/risk/")
+                ? routes.risk
+                : url.includes("/engine/peers/")
+                  ? routes.peers
+                  : url.includes("/engine/insider/")
+                    ? routes.insider
+                    : url.includes("/engine/statements/")
+                      ? routes.statements
+                      : url.startsWith("/news/")
+                        ? routes.news
+                        : url.includes("/market/chart/")
+                          ? routes.chart
+                          : url.includes("/screens/select")
+                            ? routes.select
+                            : url.includes("/screens")
+                              ? routes.screens
+                              : undefined;
     if (handler !== undefined) return Promise.resolve(handler(url, init));
     if (url.startsWith("/symbols/search")) {
       return Promise.resolve(json([]));

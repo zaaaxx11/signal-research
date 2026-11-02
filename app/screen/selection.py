@@ -135,6 +135,7 @@ from app.engine.catalog import CATALOG_BY_KEY
 from app.screen import buckets
 from app.screen import choice_filters
 from app.screen import columns as column_map
+from app.screen import derived_columns as computed
 from app.screen import descriptive
 from app.screen import entitlements
 from app.screen import rank as ranking
@@ -880,16 +881,21 @@ def _criteria_block(payload: Mapping[str, Any]) -> Mapping[str, Any]:
 #: Every name a caller may ask for: the resolver's table (catalogue keys, the
 #: shipped client's names, every row field) plus the two structural cells a
 #: projection can always ask for.
-_KNOWN_COLUMNS: frozenset[str] = column_map.ROW_COLUMNS | column_map.ROW_FIELD_COLUMNS | frozenset(
-    {
-        "rank",
-        "as_of",
-        # The brand mark is part of the row identity (the browse row has always
-        # carried it), so a projection must be able to ask for it by name — and
-        # only by name: it is a 600-byte base64 monogram and 100 implicit copies
-        # would triple a twelve-column panel.
-        "logo",
-    }
+_KNOWN_COLUMNS: frozenset[str] = (
+    column_map.ROW_COLUMNS
+    | column_map.ROW_FIELD_COLUMNS
+    | frozenset(computed.COMPUTED_COLUMNS)
+    | frozenset(
+        {
+            "rank",
+            "as_of",
+            # The brand mark is part of the row identity (the browse row has
+            # always carried it), so a projection must be able to ask for it by
+            # name — and only by name: it is a 600-byte base64 monogram and 100
+            # implicit copies would triple a twelve-column panel.
+            "logo",
+        }
+    )
 )
 
 
@@ -1289,7 +1295,14 @@ def _column_row(
 
     document: dict[str, Any] = {"symbol": row.get("symbol")}
     for column in columns:
-        document[column] = column_map.value_for(row, column)
+        if computed.is_computed(column):
+            # The ten Computed keys are extra vocabulary, not catalogue
+            # spellings: their public key and their row field differ for
+            # ``momentum`` (``momentum_10d``) and ``perf_wtd`` (``ret_1w``), so
+            # they are read through their own registry rather than guessed at.
+            document[column] = computed.value_for(row, column)
+        else:
+            document[column] = column_map.value_for(row, column)
     document["as_of"] = as_of
     return document
 
