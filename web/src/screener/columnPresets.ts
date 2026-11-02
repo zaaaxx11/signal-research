@@ -1,5 +1,5 @@
 /**
- * The column presets: eighteen ways to look at the same screen.
+ * The column presets: seventeen ways to look at the same screen.
  *
  * A preset is a *column set*, never a filter. Clicking one changes what the
  * table draws and nothing about which rows survived — the chips, the URL's `f`
@@ -10,8 +10,7 @@
  * Each of the nine view tabs maps to one served view through `TAB_TO_VIEW`,
  * spelled once. A tab whose view this build no longer serves, and which has no
  * column set of its own, is **disabled** and its title says which view is
- * missing. No tab is ever redirected to another one — `custom` in particular is
- * a column set, not a fallback.
+ * missing. No tab is ever redirected to another one.
  *
  * Each preset resolves against what the server actually served, in three
  * steps:
@@ -43,8 +42,6 @@ export interface ColumnPreset {
   columns?: readonly string[];
   /** One line, for the tooltip: what this tab is for. */
   job: string;
-  /** True for the tab that stands for the reader's own selection. */
-  custom?: boolean;
 }
 
 /**
@@ -52,8 +49,7 @@ export interface ColumnPreset {
  *
  * The ids on the left are ours; the names on the right are the API's. A tab
  * whose view is missing from the served schema is disabled by `resolvePreset`
- * — it is never pointed at another tab, and `custom` is not a view name any
- * request can carry.
+ * — it is never pointed at another tab.
  */
 export const TAB_TO_VIEW: Readonly<Record<string, string>> = {
   summary: "today",
@@ -77,12 +73,6 @@ export const COLUMN_PRESETS: readonly ColumnPreset[] = [
   { id: "technical", label: "Technical", view: TAB_TO_VIEW["technical"], job: "Where price sits against its own averages." },
   { id: "dividends", label: "Dividends", view: TAB_TO_VIEW["dividends"], job: "What the company pays, and how that has moved." },
   { id: "basics", label: "Basics", view: TAB_TO_VIEW["basics"], job: "What the company is, and where it lists." },
-  {
-    id: "custom",
-    label: "Custom",
-    custom: true,
-    job: "Your own column set: the Columns control's selection, or the view's own columns.",
-  },
   {
     id: "charts",
     label: "Charts",
@@ -163,11 +153,11 @@ export const COLUMN_PRESETS: readonly ColumnPreset[] = [
 
 /**
  * How a preset was honoured. `view` switches the served view; `catalogue`
- * applies a column set this build can serve; `custom` is the reader's set.
- * `default` is the honest refusal: the view or columns the tab names are not
- * served, so `disabled` is true and the tab says why.
+ * applies a column set this build can serve. `default` is the honest refusal:
+ * the view or columns the tab names are not served, so `disabled` is true and
+ * the tab says why.
  */
-export type PresetSource = "view" | "catalogue" | "default" | "custom";
+export type PresetSource = "view" | "catalogue" | "default";
 
 export interface ResolvedPreset {
   preset: ColumnPreset;
@@ -185,7 +175,7 @@ export interface ResolvedPreset {
   /**
    * True when this tab cannot be honoured by this build. The button is
    * disabled and its title says why; clicking it does nothing. A disabled tab
-   * is never redirected to another view or to Custom.
+   * is never redirected to another view.
    */
   disabled: boolean;
 }
@@ -198,8 +188,6 @@ export interface PresetResolutionOptions {
    * and the Summary tab has to describe that same set or it never matches.
    */
   defaults?: Readonly<Record<string, readonly string[]>>;
-  /** The reader's own set — whatever the header's Columns control shows. */
-  customColumns?: readonly string[] | null;
 }
 
 function unique(keys: readonly string[]): string[] {
@@ -219,7 +207,7 @@ function unique(keys: readonly string[]): string[] {
  * The lookup is by view *name*, never by the preset's label: a served view may
  * be relabelled without moving the tab. A preset whose view was withdrawn is
  * disabled with the missing name in its title — it is not pointed at the
- * current view, at another tab, or at Custom.
+ * current view or at another tab.
  */
 export function resolvePreset(
   preset: ColumnPreset,
@@ -253,33 +241,6 @@ export function resolvePreset(
       columns,
       note: `${columns.length} columns from the “${view.label}” view.`,
       description: `${columns.length} columns, the ${view.label} view`,
-    };
-  }
-
-  if (preset.custom) {
-    const known = new Set(catalogue);
-    const kept = options.customColumns
-      ? unique(options.customColumns.filter((key) => known.has(key)))
-      : [];
-    if (kept.length > 0) {
-      return {
-        ...base,
-        source: "custom",
-        viewName: null,
-        columns: kept,
-        note: "Your own column set, as the Columns control has it.",
-        description: `${kept.length} of your own columns`,
-      };
-    }
-    // No saved set: the tab still stands for the reader's own columns, and
-    // applying it falls back to the current view's defaults.
-    return {
-      ...base,
-      source: "custom",
-      viewName: null,
-      columns: null,
-      note: "Your own columns; the view's defaults until you save a set.",
-      description: "your own columns",
     };
   }
 
@@ -334,16 +295,16 @@ export function resolvePresets(
 }
 
 /**
- * The preset whose columns are exactly the ones on screen, or the Custom tab.
+ * The preset whose columns are exactly the ones on screen, or `""` for none.
  *
  * Derived, never stored: the bar reflects the table, so a reader who rearranges
- * columns in the control sees the bar stop claiming a preset — and a reload
- * lands on the same tab because `?cols=` reproduces the same comparison.
+ * columns in the control (or applies a saved set) sees the bar stop claiming a
+ * preset — no tab is pressed — and a reload lands on the same tab because
+ * `?cols=` reproduces the same comparison.
  *
  * A disabled preset is never a match; neither is a preset that resolved to no
- * columns. The final fallback is Custom — the reader's own set — and never a
- * different view tab: clicking Summary cannot make the bar say Custom unless
- * the columns on screen really are Custom's.
+ * columns. With no match the bar selects nothing rather than naming a tab whose
+ * columns are not on screen.
  */
 export function activePresetId(
   resolved: readonly ResolvedPreset[],
@@ -360,11 +321,7 @@ export function activePresetId(
     }
     if (sameList(entry.columns, columns)) return entry.preset.id;
   }
-  return (
-    resolved.find((entry) => entry.preset.custom && !entry.disabled)?.preset.id ??
-    resolved.find((entry) => !entry.disabled)?.preset.id ??
-    ""
-  );
+  return "";
 }
 
 function sameList(left: readonly string[], right: readonly string[]): boolean {

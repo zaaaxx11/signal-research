@@ -12,7 +12,7 @@
  * * **Columns** is the reader's own set — named, saved in this browser and
  *   managed in a dialog — plus the picker that edits the columns on screen. It
  *   is not a tab.
- * * **The tabs** are the product's built-in column sets: eighteen of them,
+ * * **The tabs** are the product's built-in column sets: seventeen of them,
  *   always mounted. Choosing one cannot clear a filter, because it writes
  *   `?view=` (or `?cols=`) and leaves `?f=` alone.
  * * **Filter** is the server's vocabulary: one labelled field per control,
@@ -71,8 +71,6 @@ export interface ScreenerHeaderProps {
    * so the Summary tab must describe that same set to stay selected.
    */
   defaults?: Readonly<Record<string, readonly string[]>>;
-  /** The reader's own set: what the Custom tab stands for tonight. */
-  customColumns?: readonly string[];
   /** A built-in tab was chosen: the shell switches view or applies its columns. */
   onSelectPreset: (preset: ResolvedPreset) => void;
   /** Opens the column picker; the control lives here, never in a tab. */
@@ -120,7 +118,6 @@ export function ScreenerHeader({
   view,
   columns,
   defaults,
-  customColumns,
   onSelectPreset,
   onOpenColumnPicker,
   userPresets,
@@ -148,8 +145,8 @@ export function ScreenerHeader({
   const reducedMotion = useReducedMotion();
 
   const resolved = React.useMemo(
-    () => resolvePresets(views, catalogue, { defaults, customColumns }),
-    [views, catalogue, defaults, customColumns],
+    () => resolvePresets(views, catalogue, { defaults }),
+    [views, catalogue, defaults],
   );
   const active = React.useMemo(
     () => activePresetId(resolved, view, columns),
@@ -249,8 +246,8 @@ export function ScreenerHeader({
    *
    * The Columns select and the tab bar are different vocabularies on purpose —
    * the select is the reader's own sets, the tabs are the product's — so this
-   * handler exists only for the tabs. Custom is one of them: it applies its
-   * column set like any sibling and never opens the picker.
+   * handler exists only for the tabs. A tab applies its column set like any
+   * sibling and never opens the picker.
    */
   const choosePreset = (entry: ResolvedPreset) => {
     if (entry.disabled) return;
@@ -833,7 +830,7 @@ function ScopeButton({
 /**
  * One built-in tab.
  *
- * The toolbar is one tab stop, not eighteen: the selected tab carries
+ * The toolbar is one tab stop, not seventeen: the selected tab carries
  * `tabIndex={0}` and its siblings `-1`, and the arrow keys move between them.
  * A tab whose view this build does not serve is disabled, keeps the reason in
  * its title and accessible name, and is skipped by the arrow keys.

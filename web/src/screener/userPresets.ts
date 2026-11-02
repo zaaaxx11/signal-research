@@ -265,8 +265,6 @@ function writeStorage(state: UserPresetState): void {
 export interface UserPresetsApi {
   presets: UserPresetEntry[];
   selected: string;
-  /** The preset the control shows; never null once storage has been read. */
-  selectedPreset: UserPresetEntry;
   /** Save the current columns under a name; returns the preset that was written. */
   save: (name: string, columns: readonly string[]) => SavedColumnPreset;
   rename: (id: string, name: string) => void;
@@ -309,8 +307,6 @@ export function useUserColumnPresets(): UserPresetsApi {
   );
 
   const entries = React.useMemo(() => presetEntries(state), [state]);
-  const selectedPreset =
-    entries.find((preset) => preset.id === state.selected) ?? entries[0]!;
 
-  return { presets: entries, selected: state.selected, selectedPreset, save, rename, remove, select };
+  return { presets: entries, selected: state.selected, save, rename, remove, select };
 }

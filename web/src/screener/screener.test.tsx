@@ -19,7 +19,6 @@ import { isClientColumn } from "@/grid/columnMeta";
 import { ScreenerScreen } from "./ScreenerScreen";
 import { defaultColumns } from "./defaultColumns";
 import { resetFiltersDocumentCache } from "./filtersDocument";
-import { USER_PRESETS_KEY, serializeUserPresets } from "./userPresets";
 import { CAP_MEGA } from "./__fixtures__/filters";
 import { filterDocumentWire } from "./__fixtures__/filters";
 
@@ -95,6 +94,14 @@ const REAL_CATALOGUE = [...new Set(VIEW_FIXTURE.flatMap((view) => view.columns))
 const SUMMARY_WIRE_COLUMNS = defaultColumns(VIEW_FIXTURE[0]!.columns, REAL_CATALOGUE).filter(
   (key) => !isClientColumn(key),
 );
+
+/** The ids of the built-in tabs the bar is currently pressing. */
+function pressedTabs(): (string | null)[] {
+  const toolbar = screen.getByRole("toolbar", { name: "Built-in column presets" });
+  return [...toolbar.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]')].map(
+    (button) => button.getAttribute("data-preset"),
+  );
+}
 
 beforeEach(() => {
   // jsdom has no layout: without a measured container the table renders its
@@ -179,78 +186,31 @@ describe("the screener screen", () => {
     expect(new URLSearchParams(window.location.search).get("view")).toBe("value");
   });
 
-  it("keeps Summary on its own view and columns instead of falling through to Custom", async () => {
+  it("keeps Summary on its own view and columns instead of falling through to another tab", async () => {
     const user = userEvent.setup();
     const api = stubApi(undefined, realColumnSchema());
     renderScreen();
 
     await waitFor(() => expect(api.selects).toHaveLength(1));
     // The screen opens on the product's default set, and the bar says Summary —
-    // not Custom — because Summary resolves to that same set.
+    // and only Summary — because Summary resolves to that same set.
     expect(api.selects[0]?.columns).toEqual(SUMMARY_WIRE_COLUMNS);
-    expect(screen.getByTestId("preset-summary").getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("false");
+    expect(pressedTabs()).toEqual(["summary"]);
 
     await user.click(screen.getByTestId("preset-valuation"));
     await waitFor(() => expect(api.selects).toHaveLength(2));
-    expect(screen.getByTestId("preset-summary").getAttribute("aria-pressed")).toBe("false");
+    expect(pressedTabs()).toEqual(["valuation"]);
 
     await user.click(screen.getByTestId("preset-summary"));
     await waitFor(() => expect(api.selects).toHaveLength(3));
 
     const url = new URLSearchParams(window.location.search);
     expect(url.get("view")).toBe("today");
-    expect(url.get("view")).not.toBe("custom");
-    expect(url.get("cols") ?? "").not.toContain("custom");
-    expect(screen.getByTestId("preset-summary").getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("false");
-    // The Summary columns, not a silent Custom fallback.
+    // No column override is left behind: Summary is the view's own set.
+    expect(url.get("cols")).toBeNull();
+    expect(pressedTabs()).toEqual(["summary"]);
+    // The Summary columns, not a silent fallback to another tab's set.
     expect(api.selects[2]?.columns).toEqual(SUMMARY_WIRE_COLUMNS);
-  });
-
-  it("treats Custom as a column set and renders no Columns card", async () => {
-    const user = userEvent.setup();
-    const api = stubApi(undefined, realColumnSchema());
-    renderScreen();
-
-    await waitFor(() => expect(api.selects).toHaveLength(1));
-    await user.click(screen.getByTestId("preset-custom"));
-
-    // No dialog, no "Columns 12 / 40" card: the tab is a column set, and the
-    // selection control lives in the header.
-    expect(screen.queryByTestId("column-picker")).toBeNull();
-    expect(document.body.textContent ?? "").not.toMatch(/Columns\s+\d+\s*\/\s*40/);
-
-    await waitFor(() => expect(api.selects).toHaveLength(2));
-    // Without a saved set, Custom is the served view's own columns.
-    expect(api.selects[1]?.columns).toEqual(VIEW_FIXTURE[0]!.columns);
-    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("true");
-    expect(new URLSearchParams(window.location.search).get("view")).toBe("today");
-  });
-
-  it("uses the selected saved set as the Custom tab's columns", async () => {
-    window.localStorage.setItem(
-      USER_PRESETS_KEY,
-      serializeUserPresets({
-        presets: [
-          { id: "my-stock-presets", name: "My stock presets", columns: [] },
-          { id: "cheap-1", name: "Cheap", columns: ["price", "pe", "market_cap"] },
-        ],
-        selected: "cheap-1",
-      }),
-    );
-    const user = userEvent.setup();
-    const api = stubApi(undefined, realColumnSchema());
-    renderScreen();
-
-    await waitFor(() => expect(api.selects).toHaveLength(1));
-    await user.click(screen.getByTestId("preset-custom"));
-    await waitFor(() => expect(api.selects).toHaveLength(2));
-
-    expect(api.selects[1]?.columns).toEqual(["price", "pe", "market_cap"]);
-    expect(screen.getByTestId("preset-custom").getAttribute("aria-pressed")).toBe("true");
-    // Still the view, never a `view=custom` fallback.
-    expect(new URLSearchParams(window.location.search).get("view")).toBe("today");
   });
 
   it("opens the column picker from the header control, with the 40-column cap intact", async () => {

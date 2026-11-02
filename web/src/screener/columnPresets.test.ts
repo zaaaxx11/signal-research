@@ -1,5 +1,5 @@
 /**
- * The column presets: eighteen names, nine served views, and one honest
+ * The column presets: seventeen names, nine served views, and one honest
  * fallback when the catalogue cannot back a tab.
  *
  * The invariant worth pinning is the first one: every view the schema serves is
@@ -32,10 +32,10 @@ const CATALOGUE = [
 ];
 
 describe("the column presets", () => {
-  it("is eighteen distinct names, in the product's own vocabulary", () => {
-    expect(COLUMN_PRESETS).toHaveLength(18);
-    expect(new Set(COLUMN_PRESETS.map((preset) => preset.id)).size).toBe(18);
-    expect(new Set(COLUMN_PRESETS.map((preset) => preset.label)).size).toBe(18);
+  it("is seventeen distinct names, in the product's own vocabulary", () => {
+    expect(COLUMN_PRESETS).toHaveLength(17);
+    expect(new Set(COLUMN_PRESETS.map((preset) => preset.id)).size).toBe(17);
+    expect(new Set(COLUMN_PRESETS.map((preset) => preset.label)).size).toBe(17);
     expect(COLUMN_PRESETS.map((preset) => preset.label)).toEqual([
       "Summary",
       "Valuation",
@@ -46,7 +46,6 @@ describe("the column presets", () => {
       "Technical",
       "Dividends",
       "Basics",
-      "Custom",
       "Charts",
       "Tickers",
       "TA",
@@ -135,7 +134,7 @@ describe("the column presets", () => {
 
   it("takes the columns the screen will really draw for a view, not the raw served list", () => {
     // The Summary tab opens on the product default set; if it resolved to the
-    // served view's own columns the bar fell through to Custom on every load.
+    // served view's own columns the bar stopped claiming Summary on every load.
     const entry = resolvePreset(
       COLUMN_PRESETS.find((preset) => preset.id === "summary")!,
       VIEW_FIXTURE,
@@ -144,17 +143,6 @@ describe("the column presets", () => {
     );
     expect(entry.columns).toEqual(["company", "price"]);
     expect(entry.description).toBe("2 columns, the Today view");
-  });
-
-  it("stands for the reader's own columns without pretending to be a preset", () => {
-    const entry = resolvePreset(
-      COLUMN_PRESETS.find((preset) => preset.id === "custom")!,
-      VIEW_FIXTURE,
-      CATALOGUE,
-    );
-    expect(entry.source).toBe("custom");
-    expect(entry.columns).toBeNull();
-    expect(entry.description).toBe("your own columns");
   });
 
   it("derives the active tab from the columns on screen, never from a separate state", () => {
@@ -167,7 +155,7 @@ describe("the column presets", () => {
     expect(activePresetId(resolved, "value", value)).toBe("valuation");
     // A catalogue preset has no view, so the comparison is columns-only.
     expect(activePresetId(resolved, "value", news)).toBe("news");
-    // Columns no preset claims: the bar says Custom rather than lying.
-    expect(activePresetId(resolved, "value", ["price"])).toBe("custom");
+    // Columns no preset claims: the bar presses no tab rather than lying.
+    expect(activePresetId(resolved, "value", ["price"])).toBe("");
   });
 });

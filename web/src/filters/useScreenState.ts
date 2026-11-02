@@ -114,8 +114,8 @@ export function useScreenState(
    * Only a view the schema served can become the screen's view.
    *
    * The guard is deliberate: the presets name views through one explicit map,
-   * and an id that is not in the served catalogue (`custom`, a tab id, a stale
-   * link) can never enter the state or the query string.
+   * and an id that is not in the served catalogue (a tab id, a stale link) can
+   * never enter the state or the query string.
    */
   const setView = React.useCallback(
     (name: string) => {

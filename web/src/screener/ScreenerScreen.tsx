@@ -164,17 +164,6 @@ export function ScreenerScreen({
   const currentColumns = active
     ? columnSelection.columnsFor(active.name) ?? summaryColumns
     : [];
-  /**
-   * What the Custom tab stands for: the reader's saved set when the Columns
-   * control has one, else the selection the link brought (`?cols=`), else the
-   * served view's own columns. It is a column set like any other tab — never a
-   * dialog, never a count card.
-   */
-  const selectedColumns = active ? columnSelection.columnsFor(active.name) : null;
-  const customColumns =
-    userPresets.selectedPreset.columns.length > 0
-      ? userPresets.selectedPreset.columns
-      : selectedColumns ?? active?.columns ?? [];
 
   /**
    * The table scrolls only to equalise a taller detail panel.
@@ -232,8 +221,7 @@ export function ScreenerScreen({
    * A view preset is `?view=`; a preset with its own columns is `?cols=` for
    * the view already on screen. Neither touches `?f=`, which is the whole
    * promise of the bar: columns change, rows do not. A disabled tab never gets
-   * here — its view is gone and the header refuses the click — and `custom` is
-   * just another column set, never a view name.
+   * here — its view is gone and the header refuses the click.
    */
   const applyPreset = (entry: ResolvedPreset) => {
     if (entry.disabled) return;
@@ -262,7 +250,6 @@ export function ScreenerScreen({
         view={active?.name ?? ""}
         columns={currentColumns}
         defaults={defaults}
-        customColumns={customColumns}
         onSelectPreset={applyPreset}
         userPresets={userPresets}
         onApplyColumns={(keys) => columnSelection.select(screen.state.view, keys)}

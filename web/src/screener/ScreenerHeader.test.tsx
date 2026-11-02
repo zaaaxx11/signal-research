@@ -336,7 +336,7 @@ describe("the panel is one field per control", () => {
 });
 
 describe("the two column vocabularies", () => {
-  it("keeps the eighteen built-in tabs as their own control", async () => {
+  it("keeps the seventeen built-in tabs as their own control", async () => {
     const user = userEvent.setup();
     const { spies } = setup();
 
@@ -379,8 +379,8 @@ describe("the two column vocabularies", () => {
     await user.click(edit);
     expect(spies.onOpenColumnPicker).toHaveBeenCalledTimes(1);
 
-    // The Custom tab is a column set like its siblings: it never opens the card.
-    await user.click(screen.getByTestId("preset-custom"));
+    // A tab is a column set like its siblings: it never opens the card.
+    await user.click(screen.getByTestId("preset-valuation"));
     expect(spies.onOpenColumnPicker).toHaveBeenCalledTimes(1);
   });
 
