@@ -83,6 +83,7 @@ from app.screen import (
     etf_holdings,
     index_membership,
     news_index,
+    options,
 )
 from app.screen.filters import FILTER_CATALOG, VALUE_ALIASES
 
@@ -619,22 +620,37 @@ def default_sort(item: Signal) -> str:
 # Two populations, deliberately different:
 #
 # * a **static** vocabulary (index, price bands, earnings dates, themes,
-#   signals, order-by, the five venue tokens) ships inline — it is Finviz's, it
-#   changes when Finviz changes, and it is small enough to send;
-# * a **live** population (sector labels, the row counts per venue) is
-#   *referenced* through ``options_sources``, because those lists belong to the
-#   scan: copying one into this document would be a second copy that drifts the
-#   first time the universe changes. ``exch`` is therefore two facts, not a
-#   contradiction: the five *tokens* are Finviz's and ship inline with the MIC
-#   each compiles to, while *how many rows each venue holds* is live and is
-#   published by ``/market/exchanges``. Industry and country are free text
-#   (``contains``) for a related reason: Finviz's 146 industry and 62 country
-#   labels are *their* taxonomy, while the row carries the provider's string, so
-#   a select of Finviz labels would return empty pages.
+#   signals, order-by, the five venue tokens, the twenty-one sector names) ships
+#   inline — it is the provider's, it changes when the provider changes, and it is
+#   small enough to send;
+# * a **live** population (how many rows each sector and each venue holds) is
+#   *referenced* through ``options_sources`` for the venue half, because a count
+#   belongs to the scan and this document is built from memory. ``sec`` is the
+#   exception: its labels **and** their row counts ship inline, because the
+#   route reads the same ``/market/sectors`` population the sector table counts
+#   and hands the measurement in (:func:`document`); ``options_source`` stays on
+#   the control so a client that wants the census can still find it. A taxonomy
+#   is a vocabulary, a count is a measurement, and both are honest when dated by
+#   the same build.
+#   ``exch`` is the two-facts shape: the five *tokens* are Finviz's and ship inline
+#   with the MIC each compiles to, while *how many rows each venue holds* is live
+#   and is published by ``/market/exchanges``. Industry and country stay free text
+#   (``contains``) — Finviz's 146 industry and 62 country labels are *their*
+#   taxonomy, while the row carries the provider's string, so a select of Finviz
+#   labels would return empty pages — and their **provider-side** enumerations are
+#   published by ``/screens/options/industry`` and ``/screens/options/country``
+#   (:mod:`app.screen.options`), which is what a combobox offers.
 
 #: The version a client keys its cache on. A shape change moves it. The id is
-#: the product's, not a vendor's: a client holding ``screener-2`` is holding
+#: the product's, not a vendor's: a client holding ``screener-3`` is holding
 #: *this* panel, and the name says nothing about where the idea came from.
+#:
+#: P0.1 deliberately did **not** move it: no control, key, field or option id was
+#: added, removed or renamed — ``sec`` has always carried an ``options`` array and
+#: ``industry``/``geo`` have always carried an ``options_source`` field — so what
+#: changed is one control's *content* (the provider's twenty-one labels instead of
+#: an empty list), which the ``ETag`` already dates. A bump would throw away every
+#: cached document for an additive answer.
 SCHEMA_VERSION = "screener-3"
 
 #: The five catalogue tabs, in Finviz's panel order, and the group each becomes.
@@ -650,13 +666,27 @@ TAB_LABELS: Mapping[str, str] = MappingProxyType(
 
 #: Where the live sector labels come from — the treemap's own route, whose ids
 #: and labels are the ones a *row* carries (the provider's 21-name taxonomy).
+#: The labels (and their counts) now ship inline in ``sec.options``; this source
+#: stays published so a client can still reach the full census document.
 SECTORS_SOURCE = (
     "sector labels with counts (live): the ids /market/sectors publishes are "
-    "the row's own `sector` strings, so `sec` compares them with `in`"
+    "the row's own `sector` strings, so `sec` compares them with `in`; the "
+    "labels and their row counts also ship inline in `sec.options`, and "
+    "/screens/options/sector enumerates the same census"
 )
 EXCHANGES_SOURCE = (
     "venue codes with counts (live): /market/exchanges counts the rows each MIC "
     "holds, beside the four codes `exch` accepts"
+)
+INDUSTRY_SOURCE = (
+    "industry labels with counts (live): /screens/options/industry enumerates "
+    "the provider's own `industry` cells over the current universe, one option "
+    "per spelling with its row count"
+)
+COUNTRIES_SOURCE = (
+    "country labels with counts (live): /screens/options/country enumerates the "
+    "provider's own `country` cells over the current universe, one option per "
+    "spelling with its row count"
 )
 
 #: The vendored Finviz labels, written by ``scripts/descriptive-options.py``.
@@ -728,6 +758,12 @@ class Option:
     available: bool = True
     reason: str | None = None
     order: str | None = None
+    #: The row count behind this option, when the builder was handed a live
+    #: population (``sec`` is the one control that publishes it). ``None`` — the
+    #: key is then **absent** from the published mapping — means "this option is
+    #: a vocabulary entry, not a measurement", never "zero rows": a zero would be
+    #: indistinguishable from a sector nobody is in.
+    count: int | None = None
     #: The plan this option needs, from ``app/screen/data/entitlements.json``.
     #: Assigned by :func:`_published` (an option is gated with its control), and
     #: always published: a client must be able to draw the lock without asking a
@@ -735,7 +771,7 @@ class Option:
     tier: str = "free"
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        row: dict[str, Any] = {
             "id": self.id,
             "label": self.label,
             "token": self.token,
@@ -745,6 +781,9 @@ class Option:
             "order": self.order,
             "tier": self.tier,
         }
+        if self.count is not None:
+            row["count"] = self.count
+        return row
 
 
 @dataclass(frozen=True, slots=True)
@@ -982,6 +1021,49 @@ def _reason(key: str) -> str:
     return UNAVAILABLE[key]
 
 
+def _sector_options(counts: Mapping[str, int] | None = None) -> tuple[Option, ...]:
+    """The provider's 21 sector labels, with their row counts when one was read.
+
+    ``sec`` used to ship ``options: []`` and a source URL, which the client drew
+    as a disabled control. The taxonomy is the provider's and it does not move
+    between requests, so it ships **inline**; when the route has read the
+    universe it hands the counts in as well, because a menu that says "Finance"
+    and a menu that says "Finance · 1,559" are the same list with the measurement
+    attached, and the measurement is what lets a reader choose.
+
+    ``counts is None`` is the no-population answer (a deployment that cannot
+    scan, or a caller building the vocabulary alone): the labels, no counts. It
+    is never a count of zero — unknown and empty are different facts.
+
+    Each option's ``predicate`` is ``sector eq <label>``, the value ``sec``
+    compiles to. ``eq`` is exact on a text column, so the label is the provider's
+    own spelling, byte for byte: ``"Finance"`` is a row and ``"finance"`` is an
+    empty page. The id is that same label, because that is what a request sends.
+    """
+
+    if counts is None:
+        labels: list[tuple[str, int | None]] = [
+            (label, None) for label in options.SECTOR_LABELS
+        ]
+    else:
+        labels = [
+            (label, count)
+            for label, count in sorted(
+                counts.items(), key=lambda item: (item[0].casefold(), item[0])
+            )
+        ]
+    return tuple(
+        Option(
+            id=label,
+            label=label,
+            token=None,
+            predicate=f"sector eq {label}",
+            count=count,
+        )
+        for label, count in labels
+    )
+
+
 def _order_control() -> Control:
     """Order by: every numeric catalog field, both directions."""
 
@@ -1053,13 +1135,34 @@ def _signal_control() -> Control:
     )
 
 
-def _controls() -> tuple[Control, ...]:
-    """The 25 controls, in Finviz's panel order, with today's availability."""
+def _text_hint(column: str, endpoint: str) -> str:
+    """The sentence a free-text control publishes: what it matches, and the census.
 
-    text_hint = (
-        "free text, case-insensitive substring: the row carries the provider's "
-        "label, and the source panel's own list is a different taxonomy"
+    A text control is still the escape hatch — it matches a substring
+    case-insensitively, so a reader can find ``Semiconductors`` without spelling
+    it exactly — but it is no longer the *only* way in: ``endpoint`` publishes the
+    exact spellings the current universe carries, with counts, which is what a
+    combobox offers.
+    """
+
+    return (
+        f"free text, case-insensitive substring over the row's `{column}` cell "
+        f"(the provider's label; the source panel's own list is a different "
+        f"taxonomy); the exact values and their row counts are enumerated at "
+        f"{endpoint}"
     )
+
+
+def _controls(
+    sector_counts: Mapping[str, int] | None = None,
+) -> tuple[Control, ...]:
+    """The 25 controls, in Finviz's panel order, with today's availability.
+
+    ``sector_counts`` is the live half of ``sec`` — label → rows, from the same
+    reader ``/market/groups`` counts with. ``None`` is the no-population answer
+    (see :func:`_sector_options`); every other control is built from memory.
+    """
+
     return (
         _order_control(),
         _signal_control(),
@@ -1072,10 +1175,15 @@ def _controls() -> tuple[Control, ...]:
             control="select",
             form="multi",
             op="in",
-            options=(),
+            options=_sector_options(sector_counts),
             options_source="/market/sectors",
-            predicate_template="sector in ['<label from /market/sectors>', ...]",
-            note="the row's sector taxonomy is the provider's, so the live list is the contract",
+            predicate_template="sector in [<label>, ...]",
+            note=(
+                "the 21 labels are the provider's own `sector` cells, published "
+                "here with the rows behind each one; every option's predicate "
+                "is `sector eq <label>` (a text column compares it exactly), "
+                "and the same counts are enumerated at `/screens/options/sector`"
+            ),
         ),
         Control(
             id="industry",
@@ -1084,7 +1192,8 @@ def _controls() -> tuple[Control, ...]:
             control="text",
             form="single",
             op="contains",
-            hint=text_hint,
+            options_source="/screens/options/industry",
+            hint=_text_hint("industry", "/screens/options/industry"),
         ),
         Control(
             id="geo",
@@ -1093,7 +1202,8 @@ def _controls() -> tuple[Control, ...]:
             control="text",
             form="single",
             op="contains",
-            hint=text_hint,
+            options_source="/screens/options/country",
+            hint=_text_hint("country", "/screens/options/country"),
         ),
         _bucket_control("cap", "cap", "Market Cap.", unit="usd"),
         _bucket_control("fa_div", "fa_div", "Dividend Yield", unit="percent"),
@@ -1587,7 +1697,7 @@ def _published(control: Control, tab: str) -> dict[str, Any]:
         else entitlements.default_tier()
     )
     row = replace(control, tab=tab, disposition=disposition_for(control)).as_dict()
-    # Stamped on the published mapping rather than rebuilt per option: 2,197
+    # Stamped on the published mapping rather than rebuilt per option: 2,218
     # dataclass copies per build was most of the document's cost, and the mapping
     # is the only shape a client ever sees.
     row["tier"] = tier
@@ -1596,14 +1706,21 @@ def _published(control: Control, tab: str) -> dict[str, Any]:
     return row
 
 
-def document() -> dict[str, Any]:
-    """The whole filter document — five tabs — from memory, no scan, no store.
+def document(sector_counts: Mapping[str, int] | None = None) -> dict[str, Any]:
+    """The whole filter document — five tabs.
 
     Built from the catalogue, the bucket registry, the vendored labels and the
     membership snapshot; nothing here reads a store or a provider, which is why
     the route may hash its own body. Availability is re-read on every call
     (``buckets.for_key`` asks the snapshot), so installing or removing the
     membership file moves the answer — and therefore the tag — without a restart.
+
+    ``sector_counts`` is the one **measured** input: label → rows for the live
+    sector population, read by the route with the same
+    :func:`app.api.sectors.tally_sectors` that ``/market/groups`` publishes. It
+    is passed in rather than read here so this module stays pure and importable
+    without a provider; ``None`` publishes the taxonomy without counts (an
+    outage answers a usable menu, never a fabricated zero).
 
     Every control carries its ``tab`` and its ``disposition``: a client groups
     the panel by the first and renders the second as "where this number comes
@@ -1620,7 +1737,9 @@ def document() -> dict[str, Any]:
                 "controls": [
                     _published(control, tab)
                     for control in (
-                        _controls() if tab == "descriptive" else _tab_controls(tab)
+                        _controls(sector_counts)
+                        if tab == "descriptive"
+                        else _tab_controls(tab)
                     )
                 ],
             }
@@ -1634,6 +1753,8 @@ def document() -> dict[str, Any]:
         "options_sources": {
             "/market/sectors": SECTORS_SOURCE,
             "/market/exchanges": EXCHANGES_SOURCE,
+            "/screens/options/industry": INDUSTRY_SOURCE,
+            "/screens/options/country": COUNTRIES_SOURCE,
         },
     }
 
@@ -1667,14 +1788,24 @@ _CONTROL_ORDER: tuple[str, ...] = (
 )
 
 
+#: The controls that publish their **taxonomy** inline and still point at a live
+#: source for their **counts**. One key is on the list, and it is the exception the
+#: rule below states: the provider's sector names are stable (so shipping them
+#: costs nothing and unblocks the menu), while how many rows each holds moves with
+#: every scan (so a copy would be a number nobody can date).
+INLINE_TAXONOMY: frozenset[str] = frozenset({"sec"})
+
+
 def _validate_document() -> None:
     """Fail at import: 25 controls, one owner per fact, no empty promise.
 
     Every check here is one a reader would otherwise have to make by hand: the
     control list is the frozen one, each control names a real catalogue key, a
     disabled control states why and publishes no predicate, a bucket control
-    covers its family exactly, and the vendored file carries the 23 descriptive
-    keys — no more (a key the probe grew) and no fewer (a key it lost).
+    covers its family exactly, the sector control publishes the provider's
+    twenty-one labels with the label *as* the predicate, and the vendored file
+    carries the 23 descriptive keys — no more (a key the probe grew) and no fewer
+    (a key it lost).
     """
 
     from app.screen.rank import ORDER_BY
@@ -1734,9 +1865,10 @@ def _validate_document() -> None:
                     f"options for {len(family)} buckets"
                 )
         if control.options_source is not None and control.options:
-            raise RuntimeError(
-                f"control {control.id!r} copies a live population *and* points at it"
-            )
+            if control.id not in INLINE_TAXONOMY:
+                raise RuntimeError(
+                    f"control {control.id!r} copies a live population *and* points at it"
+                )
 
     by_id = {control.id: control for control in controls}
     if tuple(option.id for option in by_id["order"].options) != ORDER_BY:
@@ -1745,6 +1877,31 @@ def _validate_document() -> None:
         item.id for item in SIGNALS
     ):
         raise RuntimeError("the signal control is not the signal vocabulary")
+
+    sector = by_id["sec"]
+    if tuple(option.label for option in sector.options) != options.SECTOR_LABELS:
+        raise RuntimeError(
+            "the sector control does not publish the provider's 21 labels in "
+            f"panel order: {[option.label for option in sector.options]}"
+        )
+    for option in sector.options:
+        if option.id != option.label or option.predicate != f"sector eq {option.label}":
+            raise RuntimeError(
+                f"sector option {option.id!r} publishes id/predicate "
+                f"{option.id!r}/{option.predicate!r}: the label IS the wire value, "
+                "byte for byte, and it compiles to `sector eq <label>`"
+            )
+        if option.count is not None:
+            raise RuntimeError(
+                f"sector option {option.id!r} carries a count the vocabulary "
+                "builder never measured: counts are handed in by the route, "
+                "never invented here"
+            )
+        if not option.available or option.token is not None:
+            raise RuntimeError(
+                f"sector option {option.id!r} is disabled or claims a Finviz token: "
+                "the provider's label is a value, not a vendor token"
+            )
 
 
 _validate_document()

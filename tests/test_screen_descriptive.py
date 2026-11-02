@@ -232,29 +232,57 @@ def test_every_option_count_matches_the_probe() -> None:
         ), f"{control_id} publishes the probe's options in another order"
 
 
-def test_the_live_populations_are_referenced_not_copied() -> None:
-    """Sector labels and venue counts are live lists: two copies drift."""
+def test_the_sector_taxonomy_is_inline_and_only_its_counts_are_referenced() -> None:
+    """Sector used to be a dead control: ``options: []`` + a source URL.
+
+    The labels are the provider's twenty-one names and they are **not** a live
+    population: the provider's taxonomy is stable, so the document carries it and
+    a client can draw the menu without a second request. What is live is how many
+    rows each sector holds, and that is what ``options_source`` still points at.
+    Every option's predicate is the label itself — that is the value
+    ``sec`` compares, and a text column compares it exactly.
+    """
+
+    from app.screen import options as option_keys
 
     document = descriptive.document()
     published = controls()
 
-    assert document["options_sources"] == {
-        "/market/sectors": descriptive.SECTORS_SOURCE,
-        "/market/exchanges": descriptive.EXCHANGES_SOURCE,
-    }
+    assert document["options_sources"]["/market/sectors"] == descriptive.SECTORS_SOURCE
     sector = published["sec"]
     assert sector["control"] == "select"
     assert sector["form"] == "multi"
-    assert sector["options"] == [], "the sector taxonomy is the provider's, not a copy"
-    assert sector["options_source"] == "/market/sectors"
-    assert "sector in" in sector["predicate_template"]
+    assert sector["available"] is True, "the sector control must not be dead"
+    assert sector["options_source"] == "/market/sectors", "counts stay live"
+    assert sector["predicate_template"] == "sector in [<label>, ...]"
 
-    for control_id in ("industry", "geo"):
+    assert [option["label"] for option in sector["options"]] == list(
+        option_keys.SECTOR_LABELS
+    ), "the document does not publish the provider's 21 labels"
+    assert len(sector["options"]) == 21
+    for option in sector["options"]:
+        assert option["id"] == option["label"], (
+            "the id is the wire value: a request sends the provider's label"
+        )
+        assert option["predicate"] == f"sector eq {option['label']}", (
+            f"{option['label']!r} compiles to a predicate that is not `sector eq`"
+        )
+        assert option["available"] is True
+        assert option["token"] is None, "the provider's label is not a Finviz token"
+
+    for control_id, key, field in (
+        ("industry", "/screens/options/industry", "industry"),
+        ("geo", "/screens/options/country", "country"),
+    ):
         control = published[control_id]
-        assert control["control"] == "text"
+        assert control["control"] == "text", "a text box still works without a census"
         assert control["op"] == "contains"
         assert control["options"] == []
-        assert control["hint"], f"{control_id} is free text and must say so"
+        assert control["options_source"] == key, (
+            f"{control_id} must say where its enumeration comes from"
+        )
+        assert field in control["hint"]
+        assert control["hint"]
 
 
 def test_every_unavailable_control_states_why_and_has_no_predicate() -> None:

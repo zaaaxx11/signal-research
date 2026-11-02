@@ -25,7 +25,10 @@ from typing import Any
 
 import pytest
 
+from app.api.sectors import tally_sectors
 from app.screen import index_membership
+from app.screen.universe import PARITY_COLUMNS, build_universe
+from tests import _market as M
 from tests import _screen as S
 
 BAD_TOKEN = [
@@ -114,6 +117,58 @@ async def test_get_screens_filters_serves_the_five_tabs(
         "'dji' in index_members",
         "'rut' in index_members",
     ]
+
+
+async def test_the_sector_control_publishes_the_live_taxonomy_with_its_counts(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """``sec`` is enabled by real numbers: 21 labels, 21 predicates, 21 counts.
+
+    The labels are not typed here: they are what
+    :func:`app.api.sectors.tally_sectors` derives from the same universe the
+    ``/market/groups`` sector table counts (parity columns, no cap floor, every
+    stock subtype), so the menu and the table cannot publish two vocabularies.
+    A count is a row count from that population, and the predicate is the value
+    ``sec`` compiles to — ``sector eq <label>``, label byte for byte.
+    """
+
+    rows = M.universe()
+    async with M.market_client(tmp_path, monkeypatch, rows=rows) as harness:
+        response = await harness.get("/screens/filters")
+
+    assert response.status_code == 200, response.text
+    controls = {
+        control["id"]: control
+        for control in response.json()["groups"][0]["controls"]
+    }
+    sector = controls["sec"]
+    assert sector["available"] is True, "the Sector control must not be disabled"
+    assert sector["options_source"] == "/market/sectors", "kept for compatibility"
+
+    built = build_universe(
+        [{"symbol": row.symbol, **row.cells()} for row in rows],
+        region="us",
+        min_market_cap=0,
+        columns=PARITY_COLUMNS,
+        allow_any_subtype=True,
+        asset_class="stock",
+    )
+    reader = tally_sectors(built)
+    expected = {tally.label: tally.count for tally in reader.values()}
+    assert len(expected) == 21, "the live distribution is the provider's 21 sectors"
+
+    published = sector["options"]
+    assert len(published) == 21
+    assert [option["label"] for option in published] == sorted(
+        expected, key=str.casefold
+    ), "the menu's labels are the sector reader's labels"
+    assert {option["label"]: option["count"] for option in published} == expected
+    for option in published:
+        assert option["predicate"] == f"sector eq {option['label']}", (
+            f"{option['label']!r} does not compile to a sec predicate"
+        )
+        assert isinstance(option["count"], int) and option["count"] > 0
+    assert sum(option["count"] for option in published) == 5_576
 
 
 async def test_the_document_revalidates_on_its_own_digest(

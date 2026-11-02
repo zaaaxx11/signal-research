@@ -41,6 +41,16 @@ runtime's facts store, once per call and by symbol — see :mod:`app.screen.fact
 schema — the same document that ships at
 ``schemas/stock_selection_request_v1.json``.
 
+``GET /screens/options/{key}`` (``industry``, ``country``, ``exchange``,
+``sector``) is the **census** behind a picker: every value the current universe
+carries in that column, with its row count and the moment it was taken
+(:mod:`app.screen.options`). It is memoised for an hour per key, because a
+combobox that asks on every keystroke must not scan on every keystroke, and the
+universe it counts is the selection's own (``market_universe``) — so an option's
+``count`` is the number of rows ``POST /screens/select`` answers for that
+option's predicate. An unknown key is a ``404 unknown_option_key`` decided before
+the scan.
+
 Validation lives in :mod:`app.screen.selection` (one
 :class:`~app.screen.selection.SelectionError`, one 422 code per failure kind), so
 this module only maps a validated request onto a scan and the executor.
@@ -132,6 +142,7 @@ from app.branding import logo_for
 from app.export.manifest import file_sha256
 from app.runtime import Runtime
 from app.screen import after_hours, buckets, descriptive, entitlements, index_membership
+from app.screen import options as screen_options
 from app.screen.export import (
     DATA_FORMATS,
     EXPORT_FORMATS,
@@ -1137,15 +1148,19 @@ async def filters(request: Request) -> Response:
     range again — the F1 bug class, where the panel and the server disagreed
     about a vocabulary.
 
-    It is built from memory (single-digit milliseconds: the catalogue, the
-    bucket registry, the vendored labels and the membership snapshot; no scan,
-    no store, no join), so unlike ``/screens/select`` it may hash its own
-    **body**. The tag is therefore strong: the bytes are a pure function of the
-    inputs, and there is no read clock in the document to weaken it. A ``304`` carries no body and
-    revalidation costs one encode + one sha256.
+    It is built from memory except for **one measurement**: the sector menu's
+    row counts, read through the same ``universe_for`` / ``tally_sectors`` pair
+    ``/market/groups`` publishes (:mod:`app.api.sectors`), so the menu and the
+    sector table count one population. A scan that cannot answer degrades to the
+    taxonomy without counts — the panel stays usable, and no zero is invented.
+    The bytes are still a pure function of the build's inputs, so unlike
+    ``/screens/select`` this route may hash its own **body**. The tag is
+    therefore strong: there is no read clock in the document to weaken it. A
+    ``304`` carries no body and revalidation costs one build + one sha256.
 
-    It is also the largest JSON answer in the app — 389,688 bytes on the live
-    catalogue — so it is the one that negotiates ``gzip``
+    It is also the largest JSON answer in the app — 494,439 bytes on the live
+    catalogue (2026-11-02; 36,956 B gzipped) — so it is the one that negotiates
+    ``gzip``
     (:mod:`app.api.encoding`). The encoding is part of the representation, so it
     is part of the tag: a gzip client and an identity client hold different
     bytes and must not validate each other's ``If-None-Match``. ``Vary:
@@ -1159,7 +1174,22 @@ async def filters(request: Request) -> Response:
     and no client can cache ``idx`` as available past the file's life.
     """
 
-    document = descriptive.document()
+    from app.api.sectors import UNCLASSIFIED_ID, tally_sectors, universe_for
+
+    try:
+        page = await universe_for(request, region="us", family="stock")
+    except ApiError as exc:
+        if exc.status_code != 503:
+            raise
+        sector_counts = None
+    else:
+        sector_counts = {
+            tally.label: tally.count
+            for tally in tally_sectors(page.rows).values()
+            if tally.id != UNCLASSIFIED_ID
+        }
+
+    document = descriptive.document(sector_counts=sector_counts)
     body = _encoded(document)
     digest = hashlib.sha256(body).hexdigest()[:32]
     gzipped = len(body) >= GZIP_MINIMUM and wants_gzip(
@@ -1173,6 +1203,57 @@ async def filters(request: Request) -> Response:
         headers["Content-Encoding"] = "gzip"
         return Response(content=compress(body), media_type="application/json", headers=headers)
     return Response(content=body, media_type="application/json", headers=headers)
+
+
+@router.get("/options/{key}")
+async def options_for(request: Request, key: str) -> dict[str, Any]:
+    """One enumeration — ``industry``, ``country``, ``exchange``, ``sector``.
+
+    The census behind a picker: every value the current universe carries in that
+    column, with the number of rows behind it and the moment it was counted
+    (:mod:`app.screen.options`). The four keys are closed; anything else is a
+    ``404 unknown_option_key`` decided **before** the scan, because a typo must
+    not cost a provider call.
+
+    One census per key per hour (:data:`app.screen.options.MEMO_TTL_S`): a
+    picker that asks on every keystroke must not scan on every keystroke, and a
+    sector does not move within a session. `as_of` is the census moment, not the
+    replay's, so a memo hit is honestly dated. The universe is the screener's own
+    (``market_universe``: parity columns, no cap floor, every stock subtype), so
+    a count here is the same population a selection filters — the test that
+    proves it sends each option's predicate through ``POST /screens/select``.
+
+    A failed scan is a ``503 scanner_unavailable`` and is never memoised: an hour
+    of "no sectors" would outlive the outage that caused it.
+    """
+
+    try:
+        option_key = screen_options.option_key(key)
+    except screen_options.UnknownOptionKey as exc:
+        raise ApiError(
+            status_code=404, error=exc.code, message=str(exc)
+        ) from exc
+
+    memo = screen_options.memo(request.app.state)
+    cached = memo.get(option_key)
+    if cached is not None:
+        return dict(cached)
+
+    try:
+        rows = await market_universe(request)
+    except ScanError as exc:
+        raise ApiError(
+            status_code=503,
+            error="scanner_unavailable",
+            message=f"the scanner could not answer the option census: {exc}",
+        ) from exc
+
+    return dict(
+        memo.put(
+            option_key,
+            screen_options.document(option_key, rows, as_of=screen_options.moment()),
+        )
+    )
 
 
 @router.post("/select")
