@@ -36,6 +36,7 @@ import * as React from "react";
 
 import type { ScreenError, ScreenRow, ScreenStatus, ViewDefinition } from "@/data/screens";
 import { sortDirection, sortKey } from "@/data/screens";
+import { Link } from "@/shell/routes";
 import { cn } from "@/lib/utils";
 
 import { CellValue, IdentityCell } from "./cellRenderers";
@@ -63,6 +64,15 @@ const features = tableFeatures({
 
 const HEADER_HEIGHT = 24;
 const ROW_HEIGHT = 28;
+/**
+ * The checkbox lane's width.
+ *
+ * It is drawn outside the solver's columns: a tick box is not a field, and
+ * giving it to `solveView` would let it claim a catalogue width and change
+ * every other lane's number. The table's own width is `solved.total` plus
+ * this, and the table is solved against the space that is left.
+ */
+export const SELECT_LANE_WIDTH = 30;
 
 /**
  * How far the table fades while a page turn is in flight.
@@ -94,6 +104,29 @@ export interface DataTableProps {
   onActivate?: (symbol: string) => void;
   onClear?: () => void;
   selectedSymbol?: string | null;
+  /**
+   * The row's ticker page, as a route path (`/stock/AAPL`).
+   *
+   * When set, the identity lane is a real `<a href>` and a plain click or
+   * Enter on the row is a client-side navigation; a modified click is left to
+   * the browser, which is what makes middle-click and ⌘/Ctrl-click open a new
+   * tab. When absent the grid stays a pure report of rows it was given.
+   */
+  rowTo?: (symbol: string) => string;
+  /**
+   * The page's checkbox selection, or undefined for no checkbox lane.
+   *
+   * The grid never owns the selection: it draws the boxes, and the panel that
+   * feeds three toolbar actions keeps the list. A box click must not be read
+   * as "open this row", so every box stops its own click.
+   */
+  selection?: {
+    /** The rows currently selected, by symbol. */
+    selected: readonly string[];
+    onToggle: (symbol: string) => void;
+    /** The header box: select or clear every row on this page. */
+    onToggleAll: (checked: boolean) => void;
+  };
   /** Test seam: jsdom has no layout. Production measures the scroll box. */
   containerWidth?: number;
   /**
@@ -219,6 +252,8 @@ export function DataTable({
   onActivate,
   onClear,
   selectedSymbol,
+  rowTo,
+  selection,
   containerWidth,
   absent,
   caption,
@@ -243,9 +278,32 @@ export function DataTable({
   const sortedKey = sort ? sortKey(sort) : null;
   const sortedDirection = sortDirection(sort ?? "market_cap");
 
+  /** Whether the grid draws a checkbox lane; the caller's selection says so. */
+  const selectable = selection !== undefined;
+  const selectAllRef = React.useRef<HTMLInputElement>(null);
+  const selectedSet = React.useMemo(
+    () => new Set(selection?.selected ?? []),
+    [selection?.selected],
+  );
+  const allChecked = rows.length > 0 && rows.every((row) => selectedSet.has(row.symbol));
+  const someChecked = rows.some((row) => selectedSet.has(row.symbol));
+  /** The one row `aria-current` may name: a single selection, never a set. */
+  const currentSymbol = selection
+    ? selection.selected.length === 1
+      ? selection.selected[0] ?? null
+      : null
+    : selectedSymbol ?? null;
+
+  React.useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someChecked && !allChecked;
+  }, [someChecked, allChecked]);
+
   const solved = React.useMemo(
-    () => (width > 0 ? solveView(view.columns, width) : null),
-    [view.columns, width],
+    () =>
+      width > 0
+        ? solveView(view.columns, Math.max(0, width - (selectable ? SELECT_LANE_WIDTH : 0)))
+        : null,
+    [view.columns, width, selectable],
   );
 
   const rowIds = React.useMemo(() => uniqueRowIds(rows), [rows]);
@@ -376,6 +434,9 @@ export function DataTable({
 
   const onRowKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => {
+      // A checkbox has its own keys: Space ticks it and Enter does nothing.
+      // Neither is "open this row", so the row's handler stands down.
+      if (event.target instanceof HTMLInputElement) return;
       const row = rowsRef.current[index];
       if (!row) return;
       switch (event.key) {
@@ -409,13 +470,11 @@ export function DataTable({
           break;
         case "Escape": {
           event.preventDefault();
-          // F6: when a panel is open, Escape is the panel's key. The panel
-          // closes through the same `onClear` the parent owns, and focus stays
-          // on this row — where the reader was, and where the panel's own
-          // handler would have put it. Blurring here used to drop focus to
-          // `<body>`: the row blurred itself before the panel's document
-          // listener ran, and that listener then stood down on the row's
-          // `defaultPrevented`.
+          // F6: with rows selected, Escape clears the selection through the
+          // same `onClear` the parent owns, and focus stays on this row — where
+          // the reader was. Blurring here used to drop focus to `<body>`: the
+          // row blurred itself before the parent's document listener ran, and
+          // that listener then stood down on the row's `defaultPrevented`.
           const panelOpen = Boolean(selectedRef.current);
           clearRef.current?.();
           if (panelOpen) {
@@ -439,12 +498,14 @@ export function DataTable({
   }, [view.name]);
 
   const hasRows = rows.length > 0;
-  const columnCount = view.columns.length + 1;
+  const columnCount = view.columns.length + 1 + (selectable ? 1 : 0);
   // F7: the grid announces the whole screen, not the page it happens to hold,
   // plus the header row that `aria-rowcount` counts. Never fewer than the rows
   // actually rendered — a body that under-reports itself is worse than a stale
   // total.
   const announcedRows = Math.max(rowCount, rows.length) + 1;
+  /** The table's own width: the solved columns plus the checkbox lane. */
+  const tableWidth = (solved?.total ?? 0) + (selectable ? SELECT_LANE_WIDTH : 0);
 
   return (
     <div
@@ -495,8 +556,8 @@ export function DataTable({
             // `minWidth` is belt and braces for the fixed layout: the browser
             // may never lay this table out narrower than the widths it was
             // given, so a numeric cell cannot be squeezed into an ellipsis.
-            width: solved.total,
-            minWidth: solved.total,
+            width: tableWidth,
+            minWidth: tableWidth,
             tableLayout: "fixed",
             borderCollapse: "separate",
             borderSpacing: 0,
@@ -519,6 +580,7 @@ export function DataTable({
               `${view.label}: ${hasRows ? `${rows.length} rows on this page` : "no rows"}.`}
           </caption>
           <colgroup>
+            {selectable ? <col style={{ width: SELECT_LANE_WIDTH }} /> : null}
             {solved.columns.map((column, index) => (
               <col key={column.key} style={{ width: solved.widths[index] ?? 0 }} />
             ))}
@@ -556,6 +618,10 @@ export function DataTable({
                       : "none";
                 const label = meta?.text ?? key;
                 const lane = key === "identity" || key === ROW_NUMBER_KEY;
+                // The checkbox lane is pinned ahead of every other sticky
+                // lane, so the two lanes that follow it start 30 px further
+                // right than they did when it was absent.
+                const pinnedLeft = selectable ? SELECT_LANE_WIDTH : 0;
                 return (
                   <th
                     key={header.id}
@@ -565,9 +631,13 @@ export function DataTable({
                     style={{
                       ...STICKY_HEADER,
                       ...(sticky ? STICKY_LANE : {}),
-                      ...(key === ROW_NUMBER_KEY ? { left: 0 } : {}),
-                      ...(key === "identity" && showNumber
-                        ? { left: columnSpec(ROW_NUMBER_KEY).min }
+                      ...(key === ROW_NUMBER_KEY ? { left: pinnedLeft } : {}),
+                      ...(key === "identity"
+                        ? {
+                            left:
+                              pinnedLeft +
+                              (showNumber ? columnSpec(ROW_NUMBER_KEY).min : 0),
+                          }
                         : {}),
                       height: HEADER_HEIGHT,
                       zIndex: sticky ? 40 : 20,
@@ -613,6 +683,38 @@ export function DataTable({
               };
               return (
                 <tr key={group.id}>
+                  {selectable ? (
+                    <th
+                      scope="col"
+                      data-testid="select-all-cell"
+                      style={{
+                        ...STICKY_HEADER,
+                        ...STICKY_LANE,
+                        left: 0,
+                        width: SELECT_LANE_WIDTH,
+                        height: HEADER_HEIGHT,
+                        zIndex: 50,
+                        padding: 0,
+                      }}
+                      className="border-b border-line-strong bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]"
+                    >
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        data-testid="select-all"
+                        aria-label="Select every row on this page"
+                        title={
+                          allChecked
+                            ? "Clear the selection on this page"
+                            : "Select every row on this page"
+                        }
+                        checked={allChecked}
+                        onChange={(event) => selection?.onToggleAll(event.target.checked)}
+                        onClick={(event) => event.stopPropagation()}
+                        className="mx-auto block size-3 cursor-pointer accent-accent-fg"
+                      />
+                    </th>
+                  ) : null}
                   {numberHeader ? draw(numberHeader) : null}
                   {identityHeader ? draw(identityHeader) : null}
                   {lead > 0 ? (
@@ -647,7 +749,10 @@ export function DataTable({
             ) : null}
 
             {status === "loading" && !hasRows ? (
-              <SkeletonRows columns={solved.columns.length} widths={solved.widths} />
+              <SkeletonRows
+                columns={solved.columns.length + (selectable ? 1 : 0)}
+                widths={solved.widths}
+              />
             ) : null}
 
             {status === "empty" || (status === "ready" && !hasRows) ? (
@@ -677,11 +782,16 @@ export function DataTable({
                   index={index}
                   rowNumber={pageIndex * pageSize + index + 1}
                   showNumber={showNumber}
-                  selected={selectedSymbol === symbol}
+                  selected={selection ? selectedSet.has(symbol) : selectedSymbol === symbol}
+                  current={currentSymbol === symbol}
+                  checked={selectedSet.has(symbol)}
+                  selectable={selectable}
+                  linkTo={rowTo ? rowTo(symbol) : null}
                   tabbable={focused === index || (focused === -1 && index === 0)}
                   specs={specs}
                   absent={absent}
                   onActivate={activate}
+                  onToggleSelect={selection?.onToggle}
                   onFocusRow={focusRow}
                   onKeyDown={onRowKeyDown}
                   setRowRef={setRowRef}
@@ -733,11 +843,21 @@ interface GridRowProps {
   rowNumber: number;
   /** Whether the view draws the row-number lane. */
   showNumber: boolean;
+  /** The row is in the page's selection (checkbox ticked). */
   selected: boolean;
+  /** The row is the one `aria-current` names — at most one per table. */
+  current: boolean;
+  /** The checkbox's state. */
+  checked: boolean;
+  /** Whether the checkbox lane exists at all. */
+  selectable: boolean;
+  /** The ticker page's route path, or null when the grid is not a door. */
+  linkTo: string | null;
   tabbable: boolean;
   specs: Map<string, ColumnSpec>;
   absent?: (symbol: string, key: string) => string | null;
   onActivate: (symbol: string) => void;
+  onToggleSelect?: (symbol: string) => void;
   onFocusRow: (index: number) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => void;
   setRowRef: (index: number, element: HTMLTableRowElement | null) => void;
@@ -754,10 +874,15 @@ const GridRow = React.memo(function GridRow({
   rowNumber,
   showNumber,
   selected,
+  current,
+  checked,
+  selectable,
+  linkTo,
   tabbable,
   specs,
   absent,
   onActivate,
+  onToggleSelect,
   onFocusRow,
   onKeyDown,
   setRowRef,
@@ -773,8 +898,10 @@ const GridRow = React.memo(function GridRow({
       // open row reached assistive tech with no state at all. `aria-current`
       // is valid on any element in a table and is what the browser's AX tree
       // keeps — one current item per document, and the tab strip marks itself
-      // with `aria-selected` (role=tab), so the two cannot be confused.
-      aria-current={selected ? "true" : undefined}
+      // with `aria-selected` (role=tab), so the two cannot be confused. With a
+      // checkbox selection, only a single selected row is "current"; a set of
+      // five has no one current member.
+      aria-current={current ? "true" : undefined}
       // The row is a tab stop (one per row, never one per cell), so it is
       // focusable and therefore *named*: a focused `<tr>` with no accessible
       // name reaches a screen reader as "row", and the symbol the reader is on
@@ -785,9 +912,14 @@ const GridRow = React.memo(function GridRow({
       tabIndex={tabbable ? 0 : -1}
       onFocus={() => onFocusRow(index)}
       onKeyDown={(event) => onKeyDown(event, index)}
-      onClick={() => onActivate(symbol)}
+      onClick={(event) => {
+        // A checkbox or the ticker link owns its own click; a plain press on
+        // any other cell is the same door as the ticker.
+        if ((event.target as HTMLElement).closest("a, input, button, label")) return;
+        onActivate(symbol);
+      }}
       className={cn(
-        "h-7 cursor-default outline-offset-[-2px] odd:bg-row even:bg-row-alt",
+        "h-7 cursor-pointer outline-offset-[-2px] odd:bg-row even:bg-row-alt",
         // One 2 px rose ring around the row, drawn inset so the sticky header
         // cannot clip it. `relative z-10` while focused lifts the ring above the
         // pinned lane's own background — without it the sticky `<td>` paints
@@ -798,10 +930,33 @@ const GridRow = React.memo(function GridRow({
       )}
       style={{ height: ROW_HEIGHT }}
     >
+      {selectable ? (
+        <td
+          // The tick box is a selection, never a navigation: the cell stops
+          // the click before the row's own handler can see it.
+          onClick={(event) => event.stopPropagation()}
+          style={{ ...STICKY_LANE, left: 0, height: ROW_HEIGHT, zIndex: 4 }}
+          className="bg-inherit px-0 py-0 text-center align-middle"
+        >
+          <input
+            type="checkbox"
+            data-testid={`row-select-${symbol}`}
+            aria-label={`Select ${symbol}`}
+            checked={checked}
+            onChange={() => onToggleSelect?.(symbol)}
+            onClick={(event) => event.stopPropagation()}
+            // The row is the single keyboard entry point; the box is reached
+            // with the pointer, or from the row with the browser's own form
+            // navigation once focus is inside it.
+            tabIndex={-1}
+            className="size-3 cursor-pointer align-middle accent-accent-fg"
+          />
+        </td>
+      ) : null}
       {showNumber ? (
         <td
           data-row-number={rowNumber}
-          style={{ ...STICKY_LANE, left: 0, height: ROW_HEIGHT, zIndex: 3 }}
+          style={{ ...STICKY_LANE, left: selectable ? SELECT_LANE_WIDTH : 0, height: ROW_HEIGHT, zIndex: 3 }}
           className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle tabular-nums text-fg-subtle"
         >
           {rowNumber}
@@ -810,16 +965,36 @@ const GridRow = React.memo(function GridRow({
       <td
         style={{
           ...STICKY_LANE,
-          ...(showNumber ? { left: columnSpec(ROW_NUMBER_KEY).min } : { left: 0 }),
+          left:
+            (selectable ? SELECT_LANE_WIDTH : 0) +
+            (showNumber ? columnSpec(ROW_NUMBER_KEY).min : 0),
           height: ROW_HEIGHT,
           zIndex: 2,
         }}
         className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle shadow-[inset_-1px_0_0_var(--border-strong)]"
       >
-        <IdentityCell
-          symbol={symbol}
-          company={typeof data["company"] === "string" ? data["company"] : null}
-        />
+        {linkTo ? (
+          <Link
+            to={linkTo}
+            data-testid={`symbol-link-${symbol}`}
+            // Not a second tab stop: the row already is one, and 20 more per
+            // page would make the grid a tab maze. The link is still a real
+            // link to a screen reader and to the pointer.
+            tabIndex={-1}
+            className="block min-w-0 text-fg visited:text-fg hover:text-accent-text"
+            onDragStart={(event) => event.preventDefault()}
+          >
+            <IdentityCell
+              symbol={symbol}
+              company={typeof data["company"] === "string" ? data["company"] : null}
+            />
+          </Link>
+        ) : (
+          <IdentityCell
+            symbol={symbol}
+            company={typeof data["company"] === "string" ? data["company"] : null}
+          />
+        )}
       </td>
       {lead > 0 ? (
         <td aria-hidden="true" colSpan={lead} style={{ height: ROW_HEIGHT }} className="p-0" />

@@ -22,7 +22,14 @@
 import * as React from "react";
 
 /** The one key this feature owns. */
-export const USER_PRESETS_KEY = "ztockz.columns.v1";
+export const USER_PRESETS_KEY = "ztockz.screens.v1";
+
+/**
+ * The key this feature shipped under first. Read once when the new key is
+ * empty, written to the new key, left in place: a reader who saved screens
+ * before this build must not open the box to an empty list.
+ */
+export const LEGACY_PRESETS_KEY = "ztockz.columns.v1";
 
 /** The default entry: always present, never renamed or deleted. */
 export const DEFAULT_PRESET_ID = "my-stock-presets";
@@ -246,7 +253,15 @@ export function presetEntries(state: UserPresetState): UserPresetEntry[] {
 
 function readStorage(): string | null {
   try {
-    return window.localStorage.getItem(USER_PRESETS_KEY);
+    const current = window.localStorage.getItem(USER_PRESETS_KEY);
+    if (current !== null && current.length > 0) return current;
+    const legacy = window.localStorage.getItem(LEGACY_PRESETS_KEY);
+    if (legacy !== null && legacy.length > 0) {
+      // Carry the old document forward under the key this build writes.
+      window.localStorage.setItem(USER_PRESETS_KEY, legacy);
+      return legacy;
+    }
+    return null;
   } catch {
     // A browser that refuses storage (private mode, a locked-down profile) is
     // not an error the reader can act on: the presets simply do not persist.

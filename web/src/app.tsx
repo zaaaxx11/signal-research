@@ -15,21 +15,19 @@
  * link is a real URL: the server's `/app` mount answers any path with the
  * shell, and `parseRoute` decides which page it is.
  *
- * The detail chunk is lazy and shared: docked beside the grid on the screener,
- * full-page on `/stock/{symbol}`. A chunk that never arrives is a panel fault,
- * not a page fault, and the boundary names it and offers one retry.
+ * A symbol is a page, not a panel: every ticker click — in a row, in the
+ * header's search, in the nav's — writes `/stock/{symbol}` and renders the
+ * ticker page. There is no docked detail left for the screener to own.
  */
 
 import * as React from "react";
 
-import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { HomePage } from "@/home/HomePage";
 import { ScreenerScreen } from "@/screener/ScreenerScreen";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { NotFoundPage } from "@/shell/NotFoundPage";
 import { HeaderBar } from "@/shell/HeaderBar";
 import { StockPage } from "@/stock/StockPage";
-import { DETAIL_CHUNK_ATTEMPTS, detailChunk, loadDetailPanel } from "@/detail/load";
 import type { SymbolHit } from "@/lib/api";
 import { navigate, useRoute, useSearch } from "@/shell/routes";
 import {
@@ -46,10 +44,6 @@ import {
   loadWatchlistPage,
 } from "@/shell/lazyPages";
 
-// The chunk's loader and retry budget are re-exported here because this is
-// where the panel first lived and where its tests point; the implementation is
-// shared with `/stock/{symbol}` (see `detail/load.ts`).
-export { DETAIL_CHUNK_ATTEMPTS, detailChunk };
 export { GRID_REGION_ID };
 
 /**
@@ -114,17 +108,6 @@ function PageSkeleton({ label }: { label: string }) {
 export function App() {
   const route = useRoute();
   const searchQuery = useSearch();
-  const [symbol, setSymbol] = React.useState<string | null>(null);
-  // Bumped by the boundary's "Try again": a new lazy type re-runs the import.
-  // It starts at zero and only moves on an explicit press, so a broken chunk
-  // can never retry on its own.
-  const [detailAttempt, setDetailAttempt] = React.useState(0);
-  const DetailPanel = React.useMemo(
-    () => React.lazy(loadDetailPanel),
-    // The dependency is the retry counter, not `symbol`: a new type per symbol
-    // would re-suspend on every row click even after the chunk has landed.
-    [detailAttempt],
-  );
   const MapPage = React.useMemo(() => React.lazy(loadMapPage), []);
   const GroupsPage = React.useMemo(() => React.lazy(loadGroupsPage), []);
   const CalendarPage = React.useMemo(() => React.lazy(loadCalendarPage), []);
@@ -157,47 +140,10 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // The docked panel belongs to the screener. Leaving it closes the selection,
-  // so returning to the grid does not reopen a symbol the reader had moved on
-  // from.
-  React.useEffect(() => {
-    if (route.kind !== "screener") setSymbol(null);
-  }, [route.kind]);
-
-  /** A search hit opens the panel in place on the grid, and the page elsewhere. */
+  /** A search hit is a page, from anywhere: the ticker's own URL. */
   const onSearchSelect = (hit: SymbolHit) => {
-    if (route.kind === "screener") setSymbol(hit.symbol);
-    else navigate(`/stock/${encodeURIComponent(hit.symbol)}`);
+    navigate(`/stock/${encodeURIComponent(hit.symbol)}`);
   };
-
-  const detail =
-    route.kind === "screener" && symbol ? (
-      // The detail panel is lazy: it is not in the first paint, and it is
-      // docked beside the grid (never over it) so the comparison holds. A chunk
-      // that never arrives is a panel fault, not a page fault: the boundary
-      // owns it, names it, and leaves every other band — including the grid the
-      // reader is still using — alive.
-      <ErrorBoundary
-        resetKey={symbol}
-        label="Details panel"
-        hint="Its code could not be downloaded — a deploy may have replaced this chunk. The grid, the views and the filters are still live."
-        className="w-[420px] flex-none"
-        onRetry={() => setDetailAttempt((attempt) => attempt + 1)}
-      >
-        <React.Suspense
-          fallback={
-            <aside
-              id="detail-slot"
-              aria-busy="true"
-              aria-label="Loading details"
-              className="w-[420px] flex-none self-stretch rounded-md border border-line bg-surface"
-            />
-          }
-        >
-          <DetailPanel symbol={symbol} onClose={() => setSymbol(null)} />
-        </React.Suspense>
-      </ErrorBoundary>
-    ) : null;
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg">
@@ -213,12 +159,7 @@ export function App() {
       {route.kind === "home" ? (
         <HomePage />
       ) : route.kind === "screener" ? (
-        <ScreenerScreen
-          assetClass={route.assetClass}
-          symbol={symbol}
-          onSelectSymbol={setSymbol}
-          detail={detail}
-        />
+        <ScreenerScreen assetClass={route.assetClass} />
       ) : route.kind === "stock" ? (
         <StockPage symbol={route.symbol} onClose={() => navigate("/")} />
       ) : route.kind === "map" ? (

@@ -8,6 +8,8 @@
 
 import * as React from "react";
 
+import { Icon } from "@/components/Icon";
+import { SymbolSearch } from "@/shell/SymbolSearch";
 import { cn } from "@/lib/utils";
 
 import {
@@ -31,6 +33,7 @@ export interface AlertDialogProps {
 
 export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
   const [target, setTarget] = React.useState(symbol ?? "");
+  const [identity, setIdentity] = React.useState<{ name: string; exchange: string } | null>(null);
   const [condition, setCondition] = React.useState<AlertCondition>("price_above");
   const [value, setValue] = React.useState("");
   const [note, setNote] = React.useState("");
@@ -41,6 +44,7 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
   React.useEffect(() => {
     if (!open) return;
     setTarget(symbol ?? "");
+    setIdentity(null);
     setValue("");
     setNote("");
     setError(null);
@@ -81,6 +85,8 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
     const next = alerts.filter((alert) => alert.id !== id);
     setAlerts(next);
     writeAlerts(next);
+    // The "Saved: …" line describes an alert that no longer exists.
+    setSaved(null);
   };
 
   return (
@@ -92,16 +98,36 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
       description="Kept in this browser — this deployment has no mail transport."
     >
       <form onSubmit={submit} className="flex flex-col gap-2">
-        <label className="flex flex-col gap-0.5">
-          <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">Symbol</span>
-          <input
-            aria-label="Symbol"
-            value={target}
-            onChange={(event) => setTarget(event.target.value.toUpperCase().slice(0, 12))}
-            placeholder="AAPL"
-            className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 font-mono text-data text-fg"
+        <div className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
+            <Icon name="search" />
+            Ticker
+          </span>
+          <SymbolSearch
+            label="Search a ticker for the alert"
+            idPrefix="alert-search"
+            placeholder="Search a ticker…"
+            showHint={false}
+            onSelect={(hit) => {
+              setTarget(hit.symbol);
+              setIdentity({ name: hit.name, exchange: hit.exchange });
+              setError(null);
+            }}
           />
-        </label>
+          {target ? (
+            <span className="mt-1 flex items-baseline gap-2 text-data">
+              <span className="font-mono font-semibold text-fg">{target}</span>
+              {identity ? (
+                <>
+                  <span className="min-w-0 truncate text-fg-muted">{identity.name}</span>
+                  <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
+                    {identity.exchange}
+                  </span>
+                </>
+              ) : null}
+            </span>
+          ) : null}
+        </div>
 
         <div className="flex items-end gap-2">
           <label className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -156,8 +182,9 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
         <div className="flex items-center gap-2">
           <button
             type="submit"
-            className="h-7 rounded-sm border border-line-control bg-surface-raised px-2 text-ui text-fg transition-colors hover:border-brand"
+            className="flex h-7 items-center gap-1.5 rounded-sm border border-line-control bg-surface-raised px-2 text-ui text-fg transition-colors hover:border-brand"
           >
+            <Icon name="bell" />
             Save alert
           </button>
           <span aria-live="polite" className="text-data text-fg-subtle">
@@ -189,9 +216,10 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
                   type="button"
                   onClick={() => remove(alert.id)}
                   aria-label={`Delete alert: ${describeAlert(alert)}`}
-                  className="h-5 w-5 rounded-sm text-fg-muted transition-colors hover:bg-row-hover hover:text-fg"
+                  title="Delete this alert"
+                  className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-row-hover hover:text-fg"
                 >
-                  ×
+                  <Icon name="x" size={12} />
                 </button>
               </li>
             ))}

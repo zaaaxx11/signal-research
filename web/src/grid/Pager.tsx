@@ -1,16 +1,23 @@
 /**
- * The pager under the table: the page numbers and a jump.
+ * The pager under the table: arrows, the page numbers and a jump.
  *
- * Prev/Next live in the toolbar above, once: this bar is the map, not a second
- * pair of arrows with the same name. The numbers are a window, not a list —
- * `1 … 4 5 6 … 281` is the whole of a 281-page screen, and the same function is
- * tested on its own in `pager.test.ts`. A number is a button whose `aria-current`
- * says where you are; the jump field takes a page number and clamps it to what
- * exists, so a typed 999 lands on the last page instead of a dead request.
+ * Prev/Next exist twice on purpose, and not with the same name: the toolbar's
+ * pair is the primary control beside the count, and this bar's pair sits where
+ * a reader who has just finished scanning the numbers already is. The bottom
+ * pair is named "Go to previous page" / "Go to next page" so the two are
+ * distinguishable to a screen reader and to anything that looks a control up
+ * by name.
+ *
+ * The numbers are a window, not a list — `1 … 4 5 6 … 281` is the whole of a
+ * 281-page screen, and the same function is tested on its own in
+ * `pager.test.ts`. A number is a button whose `aria-current` says where you
+ * are; the jump field takes a page number and clamps it to what exists, so a
+ * typed 999 lands on the last page instead of a dead request.
  */
 
 import * as React from "react";
 
+import { Icon } from "@/components/Icon";
 import { cn } from "@/lib/utils";
 
 import { clampPage, pageItems } from "./pager";
@@ -21,9 +28,22 @@ export interface PagerProps {
   onPage: (page: number) => void;
   /** True while a request is out; the controls wait rather than queue. */
   busy: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
+  canPrev?: boolean;
+  canNext?: boolean;
 }
 
-export function Pager({ pageIndex, pageCount, onPage, busy }: PagerProps) {
+export function Pager({
+  pageIndex,
+  pageCount,
+  onPage,
+  busy,
+  onPrev,
+  onNext,
+  canPrev,
+  canNext,
+}: PagerProps) {
   const [draft, setDraft] = React.useState("");
   const current = Math.min(pageIndex + 1, pageCount);
   const go = (page: number) => {
@@ -39,12 +59,29 @@ export function Pager({ pageIndex, pageCount, onPage, busy }: PagerProps) {
     setDraft("");
   };
 
+  const arrowClass =
+    "flex h-6 items-center rounded-sm border border-line-control px-1 font-mono text-data text-fg-muted transition-colors hover:text-fg disabled:opacity-40";
+
   return (
     <nav
       data-testid="pager"
       aria-label="Screen pages"
       className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-center gap-1 px-3 py-1.5"
     >
+      {onPrev ? (
+        <button
+          type="button"
+          onClick={onPrev}
+          disabled={busy || canPrev === false}
+          aria-label="Go to previous page"
+          title="Previous page"
+          data-testid="pager-prev"
+          className={arrowClass}
+        >
+          <Icon name="chevron-left" />
+        </button>
+      ) : null}
+
       <ul className="flex flex-wrap items-center gap-0.5">
         {pageItems(current, pageCount).map((item, index) =>
           item === "gap" ? (
@@ -73,6 +110,20 @@ export function Pager({ pageIndex, pageCount, onPage, busy }: PagerProps) {
           ),
         )}
       </ul>
+
+      {onNext ? (
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={busy || canNext === false}
+          aria-label="Go to next page"
+          title="Next page"
+          data-testid="pager-next"
+          className={arrowClass}
+        >
+          <Icon name="chevron-right" />
+        </button>
+      ) : null}
 
       <form onSubmit={submit} className="flex items-center gap-1">
         <label className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">

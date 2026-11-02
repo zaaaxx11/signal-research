@@ -11,7 +11,7 @@ Every assertion below is a sentence from ``briefs/market-engine/R5C-CONTRACT.md`
    a restatement wins inside its own period without moving ``as_of``;
 4. ``fcf`` is derived from operating cash flow minus ``abs(capex)``, and is an
    ``absent`` null when either input is missing;
-5. ``GET /engine/statements/{symbol}`` validates ``periods`` before lookup and
+5. ``GET /engine/statements/{symbol}/annual`` validates ``periods`` before lookup and
    answers the house ``{error, errorMessage}`` envelopes.
 
 The observations are handwritten tuples with fixed dates, so no network, clock
@@ -858,7 +858,7 @@ async def test_statements_route_returns_the_collected_document(
     install_collector(monkeypatch, fake)
 
     async with route_client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/statements/AAPL?periods=4")
+        response = await client.get("/engine/statements/AAPL/annual?periods=4")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -881,7 +881,7 @@ async def test_statements_route_symbol_without_a_cik_is_an_empty_200(
     install_collector(monkeypatch, fake)
 
     async with route_client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/statements/PRIV?periods=4")
+        response = await client.get("/engine/statements/PRIV/annual?periods=4")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -909,7 +909,7 @@ async def test_statements_route_unknown_symbol_is_404(
     install_collector(monkeypatch, fake)
 
     async with route_client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/statements/ZZZZ?periods=4")
+        response = await client.get("/engine/statements/ZZZZ/annual?periods=4")
 
     assert response.status_code == 404, response.text
     assert response.json().get("error") == "security_not_found"
@@ -925,7 +925,7 @@ async def test_statements_route_without_a_dataset_is_503(
     install_collector(monkeypatch, fake)
 
     async with route_client(tmp_path, monkeypatch, None) as client:
-        response = await client.get("/engine/statements/AAPL?periods=4")
+        response = await client.get("/engine/statements/AAPL/annual?periods=4")
 
     assert response.status_code == 503, response.text
     assert response.json().get("error") == "screen_unavailable"
@@ -943,7 +943,7 @@ async def test_statements_route_collector_failure_is_503(
     install_collector(monkeypatch, fake)
 
     async with route_client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/statements/AAPL?periods=4")
+        response = await client.get("/engine/statements/AAPL/annual?periods=4")
 
     assert response.status_code == 503, response.text
     assert response.json().get("error") == "statements_unavailable"
@@ -967,7 +967,7 @@ async def test_statements_route_rejects_an_invalid_periods_with_422(
     install_collector(monkeypatch, fake)
 
     async with route_client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get(f"/engine/statements/{symbol}?periods={periods}")
+        response = await client.get(f"/engine/statements/{symbol}/annual?periods={periods}")
 
     assert response.status_code == 422, response.text
     assert response.json().get("error") == "invalid_limit"

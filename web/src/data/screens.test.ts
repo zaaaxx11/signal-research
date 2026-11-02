@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { requestBody, useScreens, useViewCatalogue, type ScreensQuery } from "./screens";
+import { requestBody, useScreens, useViewCatalogue, clearPageCache, type ScreensQuery } from "./screens";
 
 /**
  * The data layer's promises, one test each:
@@ -214,6 +214,10 @@ describe("useScreens", () => {
     rerender({ query: VALUE });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
+    // A returning visit is answered from the page cache by default; this test
+    // is about the tag a *request* may present, so the cache is emptied to
+    // make the return visit a request again.
+    clearPageCache();
     rerender({ query: TODAY });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
@@ -325,6 +329,49 @@ function headerOf(call: [unknown, RequestInit] | undefined): Record<string, stri
   return (call?.[1]?.headers ?? {}) as Record<string, string>;
 }
 
+describe("useScreens — the page cache", () => {
+  it("answers a page it has already seen without a request", async () => {
+    const fetchMock = conditionalServer();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page1: ScreensQuery = { ...TODAY, offset: 0 };
+    const page2: ScreensQuery = { ...TODAY, offset: 20 };
+
+    const { result, rerender } = renderHook(({ query }) => useScreens(query), {
+      initialProps: { query: page1 as ScreensQuery | null },
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    rerender({ query: page2 });
+    await waitFor(() => expect(result.current.meta?.offset).toBe(20));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    rerender({ query: page1 });
+    // No third request: the page is drawn from the tab's own cache, in the
+    // commit that changed the query.
+    await waitFor(() => expect(result.current.rows[0]?.symbol).toBe("market_cap@0"));
+    expect(result.current.fromCache).toBe(true);
+    expect(result.current.status).toBe("ready");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the server again when the reader asks to refresh", async () => {
+    const fetchMock = conditionalServer();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useScreens({ ...TODAY, offset: 0 }));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      result.current.refresh();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    // A refresh is not a cache read, even though the rows are identical.
+    expect(result.current.fromCache).toBe(false);
+  });
+});
+
 describe("useScreens — the tag belongs to the rows (F1)", () => {
   it("sort A → B → A never presents A's tag while B's rows are on screen", async () => {
     const fetchMock = conditionalServer();
@@ -342,6 +389,9 @@ describe("useScreens — the tag belongs to the rows (F1)", () => {
     rerender({ query: sortB });
     await waitFor(() => expect(result.current.rows[0]?.symbol).toBe("turnover@0"));
 
+    // Return to A as a request, so the tag discipline is what is under test
+    // and not the page cache (which is proved by its own test below).
+    clearPageCache();
     rerender({ query: sortA });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
@@ -369,6 +419,7 @@ describe("useScreens — the tag belongs to the rows (F1)", () => {
     await waitFor(() => expect(result.current.meta?.offset).toBe(20));
     expect(result.current.rows[0]?.symbol).toBe("market_cap@20");
 
+    clearPageCache();
     rerender({ query: page1 });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 

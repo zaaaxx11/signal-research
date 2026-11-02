@@ -3,15 +3,14 @@
  *
  * This file proves the keyboard and screen-reader claims against the real
  * shell, not against a sketch of it: `App` is rendered with the whole chrome
- * (nav, view strip, toolbar, one page of rows, drawer,
- * detail panel) and the assertions are made on `document.activeElement` and on
- * the DOM a screen reader would read.
+ * (nav, view strip, toolbar, one page of rows, drawer) and the assertions are
+ * made on `document.activeElement` and on the DOM a screen reader would read.
  *
  * What jsdom **can** prove here
  *   * which element is focused after each Tab (the order is a DOM fact);
  *   * the ARIA relationship attributes: `aria-activedescendant`, `aria-pressed`,
  *     `aria-rowcount`, `scope`, `<caption>`, `role="status"` count;
- *   * that Tab wraps inside the drawer and the detail panel;
+ *   * that Tab wraps inside the drawer, and that a row's link is not a second stop;
  *   * that Escape puts focus back on the opener;
  *   * the source-level contracts that CSS owns (the 2 px ring, the
  *     reduced-motion block) — read from the files the app actually ships.
@@ -110,7 +109,7 @@ function stubShell() {
       return json([
         { symbol: "AAPL", name: "Apple Inc.", exchange: "NASDAQ" },
         { symbol: "AAPL.W", name: "Apple Hospitality", exchange: "NYSE" },
-        { symbol: "MSFT", name: "Microsoft Corp.", exchange: "NASDAQ" },
+        { symbol: "AAWW", name: "Atlas Air Worldwide", exchange: "NASDAQ" },
       ]);
     }
     if (url.startsWith("/screens?")) return json(screensPayload());
@@ -153,13 +152,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/**
- * The detail panel is a lazily imported chunk. In this file the shell is large
- * enough (breadth, 100 rows, two dialogs) that the import occasionally lands
- * after Testing Library's 1 s default — the same reason `app.chunk.test.tsx`
- * raises it. The panel is not slow in a browser; the transform is.
- */
-const DETAIL_TIMEOUT = 10_000;
 /**
  * The shell's own first paint. Vitest runs this file beside the other 48, so a
  * `findBy` that is instant alone can exceed Testing Library's 1 s default under
@@ -204,7 +196,10 @@ function tabbables(root: ParentNode = document): HTMLElement[] {
     '[tabindex]:not([tabindex="-1"])',
   ].join(", ");
   return [...root.querySelectorAll<HTMLElement>(selector)].filter(
-    (element) => element.closest("[hidden]") === null,
+    // `tabIndex` is the browser's answer, not the selector's: an `<a href>`
+    // inside a row is a real link but `tabindex="-1"` keeps it out of the Tab
+    // order, and the grid's row is the single stop.
+    (element) => element.closest("[hidden]") === null && element.tabIndex >= 0,
   );
 }
 
@@ -278,7 +273,6 @@ describe("the keyboard path", () => {
   it("reaches every control, and the first row, inside 60 Tab presses", async () => {
     await renderShell();
     const user = userEvent.setup();
-
     const trace: string[] = [];
     for (let press = 0; press < 80; press += 1) {
       await user.tab();
@@ -293,8 +287,7 @@ describe("the keyboard path", () => {
     // sortable headers, then the grid.
     expect(trace[0]).toContain("Skip to the stock grid");
     for (const expected of [
-      "Your column presets",
-      "Manage",
+      "Presets",
       "Order by",
       "Signal",
       "combobox",
@@ -302,7 +295,7 @@ describe("the keyboard path", () => {
       "Today",
       "Refresh the screen",
       "Auto refresh",
-      "Add to watchlist",
+      "Add to",
       "Compare rows",
       "Set alert",
       "Export",
@@ -335,20 +328,33 @@ describe("the keyboard path", () => {
     // can reach the last control and start again with room to spare.
     expect(trace.length).toBeLessThanOrEqual(80);
 
-    // One stop per row, plus one per sortable header: the headers are real
-    // controls now, and nothing inside a body cell is tabbable.
+    // One stop per row, plus one per sortable header, plus the checkbox lane's
+    // "select all". The row's ticker is a real link, but neither it nor the
+    // row's own box is a second Tab stop.
     const table = screen.getByTestId("grid-table");
     const rows = [...table.querySelectorAll<HTMLElement>("tr[data-symbol]")];
     expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
-    expect(rows.every((row) => row.querySelectorAll("button, a[href], input, select, [tabindex]").length === 0)).toBe(
-      true,
-    );
+    for (const row of rows) {
+      const links = [...row.querySelectorAll<HTMLAnchorElement>("a[href]")];
+      expect(links).toHaveLength(1);
+      expect(links[0]?.getAttribute("href")).toBe(
+        `/app/stock/${row.getAttribute("data-symbol")}`,
+      );
+      expect(
+        row.querySelectorAll(
+          'button, a[href]:not([tabindex="-1"]), input:not([tabindex="-1"]), select, [tabindex="0"]',
+        ).length,
+      ).toBe(0);
+    }
     const headerButtons = table.querySelectorAll("thead th button");
     expect(headerButtons.length).toBeGreaterThan(0);
     expect(tabbables(screen.getByTestId("grid-scroll"))).toHaveLength(
-      headerButtons.length + (rows.length === 0 ? 0 : 1),
+      headerButtons.length + 1 + (rows.length === 0 ? 0 : 1),
     );
-  });
+    // Eighty real Tab presses through `userEvent` is a second of work on an
+    // idle machine and more when the suite runs its files in parallel; the
+    // assertion is about the order, not about a five-second budget.
+  }, 20_000);
 
   it("moves the roving cursor with the arrow keys and reads the row as its symbol", async () => {
     await renderShell();
@@ -420,18 +426,18 @@ describe("the symbol search", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect((input as HTMLInputElement).value).toBe("aa");
 
-    // Enter commits the highlighted hit and opens its details.
+    // Enter commits the highlighted hit and opens the ticker page: a symbol is
+    // a page now, not a panel docked over the grid.
     await user.keyboard("{ArrowDown}");
     expect(input.getAttribute("aria-expanded")).toBe("true");
     await user.keyboard("{Enter}");
 
-    const panel = await screen.findByTestId("detail-panel", undefined, { timeout: DETAIL_TIMEOUT });
-    expect(panel.getAttribute("aria-label")).toBe("Details for AAPL");
+    await waitFor(() => expect(window.location.pathname).toBe("/app/stock/AAPL"));
     expect(screen.queryByRole("listbox")).toBeNull();
 
     // And it *stays* closed: committing writes the symbol into the box, and the
     // debounced search must not treat that as a new question and drop the list
-    // back over the panel (one debounce window is enough to catch it).
+    // back over the page (one debounce window is enough to catch it).
     await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 120));
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(input.getAttribute("aria-expanded")).toBe("false");
@@ -487,74 +493,6 @@ describe("the filter drawer", () => {
 });
 
 /* -------------------------------------------------------------------------
- * 5 — the detail panel
- * ---------------------------------------------------------------------- */
-
-describe("the detail panel", () => {
-  it("opens on Close, keeps Tab inside, and Escape returns focus to the row", async () => {
-    await renderShell();
-    const user = userEvent.setup();
-
-    const table = screen.getByTestId("grid-table");
-    const row = table.querySelector<HTMLElement>('tbody tr[data-symbol="S000"]');
-    expect(row).not.toBeNull();
-    (row as HTMLElement).focus();
-
-    await user.keyboard("{Enter}");
-    const panel = await screen.findByTestId("detail-panel", undefined, { timeout: DETAIL_TIMEOUT });
-    const close = within(panel).getByRole("button", { name: "Close details" });
-
-    // Adversarial (b): focus lands on the way out, before any content.
-    await waitFor(() => expect(document.activeElement).toBe(close));
-    const firstTab = within(panel).getByRole("tab", { name: "Fundamentals" });
-    expect(
-      close.compareDocumentPosition(firstTab) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    // The first tab stop in the panel is the close button, not the resizer.
-    expect(tabbables(panel)[0]).toBe(close);
-
-    // Tab from the last control returns to the first.
-    const stops = tabbables(panel);
-    expect(stops.length).toBeGreaterThan(2);
-    (stops[stops.length - 1] as HTMLElement).focus();
-    await user.tab();
-    expect(document.activeElement).toBe(close);
-
-    // Shift+Tab from the first wraps to the last, so the panel cannot be
-    // escaped by accident and entered again only by luck.
-    await user.tab({ shift: true });
-    expect(document.activeElement).toBe(stops[stops.length - 1]);
-
-    // Escape restores focus to the row that opened it (the opener).
-    (close as HTMLElement).focus();
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByTestId("detail-panel")).toBeNull());
-    expect(document.activeElement).toBe(row);
-  });
-
-  it("does not add a tab stop per cell in the pinned lane while it is open", async () => {
-    await renderShell();
-    const user = userEvent.setup();
-
-    const table = screen.getByTestId("grid-table");
-    const row = table.querySelector<HTMLElement>('tbody tr[data-symbol="S001"]') as HTMLElement;
-    row.focus();
-    await user.keyboard("{Enter}");
-    await screen.findByTestId("detail-panel", undefined, { timeout: DETAIL_TIMEOUT });
-
-    const rows = [...table.querySelectorAll<HTMLElement>("tbody tr[data-symbol]")];
-    expect(rows).toHaveLength(20);
-    expect(rows.filter((element) => element.tabIndex === 0)).toEqual([row]);
-    for (const element of rows) {
-      // The identity lane is a `<td>` with a mark and a symbol — no link, no
-      // button, no tabindex of its own.
-      const lane = element.querySelector<HTMLElement>("td");
-      expect(lane?.querySelectorAll("a, button, input, select, [tabindex]")).toHaveLength(0);
-    }
-  });
-});
-
-/* -------------------------------------------------------------------------
  * 6 — table semantics
  * ---------------------------------------------------------------------- */
 
@@ -598,8 +536,15 @@ describe("the table's semantics", () => {
     // every sortable `th` carries `aria-sort` ("none" until it is the one in
     // force) and holds a real button. The ordering is server-side, but the
     // affordance and its state are in the header, where the reader looks.
+    //
+    // The leading checkbox lane is not sortable: it is a selection control, and
+    // it says so with a name and a state instead of an ordering.
+    const selectAll = headers.find((header) => header.hasAttribute("data-testid"));
+    expect(selectAll?.getAttribute("data-testid")).toBe("select-all-cell");
+    expect(selectAll?.querySelector('input[type="checkbox"]')).not.toBeNull();
+    expect(selectAll?.hasAttribute("aria-sort")).toBe(false);
     const sortable = headers.filter((header) => header.hasAttribute("aria-sort"));
-    expect(sortable).toHaveLength(headers.length);
+    expect(sortable).toHaveLength(headers.length - 1);
     for (const header of sortable) {
       expect(header.getAttribute("aria-sort")).toBe("none");
       expect(header.querySelector("button")).not.toBeNull();
@@ -661,9 +606,9 @@ describe("live regions", () => {
     expect(statuses[0]?.getAttribute("aria-live")).toBe("polite");
     expect(statuses[0]?.getAttribute("aria-atomic")).toBe("true");
 
-    // Opening the drawer (a second live region would live there) and the detail
-    // panel (whose skeletons announce) must not add a second status role. The
-    // drawer's only door is ⌘K now.
+    // Opening the drawer must not add a second status role — the drawer's only
+        // door is ⌘K now — and nor may a row's checkbox, which is a selection and
+        // not a navigation.
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const palette = await screen.findByRole("dialog", { name: "Find a filter" });
     await user.click(within(palette).getByRole("option", { name: /Market Cap/i }));
@@ -675,13 +620,11 @@ describe("live regions", () => {
     const row = screen.getByTestId("grid-table").querySelector<HTMLElement>(
       'tbody tr[data-symbol="S002"]',
     ) as HTMLElement;
-    row.focus();
-    await user.keyboard("{Enter}");
-    await screen.findByTestId("detail-panel", undefined, { timeout: DETAIL_TIMEOUT });
+    await user.click(within(row).getByTestId("row-select-S002"));
     expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 
-  it("hard-codes no second status into the drawer or the detail tabs", () => {
+  it("hard-codes no second status into the drawer or the ticker tabs", () => {
     // The count above is a rendered fact; this is the source invariant behind
     // it, so a fourth view cannot reintroduce one quietly.
     const files = [

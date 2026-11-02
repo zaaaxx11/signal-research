@@ -935,6 +935,52 @@ async def _selection_scan(
     )
 
 
+async def market_universe(request: Request) -> list[dict[str, Any]]:
+    """The whole US stock universe, through the screener's own scan cache.
+
+    The ticker page needs one row per listed company — a header and a peer
+    group are both projections of it — and that is exactly the population a
+    criteria selection scans: parity columns (so ``industry``, RSI, beta and
+    the 52-week range are present), no market-cap floor, every subtype of
+    ``type=stock``. Asking for the same shape through the same cache means a
+    ticker opened while a screen is on the page shares its scan, and a cold
+    page pays one scan instead of a second provider path.
+
+    Raises :class:`~app.screen.scanner.ScanError` unchanged: the route that
+    called it decides whether a blocked scan is a ``503``.
+    """
+
+    cache = _scan_cache(request)
+    key = _scan_key(
+        region="us",
+        asset_class="stock",
+        source=SOURCE,
+        columns=PARITY_COLUMNS,
+        limit=FULL_SCAN_ROWS,
+        min_market_cap=None,
+        subtype=None,
+    )
+    page, _role, _generation = await cache.page(
+        key,
+        lambda: fetch_scan(
+            "us",
+            limit=FULL_SCAN_ROWS,
+            columns=PARITY_COLUMNS,
+            min_market_cap=None,
+            subtype=None,
+            asset_class="stock",
+        ),
+    )
+    return build_universe(
+        page.rows,
+        region="us",
+        min_market_cap=None,
+        columns=PARITY_COLUMNS,
+        allow_any_subtype=True,
+        asset_class="stock",
+    )
+
+
 def _revalidated(etag: str, *, scan: str) -> Response:
     """The ``304``: the same headers a ``200`` carries, and no body at all."""
 

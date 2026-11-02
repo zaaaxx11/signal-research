@@ -44,9 +44,7 @@ function Harness() {
       <ViewTabs views={VIEWS} active={active} onChange={setActive} />
       <ScreenPanel
         view={view}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />
     </>

@@ -8,10 +8,10 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetFilterSchemaCache } from "@/filters/schema";
+import { clearPageCache } from "@/data/screens";
 import { filterSchemaWire } from "@/filters/__fixtures__/schema";
 import { VIEW_FIXTURE } from "@/grid/__fixtures__/views";
 import { isClientColumn } from "@/grid/columnMeta";
@@ -19,6 +19,7 @@ import { isClientColumn } from "@/grid/columnMeta";
 import { ScreenerScreen } from "./ScreenerScreen";
 import { defaultColumns } from "./defaultColumns";
 import { resetFiltersDocumentCache } from "./filtersDocument";
+import { USER_PRESETS_KEY } from "./userPresets";
 import { CAP_MEGA } from "./__fixtures__/filters";
 import { filterDocumentWire } from "./__fixtures__/filters";
 
@@ -76,10 +77,8 @@ function stubApi(
   return { selects, fetchMock };
 }
 
-function renderScreen(detail: React.ReactNode = null) {
-  return render(
-    <ScreenerScreen assetClass="stock" symbol={null} onSelectSymbol={vi.fn()} detail={detail} />,
-  );
+function renderScreen() {
+  return render(<ScreenerScreen assetClass="stock" />);
 }
 
 /** A schema whose views carry the real catalogue keys, not `column_N` filler. */
@@ -155,7 +154,11 @@ describe("the screener screen", () => {
     expect(chips.textContent).not.toContain("cap:mega");
 
     // Removing the chip restores the previous screen: one request with no
-    // predicates, and the bar that described the filter is gone with it.
+    // predicates, and the bar that described the filter is gone with it. The
+    // unfiltered page is one this tab has already seen, so the cache is
+    // emptied first — this test is about the request, and the cache has its
+    // own test.
+    clearPageCache();
     await user.click(within(chips).getByRole("button", { name: /Remove filter/ }));
     await waitFor(() => expect(api.selects).toHaveLength(3));
     expect(api.selects[2]?.criteria.filters).toEqual([]);
@@ -201,6 +204,7 @@ describe("the screener screen", () => {
     await waitFor(() => expect(api.selects).toHaveLength(2));
     expect(pressedTabs()).toEqual(["valuation"]);
 
+    clearPageCache();
     await user.click(screen.getByTestId("preset-summary"));
     await waitFor(() => expect(api.selects).toHaveLength(3));
 
@@ -250,7 +254,7 @@ describe("the screener screen", () => {
     resetFilterSchemaCache();
     resetFiltersDocumentCache();
     api.selects.length = 0;
-    render(<ScreenerScreen assetClass="stock" symbol={null} onSelectSymbol={vi.fn()} detail={null} />);
+    render(<ScreenerScreen assetClass="stock" />);
 
     await waitFor(() => expect(api.selects.length).toBeGreaterThan(0));
     const body = api.selects.at(-1);
@@ -294,6 +298,7 @@ describe("the screener screen", () => {
     expect(api.selects[1]?.signal).toBe("top-gainers");
     expect(new URLSearchParams(window.location.search).get("signal")).toBe("top-gainers");
 
+    clearPageCache();
     await user.selectOptions(screen.getByTestId("signal-select"), "");
     await waitFor(() => expect(api.selects).toHaveLength(3));
     expect(api.selects[2]).not.toHaveProperty("signal");
@@ -308,27 +313,21 @@ describe("the screener screen", () => {
     await waitFor(() => expect(api.selects).toHaveLength(1));
     const savedColumns = api.selects[0]!.columns;
 
-    // Save the columns on screen under a name.
-    await user.click(screen.getByTestId("manage-column-presets"));
-    const dialog = screen.getByRole("dialog", { name: "Column presets" });
-    const field = within(dialog).getByRole("textbox", { name: "Preset name" });
-    await user.clear(field);
-    await user.type(field, "My screen");
-    await user.click(within(dialog).getByRole("button", { name: "Save preset" }));
-    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    // Save the columns on screen from the one presets box. "Save Current
+    // Screen" names it (Screen 1) and the row appears with its pencil and ×.
+    await user.click(screen.getByTestId("preset-box-button"));
+    await user.click(screen.getByTestId("save-current-screen"));
+    expect(window.localStorage.getItem(USER_PRESETS_KEY)).toContain("Screen 1");
+    await user.click(screen.getByTestId("preset-box-button"));
 
-    const select = screen.getByTestId("columns-select") as HTMLSelectElement;
-    expect(select.value).not.toBe("my-stock-presets");
-
-    // A built-in tab replaces the columns; the select stops claiming the set.
+    // A built-in tab replaces the columns; the trigger stops claiming the set.
     await user.click(screen.getByTestId("preset-valuation"));
     await waitFor(() => expect(api.selects).toHaveLength(2));
-    expect(select.value).toBe("my-stock-presets");
+    expect(screen.getByTestId("preset-box-button").textContent).toContain("Presets");
 
-    // Picking the saved set writes its columns back through ?cols=.
-    const savedId = [...select.options].find((option) => option.textContent?.includes("My screen"))!
-      .value;
-    await user.selectOptions(select, savedId);
+    // Picking the saved screen writes its columns back through ?cols=.
+    await user.click(screen.getByTestId("preset-box-button"));
+    await user.click(screen.getByRole("button", { name: "Show Screen 1" }));
     await waitFor(() => expect(api.selects).toHaveLength(3));
     expect(api.selects[2]?.columns).toEqual(savedColumns);
     // Applied to the view on screen (the tab switched it to `value`), and

@@ -1,6 +1,6 @@
 """Contract for engine-computed peers (R5B §1-§3).
 
-``GET /engine/peers/{symbol}`` answers "who else is in this group?" from the
+``GET /engine/peers/{symbol}/industry`` answers "who else is in this group?" from the
 identity the engine already owns — the SEC SIC industry on
 :class:`~app.engine.model.SecurityRecord` — rather than from a scraped peer
 list. The tests below pin the document, the deterministic order (same MIC
@@ -175,7 +175,7 @@ async def test_peers_returns_the_same_industry_group_without_the_subject(
     """AAPL's group is MSFT and NVDA, alphabetical, self excluded, count two."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/AAPL")
+        response = await client.get("/engine/peers/AAPL/industry")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -194,7 +194,7 @@ async def test_peers_dates_the_document_with_the_subject_provenance(
     """``as_of`` is AAPL's newest document, not NVDA's (newer) or the load."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/AAPL")
+        response = await client.get("/engine/peers/AAPL/industry")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -210,7 +210,7 @@ async def test_each_peer_carries_exactly_the_six_identity_fields(
     """Every peer is ``symbol/name/exchange/mic/industry/country`` and nothing else."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/AAPL")
+        response = await client.get("/engine/peers/AAPL/industry")
 
     assert response.status_code == 200, response.text
     peers = response.json()["peers"]
@@ -245,7 +245,7 @@ async def test_peers_orders_the_same_mic_before_symbol_ascending(
 
     service = _service(_master(venues={"MSFT": ("NYSE", "XNYS")}))
     async with _client(tmp_path, monkeypatch, service) as client:
-        response = await client.get("/engine/peers/AAPL")
+        response = await client.get("/engine/peers/AAPL/industry")
 
     assert response.status_code == 200, response.text
     assert _peer_symbols(response.json()) == ["NVDA", "MSFT"]
@@ -257,7 +257,7 @@ async def test_peers_limit_one_truncates_after_ordering(
     """A limit of one returns the first peer only, not the first row loaded."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/AAPL?limit=1")
+        response = await client.get("/engine/peers/AAPL/industry?limit=1")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -273,7 +273,7 @@ async def test_peers_accepts_the_maximum_limit(
     """The upper bound is inclusive: ``limit=50`` is a normal 200 page."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/AAPL?limit=50")
+        response = await client.get("/engine/peers/AAPL/industry?limit=50")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -290,7 +290,7 @@ async def test_peers_rejects_a_limit_outside_one_to_fifty(
     """Zero, above the cap and non-numeric are one house ``422 invalid_limit``."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get(f"/engine/peers/AAPL?limit={raw_limit}")
+        response = await client.get(f"/engine/peers/AAPL/industry?limit={raw_limit}")
 
     assert response.status_code == 422, response.text
     body = response.json()
@@ -305,7 +305,7 @@ async def test_peers_validates_the_limit_before_looking_up_the_symbol(
     """An unusable limit is a 422 even for an unknown symbol — not a 404."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/NOPE?limit=0")
+        response = await client.get("/engine/peers/NOPE/industry?limit=0")
 
     assert response.status_code == 422, response.text
     assert response.json()["error"] == "invalid_limit"
@@ -322,7 +322,7 @@ async def test_peers_of_a_different_industry_is_an_empty_group(
     """BRK-B is alone in casualty insurance: JPM is a bank, so count is zero."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/BRK-B")
+        response = await client.get("/engine/peers/BRK-B/industry")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -345,7 +345,7 @@ async def test_peers_of_a_null_industry_is_an_empty_group_not_a_503(
         Provenance(source="sec", as_of=BASE_AS_OF),
     )
     async with _client(tmp_path, monkeypatch, _service(master)) as client:
-        response = await client.get("/engine/peers/ZZZZ")
+        response = await client.get("/engine/peers/ZZZZ/industry")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -368,8 +368,8 @@ async def test_peers_is_deterministic_across_calls(
     """Two reads of the same group produce byte-identical documents."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        first = await client.get("/engine/peers/AAPL?limit=10")
-        second = await client.get("/engine/peers/AAPL?limit=10")
+        first = await client.get("/engine/peers/AAPL/industry?limit=10")
+        second = await client.get("/engine/peers/AAPL/industry?limit=10")
 
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
@@ -388,7 +388,7 @@ async def test_peers_unknown_symbol_is_a_404_security_not_found(
     """A symbol outside the master is a 404, never an empty 200."""
 
     async with _client(tmp_path, monkeypatch, _service()) as client:
-        response = await client.get("/engine/peers/NOPE")
+        response = await client.get("/engine/peers/NOPE/industry")
 
     assert response.status_code == 404, response.text
     body = response.json()
@@ -403,7 +403,7 @@ async def test_peers_without_a_dataset_is_a_503_screen_unavailable(
     """Nothing ingested is a 503, not an empty group that looks like a market."""
 
     async with _client(tmp_path, monkeypatch, EngineService()) as client:
-        response = await client.get("/engine/peers/AAPL")
+        response = await client.get("/engine/peers/AAPL/industry")
 
     assert response.status_code == 503, response.text
     body = response.json()

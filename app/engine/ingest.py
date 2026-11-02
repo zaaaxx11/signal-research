@@ -377,6 +377,20 @@ def facts_cache_path(cache_dir: Path, cik: str) -> Path:
     return _cache_path(Path(cache_dir), _require_cik(cik), _KIND_COMPANYFACTS)
 
 
+def load_cached_companyfacts(cache_dir: Path, cik: Any) -> Any | None:
+    """The ``companyfacts`` body **already on disk** for one CIK, or ``None``.
+
+    This is the read-only sibling of :func:`fetch_companyfacts`: it never
+    touches the network, so a ticker page can answer from what the ingest pass
+    cached and an absent document is an honest ``None`` rather than a surprise
+    download in the request path. The same usability test applies — a body that
+    is not this CIK's companyfacts document is a miss, not evidence.
+    """
+
+    key = _require_cik(cik)
+    return _read_facts_cache(facts_cache_path(Path(cache_dir), key), cik=key)
+
+
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
@@ -718,6 +732,7 @@ __all__ = [
     "fetch_company_tickers",
     "fetch_company_tickers_exchange",
     "fetch_submissions",
+    "load_cached_companyfacts",
     "load_sec_dataset",
     "submissions_cache_path",
 ]

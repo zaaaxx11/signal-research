@@ -7,14 +7,22 @@
  * here is a real control — a button does its action, a select shows its value —
  * and the readout on the left is the one thing that is only text.
  *
- * The export menu is the one popover: four `menuitem`s (CSV, XLSX, JSON, API),
- * closed by Escape, by choosing, or by a click outside. It is a menu rather
- * than a select because a select that acts on `change` cannot be re-chosen
- * without changing something else first.
+ * Two popovers, one machine: **Add to** (Watchlist / Portfolio) and **Export**
+ * (CSV / XLSX / JSON / API). They share one open state so opening the second
+ * closes the first, one outside-click listener and one Escape, and each moves
+ * focus to its first item on open and back to its trigger on close. A menu that
+ * only works with a pointer is a menu half the readers cannot use.
+ *
+ * Every control carries a glyph. The rule is the one the owner set: if a
+ * first-time reader could not guess what the control does from its word alone,
+ * the word is preceded by a recognisable icon. The glyphs are decorative (the
+ * words are the names) except on the two paging arrows, which are icon-only
+ * and therefore named by `aria-label`.
  */
 
 import * as React from "react";
 
+import { Icon } from "@/components/Icon";
 import { cn } from "@/lib/utils";
 
 import type { ExportChoice } from "./ExportDialog";
@@ -28,6 +36,16 @@ export const AUTO_REFRESH_OPTIONS = [
   { value: 0, label: "Off" },
   { value: 300_000, label: "Every 5 min" },
 ] as const;
+
+/** The two lists a row action can write to. */
+export type AddToList = "watchlist" | "portfolio";
+
+/** One control's edge and type, shared so the bar has a single rhythm. */
+const CONTROL =
+  "flex h-6 items-center gap-1 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg disabled:opacity-40";
+
+const MENU_ITEM =
+  "flex w-full items-center gap-1.5 px-2.5 py-1 text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:bg-row-hover hover:text-fg";
 
 export interface TableToolbarProps {
   pageIndex: number;
@@ -44,10 +62,19 @@ export interface TableToolbarProps {
   refreshing: boolean;
   autoRefreshMs: number | null;
   onAutoRefresh: (ms: number | null) => void;
-  onAddToWatchlist: () => void;
+  /**
+   * Add a ticker to one of the two lists. With a row checked the panel adds it
+   * directly; with nothing selected it opens the ticker search first, so the
+   * action never has to guess which symbol was meant.
+   */
+  onAddTo: (list: AddToList) => void;
+  /** The checked row, named in the Add to control's hint. */
+  selectedSymbol: string | null;
   onCompare: () => void;
   onAlert: () => void;
   onExport: (choice: ExportChoice) => void;
+  /** True when the rows on screen came from the tab's page cache. */
+  cached?: boolean;
   /** The pending sentence shown in the one live region. */
   statusText: string;
   /** A short confirmation from the last action, announced politely. */
@@ -69,24 +96,33 @@ export function TableToolbar({
   refreshing,
   autoRefreshMs,
   onAutoRefresh,
-  onAddToWatchlist,
+  onAddTo,
+  selectedSymbol,
   onCompare,
   onAlert,
   onExport,
+  cached = false,
   statusText,
   notice,
   className,
 }: TableToolbarProps) {
-  const [menuOpen, setMenuOpen] = React.useState(false);
-  const menuRef = React.useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = React.useState<"add" | "export" | null>(null);
+  const addRef = React.useRef<HTMLDivElement>(null);
+  const exportRef = React.useRef<HTMLDivElement>(null);
+  const addTrigger = React.useRef<HTMLButtonElement>(null);
+  const exportTrigger = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
-    if (!menuOpen) return;
+    if (menu === null) return;
+    const root = menu === "add" ? addRef.current : exportRef.current;
     const onPointerDown = (event: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+      if (root && !root.contains(event.target as Node)) setMenu(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      if (event.key !== "Escape") return;
+      const trigger = menu === "add" ? addTrigger.current : exportTrigger.current;
+      setMenu(null);
+      trigger?.focus();
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -94,10 +130,25 @@ export function TableToolbar({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [menuOpen]);
+  }, [menu]);
 
-  const pick = (choice: ExportChoice) => {
-    setMenuOpen(false);
+  // Focus the first item of a freshly opened menu: a keyboard reader should be
+  // able to open it with Enter and choose without another Tab.
+  React.useEffect(() => {
+    if (menu === null) return;
+    const root = menu === "add" ? addRef.current : exportRef.current;
+    root?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [menu]);
+
+  const pickAdd = (list: AddToList) => {
+    setMenu(null);
+    addTrigger.current?.focus();
+    onAddTo(list);
+  };
+
+  const pickExport = (choice: ExportChoice) => {
+    setMenu(null);
+    exportTrigger.current?.focus();
     onExport(choice);
   };
 
@@ -110,12 +161,23 @@ export function TableToolbar({
       )}
     >
       {/* The count: page position over the filtered total. */}
-      <span
-        data-testid="range"
-        className="nums shrink-0 font-mono text-data text-fg-muted"
-        title="Page position / rows in the filtered screen"
-      >
-        {countReadout(pageIndex, total)}
+      <span className="flex shrink-0 items-center gap-1">
+        <span
+          data-testid="range"
+          className="nums font-mono text-data text-fg-muted"
+          title="Page position / rows in the filtered screen"
+        >
+          {countReadout(pageIndex, total)}
+        </span>
+        {cached ? (
+          <span
+            data-testid="cache-hint"
+            title="These rows were served from this tab's page cache; no request was made."
+            className="rounded-sm border border-line px-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
+          >
+            cached
+          </span>
+        ) : null}
       </span>
 
       <span className="flex items-center gap-1">
@@ -125,12 +187,14 @@ export function TableToolbar({
           disabled={refreshing}
           aria-label="Refresh the screen"
           title="Ask the API for this page again"
-          className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
+          className={CONTROL}
         >
+          <Icon name="refresh" />
           Refresh
         </button>
         <label className="flex items-center gap-1">
           <span className="sr-only">Auto refresh</span>
+          <Icon name="clock" className="text-fg-subtle" />
           <select
             aria-label="Auto refresh"
             data-testid="auto-refresh"
@@ -163,23 +227,56 @@ export function TableToolbar({
 
       <span className="h-4 w-px bg-line" aria-hidden="true" />
 
-      <button
-        type="button"
-        onClick={onAddToWatchlist}
-        aria-label="Add to watchlist"
-        title="Add the selected row, or every row on this page when none is selected"
-        className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg"
-      >
-        Add to watchlist
-      </button>
+      <div ref={addRef} className="relative">
+        <button
+          ref={addTrigger}
+          type="button"
+          data-testid="add-to-button"
+          aria-haspopup="menu"
+          aria-expanded={menu === "add"}
+          onClick={() => setMenu((value) => (value === "add" ? null : "add"))}
+          title={
+            selectedSymbol
+              ? `Add ${selectedSymbol} to a watchlist or a portfolio`
+              : "No row selected — picking a list opens the ticker search first"
+          }
+          className={CONTROL}
+        >
+          <Icon name="star" />
+          Add to
+          <Icon name="chevron-down" size={12} />
+        </button>
+        {menu === "add" ? (
+          <ul
+            role="menu"
+            aria-label="Add to"
+            data-testid="add-to-menu"
+            className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-[150px] overflow-hidden rounded-sm border border-line-strong bg-surface-raised py-0.5 shadow-lg"
+          >
+            <li role="none">
+              <button type="button" role="menuitem" onClick={() => pickAdd("watchlist")} className={MENU_ITEM}>
+                <Icon name="star" />
+                Watchlist
+              </button>
+            </li>
+            <li role="none">
+              <button type="button" role="menuitem" onClick={() => pickAdd("portfolio")} className={MENU_ITEM}>
+                <Icon name="list" />
+                Portfolio
+              </button>
+            </li>
+          </ul>
+        ) : null}
+      </div>
 
       <button
         type="button"
         onClick={onCompare}
         aria-label="Compare rows"
-        title="Pick up to five rows from this page and compare them"
-        className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg"
+        title="Search or pick up to five symbols and compare them side by side"
+        className={CONTROL}
       >
+        <Icon name="split" />
         Compare
       </button>
 
@@ -187,24 +284,29 @@ export function TableToolbar({
         type="button"
         onClick={onAlert}
         aria-label="Set alert"
-        title="Write a price alert for the selected symbol"
-        className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg"
+        title="Write a price alert for the selected symbol, or search one"
+        className={CONTROL}
       >
+        <Icon name="bell" />
         Set alert
       </button>
 
-      <div ref={menuRef} className="relative">
+      <div ref={exportRef} className="relative">
         <button
+          ref={exportTrigger}
           type="button"
           data-testid="export-button"
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((value) => !value)}
-          className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg"
+          aria-expanded={menu === "export"}
+          onClick={() => setMenu((value) => (value === "export" ? null : "export"))}
+          title="Download this screen as CSV, XLSX or JSON, or copy the API body"
+          className={CONTROL}
         >
-          Export ▾
+          <Icon name="download" />
+          Export
+          <Icon name="chevron-down" size={12} />
         </button>
-        {menuOpen ? (
+        {menu === "export" ? (
           <ul
             role="menu"
             aria-label="Export"
@@ -216,9 +318,10 @@ export function TableToolbar({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => pick(choice)}
-                  className="block w-full px-2.5 py-1 text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:bg-row-hover hover:text-fg"
+                  onClick={() => pickExport(choice)}
+                  className={MENU_ITEM}
                 >
+                  <Icon name={choice === "api" ? "split" : "download"} />
                   {choice === "api" ? "API" : choice.toUpperCase()}
                 </button>
               </li>
@@ -231,6 +334,7 @@ export function TableToolbar({
 
       <label className="flex items-center gap-1">
         <span className="sr-only">Rows per page</span>
+        <Icon name="list" className="text-fg-subtle" />
         <select
           aria-label="Rows per page"
           data-testid="rows-per-page"
@@ -253,21 +357,27 @@ export function TableToolbar({
       <span className="flex items-center gap-1">
         <button
           type="button"
+          data-testid="toolbar-prev"
           onClick={onPrev}
           disabled={!canPrev}
           aria-label="Previous page"
-          className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
+          title="Previous page"
+          className={CONTROL}
         >
+          <Icon name="chevron-left" />
           Prev
         </button>
         <button
           type="button"
+          data-testid="toolbar-next"
           onClick={onNext}
           disabled={!canNext}
           aria-label="Next page"
-          className="h-6 rounded-sm border border-line-control px-2 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
+          title="Next page"
+          className={CONTROL}
         >
           Next
+          <Icon name="chevron-right" />
         </button>
       </span>
 

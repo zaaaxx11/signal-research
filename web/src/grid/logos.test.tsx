@@ -79,9 +79,7 @@ describe("the identity lane", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />,
     );
@@ -107,9 +105,7 @@ describe("the identity lane", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />,
     );
@@ -139,9 +135,7 @@ describe("the identity lane", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />,
     );
@@ -168,9 +162,7 @@ describe("the identity lane", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />,
     );
@@ -208,9 +200,7 @@ describe("the panel budget", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
         columns={["price", "logo"]}
       />,
@@ -232,9 +222,7 @@ describe("the panel budget", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />,
     );

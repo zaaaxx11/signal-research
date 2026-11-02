@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WireFilter } from "@/filters/types";
 import { VIEW_FIXTURE } from "@/grid/__fixtures__/views";
 
-import { ColumnPresetsDialog } from "./ColumnPresetsDialog";
+import { PresetPanel, nextScreenName } from "./PresetPanel";
 import { FILTER_PANEL_ID, ScreenerHeader, type ScreenerHeaderProps } from "./ScreenerHeader";
 import { COLUMN_PRESETS, type ResolvedPreset } from "./columnPresets";
 import { resetPresetSequence, useUserColumnPresets, USER_PRESETS_KEY } from "./userPresets";
@@ -102,9 +102,14 @@ describe("the screener masthead", () => {
     expect(row.lastElementChild).toBe(screen.getByTestId("filter-button"));
 
     const header = within(screen.getByTestId("screener-header"));
-    for (const name of ["Your column presets", "Order by", "Signal", "Ticker search"]) {
+    for (const name of ["Order by", "Signal", "Ticker search"]) {
       expect(header.getByRole("combobox", { name })).toBeTruthy();
     }
+    // The saved screens are a box, not a select: its trigger is a button that
+    // opens a dialog, and it carries the columns glyph.
+    const presets = header.getByRole("button", { name: "Presets" });
+    expect(presets.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(presets.querySelector('[data-icon="columns"]')).toBeTruthy();
   });
 
   it("keeps the built-in tabs mounted below the panel whether it is open or shut", async () => {
@@ -376,6 +381,10 @@ describe("the two column vocabularies", () => {
 
     const edit = screen.getByTestId("open-column-picker");
     expect(edit.getAttribute("title")).toBeTruthy();
+    // The affordance is named for what it does, not only for what it is: the
+    // picker chooses which columns the table draws.
+    expect(edit.getAttribute("aria-label")).toMatch(/choose which columns/i);
+    expect(edit.querySelector('[data-icon="chevron-down"]')).toBeTruthy();
     await user.click(edit);
     expect(spies.onOpenColumnPicker).toHaveBeenCalledTimes(1);
 
@@ -384,76 +393,75 @@ describe("the two column vocabularies", () => {
     expect(spies.onOpenColumnPicker).toHaveBeenCalledTimes(1);
   });
 
-  it("opens with one saved set: My stock presets", () => {
+  it("opens one saved-screens box with a search field, a save action and an empty state", async () => {
+    const user = userEvent.setup();
     setup();
-    const select = screen.getByTestId("columns-select") as HTMLSelectElement;
-    expect([...select.options].map((option) => option.textContent)).toEqual(["My stock presets"]);
-    expect(select.value).toBe("my-stock-presets");
+
+    const trigger = screen.getByTestId("preset-box-button");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await user.click(trigger);
+
+    const box = screen.getByRole("dialog", { name: "Saved screens" });
+    expect(within(box).getByRole("searchbox", { name: "Search presets" })).toBeTruthy();
+    expect(within(box).getByRole("button", { name: "Save Current Screen" })).toBeTruthy();
+    expect(box.textContent).toContain("You don't have any saved screens yet.");
+
+    // Escape closes it and hands focus back to the control that opened it.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Saved screens" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
-  it("creates, applies, renames and deletes a set, and remembers it in storage", async () => {
+  it("saves, applies, renames and deletes a screen, and remembers it in storage", async () => {
     const user = userEvent.setup();
     const { spies } = setup();
 
-    await user.click(screen.getByTestId("manage-column-presets"));
-    const dialog = screen.getByRole("dialog", { name: "Column presets" });
-    const name = within(dialog).getByRole("textbox", { name: "Preset name" });
-    await user.clear(name);
-    await user.type(name, "Cheap tech");
-    await user.click(within(dialog).getByRole("button", { name: "Save preset" }));
+    await user.click(screen.getByTestId("preset-box-button"));
+    await user.click(screen.getByTestId("save-current-screen"));
 
-    expect(window.localStorage.getItem(USER_PRESETS_KEY)).toContain("Cheap tech");
-    const select = screen.getByTestId("columns-select") as HTMLSelectElement;
-    expect([...select.options].map((option) => option.textContent)).toEqual([
-      "My stock presets",
-      `Cheap tech · ${VIEW_FIXTURE[0]!.columns.length}`,
-    ]);
+    expect(window.localStorage.getItem(USER_PRESETS_KEY)).toContain("Screen 1");
     // Saving applies nothing by itself; the columns are already on screen.
     expect(spies.onApplyColumns).not.toHaveBeenCalled();
+    expect(screen.queryByText("You don't have any saved screens yet.")).toBeNull();
 
-    // Applying it from the select writes its columns to the screen.
-    await user.selectOptions(select, select.options[1]!.value);
+    // Applying it writes its columns to the screen and closes the box.
+    await user.click(screen.getByRole("button", { name: "Show Screen 1" }));
     expect(spies.onApplyColumns).toHaveBeenCalledWith(VIEW_FIXTURE[0]!.columns);
 
-    // Rename it.
-    const row = within(dialog).getByText("Cheap tech").closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Rename" }));
-    const rename = within(row).getByRole("textbox", { name: /New name for Cheap tech/ });
+    // Rename it with the row's pencil.
+    await user.click(screen.getByTestId("preset-box-button"));
+    await user.click(screen.getByRole("button", { name: "Rename Screen 1" }));
+    const rename = screen.getByRole("textbox", { name: /New name for Screen 1/ });
     await user.clear(rename);
-    await user.type(rename, "Cheap tech v2");
-    await user.click(within(row).getByRole("button", { name: "Save name" }));
-    expect(
-      (screen.getByTestId("columns-select") as HTMLSelectElement).options[1]!.textContent,
-    ).toContain("Cheap tech v2");
+    await user.type(rename, "Cheap tech");
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    // Delete it: two presses, the second one says Confirm.
-    const rowAfter = within(dialog).getByText("Cheap tech v2").closest("li") as HTMLElement;
-    await user.click(within(rowAfter).getByRole("button", { name: "Delete" }));
-    await user.click(within(rowAfter).getByRole("button", { name: "Confirm" }));
-    expect([...(screen.getByTestId("columns-select") as HTMLSelectElement).options]).toHaveLength(1);
-    expect(window.localStorage.getItem(USER_PRESETS_KEY)).not.toContain("Cheap tech v2");
-    // Deleting the selected set falls back to the default entry.
-    expect((screen.getByTestId("columns-select") as HTMLSelectElement).value).toBe(
-      "my-stock-presets",
-    );
+    expect(window.localStorage.getItem(USER_PRESETS_KEY)).toContain("Cheap tech");
+    expect(screen.getByRole("button", { name: "Show Cheap tech" })).toBeTruthy();
+
+    // Delete it with the row's ×: the empty state comes back.
+    await user.click(screen.getByRole("button", { name: "Delete Cheap tech" }));
+    expect(window.localStorage.getItem(USER_PRESETS_KEY)).not.toContain("Cheap tech");
+    expect(screen.getByText("You don't have any saved screens yet.")).toBeTruthy();
   });
 
-  it("keeps the default set un-renamable and un-deletable", async () => {
+  it("filters the saved list by the search field", async () => {
     const user = userEvent.setup();
     setup();
-    await user.click(screen.getByTestId("manage-column-presets"));
-    const dialog = screen.getByRole("dialog", { name: "Column presets" });
-    const row = within(dialog).getByText("My stock presets").closest("li") as HTMLElement;
-    expect(
-      (within(row).getByRole("button", { name: "Rename" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(
-      (within(row).getByRole("button", { name: "Delete" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    // "Use" is disabled until the default has columns saved into it.
-    expect((within(row).getByRole("button", { name: "Use" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+
+    await user.click(screen.getByTestId("preset-box-button"));
+    await user.click(screen.getByTestId("save-current-screen"));
+    await user.click(screen.getByTestId("save-current-screen"));
+    expect(screen.getByRole("button", { name: "Show Screen 1" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show Screen 2" })).toBeTruthy();
+
+    await user.type(screen.getByRole("searchbox", { name: "Search presets" }), "Screen 2");
+    expect(screen.queryByRole("button", { name: "Show Screen 1" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Show Screen 2" })).toBeTruthy();
+
+    await user.clear(screen.getByRole("searchbox", { name: "Search presets" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search presets" }), "zzz");
+    expect(screen.getByText(/No saved screens match/)).toBeTruthy();
   });
 
   it("carries Order by and Signal into the one screen state", async () => {
@@ -479,34 +487,41 @@ describe("the two column vocabularies", () => {
   });
 });
 
-describe("ColumnPresetsDialog", () => {
-  it("refuses an empty name instead of saving an unnamed set", async () => {
-    const user = userEvent.setup();
-    const onSave = vi.fn();
+describe("PresetPanel", () => {
+  const builtin = {
+    id: "my-stock-presets",
+    name: "My stock presets",
+    columns: ["price"],
+    builtin: true,
+    saved: true,
+  };
+
+  it("keeps the default working set un-renamable and un-deletable", () => {
     render(
-      <ColumnPresetsDialog
-        open
-        onClose={vi.fn()}
-        presets={[
-          {
-            id: "my-stock-presets",
-            name: "My stock presets",
-            columns: [],
-            builtin: true,
-            saved: false,
-          },
-        ]}
+      <PresetPanel
+        presets={[builtin]}
         currentColumns={["price"]}
-        onSave={onSave}
+        onApply={vi.fn()}
+        onSave={vi.fn()}
         onRename={vi.fn()}
         onDelete={vi.fn()}
-        onUse={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
-    const name = screen.getByRole("textbox", { name: "Preset name" });
-    await user.clear(name);
-    await user.click(screen.getByRole("button", { name: "Save preset" }));
-    expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toMatch(/name/i);
+    const row = screen.getByRole("button", { name: "Show My stock presets" }).closest("li")!;
+    expect(
+      (within(row as HTMLElement).getByRole("button", { name: "Rename My stock presets" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (within(row as HTMLElement).getByRole("button", { name: "Delete My stock presets" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("names each save so it never overwrites an existing screen", () => {
+    expect(nextScreenName([])).toBe("Screen 1");
+    expect(nextScreenName(["Screen 1"])).toBe("Screen 2");
+    expect(nextScreenName(["Screen 1", "Screen 3"])).toBe("Screen 2");
   });
 });

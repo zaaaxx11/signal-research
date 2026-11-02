@@ -82,6 +82,43 @@ function stubApi(): Harness {
     }
     if (url.startsWith("/market/home")) return json(homeDocument());
     if (url.startsWith("/market/signals")) return json(signalsDocument());
+    if (url.startsWith("/engine/profile/")) {
+      return json({ error: "security_not_found", errorMessage: "no profile yet" }, 404);
+    }
+    if (url.startsWith("/engine/company/")) {
+      return json({ error: "company_not_found", errorMessage: "no company profile yet" }, 404);
+    }
+    if (url.startsWith("/engine/security/")) {
+      return json({
+        symbol: "AAPL",
+        name: "Apple Inc.",
+        sector: "Technology",
+        industry: "Electronic Computers",
+      });
+    }
+    if (url.startsWith("/engine/fundamentals/")) {
+      return json({
+        symbol: "AAPL",
+        as_of: "2026-10-31",
+        metrics: {
+          company: { value: "Apple Inc.", unit: "text" },
+          industry: { value: "Electronic Computers", unit: "text" },
+        },
+      });
+    }
+    if (url.startsWith("/engine/peers/")) {
+      return json({ symbol: "AAPL", industry: "Electronic Computers", count: 0, peers: [] });
+    }
+    if (url.startsWith("/engine/insider/")) {
+      return json({ symbol: "AAPL", as_of: "2026-10-31", count: 0, items: [] });
+    }
+    if (url.startsWith("/news/")) {
+      return json({ symbol: "AAPL", as_of: "2026-10-31", count: 0, items: [] });
+    }
+    if (url.startsWith("/market/chart/")) {
+      return json({ error: "chart_not_found", errorMessage: "no bars" }, 404);
+    }
+    if (url.startsWith("/screens?source=")) return json({ screen_id: "scr_app_surface" });
     if (url === "/screens/select" && init?.method === "POST") {
       selects.push(JSON.parse(String(init.body)) as Record<string, unknown>);
       return json(page());
@@ -163,16 +200,17 @@ describe("the screener routes", () => {
 });
 
 describe("a ticker page", () => {
-  it("renders the detail panel full-page at /stock/{symbol}", async () => {
+  it("mounts the ticker page at /stock/{symbol} and asks for one symbol row", async () => {
     const api = stubApi();
     window.history.replaceState(null, "", "/app/stock/AAPL");
     render(<App />);
 
-    const panel = await screen.findByTestId("detail-panel", undefined, { timeout: 5_000 });
-    expect(panel.getAttribute("data-symbol")).toBe("AAPL");
+    const page = await screen.findByTestId("ticker-page", undefined, { timeout: 5_000 });
+    expect(page.getAttribute("data-symbol")).toBe("AAPL");
     expect(screen.getByTestId("stock-page").getAttribute("data-symbol")).toBe("AAPL");
-    // No grid request: the page is the panel.
-    expect(api.selects).toHaveLength(0);
+    // One symbols-mode selection for the page's own row — not a 20-row grid scan.
+    await waitFor(() => expect(api.selects).toHaveLength(1));
+    expect((api.selects[0] as { mode: string }).mode).toBe("symbols");
   });
 });
 

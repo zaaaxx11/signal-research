@@ -28,6 +28,7 @@ MEE_COINIDS_PATH: instrument manifest location; app/market/coinids.py resolve_ma
 # --- engine snapshot and cache
 MEE_ENGINE_CACHE_DIR: document cache; app/main.py _cache_dir, app/api/engine.py, app/engine/bootstrap.py
 MEE_ENGINE_SNAPSHOT: dataset snapshot; app/main.py _configured_snapshot, app/engine/paths.py, app/market/depth.py (also a Settings alias for health_snapshot_path)
+MEE_COMPANY_CACHE_DIR: company profile cache; app/market/company.py company_dir (defaults beside the depth store)
 
 # --- startup switches read before/around Settings is built
 MEE_ENGINE_PUBLIC_MODE: licence policy; app/main.py _env_flag (public vs private redistribution)

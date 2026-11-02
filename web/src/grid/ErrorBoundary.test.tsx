@@ -137,9 +137,7 @@ describe("ErrorBoundary", () => {
       <ErrorBoundary>
         <ScreenPanel
           view={TODAY_VIEW}
-          selectedSymbol={null}
           onActivate={vi.fn()}
-          onClear={vi.fn()}
           containerWidth={1280}
         />
       </ErrorBoundary>,

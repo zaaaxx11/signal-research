@@ -47,6 +47,7 @@ from app.api.cache import cache_headers, not_modified
 from app.api.market import quote_engine_of
 from app.auth import ApiError
 from app.engine.fund_series import fund_series_path, load_fund_series
+from app.engine.ingest import load_cached_companyfacts
 from app.engine.insider import FILINGS_TTL_S, collect_insider
 from app.engine.model import Cell
 from app.engine.nport import HoldingsNotFound, HoldingsUnavailable, collect_holdings
@@ -61,7 +62,11 @@ from app.engine.quotes import (
 from app.engine.screener import ScreenError, ScreenQuery, ScreenResult, parse_query
 from app.engine.service import EngineService, EngineUnavailable
 from app.engine.statements import collect_statements
+from app.engine.statement_table import statement_document
 from app.market.quote import QuoteTick
+from app.screen import index_membership
+from app.screen.scanner import ScanError
+from app.screen.ticker import peer_document, profile_document
 
 router = APIRouter(prefix="/engine", tags=["engine"])
 
@@ -85,6 +90,40 @@ def engine_service_of(request: Request) -> EngineService:
     if isinstance(service, EngineService):
         return service
     return EngineService()
+
+
+async def ticker_universe(request: Request) -> Sequence[Mapping[str, Any]]:
+    """The US stock universe the screener scans, through its own scan cache.
+
+    One function, imported at call time so this module's import graph does not
+    depend on the selections router. A test can replace it with a fixture, and
+    the routes below never touch a provider directly.
+    """
+
+    from app.api.screens import market_universe
+
+    return await market_universe(request)
+
+
+def index_members_for(symbol: str) -> list[str] | None:
+    """The index labels the vendored snapshot holds for ``symbol``, for display.
+
+    The snapshot stores tokens (``sp500``, ``ndx``); a header shows names
+    (``S&P 500``, ``NASDAQ 100``), so the one mapping in
+    :data:`app.screen.index_membership.LABELS` is applied here rather than in
+    the client. ``None`` means the snapshot is unavailable (membership is
+    unknown); an empty list means it was read and the symbol is in none of the
+    four. The distinction is the one :mod:`app.screen.index_membership` exists
+    to keep.
+    """
+
+    snapshot = index_membership.load()
+    if not snapshot.available:
+        return None
+    return [
+        index_membership.LABELS.get(name, name)
+        for name in snapshot.indices_for(symbol)
+    ]
 
 
 @router.get("/health")
@@ -218,7 +257,41 @@ async def security(symbol: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/peers/{symbol}")
-async def peers(symbol: str, request: Request, limit: str = "10") -> dict[str, Any]:
+async def peers(symbol: str, request: Request) -> dict[str, Any]:
+    """The subject's sector group, nearest market cap first, from the scan.
+
+    The universe is the one ``/screens`` already scans (``ticker_universe``),
+    so a header and a peer group are projections of the same rows. Ten rows by
+    default; the fallback to the broader industry group is
+    :func:`app.screen.ticker.peer_document`'s decision, not the route's.
+
+    Three answers stay distinct: a blocked scan is ``503 scanner_unavailable``
+    (no universe was read), a symbol outside the scan is ``404
+    security_not_found``, and a known company with no sector and no industry is
+    an honest empty ``200`` — the same three-way split the identity peer group
+    uses.
+    """
+
+    try:
+        rows = await ticker_universe(request)
+    except ScanError as exc:
+        raise ApiError(
+            503,
+            "scanner_unavailable",
+            f"the scanner could not answer the peer group: {exc}",
+        ) from exc
+    document = peer_document(rows, symbol)
+    if document is None:
+        raise ApiError(
+            404,
+            "security_not_found",
+            f"security {symbol!r} is not in the scanned universe",
+        )
+    return document
+
+
+@router.get("/peers/{symbol}/industry")
+async def peers_industry(symbol: str, request: Request, limit: str = "10") -> dict[str, Any]:
     """Who else shares this symbol's SEC industry, computed from identity.
 
     ``limit`` is taken as raw text and parsed here rather than as an ``int``
@@ -248,6 +321,83 @@ async def peers(symbol: str, request: Request, limit: str = "10") -> dict[str, A
             f"security {symbol!r} is not in the loaded identity master",
         )
     return document
+
+
+@router.get("/profile/{symbol}")
+async def profile(symbol: str, request: Request) -> dict[str, Any]:
+    """The ticker page's header: one scan row, projected, nothing recomputed.
+
+    Price, change, volume, market cap, sector, industry, the 52-week range,
+    beta and RSI are the row's own cells from the same scan ``/screens`` uses.
+    ``prev_close`` is the screener's existing identity over the row's price and
+    change; ``index_membership`` is the vendored snapshot the ``idx`` filter
+    reads. No quote is fetched and no indicator is recalculated here.
+
+    A symbol outside the scan is ``404 security_not_found``; a blocked scan is
+    ``503 scanner_unavailable``. A row whose cells are null returns them as
+    null — a header must never turn an unobserved beta into ``0.0``.
+    """
+
+    try:
+        rows = await ticker_universe(request)
+    except ScanError as exc:
+        raise ApiError(
+            503,
+            "scanner_unavailable",
+            f"the scanner could not answer the header: {exc}",
+        ) from exc
+    target = str(symbol or "").strip().upper()
+    row = next(
+        (
+            candidate
+            for candidate in rows
+            if str(candidate.get("symbol") or "").strip().upper() == target
+        ),
+        None,
+    )
+    if row is None:
+        raise ApiError(
+            404,
+            "security_not_found",
+            f"security {symbol!r} is not in the scanned universe",
+        )
+    return profile_document(row, index_members=index_members_for(target))
+
+
+async def company_profile(symbol: str) -> Mapping[str, Any] | None:
+    """The company block for one symbol, behind the seven-day disk cache.
+
+    Imported at call time, like :func:`ticker_universe`: this module's import
+    graph stays free of the Yahoo transport, and a test can replace the one
+    function with a fixture instead of reaching for a socket.
+    """
+
+    from app.market.company import collect_company_profile
+
+    return await collect_company_profile(symbol)
+
+
+@router.get("/company/{symbol}")
+async def company(symbol: str, request: Request) -> dict[str, Any]:
+    """The ticker page's Company block: business summary plus key officers.
+
+    One Yahoo ``quoteSummary`` ``assetProfile`` read, served for seven days from
+    ``<data root>/company/{symbol}.json`` (``MEE_COMPANY_CACHE_DIR`` overrides
+    the directory). A cache hit does not call the network; a Yahoo refusal with
+    an expired copy on disk serves that copy and names it ``yahoo-cache-stale``
+    in ``source``. With no paragraph on disk and no answer from Yahoo the route
+    is ``404 no_company_profile`` — a company block is never fabricated, and a
+    blank ``longBusinessSummary`` is not a description.
+    """
+
+    document = await company_profile(symbol)
+    if document is None:
+        raise ApiError(
+            404,
+            "no_company_profile",
+            f"no company profile is available for {symbol!r}",
+        )
+    return dict(document)
 
 
 @router.get("/insider/{symbol}")
@@ -493,7 +643,51 @@ async def fundamentals(symbol: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/statements/{symbol}")
-async def statements(
+async def statements(symbol: str, request: Request) -> dict[str, Any]:
+    """The ticker page's statement table: ten annual and eight quarterly columns.
+
+    Read from the **cached** ``companyfacts`` document the ingest pass already
+    wrote (``MEE_ENGINE_CACHE_DIR``); this route never fetches. That is a
+    product decision, not an optimisation: a statement table is a historical
+    document, and a ticker page must not wait on a 20 MB EDGAR body to paint
+    one. A stale cache is handled by the ingest job that owns it.
+
+    ``404 no_statements`` covers every way there is no table to serve: a symbol
+    outside the identity master, a registrant with no CIK, no cached document
+    for the CIK, and a document with no usable 10-K or 10-Q row. They are one
+    answer because the page's next move is one: show "no statements", not retry
+    a request that cannot succeed. A deployment with no identity master at all
+    is still ``503 screen_unavailable`` — "nothing was ingested" is a different
+    fact and must not look like "this company files nothing".
+    """
+
+    service = engine_service_of(request)
+    master = service.security_master
+    if master is None:
+        raise ApiError(
+            503,
+            "screen_unavailable",
+            "the engine has no identity master loaded yet; ingest a dataset first",
+        )
+    record = master.get(symbol)
+    if record is None or record.cik is None:
+        raise ApiError(404, "no_statements", f"no SEC facts are on file for {symbol!r}")
+
+    cache_dir = _engine_cache_dir()
+    payload = (
+        None if cache_dir is None else load_cached_companyfacts(cache_dir, record.cik)
+    )
+    if payload is None:
+        raise ApiError(404, "no_statements", f"no SEC facts are on file for {record.symbol}")
+
+    document = statement_document(record.symbol, payload)
+    if document is None:
+        raise ApiError(404, "no_statements", f"no SEC facts are on file for {record.symbol}")
+    return document
+
+
+@router.get("/statements/{symbol}/annual")
+async def statements_annual(
     symbol: str, request: Request, periods: str = "4"
 ) -> dict[str, Any]:
     """One issuer's annual income, balance and cash-flow table, from SEC facts.

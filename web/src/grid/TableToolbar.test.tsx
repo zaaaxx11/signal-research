@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function renderPanel() {
-  return render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
+  return render(<ScreenPanel view={VIEW} onActivate={vi.fn()} containerWidth={1280} />);
 }
 
 describe("the count readout", () => {

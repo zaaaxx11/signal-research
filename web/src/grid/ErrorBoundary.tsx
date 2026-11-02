@@ -14,8 +14,9 @@
  * It also catches the one fault that is neither: a **lazy chunk that never
  * arrives**. `React.lazy` rejects when its `import()` rejects (a deploy rotated
  * the hash while the tab was open), React throws that rejection during render,
- * and the nearest boundary is where it lands. `app.tsx` wraps the detail panel
- * in one for exactly that reason, with a bounded retry inside the import.
+ * and the nearest boundary is where it lands. `stock/StockPage` wraps the
+ * ticker page in one for exactly that reason, with a bounded retry inside the
+ * import.
  */
 
 import * as React from "react";

@@ -175,6 +175,12 @@ export interface ScreensResult {
   revalidated: boolean;
   /** Client clock at the last completed check, for the stale badge. */
   checkedAt: string | null;
+  /**
+   * True when these rows were served from the client's own page cache — the
+   * request that would have asked for them was not made. A page turn that hits
+   * the cache draws instantly; the chrome says "cached" rather than "loading".
+   */
+  fromCache: boolean;
   refresh: () => void;
 }
 
@@ -200,6 +206,7 @@ const EMPTY = {
   error: null,
   revalidated: false,
   checkedAt: null,
+  fromCache: false,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -317,12 +324,65 @@ export function queryKey(query: ScreensQuery): string {
   return JSON.stringify({ view: query.view, request: requestBody(query) });
 }
 
+/* ------------------------------------------------------------------------- *
+ * The page cache
+ * ------------------------------------------------------------------------- */
+
+export interface CachedPage {
+  rows: ScreenRow[];
+  meta: ScreenMeta;
+  etag: string | null;
+  checkedAt: string;
+}
+
+/**
+ * How many pages this tab keeps. A hundred-row page is the largest the API
+ * serves; sixty of them bounds the cache at a few megabytes and still covers
+ * the back-and-forth a reader does between two or three pages. Least-recently
+ * written entries go first — a Map iterates in insertion order, so re-writing
+ * a key on a hit moves it to the warm end.
+ */
+export const PAGE_CACHE_LIMIT = 60;
+
+const pages = new Map<string, CachedPage>();
+
+export function readCachedPage(key: string): CachedPage | null {
+  const hit = pages.get(key);
+  if (!hit) return null;
+  // Refresh the recency of a page that was actually asked for.
+  pages.delete(key);
+  pages.set(key, hit);
+  return hit;
+}
+
+export function writeCachedPage(key: string, page: CachedPage): void {
+  pages.delete(key);
+  pages.set(key, page);
+  while (pages.size > PAGE_CACHE_LIMIT) {
+    const oldest = pages.keys().next();
+    if (oldest.done) break;
+    pages.delete(oldest.value);
+  }
+}
+
+/** Test seam, and the way a sign-out or a market switch would start clean. */
+export function clearPageCache(): void {
+  pages.clear();
+}
+
 /**
  * The selection hook.
  *
  * `query` may be null while the view catalogue is loading. Its identity is
  * not trusted: the effect keys on :func:`queryKey`, so an inline object literal
  * in the caller does not re-fetch on every render.
+ *
+ * **A page already seen is not fetched again.** The key that identifies a
+ * request — view, sort, filters, page, rows — is also the cache key, so
+ * previous/next between pages costs one request each way, never a second
+ * round trip, and never a skeleton over data the tab already holds. `refresh`
+ * is the one path that ignores the cache: a reader asking again is asking the
+ * server, not the tab.
  */
 export function useScreens(query: ScreensQuery | null): ScreensResult {
   const [state, setState] = React.useState<Omit<ScreensResult, "refresh">>(EMPTY);
@@ -334,6 +394,12 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
   const key = query ? queryKey(query) : null;
   const seq = React.useRef(0);
   const etags = React.useRef(new Map<string, string>());
+  /**
+   * The attempt number the last effect run served. A mount starts at `-1` with
+   * `attempt === 0`, so the first run is always a real read; every later run
+   * with the same number is a key change, which may be answered from cache.
+   */
+  const servedAttempt = React.useRef(-1);
   /**
    * Keys that have already spent their one free retry after a `304` that could
    * not be honoured. Bounded so a server that insists cannot loop the client.
@@ -350,13 +416,37 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
     const controller = new AbortController();
     const mine = ++seq.current;
     const view = current.view;
+    const forced = servedAttempt.current !== attempt;
+    servedAttempt.current = attempt;
+
+    // A forced read is a refresh; anything else may be answered from the tab.
+    // This is before the loading state on purpose: a cached page is drawn in
+    // the same commit as the click, so there is no frame that shows a skeleton.
+    if (!forced) {
+      const cached = readCachedPage(key);
+      if (cached) {
+        setState({
+          rows: cached.rows,
+          view,
+          queryKey: key,
+          meta: cached.meta,
+          etag: cached.etag,
+          status: cached.rows.length > 0 ? "ready" : "empty",
+          error: null,
+          revalidated: false,
+          checkedAt: cached.checkedAt,
+          fromCache: true,
+        });
+        return;
+      }
+    }
 
     // Same view: keep the rows visible while revalidating. A different view:
     // drop them now, so the previous view's numbers can never sit under the new
     // view's header for a frame.
     setState((previous) => {
       if (previous.view === view) {
-        return { ...previous, status: "loading", error: null };
+        return { ...previous, status: "loading", error: null, fromCache: false };
       }
       return { ...EMPTY, view, status: "loading" };
     });
@@ -402,6 +492,13 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
             }));
             return;
           }
+          const checkedAt = new Date().toISOString();
+          writeCachedPage(key, {
+            rows: onScreen.rows,
+            meta: onScreen.meta ?? readResponse({}, current.offset ?? 0).meta,
+            etag: answer.etag,
+            checkedAt,
+          });
           setState((previous) =>
             previous.queryKey === key
               ? {
@@ -409,7 +506,9 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
                   status: previous.rows.length > 0 ? "ready" : "empty",
                   error: null,
                   revalidated: true,
-                  checkedAt: new Date().toISOString(),
+                  checkedAt,
+                  etag: answer.etag,
+                  fromCache: false,
                 }
               : previous,
           );
@@ -419,6 +518,8 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
         if (answer.etag) etags.current.set(key, answer.etag);
         retried.current.delete(key);
         const { rows, meta } = readResponse(answer.body ?? {}, current.offset ?? 0);
+        const checkedAt = new Date().toISOString();
+        writeCachedPage(key, { rows, meta, etag: answer.etag, checkedAt });
         setState({
           rows,
           view,
@@ -428,7 +529,8 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
           status: rows.length > 0 ? "ready" : "empty",
           error: null,
           revalidated: false,
-          checkedAt: new Date().toISOString(),
+          checkedAt,
+          fromCache: false,
         });
       } catch (error) {
         if (controller.signal.aborted || mine !== seq.current) return;
@@ -442,6 +544,7 @@ export function useScreens(query: ScreensQuery | null): ScreensResult {
             message: error instanceof Error ? error.message : "Request failed",
           },
           revalidated: false,
+          fromCache: false,
         }));
       }
     };

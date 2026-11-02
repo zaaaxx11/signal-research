@@ -68,9 +68,7 @@ function SortHarness() {
   return (
     <ScreenPanel
       view={VIEW}
-      selectedSymbol={null}
       onActivate={vi.fn()}
-      onClear={vi.fn()}
       containerWidth={1280}
       sort={sort}
       onSortChange={setSort}
@@ -86,9 +84,7 @@ describe("ScreenPanel", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
       />,
     );
@@ -114,7 +110,7 @@ describe("ScreenPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
-    render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
+    render(<ScreenPanel view={VIEW} onActivate={vi.fn()} containerWidth={1280} />);
 
     await waitFor(() => expect(screen.getByTestId("range").textContent).toBe("1/5,600 Total"));
 
@@ -135,7 +131,7 @@ describe("ScreenPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
-    render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
+    render(<ScreenPanel view={VIEW} onActivate={vi.fn()} containerWidth={1280} />);
     await waitFor(() => expect(screen.getByTestId("grid-table").querySelectorAll("tbody tr[data-symbol]")).toHaveLength(20));
 
     await user.click(screen.getByRole("button", { name: "Refresh the screen" }));
@@ -182,7 +178,7 @@ describe("ScreenPanel", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ScreenPanel view={VIEW} selectedSymbol={null} onActivate={vi.fn()} onClear={vi.fn()} containerWidth={1280} />);
+    render(<ScreenPanel view={VIEW} onActivate={vi.fn()} containerWidth={1280} />);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("unknown sort 'bogus'"));
   });
 });

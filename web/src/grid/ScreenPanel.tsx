@@ -34,7 +34,6 @@ import {
   type ScreenRow,
   type ViewDefinition,
 } from "@/data/screens";
-import { cn } from "@/lib/utils";
 
 import { DataTable } from "./DataTable";
 import { isClientColumn } from "./columnMeta";
@@ -42,12 +41,13 @@ import { PendingBar } from "./PendingBar";
 import { pendingLabel, useDelayedFlag, useReducedMotion } from "./pending";
 import { sameColumns } from "./columnSelection";
 import { AlertDialog } from "./AlertDialog";
+import { AddToDialog, type AddToInput } from "./AddToDialog";
 import { CompareDialog } from "./CompareDialog";
 import { ExportDialog, type ExportChoice } from "./ExportDialog";
 import { Pager } from "./Pager";
-import { TableToolbar } from "./TableToolbar";
+import { TableToolbar, type AddToList } from "./TableToolbar";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
-import { MAX_SYMBOLS, watchlistStore } from "@/lists/storage";
+import { addHolding, addSymbol, MAX_SYMBOLS, portfolioStore, watchlistStore } from "@/lists/storage";
 
 import type { ActiveFilter } from "@/filters/types";
 import type { FilterRegistry } from "@/filters/registry";
@@ -58,9 +58,20 @@ export interface ScreenPanelProps {
   view: ViewDefinition;
   /** `etf` on `/screener/etf`; every request carries it. */
   assetClass?: "stock" | "etf";
-  selectedSymbol: string | null;
-  onActivate: (symbol: string) => void;
-  onClear: () => void;
+  /**
+   * A row was opened: the screener is a door to `/stock/{symbol}`, never a
+   * docked panel. The caller owns the navigation so this stays a renderer of
+   * rows and requests.
+   */
+  onActivate?: (symbol: string) => void;
+  /**
+   * The ticker page's route path for a row (`/stock/AAPL`).
+   *
+   * The identity lane becomes a real anchor with this href, so middle-click
+   * and ⌘/Ctrl-click open a new tab through the browser rather than a
+   * synthetic window.
+   */
+  symbolHref?: (symbol: string) => string;
   /** Test seam; production measures the scroll box. */
   containerWidth?: number;
   /**
@@ -90,11 +101,6 @@ export interface ScreenPanelProps {
   onDismissFilterNotice?: () => void;
   /** The selection to draw; the view's own columns when omitted. */
   columns?: readonly string[];
-  /**
-   * Scroll the card to equalise a taller detail panel. False by default: the
-   * table is not a scroll box, and the page owns its height.
-   */
-  equalise?: boolean;
   /** The cap sentence from the shell, shown above the grid and in the picker. */
   columnNotice?: string | null;
   onDismissColumnNotice?: () => void;
@@ -110,9 +116,8 @@ function timeOf(iso: string): string {
 export function ScreenPanel({
   view,
   assetClass = "stock",
-  selectedSymbol,
   onActivate,
-  onClear,
+  symbolHref,
   containerWidth,
   sort: sortProp,
   signal,
@@ -126,7 +131,6 @@ export function ScreenPanel({
   filterNotice,
   onDismissFilterNotice,
   columns,
-  equalise = false,
   columnNotice,
   onDismissColumnNotice,
 }: ScreenPanelProps) {
@@ -142,6 +146,17 @@ export function ScreenPanel({
   const [comparing, setComparing] = React.useState(false);
   const [alerting, setAlerting] = React.useState(false);
   const [exporting, setExporting] = React.useState<ExportChoice | null>(null);
+  /** The list whose search-first box is open, or null. */
+  const [addList, setAddList] = React.useState<AddToList | null>(null);
+  /**
+   * The checkbox selection, by symbol.
+   *
+   * The toolbar's three row actions (Add to, Compare, Set alert) each want one
+   * named ticker, and the grid no longer has a docked panel to carry it. The
+   * boxes are the only way a row is *selected*; a click on the row itself is a
+   * navigation and never touches this list.
+   */
+  const [selected, setSelected] = React.useState<string[]>([]);
 
   /**
    * Per-screen page state.
@@ -234,6 +249,49 @@ export function ScreenPanel({
   const firstRow = rows.length > 0 ? (meta?.offset ?? 0) + 1 : 0;
 
   /**
+   * The ticker the toolbar's row actions act on: the first *selected* row in
+   * the order the page draws it. A selection is a symbol, and the row it names
+   * must still be on this page — the boxes are cleared whenever the page, the
+   * view or the ordering changes.
+   */
+  const selectedSet = React.useMemo(() => new Set(selected), [selected]);
+  const primary = React.useMemo(
+    () => rows.find((row) => selectedSet.has(row.symbol))?.symbol ?? null,
+    [rows, selectedSet],
+  );
+
+  const toggleSelected = React.useCallback((symbol: string) => {
+    setSelected((current) =>
+      current.includes(symbol)
+        ? current.filter((entry) => entry !== symbol)
+        : [...current, symbol],
+    );
+  }, []);
+
+  const toggleAllSelected = React.useCallback(
+    (checked: boolean) => {
+      const pageSymbols = rows.map((row) => row.symbol);
+      setSelected((current) =>
+        checked
+          ? [...new Set([...current, ...pageSymbols])]
+          : current.filter((symbol) => !pageSymbols.includes(symbol)),
+      );
+    },
+    [rows],
+  );
+
+  const clearSelected = React.useCallback(
+    () => setSelected((current) => (current.length === 0 ? current : [])),
+    [],
+  );
+
+  // A new page is a different set of rows: keeping a selection the reader can
+  // no longer see would let Add to write a ticker that is not on screen.
+  React.useEffect(() => {
+    setSelected([]);
+  }, [view.name, sort, signal, filterKey, pageIndex]);
+
+  /**
    * Is a selection in flight? — a different question from `status`, which is
    * the *table's* state. It is true from the click to the settle: a `304`
    * settles it, and an aborted request settles it too.
@@ -315,29 +373,57 @@ export function ScreenPanel({
     return () => window.clearInterval(timer);
   }, [autoRefreshMs, refresh]);
 
-  const addToWatchlist = () => {
-    const symbols =
-      selectedSymbol !== null
-        ? [selectedSymbol]
-        : rows.map((row) => row.symbol).filter((symbol) => typeof symbol === "string");
-    if (symbols.length === 0) {
-      setNotice("Nothing to add — this page has no rows.");
+  /**
+   * One add, to one list, through the store that owns it.
+   *
+   * The watchlist is a symbol list, so `addSymbol` decides what a legal ticker
+   * is and whether it is already there. The portfolio is holdings — a symbol,
+   * a quantity and a cost — so it goes through `addHolding`, the same validator
+   * the Portfolio page uses; the dialog supplies the two numbers because a
+   * holding invented at cost 0 would read as a 100% gain.
+   */
+  const addTicker = React.useCallback((input: AddToInput) => {
+    if (input.list === "watchlist") {
+      const edit = addSymbol(watchlistStore.read(), input.symbol, MAX_SYMBOLS);
+      if (!edit.ok) return { ok: false, message: edit.error };
+      watchlistStore.write(edit.symbols);
+      return { ok: true, message: `${input.symbol} is on the watchlist.` };
+    }
+    const edit = addHolding(portfolioStore.read(), {
+      symbol: input.symbol,
+      quantity: input.quantity === undefined ? "" : String(input.quantity),
+      cost: input.cost === undefined ? "" : String(input.cost),
+    });
+    if (!edit.ok) return { ok: false, message: edit.error };
+    portfolioStore.write(edit.holdings);
+    return { ok: true, message: `${input.symbol} is in the portfolio.` };
+  }, []);
+
+  /**
+   * The toolbar's Add to. A checked row is added straight away; nothing
+   * selected means the reader has not said which ticker, so the search opens —
+   * except for a portfolio, which needs a quantity and a cost from the box
+   * whether or not a row was selected.
+   */
+  const addTo = (list: AddToList) => {
+    if (list === "watchlist" && primary !== null) {
+      const result = addTicker({ symbol: primary, list });
+      setNotice(result.message);
       return;
     }
-    const current = watchlistStore.read();
-    const merged = [...current];
-    for (const symbol of symbols) {
-      if (merged.length >= MAX_SYMBOLS) break;
-      if (!merged.includes(symbol)) merged.push(symbol);
-    }
-    watchlistStore.write(merged);
-    const added = merged.length - current.length;
-    setNotice(
-      added === 0
-        ? "Those symbols are already on the watchlist."
-        : `Added ${added} ${added === 1 ? "symbol" : "symbols"} to the watchlist.`,
-    );
+    setAddList(list);
   };
+
+  /** The selected row, as the add box's pre-chosen ticker. */
+  const addSeed = React.useMemo(() => {
+    if (primary === null) return null;
+    const row = rows.find((entry) => entry.symbol === primary);
+    return {
+      symbol: primary,
+      name: row && typeof row["company"] === "string" ? row["company"] : "",
+      exchange: row && typeof row["exchange"] === "string" ? row["exchange"] : "",
+    };
+  }, [primary, rows]);
 
   const panel = {
     role: "tabpanel" as const,
@@ -369,15 +455,9 @@ export function ScreenPanel({
     <section
       {...panel}
       data-testid="table-frame"
-      data-equalise={equalise ? "true" : "false"}
-      // `relative` is for the pending bar, which is positioned on the top edge
-      // so that appearing and disappearing costs no layout. The card scrolls
-      // only when a taller detail panel asks it to (`equalise`); otherwise the
-      // page owns the vertical scroll and the table keeps its natural height.
-      className={cn(
-        "relative flex min-h-0 flex-1 flex-col rounded-md border border-line bg-surface",
-        equalise ? "overflow-y-auto" : "overflow-hidden",
-      )}
+      // The card is the content band now: one frame, full width, and the page
+      // owns the vertical scroll. Nothing scrolls this box.
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-surface"
     >
       {showPending ? <PendingBar reducedMotion={reducedMotion} /> : null}
 
@@ -400,10 +480,12 @@ export function ScreenPanel({
             ms === null ? "Auto refresh off." : `Auto refresh every ${Math.round(ms / 60_000)} min.`,
           );
         }}
-        onAddToWatchlist={addToWatchlist}
+        onAddTo={addTo}
+        selectedSymbol={primary}
         onCompare={() => setComparing(true)}
         onAlert={() => setAlerting(true)}
         onExport={(choice) => setExporting(choice)}
+        cached={screens.fromCache && sameView}
         statusText={label ?? ""}
         notice={notice}
       />
@@ -485,14 +567,28 @@ export function ScreenPanel({
         }
         onRetry={refresh}
         onActivate={onActivate}
-        onClear={onClear}
-        selectedSymbol={selectedSymbol}
+        onClear={clearSelected}
+        rowTo={symbolHref}
+        selection={{
+          selected,
+          onToggle: toggleSelected,
+          onToggleAll: toggleAllSelected,
+        }}
         containerWidth={containerWidth}
         stale={stale}
         busy={isFetching}
       />
 
-      <Pager pageIndex={pageIndex} pageCount={pageCount} onPage={changePage} busy={isFetching} />
+      <Pager
+        pageIndex={pageIndex}
+        pageCount={pageCount}
+        onPage={changePage}
+        busy={isFetching}
+        onPrev={() => changePage(Math.max(0, pageIndex - 1))}
+        onNext={() => changePage(Math.min(pageCount - 1, pageIndex + 1))}
+        canPrev={pageIndex > 0}
+        canNext={pageIndex + 1 < pageCount}
+      />
 
       <CompareDialog
         open={comparing}
@@ -500,14 +596,28 @@ export function ScreenPanel({
         rows={rows as ScreenRow[]}
         columns={effective}
         viewLabel={view.label}
-        selectedSymbol={selectedSymbol}
+        selectedSymbol={primary}
       />
 
       <AlertDialog
         open={alerting}
         onClose={() => setAlerting(false)}
-        symbol={selectedSymbol ?? rows[0]?.symbol ?? null}
+        symbol={primary ?? rows[0]?.symbol ?? null}
       />
+
+      {addList ? (
+        <AddToDialog
+          open
+          list={addList}
+          initialSymbol={addSeed}
+          onClose={() => setAddList(null)}
+          onAdd={(input) => {
+            const result = addTicker(input);
+            setNotice(result.message);
+            return result;
+          }}
+        />
+      ) : null}
 
       <ExportDialog
         open={exporting !== null}

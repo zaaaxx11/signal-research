@@ -2,29 +2,33 @@
  * The screener's masthead: one heading, one centred row of controls, one
  * filter disclosure, one bar of built-in column tabs.
  *
- *   heading + Columns / Order by / Signal / ticker     what you are looking at
+ *   heading + Presets / Order by / Signal / ticker     what you are looking at
  *   Filter (right)                                      which rows survive
  *   [the group panel, when open]                        one field per control
  *   built-in column tabs                                which columns are drawn
  *
  * Three different ideas live here and are kept apart on purpose:
  *
- * * **Columns** is the reader's own set — named, saved in this browser and
- *   managed in a dialog — plus the picker that edits the columns on screen. It
- *   is not a tab.
+ * * **Presets** is the reader's own set — named, searched, saved, renamed and
+ *   deleted in one box — plus the picker that edits the columns on screen. It
+ *   is not a tab. There used to be a select and a separate "Manage" dialog with
+ *   a second copy of the same list; one box is the whole fix.
  * * **The tabs** are the product's built-in column sets: seventeen of them,
  *   always mounted. Choosing one cannot clear a filter, because it writes
  *   `?view=` (or `?cols=`) and leaves `?f=` alone.
  * * **Filter** is the server's vocabulary: one labelled field per control,
  *   drawn from `GET /screens/filters` and nothing else.
  *
+ * Every control carries a glyph beside its word (the shared `Icon`), because a
+ * label alone is not always enough to guess what a control will do.
+ *
  * The whole band is one filled bar: `--accent-strong` with `--accent-fg` ink
  * (5.43:1 dark, 6.79:1 day), centred across the content width.
  */
 
-import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import * as React from "react";
 
+import { Icon } from "@/components/Icon";
 import {
   SORTS,
   SORT_LABELS,
@@ -39,7 +43,7 @@ import { useReducedMotion } from "@/grid/pending";
 import { SymbolSearch } from "@/shell/SymbolSearch";
 import { cn } from "@/lib/utils";
 
-import { ColumnPresetsDialog } from "./ColumnPresetsDialog";
+import { PRESET_PANEL_ID, PresetPanel } from "./PresetPanel";
 import {
   ALL_GROUPS,
   isFilterControl,
@@ -50,7 +54,7 @@ import {
   type FiltersDocumentResult,
 } from "./filtersDocument";
 import { activePresetId, resolvePresets, type ResolvedPreset } from "./columnPresets";
-import { DEFAULT_PRESET_ID, type UserPresetsApi } from "./userPresets";
+import type { UserPresetsApi } from "./userPresets";
 
 /** The panel the Filter button controls; one id, named once. */
 export const FILTER_PANEL_ID = "screener-filter-panel";
@@ -100,7 +104,7 @@ export interface ScreenerHeaderProps {
    * still draws nothing but what this object carries.
    */
   vocabulary: FiltersDocumentResult;
-  /** A ticker search hit: the shell docks that symbol's detail panel. */
+  /** A ticker search hit: the shell opens that symbol's own page. */
   onSelectSymbol: (symbol: string) => void;
   /** The all-columns destination, when the schema serves one. */
   wide?: {
@@ -139,9 +143,11 @@ export function ScreenerHeader({
   // "All" is a view of the panel, not a sixth group: it shows every group's
   // controls at once. A single group narrows the panel to that group.
   const [scope, setScope] = React.useState<string>(ALL_GROUPS);
-  const [managerOpen, setManagerOpen] = React.useState(false);
+  const [presetOpen, setPresetOpen] = React.useState(false);
   const [fieldError, setFieldError] = React.useState<string | null>(null);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const presetButtonRef = React.useRef<HTMLButtonElement>(null);
+  const presetWrapRef = React.useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
 
   const resolved = React.useMemo(
@@ -263,11 +269,11 @@ export function ScreenerHeader({
   };
 
   /**
-   * Which saved set the control shows.
+   * Which saved set the box is showing.
    *
    * Derived from the columns on screen, not from the last click: choosing a
-   * built-in tab replaces the columns, so the select must stop claiming a saved
-   * set that is no longer displayed — and must let the reader pick it again.
+   * built-in tab replaces the columns, so the trigger must stop claiming a
+   * saved set that is no longer displayed.
    */
   const savedMatch = userPresets.presets.find(
     (preset) =>
@@ -275,7 +281,40 @@ export function ScreenerHeader({
       preset.columns.length === columns.length &&
       preset.columns.every((key, index) => key === columns[index]),
   );
-  const columnsValue = savedMatch?.id ?? DEFAULT_PRESET_ID;
+
+  /**
+   * The saved-screens box is a popover, not a modal: it closes on Escape, on a
+   * click outside, and on Apply; Escape and Close put focus back on the trigger
+   * that opened it, because the next thing a keyboard reader does is press it
+   * again.
+   */
+  const closePresets = React.useCallback((returnFocus: boolean) => {
+    setPresetOpen(false);
+    if (returnFocus) presetButtonRef.current?.focus();
+  }, []);
+
+  React.useEffect(() => {
+    if (!presetOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (presetWrapRef.current && !presetWrapRef.current.contains(event.target as Node)) {
+        setPresetOpen(false);
+      }
+    };
+    // Escape from anywhere while the box is open — the trigger has focus on
+    // the click that opened it, so a listener on the panel alone would never
+    // see the key.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closePresets(true);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [presetOpen, closePresets]);
 
   const addFilter = (filter: WireFilter | null) => {
     if (!filter) return;
@@ -305,50 +344,58 @@ export function ScreenerHeader({
               className="flex min-w-0 flex-wrap items-center justify-center gap-3"
             >
               <div className="flex items-center gap-1.5">
-                <label className="flex items-center gap-1.5">
-                  <span className="font-mono text-label font-semibold uppercase tracking-[0.08em] text-accent-fg">
-                    Columns
-                  </span>
-                  <select
-                    aria-label="Your column presets"
-                    data-testid="columns-select"
-                    value={columnsValue}
-                    onChange={(event) => chooseUserPreset(event.target.value)}
-                    title="Your own saved column sets. The built-in sets are the tabs below."
-                    className="h-7 max-w-[13rem] rounded-sm border border-line-strong bg-surface px-1.5 text-data text-fg"
+                <div ref={presetWrapRef} className="relative">
+                  <button
+                    ref={presetButtonRef}
+                    type="button"
+                    data-testid="preset-box-button"
+                    aria-haspopup="dialog"
+                    aria-expanded={presetOpen}
+                    aria-controls={presetOpen ? PRESET_PANEL_ID : undefined}
+                    onClick={() => (presetOpen ? closePresets(false) : setPresetOpen(true))}
+                    title="Search, save, rename and delete your saved screens. The built-in sets are the tabs below."
+                    className="flex h-7 items-center gap-1.5 rounded-sm border border-line-strong bg-surface px-2 text-data text-fg transition-colors hover:border-fg"
                   >
-                    {userPresets.presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                        {preset.saved ? ` · ${preset.columns.length}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  data-testid="manage-column-presets"
-                  onClick={() => setManagerOpen(true)}
-                  title="Create, rename, delete or apply your own column sets."
-                  className="h-7 rounded-sm border border-line-strong bg-surface px-2 text-data text-fg transition-colors hover:border-fg"
-                >
-                  Manage
-                </button>
+                    <Icon name="columns" />
+                    <span className="max-w-[11rem] truncate">
+                      {savedMatch ? savedMatch.name : "Presets"}
+                    </span>
+                    <Icon name="chevron-down" size={12} />
+                  </button>
+                  {presetOpen ? (
+                    <PresetPanel
+                      presets={userPresets.presets}
+                      currentColumns={columns}
+                      onApply={(id) => {
+                        chooseUserPreset(id);
+                        closePresets(true);
+                      }}
+                      onSave={(name) => userPresets.save(name, columns)}
+                      onRename={(id, name) => userPresets.rename(id, name)}
+                      onDelete={(id) => userPresets.remove(id)}
+                      onClose={() => closePresets(true)}
+                    />
+                  ) : null}
+                </div>
                 {onOpenColumnPicker ? (
                   <button
                     type="button"
                     data-testid="open-column-picker"
                     onClick={onOpenColumnPicker}
-                    title="Choose the columns the table draws. The panel holds 40."
-                    className="h-7 rounded-sm border border-line-strong bg-surface px-2 text-data text-fg transition-colors hover:border-fg"
+                    aria-label="Edit columns — choose which columns the table shows"
+                    title="Edit columns: pick which columns the table draws. The panel holds 40."
+                    className="flex h-7 items-center gap-1.5 rounded-sm border border-line-strong bg-surface px-2 text-data text-fg transition-colors hover:border-fg"
                   >
+                    <Icon name="columns" />
                     Edit columns
+                    <Icon name="chevron-down" size={12} />
                   </button>
                 ) : null}
               </div>
 
               <label className="flex items-center gap-1.5">
-                <span className="font-mono text-label font-semibold uppercase tracking-[0.08em] text-accent-fg">
+                <span className="flex items-center gap-1 font-mono text-label font-semibold uppercase tracking-[0.08em] text-accent-fg">
+                  <Icon name="sort" />
                   Order by
                 </span>
                 <select
@@ -377,7 +424,8 @@ export function ScreenerHeader({
               </label>
 
               <label className="flex items-center gap-1.5">
-                <span className="font-mono text-label font-semibold uppercase tracking-[0.08em] text-accent-fg">
+                <span className="flex items-center gap-1 font-mono text-label font-semibold uppercase tracking-[0.08em] text-accent-fg">
+                  <Icon name="pulse" />
                   Signal
                 </span>
                 <select
@@ -400,9 +448,9 @@ export function ScreenerHeader({
               </label>
 
               {/* The one search box on this screen that looks a symbol up rather
-                  than filtering the table: a hit docks that symbol's detail
-                  panel. Its ids and its name are its own, so the nav's box and
-                  this one do not answer to the same name. */}
+                  than filtering the table: a hit opens that symbol's page. Its
+                  ids and its name are its own, so the nav's box and this one do
+                  not answer to the same name. */}
               <SymbolSearch
                 className="w-[14rem] max-w-full"
                 label="Ticker search"
@@ -426,7 +474,7 @@ export function ScreenerHeader({
               !open && "hover:brightness-95",
             )}
           >
-            <SlidersHorizontal aria-hidden="true" className="size-3.5" />
+            <Icon name="funnel" />
             Filter
             {filters.length > 0 ? (
               <span
@@ -436,12 +484,12 @@ export function ScreenerHeader({
                 {filters.length}
               </span>
             ) : null}
-            <ChevronDown
-              aria-hidden="true"
+            <Icon
+              name="chevron-down"
               data-testid="filter-chevron"
               data-open={open}
               className={cn(
-                "size-3.5 transition-transform duration-200 ease-out",
+                "transition-transform duration-200 ease-out",
                 open && "rotate-180",
               )}
             />
@@ -598,20 +646,6 @@ export function ScreenerHeader({
           ) : null}
         </div>
       </div>
-
-      <ColumnPresetsDialog
-        open={managerOpen}
-        onClose={() => setManagerOpen(false)}
-        presets={userPresets.presets}
-        currentColumns={columns}
-        onSave={(name) => userPresets.save(name, columns)}
-        onRename={(id, name) => userPresets.rename(id, name)}
-        onDelete={(id) => userPresets.remove(id)}
-        onUse={(id) => {
-          chooseUserPreset(id);
-          setManagerOpen(false);
-        }}
-      />
     </header>
   );
 }

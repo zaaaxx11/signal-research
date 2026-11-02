@@ -1,16 +1,24 @@
 /**
- * Compare: up to five rows, side by side.
+ * Compare: up to five symbols, side by side.
  *
- * The dialog is the compare mode: tick rows from the page on screen (five at
- * most), and the table underneath lines their values up column by column. It
- * compares the rows the API already sent — no second request, no merged
- * ordering, and the values are the ones the grid holds, formatted by the same
- * formatter the cells use.
+ * The flow starts with the same ticker search the header uses — the comparison
+ * is about *symbols*, not about the twenty rows that happen to share a page.
+ * A picked symbol the grid has already loaded is compared with the values on
+ * screen, formatted by the cell formatter; one from another page still shows
+ * its symbol, company and exchange, and its value cells say "—" rather than
+ * inventing a number for a row this tab has never read.
+ *
+ * Five is the ceiling because six columns plus a label column is the widest a
+ * comparison stays readable at this type size; the picker disables at five
+ * instead of silently dropping the sixth.
  */
 
 import * as React from "react";
 
+import { Icon } from "@/components/Icon";
+import type { SymbolHit } from "@/lib/api";
 import type { ScreenRow } from "@/data/screens";
+import { SymbolSearch } from "@/shell/SymbolSearch";
 import { cn } from "@/lib/utils";
 
 import { columnSpec } from "./columnMeta";
@@ -31,6 +39,15 @@ export interface CompareDialogProps {
   selectedSymbol: string | null;
 }
 
+/** A row as the comparison header prints it: symbol, company, exchange. */
+function hitFromRow(row: ScreenRow): SymbolHit {
+  return {
+    symbol: row.symbol,
+    name: typeof row["company"] === "string" ? row["company"] : "",
+    exchange: typeof row["exchange"] === "string" ? row["exchange"] : "",
+  };
+}
+
 export function CompareDialog({
   open,
   onClose,
@@ -39,28 +56,28 @@ export function CompareDialog({
   viewLabel,
   selectedSymbol,
 }: CompareDialogProps) {
-  const [chosen, setChosen] = React.useState<string[]>([]);
+  const [picked, setPicked] = React.useState<SymbolHit[]>([]);
 
   React.useEffect(() => {
     if (!open) return;
-    setChosen(selectedSymbol !== null && rows.some((row) => row.symbol === selectedSymbol)
-      ? [selectedSymbol]
-      : []);
+    const row = rows.find((entry) => entry.symbol === selectedSymbol);
+    setPicked(row ? [hitFromRow(row)] : []);
   }, [open, selectedSymbol, rows]);
 
-  const toggle = (symbol: string) => {
-    setChosen((previous) =>
-      previous.includes(symbol)
-        ? previous.filter((entry) => entry !== symbol)
-        : previous.length >= COMPARE_LIMIT
-          ? previous
-          : [...previous, symbol],
+  const add = (hit: SymbolHit) => {
+    setPicked((previous) =>
+      previous.some((entry) => entry.symbol === hit.symbol) || previous.length >= COMPARE_LIMIT
+        ? previous
+        : [...previous, hit],
     );
   };
 
-  const picked = chosen
-    .map((symbol) => rows.find((row) => row.symbol === symbol))
-    .filter((row): row is ScreenRow => row !== undefined);
+  const remove = (symbol: string) => {
+    setPicked((previous) => previous.filter((entry) => entry.symbol !== symbol));
+  };
+
+  const full = picked.length >= COMPARE_LIMIT;
+  const missing = picked.filter((hit) => !rows.some((row) => row.symbol === hit.symbol));
 
   return (
     <DialogShell
@@ -68,67 +85,75 @@ export function CompareDialog({
       onClose={onClose}
       size="lg"
       title={`Compare · ${viewLabel}`}
-      description={`Pick up to ${COMPARE_LIMIT} rows from this page; the comparison uses the values already on screen.`}
+      description={`Search up to ${COMPARE_LIMIT} symbols; the comparison lines their values up column by column.`}
     >
       <div className="flex flex-col gap-3">
-        <div className="max-h-[180px] overflow-y-auto rounded-sm border border-line">
-          <ul aria-label="Rows to compare" className="divide-y divide-line">
-            {rows.map((row) => {
-              const checked = chosen.includes(row.symbol);
-              const full = !checked && chosen.length >= COMPARE_LIMIT;
-              return (
-                <li key={row.symbol} className="flex items-center gap-2 px-2 py-1">
-                  <input
-                    id={`compare-${row.symbol}`}
-                    type="checkbox"
-                    checked={checked}
-                    disabled={full}
-                    onChange={() => toggle(row.symbol)}
-                    aria-label={`Compare ${row.symbol}`}
-                    className="size-3.5 accent-[var(--accent)]"
-                  />
-                  <label
-                    htmlFor={`compare-${row.symbol}`}
-                    className={cn(
-                      "min-w-0 flex-1 truncate font-mono text-data",
-                      full ? "text-fg-disabled" : "text-fg",
-                    )}
-                  >
-                    {row.symbol}
-                    <span className="ml-2 font-sans text-fg-subtle">
-                      {typeof row["company"] === "string" ? row["company"] : ""}
-                    </span>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
+        <div className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
+            <Icon name="search" />
+            Search a ticker
+          </span>
+          <SymbolSearch
+            label="Search a ticker to compare"
+            idPrefix="compare-search"
+            placeholder={full ? "Five picked — remove one to add another" : "Search a ticker…"}
+            showHint={false}
+            onSelect={add}
+          />
         </div>
+
+        <ul aria-label="Symbols being compared" className="flex flex-wrap gap-1">
+          {picked.map((hit) => (
+            <li
+              key={hit.symbol}
+              data-testid={`compare-pick-${hit.symbol}`}
+              className="flex items-center gap-1 rounded-sm border border-line bg-surface-raised px-1.5 py-0.5"
+            >
+              <span className="font-mono text-data font-semibold text-fg">{hit.symbol}</span>
+              {hit.name ? (
+                <span className="max-w-[14rem] truncate text-data text-fg-muted">{hit.name}</span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => remove(hit.symbol)}
+                aria-label={`Remove ${hit.symbol} from the comparison`}
+                title={`Remove ${hit.symbol}`}
+                className="rounded-sm p-0.5 text-fg-subtle transition-colors hover:text-fg"
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
 
         <p aria-live="polite" className="text-data text-fg-subtle">
           {picked.length === 0
-            ? "Nothing picked yet."
+            ? "Nothing picked yet — search a ticker to start."
             : `${picked.length} of ${COMPARE_LIMIT} picked.`}
         </p>
 
         {picked.length > 0 ? (
-          <div className="max-h-[320px] overflow-auto rounded-sm border border-line">
+          <div className="max-h-[340px] overflow-auto rounded-sm border border-line">
             <table data-testid="compare-table" className="w-full border-collapse text-data">
               <caption className="sr-only">
-                {viewLabel}: {picked.map((row) => row.symbol).join(", ")} compared column by column.
+                {viewLabel}: {picked.map((hit) => hit.symbol).join(", ")} compared column by
+                column.
               </caption>
               <thead className="sticky top-0 bg-surface-raised">
                 <tr>
                   <th scope="col" className="px-2 py-1 text-left font-mono text-label uppercase text-fg-subtle">
                     Column
                   </th>
-                  {picked.map((row) => (
+                  {picked.map((hit) => (
                     <th
-                      key={row.symbol}
+                      key={hit.symbol}
                       scope="col"
                       className="px-2 py-1 text-right font-mono text-data font-semibold text-fg"
                     >
-                      {row.symbol}
+                      {hit.symbol}
+                      <span className="block truncate font-sans text-label font-normal normal-case text-fg-subtle">
+                        {hit.exchange || "—"}
+                      </span>
                     </th>
                   ))}
                 </tr>
@@ -141,17 +166,36 @@ export function CompareDialog({
                       <th scope="row" className="px-2 py-0.5 text-left font-normal text-fg-muted" title={key}>
                         {spec.label}
                       </th>
-                      {picked.map((row) => (
-                        <td key={row.symbol} className="nums px-2 py-0.5 text-right text-fg">
-                          {formatCell(row[key], spec).text}
-                        </td>
-                      ))}
+                      {picked.map((hit) => {
+                        const row = rows.find((entry) => entry.symbol === hit.symbol);
+                        let text = "—";
+                        if (row) text = formatCell(row[key], spec).text;
+                        else if (key === "symbol") text = hit.symbol;
+                        else if (key === "company") text = hit.name || "—";
+                        else if (key === "exchange") text = hit.exchange || "—";
+                        return (
+                          <td
+                            key={hit.symbol}
+                            className={cn("nums px-2 py-0.5 text-right", row ? "text-fg" : "text-fg-subtle")}
+                          >
+                            {text}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+        ) : null}
+
+        {missing.length > 0 ? (
+          <p className="text-data text-fg-subtle">
+            {missing.map((hit) => hit.symbol).join(", ")}{" "}
+            {missing.length === 1 ? "is" : "are"} not on this page: identity only until that row is
+            loaded.
+          </p>
         ) : null}
       </div>
     </DialogShell>

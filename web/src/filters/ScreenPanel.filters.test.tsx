@@ -66,9 +66,7 @@ function Harness({ initial }: { initial: ActiveFilter[] }) {
   return (
     <ScreenPanel
       view={VIEW}
-      selectedSymbol={null}
       onActivate={vi.fn()}
-      onClear={vi.fn()}
       containerWidth={1280}
       filters={filters}
       registry={registry}
@@ -89,9 +87,7 @@ describe("ScreenPanel filters", () => {
     const { rerender } = render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
         filters={[]}
         registry={registry}
@@ -106,9 +102,7 @@ describe("ScreenPanel filters", () => {
     rerender(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
         filters={[{ id: "f1", key: "cap", op: "gte", value: 2_000_000_000 }]}
         registry={registry}
@@ -254,9 +248,7 @@ describe("ScreenPanel filters", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
         page={9_999}
         onPageChange={onPageChange}
@@ -281,9 +273,7 @@ describe("ScreenPanel filters", () => {
     render(
       <ScreenPanel
         view={VIEW}
-        selectedSymbol={null}
         onActivate={vi.fn()}
-        onClear={vi.fn()}
         containerWidth={1280}
         page={279}
         onPageChange={onPageChange}

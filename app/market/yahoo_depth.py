@@ -810,14 +810,19 @@ class YahooDepthSource:
                 "yahoo crumb endpoint refused the handshake: "
                 + describe_crumb_refusal(f"HTTP {status}")
             )
-        if not token or len(token) > 32:
+        if not token or len(token) > 64:
             raise CrumbRefused(
                 "yahoo crumb endpoint refused the handshake: "
                 + describe_crumb_refusal(token)
             )
-        # A crumb is a short URL-safe token; an HTML challenge page is not one and
+        # A crumb is a short base64-ish token; Yahoo's real tokens contain
+        # ``/`` (``a0MnGz/haT1``), so the alphabet is URL-safe base64 plus the
+        # RFC 3986 unreserved marks. An HTML challenge page, a space-bearing
+        # ``Too Many Requests`` body, or any markup is still not a crumb and
         # must never be pasted into a query string.
-        if not all(character.isalnum() or character in "._-~" for character in token):
+        if not all(
+            character.isalnum() or character in "._~+/=-" for character in token
+        ):
             raise CrumbRefused(
                 "yahoo crumb endpoint refused the handshake: "
                 + describe_crumb_refusal(token)

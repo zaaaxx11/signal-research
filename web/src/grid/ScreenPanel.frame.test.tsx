@@ -71,9 +71,7 @@ function page(view: string, count = 2): Response {
 }
 
 const PANEL_PROPS = {
-  selectedSymbol: null,
   onActivate: vi.fn(),
-  onClear: vi.fn(),
   containerWidth: 1280,
 };
 

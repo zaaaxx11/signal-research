@@ -39,9 +39,7 @@ const VALUE: ViewDefinition = {
 };
 
 const PANEL = {
-  selectedSymbol: null,
   onActivate: vi.fn(),
-  onClear: vi.fn(),
   containerWidth: 1280,
 };
 

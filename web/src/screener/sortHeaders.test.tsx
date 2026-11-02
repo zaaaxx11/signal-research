@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/app";
+import { clearPageCache } from "@/data/screens";
 import { filterSchemaWire } from "@/filters/__fixtures__/schema";
 import { resetFilterSchemaCache } from "@/filters/schema";
 
@@ -165,7 +166,9 @@ describe("a header press is one server-side sort", () => {
     expect(screen.getByTestId("sort-arrow-country").textContent).toBe("▴");
 
     // … and back again: the two directions toggle, they do not cycle through a
-    // third state.
+    // third state. The first ordering is a page this tab has already seen, so
+    // the cache is emptied to keep the assertion about the request.
+    clearPageCache();
     await user.click(screen.getByTestId("sort-country"));
     await waitFor(() => expect(api.selects.at(-1)?.criteria.sort).toBe("country"));
     expect(header("country")?.getAttribute("aria-sort")).toBe("descending");
@@ -236,9 +239,11 @@ describe("the default column set", () => {
     await renderScreen();
 
     const headers = [...screen.getByTestId("grid-table").querySelectorAll("thead th")];
-    // The keys, in render order: the row number first, then the pinned ticker
-    // lane, then the mandatory columns.
+    // The keys, in render order: the checkbox lane (a selection control, not a
+    // catalogue key), the row number, the pinned ticker lane, then the
+    // mandatory columns.
     expect(headers.map((node) => node.getAttribute("data-key"))).toEqual([
+      null,
       "no",
       "identity",
       "company",
@@ -257,7 +262,7 @@ describe("the default column set", () => {
     ]);
     // The full name each header carries (a narrow column may shorten the
     // painted label, never the column it stands for).
-    expect(headers.slice(0, 11).map((node) => (node.getAttribute("title") ?? "").toLowerCase())).toEqual([
+    expect(headers.slice(1, 12).map((node) => (node.getAttribute("title") ?? "").toLowerCase())).toEqual([
       "no",
       "ticker",
       "company",

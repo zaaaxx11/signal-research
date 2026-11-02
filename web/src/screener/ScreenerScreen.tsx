@@ -1,12 +1,15 @@
 /**
- * The screener: a masthead, one content band, and the docked detail.
+ * The screener: a masthead and one content band.
  *
  *   masthead    the h1, Column preset / Order by / Signal / ticker, the Filter
  *               disclosure (five server-driven group selects) and the
  *               always-present column-preset bar
  *   content     the chip bar (when filters exist) and the 20-row grid
- *   detail      the docked panel, passed in by the shell so the shell owns the
- *               selection and the lazy chunk's boundary
+ *
+ * A row is a door, not a selection: every ticker navigates to its own page at
+ * `/stock/{symbol}`, and the table takes the content band's full width. The
+ * only thing that selects a row is its checkbox, which is what the toolbar's
+ * Add to / Compare / Set alert act on.
  *
  * Two boot reads feed it — `GET /screens/select/schema` for views and filter
  * keys, `GET /screens/filters` for the panel's vocabulary — and one
@@ -41,6 +44,7 @@ import { splitCatalogue } from "@/grid/catalogue";
 import { CLIENT_COLUMNS } from "@/grid/columnMeta";
 import { sameColumns, useColumnSelection } from "@/grid/columnSelection";
 import { GRID_REGION_ID } from "@/shell/ids";
+import { navigate } from "@/shell/routes";
 
 import { ScreenerHeader } from "./ScreenerHeader";
 import type { ResolvedPreset } from "./columnPresets";
@@ -51,19 +55,9 @@ import { useUserColumnPresets } from "./userPresets";
 export interface ScreenerScreenProps {
   /** `stock` for `/screener`, `etf` for `/screener/etf`. */
   assetClass: "stock" | "etf";
-  /** The symbol whose details are docked; owned by the shell. */
-  symbol: string | null;
-  onSelectSymbol: (symbol: string | null) => void;
-  /** The docked panel, already lazy and bounded by the shell. */
-  detail: React.ReactNode;
 }
 
-export function ScreenerScreen({
-  assetClass,
-  symbol,
-  onSelectSymbol,
-  detail,
-}: ScreenerScreenProps) {
+export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
   const schema = useFilterSchema();
   // The filter document is one more boot read. It is memoised in its module, so
   // this hook, a StrictMode double-effect and a retry share one request; the
@@ -132,9 +126,22 @@ export function ScreenerScreen({
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  /** True only while the detail panel is the taller of the two panes. */
-  const [equalise, setEqualise] = React.useState(false);
+
+  /**
+   * Every ticker in the grid is a door to its own page.
+   *
+   * One handler for the row, Enter on a focused row, and the header's ticker
+   * box: the client router writes the URL and the ticker page renders. The
+   * href is the same path, so a middle-click or ⌘/Ctrl-click is a real new tab
+   * the server also answers.
+   */
+  const openSymbol = React.useCallback((symbol: string) => {
+    navigate(`/stock/${encodeURIComponent(symbol)}`);
+  }, []);
+  const symbolHref = React.useCallback(
+    (symbol: string) => `/stock/${encodeURIComponent(symbol)}`,
+    [],
+  );
 
   // ⌘K is the filter palette. "/" belongs to the nav's symbol search and is
   // handled by the shell, so the two chords never contend for one input.
@@ -164,51 +171,6 @@ export function ScreenerScreen({
   const currentColumns = active
     ? columnSelection.columnsFor(active.name) ?? summaryColumns
     : [];
-
-  /**
-   * The table scrolls only to equalise a taller detail panel.
-   *
-   * The row stretches both panes top and bottom. When the panel's content is
-   * the taller of the two, the table becomes the row's scroll box; when the
-   * panel is shorter, the table keeps its natural height and no bar appears.
-   * The table is not a scroll box by default: `ScreenPanel` reads this flag.
-   */
-  React.useLayoutEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
-    const frame = row.querySelector<HTMLElement>('[data-testid="table-frame"]');
-    const panel = row.querySelector<HTMLElement>('[data-testid="detail-panel"]');
-    if (!frame || !panel) {
-      setEqualise(false);
-      return;
-    }
-    /**
-     * The table's *content* height.
-     *
-     * `frame.scrollHeight` would be the stretched card once the row grows to a
-     * taller panel, and the answer would flip on the next frame. The card's
-     * children (toolbar, grid, pager) keep their natural heights, so their sum
-     * is the number to compare; the fallback covers a first frame that has not
-     * laid them out yet.
-     */
-    const tableContentHeight = () => {
-      const parts = [...frame.children].reduce(
-        (sum, child) => sum + (child as HTMLElement).scrollHeight,
-        0,
-      );
-      return parts > 0 ? parts : frame.scrollHeight || frame.getBoundingClientRect().height;
-    };
-    const measure = () => {
-      const panelHeight = panel.scrollHeight || panel.getBoundingClientRect().height;
-      setEqualise(panelHeight > tableContentHeight());
-    };
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(panel);
-    observer.observe(frame);
-    return () => observer.disconnect();
-  });
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -262,7 +224,7 @@ export function ScreenerScreen({
         onAddFilter={screen.addFilter}
         onClearFilters={screen.clearFilters}
         vocabulary={vocabulary}
-        onSelectSymbol={(symbol) => onSelectSymbol(symbol)}
+        onSelectSymbol={openSymbol}
         wide={
           destination
             ? {
@@ -277,104 +239,98 @@ export function ScreenerScreen({
 
       <main className="flex min-h-0 flex-1 flex-col gap-2 p-3">
         <div
-          ref={rowRef}
-          data-testid="screener-row"
-          className="flex min-h-0 flex-1 items-stretch gap-2"
+          id={GRID_REGION_ID}
+          // The skip link's destination. `tabIndex={-1}` makes it a programmatic
+          // focus target (and not a tab stop); the region is named so the
+          // landing is announced as something ("Stock grid region") rather
+          // than as an anonymous box. It is not a landmark in its own right
+          // beyond `region`, and it is inside the one `<main>`.
+          //
+          // It is the whole content band: the table has no second pane beside
+          // it and no panel to equalise against, so it takes every pixel the
+          // page gives it.
+          role="region"
+          aria-label="Stock grid"
+          tabIndex={-1}
+          className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
         >
-          <div
-            id={GRID_REGION_ID}
-            // The skip link's destination. `tabIndex={-1}` makes it a programmatic
-            // focus target (and not a tab stop); the region is named so the
-            // landing is announced as something ("Stock grid region") rather
-            // than as an anonymous box. It is not a landmark in its own right
-            // beyond `region`, and it is inside the one `<main>`.
-            role="region"
-            aria-label="Stock grid"
-            tabIndex={-1}
-            className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
-          >
-            {schema.status === "error" ? (
-              <section
-                role="alert"
-                className="flex min-h-0 flex-1 flex-col justify-center rounded-md border border-line border-l-2 border-l-alert bg-surface p-6"
-              >
-                <p className="text-ui font-medium text-fg">The filter schema did not load</p>
-                <p className="mt-1 max-w-[60ch] text-data text-fg-muted">{schema.error}</p>
-                <p className="mt-1 max-w-[60ch] text-data text-fg-subtle">
-                  Views, columns and filter keys all come from that one document; without it
-                  there is nothing honest to draw.
-                </p>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={schema.retry}
-                    className="rounded-sm border border-line-strong px-2 py-1 text-ui text-fg-muted hover:text-fg"
-                  >
-                    Retry
-                  </button>
-                </div>
-              </section>
-            ) : wideActive && destination ? (
-              // A render fault in the wide table costs that mode, never the shell.
-              <ErrorBoundary resetKey={destination.name} label={`${destination.label} panel`}>
-                <AllColumnsPanel
-                  destination={destination}
-                  keys={catalogue.keys}
-                  selectedSymbol={symbol}
-                  onActivate={onSelectSymbol}
-                  onClear={() => onSelectSymbol(null)}
-                  onBack={() => setWide(false)}
+          {schema.status === "error" ? (
+            <section
+              role="alert"
+              className="flex min-h-0 flex-1 flex-col justify-center rounded-md border border-line border-l-2 border-l-alert bg-surface p-6"
+            >
+              <p className="text-ui font-medium text-fg">The filter schema did not load</p>
+              <p className="mt-1 max-w-[60ch] text-data text-fg-muted">{schema.error}</p>
+              <p className="mt-1 max-w-[60ch] text-data text-fg-subtle">
+                Views, columns and filter keys all come from that one document; without it
+                there is nothing honest to draw.
+              </p>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={schema.retry}
+                  className="rounded-sm border border-line-strong px-2 py-1 text-ui text-fg-muted hover:text-fg"
+                >
+                  Retry
+                </button>
+              </div>
+            </section>
+          ) : wideActive && destination ? (
+            // A render fault in the wide table costs that mode, never the shell.
+            <ErrorBoundary resetKey={destination.name} label={`${destination.label} panel`}>
+              <AllColumnsPanel
+                destination={destination}
+                keys={catalogue.keys}
+                selectedSymbol={null}
+                onActivate={openSymbol}
+                onClear={() => undefined}
+                onBack={() => setWide(false)}
+              />
+            </ErrorBoundary>
+          ) : active && registry && screen.ready && columnsReady ? (
+            // A render fault in the grid costs the panel, never the shell: the
+            // nav, tabs and toolbar stay, and the boundary offers a way back.
+            <ErrorBoundary resetKey={active.name} label={`${active.label} panel`}>
+              <ScreenPanel
+                view={active}
+                assetClass={assetClass}
+                onActivate={openSymbol}
+                symbolHref={symbolHref}
+                sort={screen.state.sort}
+                signal={screen.state.signal ?? null}
+                page={screen.state.page}
+                onSortChange={screen.setSort}
+                onPageChange={screen.setPage}
+                filters={screen.state.filters}
+                registry={registry}
+                onRemoveFilter={screen.removeFilter}
+                onClearFilters={screen.clearFilters}
+                filterNotice={screen.notice}
+                onDismissFilterNotice={screen.dismissDropped}
+                columns={
+                  columnSelection.columnsFor(active.name) ??
+                  defaults[active.name] ??
+                  active.columns
+                }
+                columnNotice={columnSelection.notice}
+                onDismissColumnNotice={columnSelection.dismiss}
+              />
+            </ErrorBoundary>
+          ) : (
+            <section
+              aria-busy="true"
+              aria-label="Loading views"
+              className="flex min-h-0 flex-1 flex-col gap-1 rounded-md border border-line bg-surface p-3"
+            >
+              <div className="h-6 w-40 rounded-[1px] bg-surface-raised" />
+              {Array.from({ length: 12 }, (_, index) => (
+                <div
+                  key={index}
+                  className={`h-7 rounded-[1px] ${index % 2 === 0 ? "bg-row" : "bg-row-alt"}`}
                 />
-              </ErrorBoundary>
-            ) : active && registry && screen.ready && columnsReady ? (
-              // A render fault in the grid costs the panel, never the shell: the
-              // nav, tabs and toolbar stay, and the boundary offers a way back.
-              <ErrorBoundary resetKey={active.name} label={`${active.label} panel`}>
-                <ScreenPanel
-                  view={active}
-                  assetClass={assetClass}
-                  selectedSymbol={symbol}
-                  onActivate={onSelectSymbol}
-                  onClear={() => onSelectSymbol(null)}
-                  sort={screen.state.sort}
-                  signal={screen.state.signal ?? null}
-                  page={screen.state.page}
-                  onSortChange={screen.setSort}
-                  onPageChange={screen.setPage}
-                  filters={screen.state.filters}
-                  registry={registry}
-                  onRemoveFilter={screen.removeFilter}
-                  onClearFilters={screen.clearFilters}
-                  filterNotice={screen.notice}
-                  onDismissFilterNotice={screen.dismissDropped}
-                  columns={
-                    columnSelection.columnsFor(active.name) ??
-                    defaults[active.name] ??
-                    active.columns
-                  }
-                  columnNotice={columnSelection.notice}
-                  onDismissColumnNotice={columnSelection.dismiss}
-                  equalise={equalise}
-                />
-              </ErrorBoundary>
-            ) : (
-              <section
-                aria-busy="true"
-                aria-label="Loading views"
-                className="flex min-h-0 flex-1 flex-col gap-1 rounded-md border border-line bg-surface p-3"
-              >
-                <div className="h-6 w-40 rounded-[1px] bg-surface-raised" />
-                {Array.from({ length: 12 }, (_, index) => (
-                  <div
-                    key={index}
-                    className={`h-7 rounded-[1px] ${index % 2 === 0 ? "bg-row" : "bg-row-alt"}`}
-                  />
-                ))}
-              </section>
-            )}
-          </div>
-
-          {detail}
+              ))}
+            </section>
+          )}
         </div>
       </main>
 
