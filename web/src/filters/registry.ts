@@ -304,6 +304,30 @@ export function buildRegistry(
     if (typeof raw.field === "string" && !byField.has(raw.field)) byField.set(raw.field, key);
   }
 
+  // One column the panel filters on is not one of the schema's 82 keys:
+  // `symbol`, written by the Tickers control and published under
+  // `x-filter-aliases`. Registering it in `byKey` is what lets `validateDraft`
+  // keep the chip across a reload; it is deliberately kept out of `entries`,
+  // so the picker still offers exactly the schema's keys.
+  const symbol = schema.aliases.symbol;
+  if (!byKey.has("symbol") && symbol?.field === "symbol" && symbol.kind === "text") {
+    byKey.set("symbol", {
+      key: "symbol",
+      label: "Tickers",
+      tab: "descriptive",
+      field: "symbol",
+      kind: "text",
+      control: "text",
+      ops: opsFor("text"),
+      unit: "plain",
+      presets: null,
+      options: [],
+      aliases: [],
+      search: "tickers symbol",
+    });
+    byField.set("symbol", "symbol");
+  }
+
   const aliases: AliasIndexEntry[] = [];
   for (const [name, alias] of Object.entries(schema.aliases)) {
     const targetKey = byField.get(alias.field);

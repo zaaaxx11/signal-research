@@ -68,12 +68,21 @@ Security
 Caching
 -------
 
-Every 200 carries ``Cache-Control: public, max-age=2592000, immutable`` and a
-strong ``ETag`` (a digest of the bytes), and a matching ``If-None-Match`` answers
-304 with no body. The long, immutable window is the contract — including for a
-monogram — so a mark that appears later is only picked up when a client
-revalidates rather than on a timer. That is the trade a decoration wants: the
-alternative is a browser re-asking for a 2 KB PNG on every repaint.
+The two answers have opposite cache lives, because they are not the same kind of
+thing. A **real mark** is bytes with a strong ``ETag`` (a digest of those bytes);
+it is served ``public, max-age=86400, must-revalidate``, so the browser reuses it
+for a day and then revalidates — a mark replaced in the store is picked up on the
+next request past that window, and the digest guarantees the 304/200 decision is
+about the bytes, not the file's mtime. A client that cannot wait can bust the URL
+with any query string; the route ignores it.
+
+A **monogram** is a placeholder for a mark that does not exist yet. It used to
+carry the same thirty-day ``immutable`` policy, which is the bug this contract
+closes: a monogram cached before the logo existed (or before the backfill ran)
+stayed in the browser for a month, and the real logo only appeared after a hard
+refresh. It is now ``no-store``. ``ETag`` stays a digest of the bytes that were
+sent so a same-page repeat can still be answered with 304, but nothing is ever
+written to a cache.
 """
 
 from __future__ import annotations
@@ -152,10 +161,18 @@ def _quote(text: str) -> str:
 #: ``logo_upstream_timeout_s``.
 LADDER_BUDGET_S = 12.0
 
-#: Thirty days. A brand mark for a ticker does not change, and this is a
-#: decoration: the cheapest correct answer is "do not ask again".
-MAX_AGE_S = 2_592_000
-CACHE_CONTROL = f"public, max-age={MAX_AGE_S}, immutable"
+#: One day for a real mark, then revalidate. Long enough that a page turn costs
+#: nothing, short enough that a logo replaced in the store is picked up without
+#: a hard refresh. ``must-revalidate`` is what makes the ``ETag`` load-bearing:
+#: the browser may not reuse a stale mark once the window closes, and every
+#: revalidation is answered from a digest of the bytes.
+MAX_AGE_S = 86_400
+CACHE_CONTROL = f"public, max-age={MAX_AGE_S}, must-revalidate"
+
+#: A monogram is a placeholder for a mark that does not exist yet, so it is not
+#: cacheable at all. Caching one — especially as ``immutable`` — is how a
+#: browser kept showing a letter for thirty days after the logo landed.
+MONOGRAM_CACHE_CONTROL = "no-store"
 
 #: How long a failed fetch is remembered in-process. Long enough that a dead
 #: upstream costs one probe per symbol per ten minutes, short enough that a
@@ -843,7 +860,7 @@ def logo_store_of(request: Request) -> LogoStore:
     },
 )
 async def logo(symbol: str, request: Request) -> Response:
-    """One image per symbol, cacheable for thirty days, never a 404 for a ticker.
+    """One image per symbol: cacheable when it is a mark, never when it is not.
 
     The 404 is reserved for a string that cannot be a ticker: that request named
     no instrument, and answering it with a mark would put a letter in the Company
@@ -860,8 +877,14 @@ async def logo(symbol: str, request: Request) -> Response:
         raise ApiError(404, "unknown_symbol", str(exc)) from exc
 
     image = await logo_store_of(request).resolve(key)
+    # A monogram is a placeholder, not an asset: ``no-store`` so a mark that
+    # appears later is picked up on the next page load instead of after a hard
+    # refresh. A real mark keeps the long window but revalidates on its digest.
+    cache_control = (
+        MONOGRAM_CACHE_CONTROL if image.source == "monogram" else CACHE_CONTROL
+    )
     headers = {
-        "Cache-Control": CACHE_CONTROL,
+        "Cache-Control": cache_control,
         "ETag": image.etag,
         # Not a contract a client parses; the cheapest way to see which rung
         # answered without opening the filesystem.
@@ -879,6 +902,7 @@ __all__ = [
     "LogoImage",
     "LogoStore",
     "MAX_AGE_S",
+    "MONOGRAM_CACHE_CONTROL",
     "UPSTREAM_HOST",
     "UPSTREAM_TEMPLATE",
     "VENDORED_DIR",

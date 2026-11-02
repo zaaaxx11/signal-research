@@ -44,6 +44,7 @@ import { SymbolSearch } from "@/shell/SymbolSearch";
 import { cn } from "@/lib/utils";
 
 import { PRESET_PANEL_ID, PresetPanel } from "./PresetPanel";
+import { TickersField } from "./TickersField";
 import {
   ALL_GROUPS,
   isFilterControl,
@@ -678,6 +679,9 @@ function GroupFields({
         </span>
       </h3>
       <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        {group.id === "descriptive" ? (
+          <TickersField onAdd={(filter) => onAdd(filter)} />
+        ) : null}
         {controls.map((control) => (
           <ControlField key={control.id} control={control} onAdd={onAdd} onError={onError} />
         ))}

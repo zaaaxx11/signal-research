@@ -239,11 +239,9 @@ describe("the default column set", () => {
     await renderScreen();
 
     const headers = [...screen.getByTestId("grid-table").querySelectorAll("thead th")];
-    // The keys, in render order: the checkbox lane (a selection control, not a
-    // catalogue key), the row number, the pinned ticker lane, then the
-    // mandatory columns.
+    // The keys, in render order: the row number, the pinned ticker lane, then
+    // the mandatory columns. No checkbox lane stands in front of them.
     expect(headers.map((node) => node.getAttribute("data-key"))).toEqual([
-      null,
       "no",
       "identity",
       "company",
@@ -262,7 +260,7 @@ describe("the default column set", () => {
     ]);
     // The full name each header carries (a narrow column may shorten the
     // painted label, never the column it stands for).
-    expect(headers.slice(1, 12).map((node) => (node.getAttribute("title") ?? "").toLowerCase())).toEqual([
+    expect(headers.slice(0, 11).map((node) => (node.getAttribute("title") ?? "").toLowerCase())).toEqual([
       "no",
       "ticker",
       "company",

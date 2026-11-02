@@ -33,6 +33,7 @@ import { navigate, useRoute, useSearch } from "@/shell/routes";
 import {
   loadCalendarPage,
   loadChartsPage,
+  loadComparePage,
   loadCryptoPage,
   loadForexPage,
   loadFuturesPage,
@@ -119,6 +120,7 @@ export function App() {
   const WatchlistPage = React.useMemo(() => React.lazy(loadWatchlistPage), []);
   const PortfolioPage = React.useMemo(() => React.lazy(loadPortfolioPage), []);
   const NewsPage = React.useMemo(() => React.lazy(loadNewsPage), []);
+  const ComparePage = React.useMemo(() => React.lazy(loadComparePage), []);
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // "/" focuses the one symbol search; the filter palette keeps ⌘K (it lives in
@@ -162,6 +164,10 @@ export function App() {
         <ScreenerScreen assetClass={route.assetClass} />
       ) : route.kind === "stock" ? (
         <StockPage symbol={route.symbol} onClose={() => navigate("/")} />
+      ) : route.kind === "compare" ? (
+        <React.Suspense fallback={<PageSkeleton label="Lining up the comparison" />}>
+          <ComparePage />
+        </React.Suspense>
       ) : route.kind === "map" ? (
         <React.Suspense fallback={<PageSkeleton label="Drawing the market map" />}>
           <MapPage />

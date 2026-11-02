@@ -35,8 +35,14 @@ export interface CompareDialogProps {
   columns: readonly string[];
   /** The view's name, for the title. */
   viewLabel: string;
-  /** The row the reader has open, ticked first when it is on this page. */
-  selectedSymbol: string | null;
+  /**
+   * The symbols the comparison opens with, in order.
+   *
+   * The panel owns this list so a row's compare icon can add to the same
+   * comparison the toolbar opens; empty means search-first, never a guess at
+   * row one.
+   */
+  initialSymbols?: readonly string[];
 }
 
 /** A row as the comparison header prints it: symbol, company, exchange. */
@@ -48,21 +54,29 @@ function hitFromRow(row: ScreenRow): SymbolHit {
   };
 }
 
+/** A stable empty seed, so the effect's dependency does not change per render. */
+const NO_SYMBOLS: readonly string[] = [];
+
 export function CompareDialog({
   open,
   onClose,
   rows,
   columns,
   viewLabel,
-  selectedSymbol,
+  initialSymbols = NO_SYMBOLS,
 }: CompareDialogProps) {
   const [picked, setPicked] = React.useState<SymbolHit[]>([]);
 
   React.useEffect(() => {
     if (!open) return;
-    const row = rows.find((entry) => entry.symbol === selectedSymbol);
-    setPicked(row ? [hitFromRow(row)] : []);
-  }, [open, selectedSymbol, rows]);
+    const seeded = initialSymbols.slice(0, COMPARE_LIMIT).map((symbol) => {
+      const row = rows.find((entry) => entry.symbol === symbol);
+      // A symbol from another page has no values yet; its identity still
+      // heads a column, and the cells say "—" rather than inventing numbers.
+      return row ? hitFromRow(row) : { symbol, name: "", exchange: "" };
+    });
+    setPicked(seeded);
+  }, [open, initialSymbols, rows]);
 
   const add = (hit: SymbolHit) => {
     setPicked((previous) =>

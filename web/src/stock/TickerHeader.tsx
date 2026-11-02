@@ -10,6 +10,10 @@
  * The change carries its direction in the glyph and the sign, so colour is
  * decoration rather than the only channel. The price is mono and tabular; the
  * labels are 10 px uppercase, the numbers 13 px.
+ *
+ * The band is otherwise read-only, so the page's one action arrives through
+ * `actions` and is dropped beside the price: the header does not decide what
+ * can be done to an instrument, it only knows where that answer belongs.
  */
 
 import * as React from "react";
@@ -23,6 +27,13 @@ import type { HeaderView } from "./useTicker";
 
 export interface TickerHeaderProps {
   readonly header: HeaderView;
+  /**
+   * The page's action for this instrument, drawn beside the quote.
+   *
+   * A slot rather than a callback: the header stays a picture of the ticker,
+   * and the page that owns the dialog owns the button that opens it.
+   */
+  readonly actions?: React.ReactNode;
 }
 
 function Stat({
@@ -48,7 +59,7 @@ function Stat({
   );
 }
 
-export function TickerHeader({ header }: TickerHeaderProps): React.ReactElement {
+export function TickerHeader({ header, actions }: TickerHeaderProps): React.ReactElement {
   const tone = changeTone(header.change);
   const identity = [header.sector, header.industry, header.indexMembership].filter(
     (entry): entry is string => entry !== null && entry.length > 0,
@@ -122,6 +133,9 @@ export function TickerHeader({ header }: TickerHeaderProps): React.ReactElement 
             {tone === "up" ? "▲ " : tone === "down" ? "▼ " : ""}
             {formatChange(header.change)}
           </span>
+          {actions ? (
+            <span className="ml-0.5 inline-flex self-center">{actions}</span>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-end gap-x-6 gap-y-1">

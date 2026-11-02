@@ -36,6 +36,7 @@ import * as React from "react";
 
 import type { ScreenError, ScreenRow, ScreenStatus, ViewDefinition } from "@/data/screens";
 import { sortDirection, sortKey } from "@/data/screens";
+import { Icon } from "@/components/Icon";
 import { Link } from "@/shell/routes";
 import { cn } from "@/lib/utils";
 
@@ -64,15 +65,6 @@ const features = tableFeatures({
 
 const HEADER_HEIGHT = 24;
 const ROW_HEIGHT = 28;
-/**
- * The checkbox lane's width.
- *
- * It is drawn outside the solver's columns: a tick box is not a field, and
- * giving it to `solveView` would let it claim a catalogue width and change
- * every other lane's number. The table's own width is `solved.total` plus
- * this, and the table is solved against the space that is left.
- */
-export const SELECT_LANE_WIDTH = 30;
 
 /**
  * How far the table fades while a page turn is in flight.
@@ -89,6 +81,42 @@ export const SELECT_LANE_WIDTH = 30;
  * cue, and the bar and the label are what say "new numbers are on the way".
  */
 export const STALE_OPACITY = 0.78;
+
+/** The two lists a row's star can write to. */
+export type RowActionList = "watchlist" | "portfolio";
+
+/** Which of a row's two menus is open above it. */
+export type RowMenuKind = "add" | "rows";
+
+/**
+ * The actions a row offers at its right edge.
+ *
+ * The grid owns the menu chrome and the focus movement; the panel owns what
+ * the actions mean (a storage write, a dialog seeded with this symbol). The
+ * handlers receive the row's symbol, never an index, so a reorder cannot make
+ * the click land on another company.
+ */
+export interface RowActions {
+  onAddTo: (symbol: string, list: RowActionList) => void;
+  onAlert: (symbol: string) => void;
+}
+
+/**
+ * Compare's transient checkbox lane.
+ *
+ * Present only while the toolbar is in compare mode: outside it the table has
+ * no checkbox column at all. The grid draws the boxes and reports a tick; the
+ * panel caps the set and navigates when the reader confirms.
+ */
+export interface CompareSelection {
+  selected: readonly string[];
+  onToggle: (symbol: string) => void;
+  /** The most symbols a comparison may hold. */
+  max: number;
+}
+
+/** The width the transient compare column claims, in px. */
+export const COMPARE_LANE_WIDTH = 30;
 
 export interface DataTableProps {
   view: ViewDefinition;
@@ -114,19 +142,43 @@ export interface DataTableProps {
    */
   rowTo?: (symbol: string) => string;
   /**
-   * The page's checkbox selection, or undefined for no checkbox lane.
+   * The row actions drawn at the right edge: star, compare, bell and "…".
    *
-   * The grid never owns the selection: it draws the boxes, and the panel that
-   * feeds three toolbar actions keeps the list. A box click must not be read
-   * as "open this row", so every box stops its own click.
+   * Absent means a read-only grid (the wide destination, a detail preview):
+   * no lane, no extra buttons. The lane is absolutely positioned inside the
+   * row's last cell, so it never claims a column and rows do not shift.
    */
-  selection?: {
-    /** The rows currently selected, by symbol. */
-    selected: readonly string[];
-    onToggle: (symbol: string) => void;
-    /** The header box: select or clear every row on this page. */
-    onToggleAll: (checked: boolean) => void;
-  };
+  rowActions?: RowActions;
+  /**
+   * The row a pointer is over or the keyboard is on, or null when neither.
+   *
+   * The toolbar uses it as the subject of Add to / Set alert. Null is not
+   * "no-op": the toolbar says which row is missing, rather than guessing which
+   * of the twenty rows was meant.
+   */
+  onRowPoint?: (symbol: string | null) => void;
+  /**
+   * The symbols already on the watchlist or in the portfolio, so a row's star
+   * can be drawn filled. The panel reads both stores and keeps this list
+   * current; the grid never opens storage itself.
+   */
+  starredSymbols?: readonly string[];
+  /**
+   * How many saved alerts each symbol has, for the row bells.
+   *
+   * A count rather than a flag because the bell's name states it ("2 active"),
+   * and a symbol with none is simply absent from the map. The panel reads the
+   * alert store and keeps this current; the grid never opens storage itself.
+   */
+  alertCounts?: ReadonlyMap<string, number>;
+  /**
+   * Compare mode, or undefined for the ordinary grid.
+   *
+   * When present the grid draws one transient checkbox lane in front of the
+   * columns and reports ticks; when absent no checkbox exists in the DOM at
+   * all — the table is not a selection surface by default.
+   */
+  compareSelection?: CompareSelection;
   /** Test seam: jsdom has no layout. Production measures the scroll box. */
   containerWidth?: number;
   /**
@@ -253,7 +305,11 @@ export function DataTable({
   onClear,
   selectedSymbol,
   rowTo,
-  selection,
+  rowActions,
+  onRowPoint,
+  starredSymbols,
+  alertCounts,
+  compareSelection,
   containerWidth,
   absent,
   caption,
@@ -267,6 +323,7 @@ export function DataTable({
   const width = useContainerWidth(scrollRef, containerWidth);
   const [focused, setFocused] = React.useState(-1);
   const [scrollLeft, setScrollLeft] = React.useState(0);
+  const [menu, setMenu] = React.useState<{ rowId: string; kind: RowMenuKind } | null>(null);
   const rowRefs = React.useRef<Array<HTMLTableRowElement | null>>([]);
 
   /** The row number is drawn from the page offset; it is never requested. */
@@ -278,32 +335,24 @@ export function DataTable({
   const sortedKey = sort ? sortKey(sort) : null;
   const sortedDirection = sortDirection(sort ?? "market_cap");
 
-  /** Whether the grid draws a checkbox lane; the caller's selection says so. */
-  const selectable = selection !== undefined;
-  const selectAllRef = React.useRef<HTMLInputElement>(null);
-  const selectedSet = React.useMemo(
-    () => new Set(selection?.selected ?? []),
-    [selection?.selected],
+  /** The transient compare lane: its boxes, its cap, and the star's fill. */
+  const compareActive = compareSelection !== undefined;
+  const compareSelected = React.useMemo(
+    () => new Set(compareSelection?.selected ?? []),
+    [compareSelection?.selected],
   );
-  const allChecked = rows.length > 0 && rows.every((row) => selectedSet.has(row.symbol));
-  const someChecked = rows.some((row) => selectedSet.has(row.symbol));
-  /** The one row `aria-current` may name: a single selection, never a set. */
-  const currentSymbol = selection
-    ? selection.selected.length === 1
-      ? selection.selected[0] ?? null
-      : null
-    : selectedSymbol ?? null;
+  const compareMax = compareSelection?.max ?? 0;
+  const starred = React.useMemo(() => new Set(starredSymbols ?? []), [starredSymbols]);
 
-  React.useEffect(() => {
-    if (selectAllRef.current) selectAllRef.current.indeterminate = someChecked && !allChecked;
-  }, [someChecked, allChecked]);
+  /** The one row `aria-current` may name: the panel's open row, if any. */
+  const currentSymbol = selectedSymbol ?? null;
 
   const solved = React.useMemo(
     () =>
       width > 0
-        ? solveView(view.columns, Math.max(0, width - (selectable ? SELECT_LANE_WIDTH : 0)))
+        ? solveView(view.columns, Math.max(0, width - (compareActive ? COMPARE_LANE_WIDTH : 0)))
         : null,
-    [view.columns, width, selectable],
+    [view.columns, width, compareActive],
   );
 
   const rowIds = React.useMemo(() => uniqueRowIds(rows), [rows]);
@@ -406,7 +455,7 @@ export function DataTable({
    * Stable row callbacks.
    *
    * The wide view renders 20 rows × 117 cells; a re-render of every row on
-   * every hover, focus or selection is a measured 110 ms of jank in Chrome.
+   * every hover, focus or menu change is a measured 110 ms of jank in Chrome.
    * Rows are memoised, so the callbacks they receive must keep their identity
    * across renders — the latest values live in refs, not in closures.
    */
@@ -416,15 +465,25 @@ export function DataTable({
   activateRef.current = onActivate;
   const clearRef = React.useRef(onClear);
   clearRef.current = onClear;
-  // Read inside the stable row key handler, so "is a panel open?" is the
-  // latest selection rather than the one captured at row creation.
+  // Read inside the stable row key handler, so "is the row open somewhere?"
+  // is the latest value rather than the one captured at row creation.
   const selectedRef = React.useRef(selectedSymbol);
   selectedRef.current = selectedSymbol;
+  const pointRef = React.useRef(onRowPoint);
+  pointRef.current = onRowPoint;
 
   const activate = React.useCallback((symbol: string) => activateRef.current?.(symbol), []);
+  const point = React.useCallback((symbol: string | null) => pointRef.current?.(symbol), []);
   const setRowRef = React.useCallback((index: number, element: HTMLTableRowElement | null) => {
     rowRefs.current[index] = element;
   }, []);
+  /** One menu at a time: opening another row's menu closes the first. */
+  const toggleMenu = React.useCallback((rowId: string, kind: RowMenuKind) => {
+    setMenu((current) =>
+      current && current.rowId === rowId && current.kind === kind ? null : { rowId, kind },
+    );
+  }, []);
+  const closeMenu = React.useCallback(() => setMenu(null), []);
 
   const focusRow = React.useCallback((index: number) => {
     const bounded = Math.max(0, Math.min(rowsRef.current.length - 1, index));
@@ -434,9 +493,10 @@ export function DataTable({
 
   const onRowKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => {
-      // A checkbox has its own keys: Space ticks it and Enter does nothing.
-      // Neither is "open this row", so the row's handler stands down.
-      if (event.target instanceof HTMLInputElement) return;
+      // Keys belong to the row only while the row itself has focus. A button
+      // inside it (the "…" menu, a micro-action) owns its own Enter and Space;
+      // letting them bubble would open the ticker page on the same press.
+      if (event.target !== event.currentTarget) return;
       const row = rowsRef.current[index];
       if (!row) return;
       switch (event.key) {
@@ -470,7 +530,7 @@ export function DataTable({
           break;
         case "Escape": {
           event.preventDefault();
-          // F6: with rows selected, Escape clears the selection through the
+          // F6: with the row's detail panel open, Escape closes it through the
           // same `onClear` the parent owns, and focus stays on this row — where
           // the reader was. Blurring here used to drop focus to `<body>`: the
           // row blurred itself before the parent's document listener ran, and
@@ -481,7 +541,7 @@ export function DataTable({
             event.currentTarget.focus();
             break;
           }
-          // No panel: Escape clears the roving cursor, as it always has.
+          // Nothing open: Escape clears the roving cursor, as it always has.
           setFocused(-1);
           event.currentTarget.blur();
           break;
@@ -495,17 +555,18 @@ export function DataTable({
 
   React.useEffect(() => {
     setFocused(-1);
+    setMenu(null);
   }, [view.name]);
 
   const hasRows = rows.length > 0;
-  const columnCount = view.columns.length + 1 + (selectable ? 1 : 0);
+  const columnCount = view.columns.length + 1 + (compareActive ? 1 : 0);
   // F7: the grid announces the whole screen, not the page it happens to hold,
   // plus the header row that `aria-rowcount` counts. Never fewer than the rows
   // actually rendered — a body that under-reports itself is worse than a stale
   // total.
   const announcedRows = Math.max(rowCount, rows.length) + 1;
-  /** The table's own width: the solved columns plus the checkbox lane. */
-  const tableWidth = (solved?.total ?? 0) + (selectable ? SELECT_LANE_WIDTH : 0);
+  /** The table's own width: the solved columns, plus compare's lane in mode. */
+  const tableWidth = (solved?.total ?? 0) + (compareActive ? COMPARE_LANE_WIDTH : 0);
 
   return (
     <div
@@ -580,7 +641,7 @@ export function DataTable({
               `${view.label}: ${hasRows ? `${rows.length} rows on this page` : "no rows"}.`}
           </caption>
           <colgroup>
-            {selectable ? <col style={{ width: SELECT_LANE_WIDTH }} /> : null}
+            {compareActive ? <col style={{ width: COMPARE_LANE_WIDTH }} /> : null}
             {solved.columns.map((column, index) => (
               <col key={column.key} style={{ width: solved.widths[index] ?? 0 }} />
             ))}
@@ -618,10 +679,6 @@ export function DataTable({
                       : "none";
                 const label = meta?.text ?? key;
                 const lane = key === "identity" || key === ROW_NUMBER_KEY;
-                // The checkbox lane is pinned ahead of every other sticky
-                // lane, so the two lanes that follow it start 30 px further
-                // right than they did when it was absent.
-                const pinnedLeft = selectable ? SELECT_LANE_WIDTH : 0;
                 return (
                   <th
                     key={header.id}
@@ -631,11 +688,13 @@ export function DataTable({
                     style={{
                       ...STICKY_HEADER,
                       ...(sticky ? STICKY_LANE : {}),
-                      ...(key === ROW_NUMBER_KEY ? { left: pinnedLeft } : {}),
+                      ...(key === ROW_NUMBER_KEY
+                        ? { left: compareActive ? COMPARE_LANE_WIDTH : 0 }
+                        : {}),
                       ...(key === "identity"
                         ? {
                             left:
-                              pinnedLeft +
+                              (compareActive ? COMPARE_LANE_WIDTH : 0) +
                               (showNumber ? columnSpec(ROW_NUMBER_KEY).min : 0),
                           }
                         : {}),
@@ -683,36 +742,22 @@ export function DataTable({
               };
               return (
                 <tr key={group.id}>
-                  {selectable ? (
+                  {compareActive ? (
                     <th
                       scope="col"
-                      data-testid="select-all-cell"
+                      data-testid="compare-lane-header"
                       style={{
                         ...STICKY_HEADER,
                         ...STICKY_LANE,
                         left: 0,
-                        width: SELECT_LANE_WIDTH,
+                        width: COMPARE_LANE_WIDTH,
                         height: HEADER_HEIGHT,
-                        zIndex: 50,
+                        zIndex: 45,
                         padding: 0,
                       }}
                       className="border-b border-line-strong bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]"
                     >
-                      <input
-                        ref={selectAllRef}
-                        type="checkbox"
-                        data-testid="select-all"
-                        aria-label="Select every row on this page"
-                        title={
-                          allChecked
-                            ? "Clear the selection on this page"
-                            : "Select every row on this page"
-                        }
-                        checked={allChecked}
-                        onChange={(event) => selection?.onToggleAll(event.target.checked)}
-                        onClick={(event) => event.stopPropagation()}
-                        className="mx-auto block size-3 cursor-pointer accent-accent-fg"
-                      />
+                      <span className="sr-only">Compare</span>
                     </th>
                   ) : null}
                   {numberHeader ? draw(numberHeader) : null}
@@ -750,8 +795,10 @@ export function DataTable({
 
             {status === "loading" && !hasRows ? (
               <SkeletonRows
-                columns={solved.columns.length + (selectable ? 1 : 0)}
-                widths={solved.widths}
+                columns={solved.columns.length + (compareActive ? 1 : 0)}
+                widths={
+                  compareActive ? [COMPARE_LANE_WIDTH, ...solved.widths] : solved.widths
+                }
               />
             ) : null}
 
@@ -782,16 +829,24 @@ export function DataTable({
                   index={index}
                   rowNumber={pageIndex * pageSize + index + 1}
                   showNumber={showNumber}
-                  selected={selection ? selectedSet.has(symbol) : selectedSymbol === symbol}
                   current={currentSymbol === symbol}
-                  checked={selectedSet.has(symbol)}
-                  selectable={selectable}
                   linkTo={rowTo ? rowTo(symbol) : null}
                   tabbable={focused === index || (focused === -1 && index === 0)}
                   specs={specs}
                   absent={absent}
+                  rowActions={rowActions}
+                  starred={starred.has(symbol)}
+                  alertCount={alertCounts?.get(symbol) ?? 0}
+                  compareChecked={compareSelected.has(symbol)}
+                  compareDisabled={
+                    compareActive && !compareSelected.has(symbol) && compareSelected.size >= compareMax
+                  }
+                  onToggleCompare={compareSelection?.onToggle}
+                  menuKind={menu?.rowId === (rowIds[index] ?? String(index)) ? menu.kind : null}
+                  onToggleMenu={toggleMenu}
+                  onCloseMenu={closeMenu}
+                  onPoint={point}
                   onActivate={activate}
-                  onToggleSelect={selection?.onToggle}
                   onFocusRow={focusRow}
                   onKeyDown={onRowKeyDown}
                   setRowRef={setRowRef}
@@ -822,10 +877,10 @@ export function DataTable({
  * One memoised body row.
  *
  * It exists for the wide view: 116 columns × 20 rows is 2 340 cells, and
- * re-rendering all of them because one row's selection changed measured at
+ * re-rendering all of them because one row's menu opened measured at
  * ~110 ms in Chrome — a visible stall on a click. With identity-stable
- * callbacks and a shallow comparison, a click re-renders the row that gained
- * the selection and the row that lost it, and nothing else.
+ * callbacks and a shallow comparison, opening a row's menu re-renders that
+ * row and nothing else.
  *
  * It reads the cells from the view's column list rather than from TanStack's
  * cell model: the same order, without allocating 2 340 cell objects per paint.
@@ -843,24 +898,252 @@ interface GridRowProps {
   rowNumber: number;
   /** Whether the view draws the row-number lane. */
   showNumber: boolean;
-  /** The row is in the page's selection (checkbox ticked). */
-  selected: boolean;
   /** The row is the one `aria-current` names — at most one per table. */
   current: boolean;
-  /** The checkbox's state. */
-  checked: boolean;
-  /** Whether the checkbox lane exists at all. */
-  selectable: boolean;
   /** The ticker page's route path, or null when the grid is not a door. */
   linkTo: string | null;
   tabbable: boolean;
   specs: Map<string, ColumnSpec>;
   absent?: (symbol: string, key: string) => string | null;
+  rowActions?: RowActions;
+  /** The symbol is on the watchlist or in the portfolio. */
+  starred: boolean;
+  /** How many saved alerts this symbol has; zero means an outline bell. */
+  alertCount: number;
+  /** Compare mode's box for this row; absent outside compare mode. */
+  compareChecked: boolean;
+  compareDisabled: boolean;
+  onToggleCompare?: (symbol: string) => void;
+  menuKind: RowMenuKind | null;
+  onToggleMenu: (rowId: string, kind: RowMenuKind) => void;
+  onCloseMenu: () => void;
+  onPoint: (symbol: string | null) => void;
   onActivate: (symbol: string) => void;
-  onToggleSelect?: (symbol: string) => void;
   onFocusRow: (index: number) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => void;
   setRowRef: (index: number, element: HTMLTableRowElement | null) => void;
+}
+
+const ACTION_BUTTON =
+  "flex size-6 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-row-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus disabled:opacity-40";
+
+const ROW_MENU_ITEM =
+  "flex w-full items-center gap-1.5 px-2.5 py-1 text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:bg-row-hover hover:text-fg";
+
+/**
+ * The star, the bell and the "…" door, absolutely positioned over the row's
+ * last cell.
+ *
+ * The lane is `absolute; right: 0` so it claims no width: the solver's columns
+ * stay exactly where they were, and the row never shifts as the pointer moves.
+ * Its fade is a gradient of the row's own surface, so the numbers behind it
+ * remain readable at the left edge; the icons are 20 px, the hit targets 24 px.
+ *
+ * Visibility is CSS, not state: a row that is hovered or has focus within
+ * shows the lane, and below 900 px it is always visible — that is the touch
+ * case, where hover does not exist. The "…" button is the one Tab stop; the
+ * two glyphs are pointer accelerators (`tabIndex={-1}`), because twenty rows
+ * × three buttons of tab stops would make the grid a maze.
+ */
+function RowActionLane({
+  symbol,
+  rowId,
+  actions,
+  starred,
+  alertCount,
+  menuKind,
+  tabbable,
+  onToggleMenu,
+  onCloseMenu,
+  onReturnFocus,
+}: {
+  symbol: string;
+  rowId: string;
+  actions: RowActions;
+  starred: boolean;
+  /** How many saved alerts this symbol has; zero means an outline bell. */
+  alertCount: number;
+  menuKind: RowMenuKind | null;
+  tabbable: boolean;
+  onToggleMenu: (rowId: string, kind: RowMenuKind) => void;
+  onCloseMenu: () => void;
+  onReturnFocus: () => void;
+}) {
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  // Move focus to the first item on open, and close on a pointer elsewhere.
+  React.useEffect(() => {
+    if (menuKind === null) return;
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) onCloseMenu();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [menuKind, onCloseMenu]);
+
+  const menu = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    // The row owns Escape while a menu is open: close first, and put the
+    // keyboard back where it was, rather than dropping focus to <body>.
+    event.stopPropagation();
+    onCloseMenu();
+    onReturnFocus();
+  };
+
+  const menuStyle =
+    "absolute right-0 top-full z-40 mt-0.5 min-w-[150px] overflow-hidden rounded-sm border border-line-strong bg-surface-raised py-0.5 shadow-lg";
+
+  return (
+    <div
+      data-row-actions="true"
+      data-testid={`row-actions-${symbol}`}
+      data-menu={menuKind ?? undefined}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        // Absolute over the row's right edge: no column, no layout shift.
+        "absolute right-0 top-0 z-20 flex h-full items-center gap-0.5 rounded-l-sm pl-5 pr-1",
+        // A soft fade of the row's own surface keeps the numbers legible
+        // where the lane ends, instead of a hard rectangle.
+        "bg-gradient-to-l from-surface via-surface/95 to-transparent",
+        "group-hover:from-row-hover group-hover:via-row-hover/95",
+        "pointer-events-none opacity-0 transition-opacity duration-100",
+        "group-hover:pointer-events-auto group-hover:opacity-100",
+        "group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+        // Touch: there is no hover, so the lane is simply there.
+        "max-[900px]:pointer-events-auto max-[900px]:opacity-100",
+        menuKind !== null && "pointer-events-auto opacity-100",
+      )}
+    >
+      <button
+        type="button"
+        tabIndex={-1}
+        data-starred={starred ? "true" : "false"}
+        aria-label={
+          starred
+            ? `Add ${symbol} to a watchlist or portfolio (on a list)`
+            : `Add ${symbol} to a watchlist or portfolio`
+        }
+        aria-haspopup="menu"
+        aria-expanded={menuKind === "add"}
+        title={starred ? `${symbol} is on a list — add another or pick a list` : `Add ${symbol} to a list`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleMenu(rowId, "add");
+        }}
+        className={ACTION_BUTTON}
+      >
+        <Icon name="star" size={20} className={starred ? "fill-current text-alert" : undefined} />
+      </button>
+      <button
+        type="button"
+        tabIndex={-1}
+        data-alerted={alertCount > 0 ? "true" : "false"}
+        data-alert-count={alertCount}
+        aria-label={
+          alertCount > 0
+            ? `Set an alert for ${symbol} (${alertCount} active)`
+            : `Set an alert for ${symbol}`
+        }
+        title={
+          alertCount > 0
+            ? `${alertCount} alert${alertCount === 1 ? "" : "s"} for ${symbol} — review or add another`
+            : `Set a price alert for ${symbol}`
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          onCloseMenu();
+          actions.onAlert(symbol);
+        }}
+        className={ACTION_BUTTON}
+      >
+        <Icon
+          name="bell"
+          size={20}
+          className={alertCount > 0 ? "fill-current text-accent-text" : undefined}
+        />
+      </button>
+      <button
+        type="button"
+        data-testid={`row-menu-button-${symbol}`}
+        tabIndex={tabbable ? 0 : -1}
+        aria-label={`Row actions for ${symbol}`}
+        aria-haspopup="menu"
+        aria-expanded={menuKind === "rows"}
+        title={`Row actions for ${symbol}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleMenu(rowId, "rows");
+        }}
+        className={ACTION_BUTTON}
+      >
+        <Icon name="more-horizontal" size={20} />
+      </button>
+
+      {menuKind === "add" ? (
+        <div ref={menuRef} role="menu" aria-label="Add to" className={menuStyle} onKeyDown={menu}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onCloseMenu();
+              actions.onAddTo(symbol, "watchlist");
+            }}
+            className={ROW_MENU_ITEM}
+          >
+            <Icon name="star" />
+            Watchlist
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onCloseMenu();
+              actions.onAddTo(symbol, "portfolio");
+            }}
+            className={ROW_MENU_ITEM}
+          >
+            <Icon name="list" />
+            Portfolio
+          </button>
+        </div>
+      ) : null}
+
+      {menuKind === "rows" ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="Row actions"
+          className={menuStyle}
+          onKeyDown={menu}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            aria-haspopup="menu"
+            onClick={() => onToggleMenu(rowId, "add")}
+            className={ROW_MENU_ITEM}
+          >
+            <Icon name="star" />
+            Add to
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onCloseMenu();
+              actions.onAlert(symbol);
+            }}
+            className={ROW_MENU_ITEM}
+          >
+            <Icon name="bell" />
+            Set alert
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 const GridRow = React.memo(function GridRow({
@@ -873,16 +1156,22 @@ const GridRow = React.memo(function GridRow({
   index,
   rowNumber,
   showNumber,
-  selected,
   current,
-  checked,
-  selectable,
   linkTo,
   tabbable,
   specs,
   absent,
+  rowActions,
+  starred,
+  alertCount,
+  compareChecked,
+  compareDisabled,
+  onToggleCompare,
+  menuKind,
+  onToggleMenu,
+  onCloseMenu,
+  onPoint,
   onActivate,
-  onToggleSelect,
   onFocusRow,
   onKeyDown,
   setRowRef,
@@ -892,15 +1181,13 @@ const GridRow = React.memo(function GridRow({
       ref={(element) => setRowRef(index, element)}
       data-symbol={symbol}
       data-row-id={rowId}
-      data-selected={selected ? "true" : "false"}
+      data-selected={current ? "true" : "false"}
       // F3: `aria-selected` on a `<tr>` is only mapped inside `role=grid` /
       // `treegrid`; this table is a plain `table`, so Chrome dropped it and the
       // open row reached assistive tech with no state at all. `aria-current`
       // is valid on any element in a table and is what the browser's AX tree
       // keeps — one current item per document, and the tab strip marks itself
-      // with `aria-selected` (role=tab), so the two cannot be confused. With a
-      // checkbox selection, only a single selected row is "current"; a set of
-      // five has no one current member.
+      // with `aria-selected` (role=tab), so the two cannot be confused.
       aria-current={current ? "true" : undefined}
       // The row is a tab stop (one per row, never one per cell), so it is
       // focusable and therefore *named*: a focused `<tr>` with no accessible
@@ -910,16 +1197,32 @@ const GridRow = React.memo(function GridRow({
       // spoken, and no colour is involved.
       aria-label={symbol}
       tabIndex={tabbable ? 0 : -1}
-      onFocus={() => onFocusRow(index)}
+      onMouseEnter={() => onPoint(symbol)}
+      onMouseLeave={(event) => {
+        // A keyboard cursor on this row outlives the pointer passing over it:
+        // the toolbar's subject is still the focused row.
+        if (event.currentTarget.contains(document.activeElement)) return;
+        onPoint(null);
+      }}
+      onFocus={(event) => {
+        if (event.target !== event.currentTarget) return;
+        onFocusRow(index);
+        onPoint(symbol);
+      }}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (next !== null && event.currentTarget.contains(next)) return;
+        onPoint(null);
+      }}
       onKeyDown={(event) => onKeyDown(event, index)}
       onClick={(event) => {
-        // A checkbox or the ticker link owns its own click; a plain press on
-        // any other cell is the same door as the ticker.
+        // A link, a micro-action or the "…" menu owns its own click; a plain
+        // press on any other cell is the same door as the ticker.
         if ((event.target as HTMLElement).closest("a, input, button, label")) return;
         onActivate(symbol);
       }}
       className={cn(
-        "h-7 cursor-pointer outline-offset-[-2px] odd:bg-row even:bg-row-alt",
+        "group relative h-7 cursor-pointer outline-offset-[-2px] odd:bg-row even:bg-row-alt",
         // One 2 px rose ring around the row, drawn inset so the sticky header
         // cannot clip it. `relative z-10` while focused lifts the ring above the
         // pinned lane's own background — without it the sticky `<td>` paints
@@ -930,25 +1233,19 @@ const GridRow = React.memo(function GridRow({
       )}
       style={{ height: ROW_HEIGHT }}
     >
-      {selectable ? (
+      {onToggleCompare ? (
         <td
-          // The tick box is a selection, never a navigation: the cell stops
-          // the click before the row's own handler can see it.
           onClick={(event) => event.stopPropagation()}
-          style={{ ...STICKY_LANE, left: 0, height: ROW_HEIGHT, zIndex: 4 }}
+          style={{ ...STICKY_LANE, left: 0, height: ROW_HEIGHT, zIndex: 5 }}
           className="bg-inherit px-0 py-0 text-center align-middle"
         >
           <input
             type="checkbox"
-            data-testid={`row-select-${symbol}`}
-            aria-label={`Select ${symbol}`}
-            checked={checked}
-            onChange={() => onToggleSelect?.(symbol)}
+            aria-label={`Compare ${symbol}`}
+            checked={compareChecked}
+            disabled={compareDisabled}
+            onChange={() => onToggleCompare(symbol)}
             onClick={(event) => event.stopPropagation()}
-            // The row is the single keyboard entry point; the box is reached
-            // with the pointer, or from the row with the browser's own form
-            // navigation once focus is inside it.
-            tabIndex={-1}
             className="size-3 cursor-pointer align-middle accent-accent-fg"
           />
         </td>
@@ -956,7 +1253,12 @@ const GridRow = React.memo(function GridRow({
       {showNumber ? (
         <td
           data-row-number={rowNumber}
-          style={{ ...STICKY_LANE, left: selectable ? SELECT_LANE_WIDTH : 0, height: ROW_HEIGHT, zIndex: 3 }}
+          style={{
+            ...STICKY_LANE,
+            left: onToggleCompare ? COMPARE_LANE_WIDTH : 0,
+            height: ROW_HEIGHT,
+            zIndex: 3,
+          }}
           className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle tabular-nums text-fg-subtle"
         >
           {rowNumber}
@@ -966,7 +1268,7 @@ const GridRow = React.memo(function GridRow({
         style={{
           ...STICKY_LANE,
           left:
-            (selectable ? SELECT_LANE_WIDTH : 0) +
+            (onToggleCompare ? COMPARE_LANE_WIDTH : 0) +
             (showNumber ? columnSpec(ROW_NUMBER_KEY).min : 0),
           height: ROW_HEIGHT,
           zIndex: 2,
@@ -999,19 +1301,37 @@ const GridRow = React.memo(function GridRow({
       {lead > 0 ? (
         <td aria-hidden="true" colSpan={lead} style={{ height: ROW_HEIGHT }} className="p-0" />
       ) : null}
-      {cells.map((key) => {
+      {cells.map((key, cellIndex) => {
         const gap = absent?.(symbol, key) ?? null;
+        const last = trail === 0 && cellIndex === cells.length - 1;
         return (
           <td
             key={`${rowId}:${key}`}
             style={{ height: ROW_HEIGHT }}
-            className="overflow-hidden px-2 py-0 align-middle"
+            // The last cell is the anchor: the action lane is positioned
+            // against it and may hang over the cell's left edge, so that one
+            // must not clip. Every other cell keeps its overflow guard.
+            className={cn("overflow-hidden px-2 py-0 align-middle", last && "relative overflow-visible")}
           >
             {gap !== null ? (
               <AbsentCell reason={gap} />
             ) : (
               <CellValue spec={specs.get(key) ?? columnSpec(key)} value={data[key]} />
             )}
+            {last && rowActions ? (
+              <RowActionLane
+                symbol={symbol}
+                rowId={rowId}
+                actions={rowActions}
+                starred={starred}
+                alertCount={alertCount}
+                menuKind={menuKind}
+                tabbable={tabbable}
+                onToggleMenu={onToggleMenu}
+                onCloseMenu={onCloseMenu}
+                onReturnFocus={() => onFocusRow(index)}
+              />
+            ) : null}
           </td>
         );
       })}

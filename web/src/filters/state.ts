@@ -174,6 +174,16 @@ export interface DescribedFilter {
 
 /** The chip: human label, human value, and the one-line sentence. */
 export function describeFilter(registry: FilterRegistry, filter: ActiveFilter): DescribedFilter {
+  // A ticker list is one filter and therefore one chip: the label names the
+  // control ("Tickers") and the value is the symbol list, not `in AAPL, MSFT`.
+  // The reader who typed a list should be able to remove it with one ×.
+  if (filter.key === "symbol" && filter.op === "in") {
+    const symbols = Array.isArray(filter.value)
+      ? filter.value.map((symbol) => String(symbol))
+      : [String(filter.value)];
+    const value = symbols.join(", ");
+    return { label: "Tickers", value, text: `Tickers ${value}` };
+  }
   const entry = registry.byKey.get(filter.key);
   // A key only the panel document publishes still gets its published name: the
   // chip and the select that wrote it must describe one request in one language.

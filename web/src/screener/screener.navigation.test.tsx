@@ -2,17 +2,15 @@
  * A row is a door, not a selection.
  *
  * The screener no longer docks a detail panel: every ticker, company and
- * symbol in a row is a real link to `/app/stock/{symbol}`, and the only
- * thing that selects a row is its checkbox — because three toolbar actions
- * (Add to, Compare, Set alert) still need one named row.
+ * symbol in a row is a real link to `/app/stock/{symbol}`. A row is never a
+ * selection: its own micro-actions name the one symbol they act on.
  *
  * These are the promises:
  *
  * * a plain click is a client-side navigation, not a round trip;
  * * a ctrl/meta click keeps the browser's own new-tab behaviour, which means
  *   the anchor has a real href and the handler does not swallow it;
- * * a checkbox selects without navigating, and the header checkbox selects
- *   every row on the page;
+ * * there is no checkbox lane, and an action on a row does not navigate it;
  * * there is no docked panel left to find.
  */
 
@@ -154,44 +152,59 @@ describe("a screener row opens the ticker page", () => {
   });
 });
 
-describe("the selection column", () => {
-  it("selects a row without navigating", async () => {
+describe("the action lane", () => {
+  it("draws no checkbox in any row or in the header", async () => {
     stubApi();
-    const user = userEvent.setup();
     renderScreen();
-    await firstRow();
+    const row = await firstRow();
 
-    const checkbox = screen.getByTestId("row-select-S000") as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
-
-    await user.click(checkbox);
-
-    expect(checkbox.checked).toBe(true);
-    expect(window.location.pathname).toBe("/app/screener");
-    // The selection is what the toolbar's Add to names.
-    expect(screen.getByTestId("add-to-button").getAttribute("title")).toContain("S000");
+    expect(screen.getByTestId("grid-table").querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(within(row).queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByTestId("select-all")).toBeNull();
+    expect(screen.queryByTestId("row-select-S000")).toBeNull();
   });
 
-  it("selects every visible row from the header checkbox", async () => {
+  it("opens the row's Add-to menu without navigating", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    renderScreen();
+    const row = await firstRow();
+
+    await user.click(within(row).getByRole("button", { name: "Add S000 to a watchlist or portfolio" }));
+
+    const menu = within(row).getByRole("menu", { name: "Add to" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Watchlist",
+      "Portfolio",
+    ]);
+    expect(window.location.pathname).toBe("/app/screener");
+  });
+
+  it("alerts the row's symbol without navigating", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    renderScreen();
+    const row = await firstRow();
+
+    await user.click(within(row).getByRole("button", { name: "Set an alert for S000" }));
+    const alert = screen.getByRole("dialog", { name: "Set alert" });
+    expect(within(alert).getByTestId("alert-target").textContent).toContain("S000");
+    expect(window.location.pathname).toBe("/app/screener");
+  });
+
+  it("compares through the toolbar mode and navigates with the ticked symbols", async () => {
     stubApi();
     const user = userEvent.setup();
     renderScreen();
     await firstRow();
 
-    const all = screen.getByTestId("select-all") as HTMLInputElement;
-    await user.click(all);
+    await user.click(screen.getByRole("button", { name: "Compare rows" }));
+    await user.click(screen.getByRole("checkbox", { name: "Compare S000" }));
+    await user.click(screen.getByRole("checkbox", { name: "Compare S002" }));
+    await user.click(screen.getByRole("button", { name: "Confirm comparison of 2 symbols" }));
 
-    const rowBoxes = [
-      ...screen.getByTestId("grid-table").querySelectorAll<HTMLInputElement>(
-        'tbody input[data-testid^="row-select-"]',
-      ),
-    ];
-    expect(rowBoxes).toHaveLength(20);
-    expect(rowBoxes.every((box) => box.checked)).toBe(true);
-    expect(window.location.pathname).toBe("/app/screener");
-
-    await user.click(all);
-    expect(rowBoxes.every((box) => box.checked)).toBe(false);
+    expect(window.location.pathname).toBe("/app/compare");
+    expect(window.location.search).toBe("?symbols=S000,S002");
   });
 });
 

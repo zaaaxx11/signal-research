@@ -525,3 +525,60 @@ describe("PresetPanel", () => {
     expect(nextScreenName(["Screen 1", "Screen 3"])).toBe("Screen 2");
   });
 });
+
+describe("the Tickers field", () => {
+  /** Open the panel on the Descriptive group and return its ticker input. */
+  async function openTickers() {
+    const user = userEvent.setup();
+    const harness = setup();
+    await user.click(screen.getByTestId("filter-button"));
+    await user.click(screen.getByRole("button", { name: "Descriptive" }));
+    const input = screen.getByTestId("control-input-symbol") as HTMLInputElement;
+    return { user, input, ...harness };
+  }
+
+  it("adds one list filter for a comma- or space-separated list, upper-cased", async () => {
+    const { user, input, spies } = await openTickers();
+
+    await user.type(input, "aapl, msft{Enter}");
+
+    expect(spies.onAddFilter).toHaveBeenCalledTimes(1);
+    expect(spies.onAddFilter).toHaveBeenCalledWith({
+      key: "symbol",
+      op: "in",
+      value: ["AAPL", "MSFT"],
+    });
+    expect(input.value).toBe("");
+  });
+
+  it("names an invalid token inline and adds nothing", async () => {
+    const { user, input, spies } = await openTickers();
+
+    await user.type(input, "AA PL!{Enter}");
+
+    expect(spies.onAddFilter).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("PL!");
+    expect(input.value).toBe("AA PL!"); // the draft is kept, not silently dropped
+  });
+
+  it("refuses more than ten symbols with a message", async () => {
+    const { user, input, spies } = await openTickers();
+
+    await user.type(input, "A,B,C,D,E,F,G,H,I,J,K{Enter}");
+
+    expect(spies.onAddFilter).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toMatch(/10 tickers/);
+    expect((input as HTMLInputElement).value).toBe("A,B,C,D,E,F,G,H,I,J,K");
+  });
+
+  it("clears the draft on Escape without closing the panel", async () => {
+    const { user, input } = await openTickers();
+
+    await user.type(input, "AAPL, MSFT");
+    await user.keyboard("{Escape}");
+
+    expect((input as HTMLInputElement).value).toBe("");
+    expect(screen.getByTestId("filter-panel")).toBeTruthy();
+  });
+});

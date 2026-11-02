@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -472,5 +472,223 @@ describe("duplicate symbols (F12)", () => {
       "B",
     ]);
     expect(uniqueRowIds([])).toEqual([]);
+  });
+});
+
+/**
+ * The row action lane: star, bell and a "…" menu. No compare icon — compare
+ * is a mode on the toolbar — and no checkbox column unless that mode asks.
+ */
+describe("row actions without a checkbox lane", () => {
+  function actionProps() {
+    const onAddTo = vi.fn();
+    const onAlert = vi.fn();
+    return { onAddTo, onAlert, rowActions: { onAddTo, onAlert } };
+  }
+
+  function firstRow() {
+    return screen
+      .getByTestId("grid-table")
+      .querySelector<HTMLElement>("tbody tr[data-symbol]") as HTMLElement;
+  }
+
+  it("draws no checkbox anywhere and gives the freed 30 px back to the columns", () => {
+    renderGrid();
+    const table = screen.getByTestId("grid-table");
+
+    expect(table.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(screen.queryByTestId("select-all")).toBeNull();
+    expect(screen.queryByTestId("select-all-cell")).toBeNull();
+    expect(columnWidths(table)).toHaveLength(TODAY_COLUMNS.length + 1);
+    expect(columnWidths(table).reduce((a, b) => a + b, 0)).toBe(1280);
+    expect(Number.parseFloat(table.style.width)).toBe(1280);
+  });
+
+  it("shows star, bell and the '…' door on hover or focus, over a soft fade", () => {
+    const { rowActions } = actionProps();
+    renderGrid({ rowActions });
+    const row = firstRow();
+    const lane = within(row).getByTestId("row-actions-AAPL");
+
+    // 20 px glyphs inside one absolutely positioned lane: it never takes a
+    // column, and the row's cells do not move when it appears.
+    expect(lane.className).toContain("absolute");
+    expect(lane.className).toContain("right-0");
+    expect(lane.className).toContain("opacity-0");
+    expect(lane.className).toContain("group-hover:opacity-100");
+    expect(lane.className).toContain("group-focus-within:opacity-100");
+    expect(lane.className).toContain("max-[900px]:opacity-100");
+    expect(lane.className).toMatch(/from-surface|bg-surface/);
+
+    const glyphs = [...lane.querySelectorAll("svg")];
+    expect(glyphs.map((glyph) => glyph.getAttribute("data-icon"))).toEqual([
+      "star",
+      "bell",
+      "more-horizontal",
+    ]);
+    for (const glyph of glyphs) {
+      expect(glyph.getAttribute("width")).toBe("20");
+      expect(glyph.getAttribute("height")).toBe("20");
+    }
+    expect(within(row).getByRole("button", { name: "Add AAPL to a watchlist or portfolio" })).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Compare AAPL" })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Set an alert for AAPL" })).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Row actions for AAPL" })).toBeTruthy();
+  });
+
+  it("fills the star when the symbol is on either list", () => {
+    const { rowActions } = actionProps();
+    renderGrid({ rowActions, starredSymbols: ["AAPL"] });
+    const star = within(firstRow()).getByRole("button", {
+      name: "Add AAPL to a watchlist or portfolio (on a list)",
+    });
+    expect(star.getAttribute("data-starred")).toBe("true");
+    expect(star.querySelector("svg")?.getAttribute("class")).toContain("fill-current");
+    // The state is spoken and tooltipped, not left to the fill alone.
+    expect(star.getAttribute("title")).toContain("AAPL is on a list");
+  });
+
+  it("draws the bell as an outline until the symbol has an alert", () => {
+    const { rowActions } = actionProps();
+    renderGrid({ rowActions });
+    const bell = within(firstRow()).getByRole("button", { name: "Set an alert for AAPL" });
+
+    expect(bell.getAttribute("data-alerted")).toBe("false");
+    expect(bell.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("fill-current");
+    expect(bell.getAttribute("title")).toBe("Set a price alert for AAPL");
+  });
+
+  it("fills the bell when the symbol has alerts and says how many", () => {
+    const { rowActions } = actionProps();
+    renderGrid({ rowActions, alertCounts: new Map([["AAPL", 2]]) });
+    const bell = within(firstRow()).getByRole("button", {
+      name: "Set an alert for AAPL (2 active)",
+    });
+
+    expect(bell.getAttribute("data-alerted")).toBe("true");
+    expect(bell.querySelector("svg")?.getAttribute("class")).toContain("fill-current");
+    expect(bell.querySelector("svg")?.getAttribute("class")).toContain("text-accent-text");
+    expect(bell.getAttribute("title")).toBe("2 alerts for AAPL — review or add another");
+  });
+
+  it("opens the Add-to menu from the star, without navigating or a dialog", async () => {
+    const onActivate = vi.fn();
+    const { onAddTo, rowActions } = actionProps();
+    const user = userEvent.setup();
+    renderGrid({ onActivate, rowActions });
+    const row = firstRow();
+
+    await user.click(within(row).getByRole("button", { name: "Add AAPL to a watchlist or portfolio" }));
+
+    const menu = within(row).getByRole("menu", { name: "Add to" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Watchlist",
+      "Portfolio",
+    ]);
+    expect(onActivate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(within(menu).getByRole("menuitem", { name: "Portfolio" }));
+    expect(onAddTo).toHaveBeenCalledWith("AAPL", "portfolio");
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it("alerts the row's own symbol without navigating", async () => {
+    const onActivate = vi.fn();
+    const { onAlert, rowActions } = actionProps();
+    const user = userEvent.setup();
+    renderGrid({ onActivate, rowActions });
+    const row = firstRow();
+
+    await user.click(within(row).getByRole("button", { name: "Set an alert for AAPL" }));
+    expect(onAlert).toHaveBeenCalledWith("AAPL");
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it("tells the panel which row is hovered, and clears it on leave", async () => {
+    const onRowPoint = vi.fn();
+    const user = userEvent.setup();
+    renderGrid({ onRowPoint });
+    const row = firstRow();
+
+    await user.hover(row);
+    expect(onRowPoint).toHaveBeenCalledWith("AAPL");
+    await user.unhover(row);
+    expect(onRowPoint).toHaveBeenLastCalledWith(null);
+  });
+
+  it("reaches the '…' menu with Tab, and Escape returns focus to the row", async () => {
+    const onActivate = vi.fn();
+    const { onAlert, rowActions } = actionProps();
+    const user = userEvent.setup();
+    renderGrid({ onActivate, rowActions });
+    const row = firstRow();
+    row.focus();
+
+    await user.tab();
+    const trigger = within(row).getByRole("button", { name: "Row actions for AAPL" });
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    await user.keyboard("{Enter}");
+    const menu = within(row).getByRole("menu", { name: "Row actions" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Add to",
+      "Set alert",
+    ]);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(row);
+
+    // The row is still a door: Enter on the row itself navigates, even while
+    // the action lane lives inside it.
+    await user.keyboard("{Enter}");
+    expect(onActivate).toHaveBeenCalledWith("AAPL");
+
+    await user.click(trigger);
+    await user.click(within(row).getByRole("menuitem", { name: "Set alert" }));
+    expect(onAlert).toHaveBeenCalledWith("AAPL");
+  });
+});
+
+/** Compare is a mode: boxes exist only while the toolbar has asked for them. */
+describe("compare selection mode", () => {
+  it("has no checkbox lane until compareSelection is supplied", () => {
+    renderGrid();
+    expect(screen.getByTestId("grid-table").querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+  });
+
+  it("draws one box per row, toggles it, and never navigates", async () => {
+    const onToggle = vi.fn();
+    const onActivate = vi.fn();
+    const user = userEvent.setup();
+    renderGrid({
+      onActivate,
+      compareSelection: { selected: ["AAPL"], onToggle, max: 10 },
+    });
+    const table = screen.getByTestId("grid-table");
+    const boxes = [...table.querySelectorAll<HTMLInputElement>('tbody input[type="checkbox"]')];
+    expect(boxes).toHaveLength(TODAY_ROWS.length);
+    expect(boxes[0]?.checked).toBe(true);
+    expect(boxes[0]?.getAttribute("aria-label")).toBe("Compare AAPL");
+    expect(columnWidths(table)).toHaveLength(TODAY_COLUMNS.length + 2);
+    expect(columnWidths(table).reduce((a, b) => a + b, 0)).toBe(1280);
+
+    await user.click(boxes[1] as HTMLInputElement);
+    expect(onToggle).toHaveBeenCalledWith("NVDA");
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it("disables an unselected box once the cap is reached", () => {
+    renderGrid({
+      compareSelection: { selected: ["AAPL", "NVDA", "MSFT", "AMZN", "GOOG"], onToggle: vi.fn(), max: 5 },
+    });
+    const table = screen.getByTestId("grid-table");
+    const boxes = [...table.querySelectorAll<HTMLInputElement>('tbody input[type="checkbox"]')];
+    expect(boxes[0]?.disabled).toBe(false);
+    expect(boxes[5]?.disabled).toBe(true);
   });
 });

@@ -1,24 +1,23 @@
 /**
- * Set alert: the small form the toolbar opens for one symbol.
+ * Set alert: the small form the row or ticker page opens for one symbol.
  *
- * An alert is a note this browser keeps. The dialog says so — "kept in this
- * browser" is the whole truth about a deployment with no accounts and no mail
- * transport — and lists the alerts already saved, each removable.
+ * The symbol is already known — a row's bell names it, the ticker page's
+ * header names it — so the dialog has no ticker search. It asks only for the
+ * condition, the value and an optional note, and lists the alerts already
+ * saved in this browser.
  */
 
 import * as React from "react";
 
 import { Icon } from "@/components/Icon";
-import { SymbolSearch } from "@/shell/SymbolSearch";
 import { cn } from "@/lib/utils";
 
 import {
   ALERT_CONDITIONS,
   ALERT_LABELS,
+  alertsStore,
   describeAlert,
   nextAlertId,
-  readAlerts,
-  writeAlerts,
   type AlertCondition,
   type PriceAlert,
 } from "./alerts";
@@ -33,23 +32,32 @@ export interface AlertDialogProps {
 
 export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
   const [target, setTarget] = React.useState(symbol ?? "");
-  const [identity, setIdentity] = React.useState<{ name: string; exchange: string } | null>(null);
   const [condition, setCondition] = React.useState<AlertCondition>("price_above");
   const [value, setValue] = React.useState("");
   const [note, setNote] = React.useState("");
-  const [alerts, setAlerts] = React.useState<PriceAlert[]>([]);
+  /**
+   * The saved list, read from the one store rather than a copy of it.
+   *
+   * A copy is what made the row's bell stand still after a save: the dialog
+   * wrote storage, the grid had already rendered, and nothing told it. Reading
+   * the same store through `useSyncExternalStore` means the dialog, the row and
+   * the ticker band cannot disagree about whether this symbol has an alert.
+   */
+  const alerts = React.useSyncExternalStore(
+    alertsStore.subscribe,
+    alertsStore.read,
+    alertsStore.read,
+  );
   const [error, setError] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
     setTarget(symbol ?? "");
-    setIdentity(null);
     setValue("");
     setNote("");
     setError(null);
     setSaved(null);
-    setAlerts(readAlerts());
   }, [open, symbol]);
 
   const submit = (event: React.FormEvent) => {
@@ -73,8 +81,7 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
       createdAt: new Date().toISOString(),
     };
     const next = [...alerts, alert].slice(-50);
-    setAlerts(next);
-    writeAlerts(next);
+    alertsStore.write(next);
     setValue("");
     setNote("");
     setError(null);
@@ -83,8 +90,7 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
 
   const remove = (id: string) => {
     const next = alerts.filter((alert) => alert.id !== id);
-    setAlerts(next);
-    writeAlerts(next);
+    alertsStore.write(next);
     // The "Saved: …" line describes an alert that no longer exists.
     setSaved(null);
   };
@@ -98,35 +104,12 @@ export function AlertDialog({ open, onClose, symbol }: AlertDialogProps) {
       description="Kept in this browser — this deployment has no mail transport."
     >
       <form onSubmit={submit} className="flex flex-col gap-2">
-        <div className="flex flex-col gap-0.5">
-          <span className="flex items-center gap-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-            <Icon name="search" />
-            Ticker
+        <div className="flex items-baseline gap-2 rounded-sm border border-line bg-surface-raised px-2 py-1.5">
+          <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">Symbol</span>
+          <span data-testid="alert-target" className="font-mono text-data font-semibold text-fg">
+            {target || "—"}
           </span>
-          <SymbolSearch
-            label="Search a ticker for the alert"
-            idPrefix="alert-search"
-            placeholder="Search a ticker…"
-            showHint={false}
-            onSelect={(hit) => {
-              setTarget(hit.symbol);
-              setIdentity({ name: hit.name, exchange: hit.exchange });
-              setError(null);
-            }}
-          />
-          {target ? (
-            <span className="mt-1 flex items-baseline gap-2 text-data">
-              <span className="font-mono font-semibold text-fg">{target}</span>
-              {identity ? (
-                <>
-                  <span className="min-w-0 truncate text-fg-muted">{identity.name}</span>
-                  <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-                    {identity.exchange}
-                  </span>
-                </>
-              ) : null}
-            </span>
-          ) : null}
+          <span className="ml-auto text-data text-fg-subtle">Named by the row or page</span>
         </div>
 
         <div className="flex items-end gap-2">

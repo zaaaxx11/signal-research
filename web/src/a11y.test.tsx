@@ -328,9 +328,9 @@ describe("the keyboard path", () => {
     // can reach the last control and start again with room to spare.
     expect(trace.length).toBeLessThanOrEqual(80);
 
-    // One stop per row, plus one per sortable header, plus the checkbox lane's
-    // "select all". The row's ticker is a real link, but neither it nor the
-    // row's own box is a second Tab stop.
+    // One stop per row, plus one per sortable header, plus the current row's
+    // "…" menu. The row's ticker link and its three micro-actions are not
+    // separate Tab stops: the row is the stop, and the menu is its door.
     const table = screen.getByTestId("grid-table");
     const rows = [...table.querySelectorAll<HTMLElement>("tr[data-symbol]")];
     expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
@@ -340,9 +340,14 @@ describe("the keyboard path", () => {
       expect(links[0]?.getAttribute("href")).toBe(
         `/app/stock/${row.getAttribute("data-symbol")}`,
       );
+      const buttons = [...row.querySelectorAll<HTMLButtonElement>("button")];
+      expect(buttons).toHaveLength(3);
+      expect(buttons.filter((button) => button.tabIndex >= 0)).toHaveLength(
+        row.tabIndex === 0 ? 1 : 0,
+      );
       expect(
         row.querySelectorAll(
-          'button, a[href]:not([tabindex="-1"]), input:not([tabindex="-1"]), select, [tabindex="0"]',
+          'a[href]:not([tabindex="-1"]), input:not([tabindex="-1"]), select, [tabindex="0"]:not(button)',
         ).length,
       ).toBe(0);
     }
@@ -537,14 +542,10 @@ describe("the table's semantics", () => {
     // force) and holds a real button. The ordering is server-side, but the
     // affordance and its state are in the header, where the reader looks.
     //
-    // The leading checkbox lane is not sortable: it is a selection control, and
-    // it says so with a name and a state instead of an ordering.
-    const selectAll = headers.find((header) => header.hasAttribute("data-testid"));
-    expect(selectAll?.getAttribute("data-testid")).toBe("select-all-cell");
-    expect(selectAll?.querySelector('input[type="checkbox"]')).not.toBeNull();
-    expect(selectAll?.hasAttribute("aria-sort")).toBe(false);
+    // With the checkbox lane gone, every header on this view is a field and
+    // every one of them sorts.
     const sortable = headers.filter((header) => header.hasAttribute("aria-sort"));
-    expect(sortable).toHaveLength(headers.length - 1);
+    expect(sortable).toHaveLength(headers.length);
     for (const header of sortable) {
       expect(header.getAttribute("aria-sort")).toBe("none");
       expect(header.querySelector("button")).not.toBeNull();
@@ -607,8 +608,8 @@ describe("live regions", () => {
     expect(statuses[0]?.getAttribute("aria-atomic")).toBe("true");
 
     // Opening the drawer must not add a second status role — the drawer's only
-        // door is ⌘K now — and nor may a row's checkbox, which is a selection and
-        // not a navigation.
+    // door is ⌘K now — and nor may a row's action menu, which is a control and
+    // not a navigation.
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const palette = await screen.findByRole("dialog", { name: "Find a filter" });
     await user.click(within(palette).getByRole("option", { name: /Market Cap/i }));
@@ -620,7 +621,7 @@ describe("live regions", () => {
     const row = screen.getByTestId("grid-table").querySelector<HTMLElement>(
       'tbody tr[data-symbol="S002"]',
     ) as HTMLElement;
-    await user.click(within(row).getByTestId("row-select-S002"));
+    await user.click(within(row).getByRole("button", { name: "Row actions for S002" }));
     expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 

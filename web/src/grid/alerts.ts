@@ -6,7 +6,14 @@
  * under one versioned key, read back tolerantly, and shown in the same dialog
  * that writes it — the honest version of "set alert" on a deployment that
  * cannot send mail.
+ *
+ * One store, not two readers: the dialog writes through `alertsStore`, and a
+ * row's bell reads the same store through `useSyncExternalStore`. That is what
+ * makes the bell fill on save and empty on the last delete without a reload —
+ * there is no second copy of "has an alert" that could disagree.
  */
+
+import { createLocalStore } from "@/lists/storage";
 
 /** The one key this feature owns. */
 export const ALERTS_KEY = "ztockz.alerts.v1";
@@ -43,17 +50,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Everything the stored document carries that this build can still use. */
-export function parseAlerts(raw: string | null): PriceAlert[] {
-  if (raw === null || raw.length === 0) return [];
-  let body: unknown;
-  try {
-    body = JSON.parse(raw) as unknown;
-  } catch {
-    return [];
-  }
-  if (!isRecord(body) || body["version"] !== 1 || !Array.isArray(body["alerts"])) return [];
+export function decodeAlerts(raw: unknown): PriceAlert[] {
+  if (!isRecord(raw) || raw["version"] !== 1 || !Array.isArray(raw["alerts"])) return [];
   const alerts: PriceAlert[] = [];
-  for (const entry of body["alerts"]) {
+  for (const entry of raw["alerts"]) {
     if (!isRecord(entry)) continue;
     const id = typeof entry["id"] === "string" ? entry["id"] : null;
     const symbol = typeof entry["symbol"] === "string" ? entry["symbol"].trim().toUpperCase() : null;
@@ -76,8 +76,26 @@ export function parseAlerts(raw: string | null): PriceAlert[] {
   return alerts;
 }
 
+/** The text form; a hand-edited key reads as empty, not as a crash. */
+export function parseAlerts(raw: string | null): PriceAlert[] {
+  if (raw === null || raw.length === 0) return [];
+  try {
+    return decodeAlerts(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
+  }
+}
+
+/** The document the key holds — `version` first, as every older build wrote it. */
+export function alertsDocument(alerts: readonly PriceAlert[]): {
+  version: 1;
+  alerts: PriceAlert[];
+} {
+  return { version: 1, alerts: [...alerts] };
+}
+
 export function serializeAlerts(alerts: readonly PriceAlert[]): string {
-  return JSON.stringify({ version: 1, alerts });
+  return JSON.stringify(alertsDocument(alerts));
 }
 
 let sequence = 0;
@@ -90,20 +108,31 @@ export function nextAlertId(symbol: string): string {
   return `${symbol.toLowerCase()}-${sequence}`;
 }
 
-export function readAlerts(): PriceAlert[] {
-  try {
-    return parseAlerts(window.localStorage.getItem(ALERTS_KEY));
-  } catch {
-    return [];
-  }
+/**
+ * The one store every surface reads.
+ *
+ * `decodeAlerts`/`alertsDocument` are the codec pair, so a write still stores
+ * `{version: 1, alerts}` and a `storage` event from another tab still resets
+ * the cache before notifying. `hasAlert` is the question a bell asks.
+ */
+export const alertsStore = createLocalStore<PriceAlert[]>(
+  ALERTS_KEY,
+  decodeAlerts,
+  alertsDocument,
+);
+
+/** Does this symbol have at least one saved alert? */
+export function hasAlert(
+  symbol: string,
+  alerts: readonly PriceAlert[] = alertsStore.read(),
+): boolean {
+  return countAlerts(symbol, alerts) > 0;
 }
 
-export function writeAlerts(alerts: readonly PriceAlert[]): void {
-  try {
-    window.localStorage.setItem(ALERTS_KEY, serializeAlerts(alerts));
-  } catch {
-    // A browser that refuses storage keeps the alert for this session only.
-  }
+/** How many alerts this symbol has — the number the bell's label states. */
+export function countAlerts(symbol: string, alerts: readonly PriceAlert[]): number {
+  const wanted = symbol.trim().toUpperCase();
+  return alerts.filter((alert) => alert.symbol === wanted).length;
 }
 
 /** One alert as the list prints it. */

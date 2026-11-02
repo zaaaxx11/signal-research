@@ -107,8 +107,16 @@ function writeRaw(key: string, value: unknown): void {
  * write — `useSyncExternalStore` calls it on every render and would loop on a
  * fresh array each time. Both roads into a change (a local write, another tab's
  * `storage` event) reset that cache before notifying.
+ *
+ * `encode` exists for a key whose document is not the value itself — the alert
+ * list is stored as `{version, alerts}`. It defaults to the value unchanged, so
+ * every existing store keeps writing exactly the bytes it wrote before.
  */
-export function createLocalStore<T>(key: string, decode: (raw: unknown) => T): LocalStore<T> {
+export function createLocalStore<T>(
+  key: string,
+  decode: (raw: unknown) => T,
+  encode: (value: T) => unknown = (value) => value,
+): LocalStore<T> {
   let snapshot: T | undefined;
   let loaded = false;
   const listeners = new Set<() => void>();
@@ -128,7 +136,7 @@ export function createLocalStore<T>(key: string, decode: (raw: unknown) => T): L
   const write = (next: T): void => {
     snapshot = next;
     loaded = true;
-    writeRaw(key, next);
+    writeRaw(key, encode(next));
     notify();
   };
 

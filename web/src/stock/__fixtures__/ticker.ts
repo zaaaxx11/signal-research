@@ -434,6 +434,8 @@ export interface TickerRoutes {
   screens?: RouteHandler;
   select?: RouteHandler;
   company?: RouteHandler;
+  /** `/symbols/search` — the compare dialog's own ticker lookup. */
+  search?: RouteHandler;
 }
 
 /**
@@ -444,7 +446,9 @@ export interface TickerRoutes {
 export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.fn> {
   const mock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    const handler = url.includes("/engine/profile/")
+    const handler = url.startsWith("/symbols/search")
+      ? routes.search
+      : url.includes("/engine/profile/")
       ? routes.profile
       : url.includes("/engine/company/")
         ? routes.company
@@ -470,6 +474,9 @@ export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.f
                         ? routes.screens
                         : undefined;
     if (handler !== undefined) return Promise.resolve(handler(url, init));
+    if (url.startsWith("/symbols/search")) {
+      return Promise.resolve(json([]));
+    }
     if (url.includes("/engine/profile/") || url.includes("/market/chart/")) {
       return Promise.resolve(notFound());
     }

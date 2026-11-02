@@ -63,14 +63,24 @@ export interface TableToolbarProps {
   autoRefreshMs: number | null;
   onAutoRefresh: (ms: number | null) => void;
   /**
-   * Add a ticker to one of the two lists. With a row checked the panel adds it
-   * directly; with nothing selected it opens the ticker search first, so the
-   * action never has to guess which symbol was meant.
+   * Add a ticker to one of the two lists. With a row hovered or focused the
+   * panel acts on it; with nothing pointed at it opens the ticker search first,
+   * so the action never has to guess which symbol was meant.
    */
   onAddTo: (list: AddToList) => void;
-  /** The checked row, named in the Add to control's hint. */
+  /** The row the pointer or keyboard is on, named in the Add to control's hint. */
   selectedSymbol: string | null;
   onCompare: () => void;
+  /** Compare mode is on: the table draws its transient checkbox lane. */
+  compareMode?: boolean;
+  /** How many symbols are ticked, for the Done control. */
+  compareCount?: number;
+  /** The ceiling the count is measured against. */
+  compareMax?: number;
+  /** Confirm the comparison; the panel navigates to `/compare`. */
+  onCompareDone?: () => void;
+  /** Leave compare mode without navigating. */
+  onCompareCancel?: () => void;
   onAlert: () => void;
   onExport: (choice: ExportChoice) => void;
   /** True when the rows on screen came from the tab's page cache. */
@@ -99,6 +109,11 @@ export function TableToolbar({
   onAddTo,
   selectedSymbol,
   onCompare,
+  compareMode = false,
+  compareCount = 0,
+  compareMax = 10,
+  onCompareDone,
+  onCompareCancel,
   onAlert,
   onExport,
   cached = false,
@@ -238,7 +253,7 @@ export function TableToolbar({
           title={
             selectedSymbol
               ? `Add ${selectedSymbol} to a watchlist or a portfolio`
-              : "No row selected — picking a list opens the ticker search first"
+              : "No row hovered or focused — picking a list opens the ticker search first"
           }
           className={CONTROL}
         >
@@ -273,18 +288,58 @@ export function TableToolbar({
         type="button"
         onClick={onCompare}
         aria-label="Compare rows"
-        title="Search or pick up to five symbols and compare them side by side"
-        className={CONTROL}
+        aria-pressed={compareMode}
+        title={
+          compareMode
+            ? `Tick up to ${compareMax} companies, then confirm`
+            : `Pick up to ${compareMax} companies to compare side by side`
+        }
+        className={cn(
+          CONTROL,
+          compareMode && "border-brand bg-row-selected text-fg",
+        )}
       >
         <Icon name="split" />
         Compare
       </button>
 
+      {compareMode ? (
+        <span className="flex items-center gap-1" data-testid="compare-mode">
+          <span
+            data-testid="compare-count"
+            className="nums font-mono text-label uppercase tracking-[0.08em] text-fg-muted"
+          >
+            {compareCount}/{compareMax}
+          </span>
+          <button
+            type="button"
+            data-testid="compare-done"
+            onClick={onCompareDone}
+            disabled={compareCount === 0}
+            aria-label={`Confirm comparison of ${compareCount} symbol${compareCount === 1 ? "" : "s"}`}
+            title="Open the comparison page with the ticked symbols"
+            className={cn(CONTROL, "border-brand text-fg")}
+          >
+            Done ({compareCount})
+          </button>
+          <button
+            type="button"
+            onClick={onCompareCancel}
+            aria-label="Cancel comparison"
+            title="Leave compare mode without opening the page"
+            className={CONTROL}
+          >
+            <Icon name="x" />
+            Cancel
+          </button>
+        </span>
+      ) : null}
+
       <button
         type="button"
         onClick={onAlert}
         aria-label="Set alert"
-        title="Write a price alert for the selected symbol, or search one"
+        title="Write a price alert for the row under the pointer or keyboard, or search one"
         className={CONTROL}
       >
         <Icon name="bell" />

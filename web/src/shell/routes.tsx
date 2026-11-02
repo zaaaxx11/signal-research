@@ -40,6 +40,7 @@ export const ROUTE_PATHS = [
   "/",
   "/screener",
   "/screener/etf",
+  "/compare",
   "/map",
   "/groups",
   "/calendar",
@@ -56,6 +57,7 @@ export const ROUTE_PATHS = [
 export type Route =
   | { kind: "home" }
   | { kind: "screener"; assetClass: "stock" | "etf" }
+  | { kind: "compare" }
   | { kind: "stock"; symbol: string }
   | { kind: "map" }
   | { kind: "groups" }
@@ -95,6 +97,10 @@ export function parseRoute(pathname: string): Route {
   if (path === "/") return { kind: "home" };
   if (path === "/screener") return { kind: "screener", assetClass: "stock" };
   if (path === "/screener/etf") return { kind: "screener", assetClass: "etf" };
+  // The query string (`?symbols=A,B`) is the page's state, not a route: the
+  // shell parses the path and the compare page reads its own selection, so a
+  // shared link and a hand-typed one land on the same route.
+  if (path === "/compare") return { kind: "compare" };
   if (path === "/map") return { kind: "map" };
   if (path === "/groups") return { kind: "groups" };
   if (path === "/calendar") return { kind: "calendar" };

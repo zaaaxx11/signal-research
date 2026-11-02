@@ -23,3 +23,4 @@ export const loadWatchlistPage = () =>
 export const loadPortfolioPage = () =>
   import("@/lists").then((m) => ({ default: m.PortfolioPage }));
 export const loadNewsPage = () => import("@/news").then((m) => ({ default: m.NewsPage }));
+export const loadComparePage = () => import("@/compare").then((m) => ({ default: m.ComparePage }));

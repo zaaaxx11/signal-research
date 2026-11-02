@@ -31,7 +31,6 @@ import {
   sortDirection,
   sortLabel,
   useScreens,
-  type ScreenRow,
   type ViewDefinition,
 } from "@/data/screens";
 
@@ -41,13 +40,15 @@ import { PendingBar } from "./PendingBar";
 import { pendingLabel, useDelayedFlag, useReducedMotion } from "./pending";
 import { sameColumns } from "./columnSelection";
 import { AlertDialog } from "./AlertDialog";
+import { alertsStore } from "./alerts";
 import { AddToDialog, type AddToInput } from "./AddToDialog";
-import { CompareDialog } from "./CompareDialog";
 import { ExportDialog, type ExportChoice } from "./ExportDialog";
 import { Pager } from "./Pager";
 import { TableToolbar, type AddToList } from "./TableToolbar";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
 import { addHolding, addSymbol, MAX_SYMBOLS, portfolioStore, watchlistStore } from "@/lists/storage";
+import { COMPARE_MAX, compareHref } from "@/compare/symbols";
+import { navigate } from "@/shell/routes";
 
 import type { ActiveFilter } from "@/filters/types";
 import type { FilterRegistry } from "@/filters/registry";
@@ -143,20 +144,24 @@ export function ScreenPanel({
   /** Auto-refresh cadence, or null when off. */
   const [autoRefreshMs, setAutoRefreshMs] = React.useState<number | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [comparing, setComparing] = React.useState(false);
   const [alerting, setAlerting] = React.useState(false);
   const [exporting, setExporting] = React.useState<ExportChoice | null>(null);
   /** The list whose search-first box is open, or null. */
   const [addList, setAddList] = React.useState<AddToList | null>(null);
   /**
-   * The checkbox selection, by symbol.
+   * The row the pointer is over or the keyboard is on.
    *
-   * The toolbar's three row actions (Add to, Compare, Set alert) each want one
-   * named ticker, and the grid no longer has a docked panel to carry it. The
-   * boxes are the only way a row is *selected*; a click on the row itself is a
-   * navigation and never touches this list.
+   * It is the one subject of the toolbar's Add to / Set alert. There is no
+   * selection list outside compare mode: a row is never ticked, and a symbol
+   * that has left the page is ignored by `pointedSymbol` below.
    */
-  const [selected, setSelected] = React.useState<string[]>([]);
+  const [pointed, setPointed] = React.useState<string | null>(null);
+  /** Compare mode: boxes exist only while this is true. */
+  const [compareMode, setCompareMode] = React.useState(false);
+  /** The symbols ticked in compare mode, capped at COMPARE_MAX. */
+  const [compareSelected, setCompareSelected] = React.useState<string[]>([]);
+  /** The symbol the alert form opens with; the row or page always names it. */
+  const [alertSymbol, setAlertSymbol] = React.useState<string | null>(null);
 
   /**
    * Per-screen page state.
@@ -249,47 +254,62 @@ export function ScreenPanel({
   const firstRow = rows.length > 0 ? (meta?.offset ?? 0) + 1 : 0;
 
   /**
-   * The ticker the toolbar's row actions act on: the first *selected* row in
-   * the order the page draws it. A selection is a symbol, and the row it names
-   * must still be on this page — the boxes are cleared whenever the page, the
-   * view or the ordering changes.
+   * The ticker the toolbar's row actions act on: the row the pointer is over
+   * or the keyboard is on, and only while that row is still on this page.
+   *
+   * A page turn drops the old symbol by derivation, not by an effect: there is
+   * no selection list to reset, and no frame in which the toolbar names a row
+   * the reader can no longer see.
    */
-  const selectedSet = React.useMemo(() => new Set(selected), [selected]);
-  const primary = React.useMemo(
-    () => rows.find((row) => selectedSet.has(row.symbol))?.symbol ?? null,
-    [rows, selectedSet],
+  const pointedSymbol = React.useMemo(
+    () => (pointed !== null && rows.some((row) => row.symbol === pointed) ? pointed : null),
+    [pointed, rows],
   );
 
-  const toggleSelected = React.useCallback((symbol: string) => {
-    setSelected((current) =>
-      current.includes(symbol)
-        ? current.filter((entry) => entry !== symbol)
-        : [...current, symbol],
-    );
-  }, []);
-
-  const toggleAllSelected = React.useCallback(
-    (checked: boolean) => {
-      const pageSymbols = rows.map((row) => row.symbol);
-      setSelected((current) =>
-        checked
-          ? [...new Set([...current, ...pageSymbols])]
-          : current.filter((symbol) => !pageSymbols.includes(symbol)),
-      );
-    },
-    [rows],
+  /**
+   * The symbols already on either list, for the row stars.
+   *
+   * `useSyncExternalStore` is the whole truth: a write from the row, the
+   * ticker page, the watchlist page or another tab notifies every subscriber,
+   * so a star fills the moment the symbol is stored and empties when it is
+   * removed. No local "just added" flag can drift from storage.
+   */
+  const watchlist = React.useSyncExternalStore(
+    watchlistStore.subscribe,
+    watchlistStore.read,
+    watchlistStore.read,
+  );
+  const holdings = React.useSyncExternalStore(
+    portfolioStore.subscribe,
+    portfolioStore.read,
+    portfolioStore.read,
+  );
+  const starredSymbols = React.useMemo(
+    () => [...watchlist, ...holdings.map((holding) => holding.symbol)],
+    [watchlist, holdings],
   );
 
-  const clearSelected = React.useCallback(
-    () => setSelected((current) => (current.length === 0 ? current : [])),
-    [],
+  /**
+   * The saved alerts, per symbol, for the row bells.
+   *
+   * Same rule as the stars: storage is the truth, and the panel subscribes
+   * once for the page instead of every row opening the key. The dialog writes
+   * this store, so a save updates the row behind it without a reload.
+   */
+  const alerts = React.useSyncExternalStore(
+    alertsStore.subscribe,
+    alertsStore.read,
+    alertsStore.read,
   );
+  const alertCounts = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const alert of alerts) {
+      counts.set(alert.symbol, (counts.get(alert.symbol) ?? 0) + 1);
+    }
+    return counts;
+  }, [alerts]);
 
-  // A new page is a different set of rows: keeping a selection the reader can
-  // no longer see would let Add to write a ticker that is not on screen.
-  React.useEffect(() => {
-    setSelected([]);
-  }, [view.name, sort, signal, filterKey, pageIndex]);
+  const clearPointed = React.useCallback(() => setPointed(null), []);
 
   /**
    * Is a selection in flight? — a different question from `status`, which is
@@ -400,30 +420,112 @@ export function ScreenPanel({
   }, []);
 
   /**
-   * The toolbar's Add to. A checked row is added straight away; nothing
-   * selected means the reader has not said which ticker, so the search opens —
-   * except for a portfolio, which needs a quantity and a cost from the box
-   * whether or not a row was selected.
+   * A row's star: both choices write immediately, with no dialog detour.
+   *
+   * A watchlist row is one symbol. A portfolio holding needs numbers, so the
+   * star opens the holding with one share at the row's last price — a real
+   * basis the reader can edit on the Portfolio page, never a zero-cost holding
+   * that would read as a 100% gain. The star's filled state comes from the
+   * store subscription, not from a local flag.
    */
-  const addTo = (list: AddToList) => {
-    if (list === "watchlist" && primary !== null) {
-      const result = addTicker({ symbol: primary, list });
-      setNotice(result.message);
-      return;
-    }
-    setAddList(list);
-  };
+  const addRowTo = React.useCallback(
+    (symbol: string, list: AddToList) => {
+      if (list === "watchlist") {
+        const result = addTicker({ symbol, list });
+        setNotice(result.message);
+        return;
+      }
+      const raw = rows.find((row) => row.symbol === symbol)?.["price"];
+      const price = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : 0;
+      const edit = addHolding(portfolioStore.read(), {
+        symbol,
+        quantity: "1",
+        cost: String(price),
+      });
+      if (!edit.ok) {
+        setNotice(edit.error);
+        return;
+      }
+      portfolioStore.write(edit.holdings);
+      setNotice(`${symbol} is in the portfolio.`);
+    },
+    [addTicker, rows],
+  );
 
-  /** The selected row, as the add box's pre-chosen ticker. */
-  const addSeed = React.useMemo(() => {
-    if (primary === null) return null;
-    const row = rows.find((entry) => entry.symbol === primary);
-    return {
-      symbol: primary,
-      name: row && typeof row["company"] === "string" ? row["company"] : "",
-      exchange: row && typeof row["exchange"] === "string" ? row["exchange"] : "",
+  /**
+   * The toolbar's Add to. With a row hovered or focused it acts on that row;
+   * with nothing pointed at, choosing a list opens the ticker search — the
+   * toolbar is never a dead button.
+   */
+  const addTo = React.useCallback(
+    (list: AddToList) => {
+      if (pointedSymbol !== null) {
+        addRowTo(pointedSymbol, list);
+        return;
+      }
+      setAddList(list);
+    },
+    [pointedSymbol, addRowTo],
+  );
+
+  /** Enter compare mode: the grid starts drawing its transient boxes. */
+  const openCompare = React.useCallback(() => {
+    setNotice(null);
+    setCompareMode(true);
+  }, []);
+
+  /** One tick, never past ten: the extra press is ignored, not queued. */
+  const toggleCompare = React.useCallback((symbol: string) => {
+    setCompareSelected((current) =>
+      current.includes(symbol)
+        ? current.filter((entry) => entry !== symbol)
+        : current.length >= COMPARE_MAX
+          ? current
+          : [...current, symbol],
+    );
+  }, []);
+
+  const cancelCompare = React.useCallback(() => {
+    setCompareMode(false);
+    setCompareSelected([]);
+  }, []);
+
+  const confirmCompare = React.useCallback(() => {
+    if (compareSelected.length === 0) return;
+    navigate(compareHref(compareSelected));
+    setCompareMode(false);
+    setCompareSelected([]);
+  }, [compareSelected]);
+
+  // Escape leaves compare mode from anywhere on the panel. A dialog's own
+  // Escape stops propagation before this listener, so it closes the dialog
+  // first; the row's Escape only clears its cursor and does not stop the event.
+  React.useEffect(() => {
+    if (!compareMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancelCompare();
     };
-  }, [primary, rows]);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [compareMode, cancelCompare]);
+
+  // A new page is a different set of rows: a tick the reader can no longer see
+  // must not travel into the comparison.
+  React.useEffect(() => {
+    setCompareSelected([]);
+  }, [view.name, pageIndex, sort, filterKey]);
+
+  const alertOn = React.useCallback((symbol: string | null) => {
+    setAlertSymbol(symbol);
+    setAlerting(true);
+  }, []);
+
+  const pointRow = React.useCallback((symbol: string | null) => setPointed(symbol), []);
+
+  const rowActions = React.useMemo(
+    () => ({ onAddTo: addRowTo, onAlert: alertOn }),
+    [addRowTo, alertOn],
+  );
 
   const panel = {
     role: "tabpanel" as const,
@@ -481,9 +583,23 @@ export function ScreenPanel({
           );
         }}
         onAddTo={addTo}
-        selectedSymbol={primary}
-        onCompare={() => setComparing(true)}
-        onAlert={() => setAlerting(true)}
+        selectedSymbol={pointedSymbol}
+        onCompare={openCompare}
+        compareMode={compareMode}
+        compareCount={compareSelected.length}
+        compareMax={COMPARE_MAX}
+        onCompareDone={confirmCompare}
+        onCompareCancel={cancelCompare}
+        onAlert={() => {
+          if (pointedSymbol === null) {
+            // The alert names one ticker and has no search of its own: without
+            // a pointed row there is nothing to prefill, so say that rather
+            // than open a form with an invented symbol.
+            setNotice("Hover a row or open a ticker first — an alert needs a symbol.");
+            return;
+          }
+          alertOn(pointedSymbol);
+        }}
         onExport={(choice) => setExporting(choice)}
         cached={screens.fromCache && sameView}
         statusText={label ?? ""}
@@ -513,8 +629,8 @@ export function ScreenPanel({
 
       {columnNotice !== null && columnNotice !== undefined ? (
         // An alert, not a status: this sentence appears only when the reader
-        // asked for a column the panel cannot carry, and it must interrupt —
-        // the checkbox they just ticked is not going to stay ticked.
+        // asked for a column the panel cannot carry, and a quiet notice would
+        // leave them believing the column arrived.
         <div
           role="alert"
           data-testid="column-notice"
@@ -567,13 +683,17 @@ export function ScreenPanel({
         }
         onRetry={refresh}
         onActivate={onActivate}
-        onClear={clearSelected}
+        onClear={clearPointed}
         rowTo={symbolHref}
-        selection={{
-          selected,
-          onToggle: toggleSelected,
-          onToggleAll: toggleAllSelected,
-        }}
+        rowActions={rowActions}
+        onRowPoint={pointRow}
+        starredSymbols={starredSymbols}
+        alertCounts={alertCounts}
+        compareSelection={
+          compareMode
+            ? { selected: compareSelected, onToggle: toggleCompare, max: COMPARE_MAX }
+            : undefined
+        }
         containerWidth={containerWidth}
         stale={stale}
         busy={isFetching}
@@ -590,26 +710,16 @@ export function ScreenPanel({
         canNext={pageIndex + 1 < pageCount}
       />
 
-      <CompareDialog
-        open={comparing}
-        onClose={() => setComparing(false)}
-        rows={rows as ScreenRow[]}
-        columns={effective}
-        viewLabel={view.label}
-        selectedSymbol={primary}
-      />
-
       <AlertDialog
         open={alerting}
         onClose={() => setAlerting(false)}
-        symbol={primary ?? rows[0]?.symbol ?? null}
+        symbol={alertSymbol}
       />
 
       {addList ? (
         <AddToDialog
           open
           list={addList}
-          initialSymbol={addSeed}
           onClose={() => setAddList(null)}
           onAdd={(input) => {
             const result = addTicker(input);

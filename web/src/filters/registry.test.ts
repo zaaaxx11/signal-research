@@ -138,3 +138,18 @@ describe("F7 — units come from the column, not from the preset list", () => {
     expect(formatValue(registry, "ta_sma50", 101.25)).toBe("$101.25");
   });
 });
+
+describe("the Tickers filter's key", () => {
+  const registry = buildRegistry(filterSchemaFixture());
+
+  it("resolves the schema's symbol alias so a reloaded link keeps the filter", () => {
+    const entry = registry.byKey.get("symbol");
+    expect(entry?.label).toBe("Tickers");
+    expect(entry?.kind).toBe("text");
+    expect(entry?.ops).toContain("in");
+  });
+
+  it("stays out of the picker's key list", () => {
+    expect(registry.entries.some((entry) => entry.key === "symbol")).toBe(false);
+  });
+});

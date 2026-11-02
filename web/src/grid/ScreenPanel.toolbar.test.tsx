@@ -7,11 +7,11 @@
  * label that could be true while the action did nothing.
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ALERTS_KEY } from "./alerts";
+import { ALERTS_KEY, alertsStore } from "./alerts";
 import { PORTFOLIO_KEY, WATCHLIST_KEY, portfolioStore, watchlistStore } from "@/lists/storage";
 import type { ViewDefinition } from "@/data/screens";
 
@@ -76,9 +76,23 @@ function renderPanel() {
   return render(<ScreenPanel view={VIEW} onActivate={vi.fn()} containerWidth={1280} />);
 }
 
-/** Tick one row's checkbox: the only way a row is selected now. */
-async function selectRow(symbol: string): Promise<void> {
-  await userEvent.setup().click(screen.getByTestId(`row-select-${symbol}`));
+function rowFor(symbol: string): HTMLElement {
+  const row = screen
+    .getByTestId("grid-table")
+    .querySelector<HTMLElement>(`tbody tr[data-symbol="${symbol}"]`);
+  if (!row) throw new Error(`row ${symbol} is not on screen`);
+  return row;
+}
+
+/** The row's own star, then one of the two lists: no checkbox, no selection. */
+async function addRowTo(symbol: string, list: "Watchlist" | "Portfolio"): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(
+    within(rowFor(symbol)).getByRole("button", {
+      name: `Add ${symbol} to a watchlist or portfolio`,
+    }),
+  );
+  await user.click(within(rowFor(symbol)).getByRole("menuitem", { name: list }));
 }
 
 async function ready(): Promise<void> {
@@ -92,6 +106,7 @@ afterEach(() => {
   // or the next test inherits this one's symbols.
   watchlistStore.write([]);
   portfolioStore.write([]);
+  alertsStore.write([]);
   window.localStorage.clear();
 });
 
@@ -136,50 +151,62 @@ describe("the page cache", () => {
 });
 
 describe("Add to", () => {
-  it("writes the selected ticker to the watchlist and says so", async () => {
+  it("writes a row's ticker to the watchlist from the star, with no dialog", async () => {
     stubApi();
-    const user = userEvent.setup();
     renderPanel();
     await ready();
-    await selectRow("A3");
 
-    await user.click(screen.getByTestId("add-to-button"));
-    const menu = screen.getByRole("menu", { name: "Add to" });
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
-      "Watchlist",
-      "Portfolio",
-    ]);
+    const star = within(rowFor("A3")).getByRole("button", {
+      name: "Add A3 to a watchlist or portfolio",
+    });
+    expect(star.getAttribute("data-starred")).toBe("false");
 
-    await user.click(within(menu).getByRole("menuitem", { name: "Watchlist" }));
+    await addRowTo("A3", "Watchlist");
+
     expect(JSON.parse(window.localStorage.getItem(WATCHLIST_KEY) ?? "[]")).toEqual(["A3"]);
     expect(screen.getByTestId("toolbar-notice").textContent).toContain("A3 is on the watchlist");
-    // A single ticker is added directly: no search box, because the row named it.
     expect(screen.queryByRole("dialog")).toBeNull();
+    // The store subscription is what fills the star — the write above, not a
+    // second local flag.
+    expect(star.getAttribute("data-starred")).toBe("true");
+    expect(star.querySelector("svg")?.getAttribute("class")).toContain("fill-current");
   });
 
-  it("persists a portfolio holding with the quantity and cost it was given", async () => {
+  it("writes a portfolio holding from the star with no quantity/cost detour", async () => {
     stubApi();
-    const user = userEvent.setup();
     renderPanel();
     await ready();
-    await selectRow("A4");
+    await addRowTo("A4", "Portfolio");
 
-    await user.click(screen.getByTestId("add-to-button"));
-    await user.click(screen.getByRole("menuitem", { name: "Portfolio" }));
-
-    const dialog = screen.getByRole("dialog", { name: "Add to portfolio" });
-    await user.clear(within(dialog).getByRole("spinbutton", { name: "Quantity" }));
-    await user.type(within(dialog).getByRole("spinbutton", { name: "Quantity" }), "4");
-    await user.type(within(dialog).getByRole("spinbutton", { name: "Average cost" }), "12.5");
-    await user.click(within(dialog).getByRole("button", { name: "Add holding" }));
-
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(JSON.parse(window.localStorage.getItem(PORTFOLIO_KEY) ?? "[]")).toEqual([
-      { symbol: "A4", quantity: 4, cost: 12.5 },
+      { symbol: "A4", quantity: 1, cost: 104 },
     ]);
-    expect(within(dialog).getByRole("status").textContent).toContain("A4 is in the portfolio");
+    expect(screen.getByTestId("toolbar-notice").textContent).toContain("A4 is in the portfolio");
+    expect(
+      within(rowFor("A4")).getByRole("button", {
+        name: /^Add A4 to a watchlist or portfolio/,
+      }).getAttribute("data-starred"),
+    ).toBe("true");
   });
 
-  it("asks through the ticker search when no row is selected", async () => {
+  it("turns the star back to outline when the symbol leaves the list", async () => {
+    stubApi();
+    renderPanel();
+    await ready();
+    await addRowTo("A3", "Watchlist");
+
+    const star = within(rowFor("A3")).getByRole("button", {
+      name: /^Add A3 to a watchlist or portfolio/,
+    });
+    expect(star.getAttribute("data-starred")).toBe("true");
+
+    act(() => watchlistStore.write([]));
+    expect(star.getAttribute("data-starred")).toBe("false");
+    expect(star.querySelector("svg")?.getAttribute("class")).not.toContain("fill-current");
+  });
+
+  it("asks through the ticker search when the toolbar's Add to has no row", async () => {
     stubApi();
     const user = userEvent.setup();
     renderPanel();
@@ -204,47 +231,76 @@ describe("Add to", () => {
 });
 
 describe("Compare", () => {
-  it("starts with a ticker search, takes up to five, and shows the comparison", async () => {
+  it("enters selection mode with one checkbox per row and no dialog", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    renderPanel();
+    await ready();
+
+    expect(screen.getByTestId("grid-table").querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Compare rows" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("grid-table").querySelectorAll('input[type="checkbox"]')).toHaveLength(20);
+  });
+
+  it("takes up to ten symbols and Done navigates with them in the query", async () => {
     stubApi();
     const user = userEvent.setup();
     renderPanel();
     await ready();
 
     await user.click(screen.getByRole("button", { name: "Compare rows" }));
-    const dialog = screen.getByRole("dialog", { name: "Compare · Today" });
-    const search = within(dialog).getByRole("combobox", { name: "Search a ticker to compare" });
+    for (let index = 0; index < 10; index += 1) {
+      await user.click(screen.getByRole("checkbox", { name: `Compare A${index}` }));
+    }
+    const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(boxes.filter((box) => box.checked)).toHaveLength(10);
+    expect(boxes[10]?.disabled).toBe(true);
 
-    await user.type(search, "app");
-    const options = await within(dialog).findAllByRole("option");
-    await user.click(options[0]!);
-    // Choosing writes the symbol into the box; clear it to ask a second time.
-    await user.clear(search);
-    await user.type(search, "app");
-    const again = await within(dialog).findAllByRole("option");
-    await user.click(again[1]!);
+    const done = screen.getByRole("button", { name: "Confirm comparison of 10 symbols" });
+    expect(done.textContent).toContain("10");
+    await user.click(done);
 
-    const table = within(dialog).getByTestId("compare-table");
-    expect(within(table).getByText("AAPL")).toBeTruthy();
-    expect(within(table).getByText("APPS")).toBeTruthy();
-    expect(dialog.textContent).toContain("2 of 5 picked.");
+    expect(window.location.pathname).toBe("/app/compare");
+    expect(window.location.search).toBe(
+      "?symbols=A0,A1,A2,A3,A4,A5,A6,A7,A8,A9",
+    );
   });
-});
 
-describe("Set alert", () => {
-  it("searches a ticker, saves the alert and can delete it again", async () => {
+  it("Escape leaves compare mode and hides the boxes", async () => {
     stubApi();
     const user = userEvent.setup();
     renderPanel();
     await ready();
 
-    await user.click(screen.getByRole("button", { name: "Set alert" }));
+    await user.click(screen.getByRole("button", { name: "Compare rows" }));
+    await user.click(screen.getByRole("checkbox", { name: "Compare A0" }));
+    expect(screen.getByRole("button", { name: "Confirm comparison of 1 symbol" })).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("compare-done")).toBeNull();
+    expect(screen.getByTestId("grid-table").querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+  });
+});
+
+describe("Set alert", () => {
+  it("opens from the row's bell with only condition, value and note", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    renderPanel();
+    await ready();
+
+    await user.click(within(rowFor("A5")).getByRole("button", { name: "Set an alert for A5" }));
     const dialog = screen.getByRole("dialog", { name: "Set alert" });
-    const search = within(dialog).getByRole("combobox", { name: "Search a ticker for the alert" });
-    await user.type(search, "aapl");
-    // The condition select also renders `<option>`s; the hits live in the
-    // combobox's own listbox.
-    const list = await within(dialog).findByRole("listbox", { name: "Symbol results" });
-    await user.click(within(list).getAllByRole("option")[0]!);
+
+    expect(within(dialog).getByTestId("alert-target").textContent).toBe("A5");
+    // The symbol is known: no ticker search inside the dialog.
+    expect(within(dialog).queryByRole("combobox", { name: /search/i })).toBeNull();
+    expect(within(dialog).queryByRole("textbox", { name: /ticker/i })).toBeNull();
+    expect(within(dialog).getByRole("combobox", { name: "Condition" })).toBeTruthy();
+    expect(within(dialog).getByRole("spinbutton", { name: "Value" })).toBeTruthy();
+    expect(within(dialog).getByRole("textbox", { name: "Note" })).toBeTruthy();
 
     await user.type(within(dialog).getByRole("spinbutton", { name: "Value" }), "250");
     await user.click(within(dialog).getByRole("button", { name: "Save alert" }));
@@ -252,17 +308,7 @@ describe("Set alert", () => {
     const stored = JSON.parse(window.localStorage.getItem(ALERTS_KEY) ?? "{}") as {
       alerts: Array<{ symbol: string; value: number }>;
     };
-    expect(stored.alerts).toHaveLength(1);
-    expect(stored.alerts[0]).toMatchObject({ symbol: "AAPL", value: 250 });
-
-    const alerts = within(dialog).getByRole("list", { name: "Saved alerts" });
-    expect(alerts.textContent).toContain("AAPL · Price above 250");
-    await user.click(within(alerts).getByRole("button", { name: /Delete alert/ }));
-
-    expect(
-      (JSON.parse(window.localStorage.getItem(ALERTS_KEY) ?? "{}") as { alerts: unknown[] }).alerts,
-    ).toHaveLength(0);
-    expect(within(dialog).getByText("No alerts yet.")).toBeTruthy();
+    expect(stored.alerts[0]).toMatchObject({ symbol: "A5", value: 250 });
   });
 });
 
@@ -288,33 +334,22 @@ describe("the pager arrows", () => {
 });
 
 describe("the toolbar's row actions", () => {
-  it("Compares from the checked row", async () => {
+  it("has no compare icon on any row", async () => {
     stubApi();
-    const user = userEvent.setup();
     renderPanel();
     await ready();
-    await selectRow("A2");
 
-    await user.click(screen.getByRole("button", { name: "Compare rows" }));
-    const dialog = screen.getByRole("dialog", { name: "Compare · Today" });
-
-    // The box is not empty: the row the reader checked is already in it.
-    expect(within(dialog).getByTestId("compare-table").textContent).toContain("A2");
-    expect(dialog.textContent).toContain("1 of 5 picked.");
+    expect(screen.queryByRole("button", { name: /^Compare A\d/ })).toBeNull();
+    const lane = within(rowFor("A2")).getByTestId("row-actions-A2");
+    expect(lane.querySelector('[data-icon="split"]')).toBeNull();
   });
 
-  it("Sets an alert on the checked row", async () => {
+  it("draws no checkbox in the grid", async () => {
     stubApi();
-    const user = userEvent.setup();
     renderPanel();
     await ready();
-    await selectRow("A5");
 
-    await user.click(screen.getByRole("button", { name: "Set alert" }));
-    const dialog = screen.getByRole("dialog", { name: "Set alert" });
-
-    // The form names the ticker instead of asking for one.
-    expect(within(dialog).getByText("A5")).toBeTruthy();
+    expect(screen.getByTestId("grid-table").querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   });
 });
 
@@ -334,5 +369,79 @@ describe("the toolbar's names", () => {
       // Icon-only buttons carry both a name and a title.
       if (text.length === 0) expect((button.getAttribute("title") ?? "").length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("state behind a row's star and bell", () => {
+  const starName = (suffix = "") => `Add A5 to a watchlist or portfolio${suffix}`;
+
+  it("fills the star for a watchlist symbol alone, and says so", async () => {
+    watchlistStore.write(["A5"]);
+    stubApi();
+    renderPanel();
+    await ready();
+
+    const star = within(rowFor("A5")).getByRole("button", { name: starName(" (on a list)") });
+    expect(star.getAttribute("data-starred")).toBe("true");
+    expect(star.querySelector("svg")?.getAttribute("class")).toContain("fill-current");
+    expect(star.getAttribute("title")).toContain("A5 is on a list");
+  });
+
+  it("fills the star for a portfolio holding alone, and says so", async () => {
+    portfolioStore.write([{ symbol: "A5", quantity: 1, cost: 100 }]);
+    stubApi();
+    renderPanel();
+    await ready();
+
+    const star = within(rowFor("A5")).getByRole("button", { name: starName(" (on a list)") });
+    expect(star.getAttribute("data-starred")).toBe("true");
+    expect(star.querySelector("svg")?.getAttribute("class")).toContain("fill-current");
+  });
+
+  it("leaves other rows' stars empty", async () => {
+    watchlistStore.write(["A5"]);
+    stubApi();
+    renderPanel();
+    await ready();
+
+    const other = within(rowFor("A6")).getByRole("button", { name: starName().replace("A5", "A6") });
+    expect(other.getAttribute("data-starred")).toBe("false");
+    expect(other.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("fill-current");
+  });
+
+  it("fills A5's bell on save and empties it when the last alert is deleted", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    renderPanel();
+    await ready();
+
+    const rowBell = (name: string) => within(rowFor("A5")).getByRole("button", { name });
+
+    // Empty first: the bell is an outline with no state behind it.
+    const empty = rowBell("Set an alert for A5");
+    expect(empty.getAttribute("data-alerted")).toBe("false");
+    expect(empty.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("fill-current");
+
+    await user.click(empty);
+    const dialog = screen.getByRole("dialog", { name: "Set alert" });
+    await user.type(within(dialog).getByRole("spinbutton", { name: "Value" }), "250");
+    await user.click(within(dialog).getByRole("button", { name: "Save alert" }));
+
+    // No reload, no reopen: the row behind the dialog is already filled.
+    const filled = rowBell("Set an alert for A5 (1 active)");
+    expect(filled.getAttribute("data-alerted")).toBe("true");
+    expect(filled.querySelector("svg")?.getAttribute("class")).toContain("fill-current");
+    expect(filled.querySelector("svg")?.getAttribute("class")).toContain("text-accent-text");
+    expect(filled.getAttribute("title")).toBe("1 alert for A5 — review or add another");
+
+    await user.click(within(dialog).getByRole("button", { name: /^Delete alert: A5/ }));
+
+    const back = rowBell("Set an alert for A5");
+    expect(back.getAttribute("data-alerted")).toBe("false");
+    expect(back.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("fill-current");
+    expect(JSON.parse(window.localStorage.getItem(ALERTS_KEY) ?? "null")).toEqual({
+      version: 1,
+      alerts: [],
+    });
   });
 });

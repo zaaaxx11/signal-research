@@ -1,4 +1,4 @@
-"""``GET /logos/{symbol}``: a brand mark on its own URL, cached for thirty days.
+"""``GET /logos/{symbol}``: a brand mark on its own URL, cached per its kind.
 
 The route exists so a 100-row panel can stop carrying 64 KB of base64 decoration:
 the projection drops ``logo`` entirely and every row keeps an ``<img src>``. The
@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -729,22 +731,66 @@ async def test_fifty_concurrent_requests_make_one_upstream_call(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
-def test_the_response_is_cacheable_for_thirty_days_and_carries_a_strong_etag(
-    tmp_path: Path,
-) -> None:
-    fetcher = Fetcher()
+#: The two policies, pinned as literals rather than imported: this is the wire
+#: contract, and a constant is allowed to move only when these tests move with
+#: it. A real mark may be reused for a day, then it must be revalidated against
+#: the byte digest; a monogram is a placeholder and is never stored at all.
+LOGO_CACHE_CONTROL = "public, max-age=86400, must-revalidate"
+MONOGRAM_CACHE_CONTROL = "no-store"
 
-    with serve(tmp_path, fetcher=fetcher) as harness:
-        response = harness.client.get("/logos/NOTATICKER")
+
+def test_a_real_mark_is_cacheable_for_a_day_then_revalidated(tmp_path: Path) -> None:
+    local = tmp_path / "logos"
+    local.mkdir(parents=True)
+    (local / "AAPL.png").write_bytes(PNG)
+
+    with serve(tmp_path) as harness:
+        response = harness.client.get("/logos/AAPL")
 
     assert response.status_code == 200
-    assert response.headers["cache-control"] == "public, max-age=2592000, immutable"
-    assert int(response.headers["cache-control"].split("max-age=")[1].split(",")[0]) == 2_592_000
+    assert response.headers["x-logo-source"] == "store"
+    assert response.headers["cache-control"] == LOGO_CACHE_CONTROL
+    assert int(response.headers["cache-control"].split("max-age=")[1].split(",")[0]) == 86_400
+    assert "immutable" not in response.headers["cache-control"]
     etag = response.headers["etag"]
     assert etag.startswith('"') and etag.endswith('"'), f"a strong ETag is quoted: {etag!r}"
     assert not etag.startswith("W/")
     assert len(etag) >= 16
     assert response.headers["content-length"] == str(len(response.content))
+
+
+def test_a_monogram_is_never_stored_by_a_client(tmp_path: Path) -> None:
+    """The bug: a placeholder cached as immutable outlived the real logo."""
+
+    with serve(tmp_path) as harness:
+        first = harness.client.get("/logos/NOTATICKER")
+        second = harness.client.get("/logos/NOTATICKER")
+
+    assert first.status_code == 200
+    assert first.headers["x-logo-source"] == "monogram"
+    assert first.headers["cache-control"] == MONOGRAM_CACHE_CONTROL
+    policy = first.headers["cache-control"]
+    assert "public" not in policy and "max-age" not in policy and "immutable" not in policy
+    # Still a deterministic validator for the bytes that were sent, so a
+    # same-page repeat can be answered with 304 without ever being stored.
+    assert second.headers["etag"] == first.headers["etag"]
+
+
+def test_the_etag_is_a_digest_of_the_bytes_not_the_write_time(tmp_path: Path) -> None:
+    """Rewriting a mark with identical bytes keeps its validator."""
+
+    local = tmp_path / "logos"
+    local.mkdir(parents=True)
+    path = local / "AAPL.png"
+    path.write_bytes(PNG)
+
+    with serve(tmp_path) as harness:
+        before = harness.client.get("/logos/AAPL")
+        path.write_bytes(PNG)  # same bytes, new mtime
+        os.utime(path, (time.time() + 60, time.time() + 60))
+        after = harness.client.get("/logos/AAPL")
+
+    assert after.headers["etag"] == before.headers["etag"]
 
 
 def test_if_none_match_answers_304_with_no_body(tmp_path: Path) -> None:

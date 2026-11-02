@@ -39,7 +39,8 @@ export type IconName =
   | "refresh"
   | "clock"
   | "bookmark"
-  | "plus";
+  | "plus"
+  | "more-horizontal";
 
 /**
  * One path (or a few) per name, drawn on a 24-unit grid.
@@ -102,6 +103,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   bookmark: <path d="M6 4h12v17l-6-4-6 4V4Z" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  "more-horizontal": (
+    <>
+      <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    </>
+  ),
 };
 
 export interface IconProps extends Omit<React.SVGProps<SVGSVGElement>, "name"> {

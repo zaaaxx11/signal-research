@@ -135,3 +135,27 @@ describe("the chip's rendered text", () => {
     expect(new Set(names).size).toBe(2);
   });
 });
+
+describe("a ticker list's chip", () => {
+  it("is one Tickers chip that names every symbol and removes as one filter", async () => {
+    const user = userEvent.setup();
+    const onRemove = vi.fn();
+    render(
+      <ChipBar
+        registry={registry}
+        filters={[{ id: "t", key: "symbol", op: "in", value: ["AAPL", "MSFT"] }]}
+        onRemove={onRemove}
+        onClear={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    const bar = screen.getByTestId("chip-bar");
+    expect(bar.textContent).toContain("Tickers");
+    expect(bar.textContent).toContain("AAPL, MSFT");
+    expect(bar.textContent).not.toContain("in ");
+
+    await user.click(screen.getByRole("button", { name: "Remove filter: Tickers AAPL, MSFT" }));
+    expect(onRemove).toHaveBeenCalledWith("t");
+  });
+});

@@ -15,6 +15,12 @@
  * more than a glance, so typing a label is the way through. Labels come from
  * `columnSpec`, never from the key spelling, but the key stays visible in mono
  * — an operator matching a request body by eye needs the exact token.
+ *
+ * The header's select-all box is the same edge in one gesture: it ticks what
+ * fits and says so ("Showing the first 40 of 116 columns") instead of pretending
+ * the panel got wider, and unticking it returns to the identity floor rather
+ * than to nothing — the ticker lane, the row number and the company name are
+ * what make a row a row.
  */
 
 import * as React from "react";
@@ -22,7 +28,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 import { columnSpec } from "./columnMeta";
-import { COLUMN_CAP } from "./columnSelection";
+import { COLUMN_CAP, sameColumns, selectAllColumns } from "./columnSelection";
 
 export interface ColumnPickerProps {
   open: boolean;
@@ -32,6 +38,10 @@ export interface ColumnPickerProps {
   /** The selection currently on screen. */
   selected: readonly string[];
   onToggle: (key: string) => void;
+  /** Tick every offered key, cut to the panel cap. */
+  onSelectAll: () => void;
+  /** Return to the identity floor: row number, ticker and company. */
+  onClearAll: () => void;
   onReset: () => void;
   /** True when `selected` is not the view's own column list. */
   custom: boolean;
@@ -45,13 +55,43 @@ export function ColumnPicker({
   keys,
   selected,
   onToggle,
+  onSelectAll,
+  onClearAll,
   onReset,
   custom,
   notice,
 }: ColumnPickerProps) {
   const [query, setQuery] = React.useState("");
   const searchRef = React.useRef<HTMLInputElement>(null);
+  const selectAllRef = React.useRef<HTMLInputElement>(null);
   const chosen = React.useMemo(() => new Set(selected), [selected]);
+
+  /**
+   * The selection as this picker can count it: keys outside the offered
+   * catalogue (a link may name one) are not rows of this list, so they cannot
+   * make the box read "all".
+   */
+  const chosenOffered = React.useMemo(
+    () => selected.filter((key) => keys.includes(key)),
+    [selected, keys],
+  );
+  /** As many as one panel can hold, given what is offered. */
+  const fullest = Math.min(keys.length, COLUMN_CAP);
+  const allChecked = fullest > 0 && chosenOffered.length >= fullest;
+  /** Mixed: something is ticked, but the panel is not as full as it can be. */
+  const mixed = chosenOffered.length > 0 && !allChecked;
+  /** The list a select-all produces, so the cut sentence is never a guess. */
+  const cut = React.useMemo(
+    () => (keys.length > COLUMN_CAP ? selectAllColumns(keys) : []),
+    [keys],
+  );
+  const truncated = keys.length > COLUMN_CAP && sameColumns(chosenOffered, cut);
+
+  React.useEffect(() => {
+    // `indeterminate` is a DOM property, not an attribute React can render:
+    // without this line the box shows "off" for a partial panel.
+    if (selectAllRef.current) selectAllRef.current.indeterminate = mixed;
+  }, [mixed, open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -101,14 +141,29 @@ export function ColumnPicker({
         data-testid="column-picker"
         className="flex max-h-[78vh] w-full max-w-[440px] flex-col overflow-hidden rounded-md border border-line-strong bg-surface shadow-xl"
       >
-        <div className="flex shrink-0 items-baseline justify-between gap-3 border-b border-line px-3 py-2">
+        <div className="flex shrink-0 items-center gap-3 border-b border-line px-3 py-2">
           <h2 id="column-picker-title" className="text-ui font-medium text-fg">
             Columns
           </h2>
+          <label className="-ml-1 flex cursor-default items-center gap-1.5">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allChecked}
+              onChange={(event) => (event.target.checked ? onSelectAll() : onClearAll())}
+              disabled={keys.length === 0}
+              aria-label="Select all columns"
+              data-testid="column-picker-select-all"
+              className="size-3 accent-[var(--accent)]"
+            />
+            <span className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
+              All
+            </span>
+          </label>
           <span
             data-testid="column-picker-count"
             className={cn(
-              "font-mono text-label uppercase tracking-[0.08em]",
+              "ml-auto font-mono text-label uppercase tracking-[0.08em]",
               full ? "text-alert" : "text-fg-subtle",
             )}
           >
@@ -123,6 +178,17 @@ export function ColumnPicker({
             ✕
           </button>
         </div>
+
+        {truncated ? (
+          // The other half of the cap: the reader asked for everything and got
+          // a panel. Saying so is the difference between a cut and a lie.
+          <p
+            data-testid="column-picker-cap-note"
+            className="shrink-0 border-b border-line bg-surface-raised px-3 py-1.5 text-data text-fg-subtle"
+          >
+            Showing the first {COLUMN_CAP} of {keys.length} columns
+          </p>
+        ) : null}
 
         <div className="shrink-0 border-b border-line px-3 py-2">
           <input

@@ -71,6 +71,13 @@ describe("logoPath", () => {
     expect(logoPath("A?B")).toBe("/logos/A%3FB");
     expect(logoPath("^GSPC")).toBe("/logos/%5EGSPC");
   });
+
+  it("appends a cache-busting query only when asked", () => {
+    // The endpoint ignores the query; it only names a URL the browser has not
+    // already answered from its cache.
+    expect(logoPath("AAPL", "abc123")).toBe("/logos/AAPL?v=abc123");
+    expect(logoPath("BRK.B", 7)).toBe("/logos/BRK.B?v=7");
+  });
 });
 
 describe("the identity lane", () => {
@@ -130,7 +137,7 @@ describe("the identity lane", () => {
     expect(box.style.height).toBe(`${LOGO_SIZE}px`);
   });
 
-  it("draws the monogram while the image is loading, and the image once it lands", async () => {
+  it("shows a skeleton while the image is loading, and the image once it lands", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(["AAPL"]))));
     render(
       <ScreenPanel
@@ -141,14 +148,18 @@ describe("the identity lane", () => {
     );
 
     await waitFor(() => expect(screen.getByTestId("logo-img-AAPL")).toBeTruthy());
-    expect(screen.getByTestId("monogram-AAPL").textContent).toBe("A");
+    // A placeholder is not an answer: the lane waits on a neutral box, and the
+    // letter only appears when the request has actually failed.
+    expect(screen.getByTestId("logo-skeleton-AAPL")).toBeTruthy();
+    expect(screen.queryByTestId("monogram-AAPL")).toBeNull();
     expect(screen.getByTestId("logo-img-AAPL").parentElement?.getAttribute("data-logo-state")).toBe(
       "loading",
     );
 
     fireEvent.load(screen.getByTestId("logo-img-AAPL"));
 
-    await waitFor(() => expect(screen.queryByTestId("monogram-AAPL")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("logo-skeleton-AAPL")).toBeNull());
+    expect(screen.queryByTestId("monogram-AAPL")).toBeNull();
     expect(screen.getByTestId("logo-img-AAPL").getAttribute("src")).toBe("/logos/AAPL");
     await waitFor(() =>
       expect(screen.getByTestId("logo-img-AAPL").parentElement?.getAttribute("data-logo-state")).toBe(
@@ -157,7 +168,7 @@ describe("the identity lane", () => {
     );
   });
 
-  it("(b) a 404 or a 500 leaves the monogram, never a broken image or a moving row", async () => {
+  it("(b) retries once, then leaves a local monogram — never a broken image or a moving row", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(["AAPL", "MSFT"]))));
     render(
       <ScreenPanel
@@ -172,13 +183,21 @@ describe("the identity lane", () => {
     const row = screen.getByTestId("grid-table").querySelector('tbody tr[data-symbol="AAPL"]')!;
     const before = row.getBoundingClientRect();
 
+    // First failure: one retry with a cache-busting query, still a skeleton.
     fireEvent.error(screen.getByTestId("logo-img-AAPL"));
+    const retry = screen.getByTestId("logo-img-AAPL");
+    expect(retry.getAttribute("src")).toMatch(/^\/logos\/AAPL\?v=[a-z0-9]+$/);
+    expect(screen.getByTestId("logo-skeleton-AAPL")).toBeTruthy();
+    expect(screen.queryByTestId("monogram-AAPL")).toBeNull();
+
+    fireEvent.error(retry);
 
     // No <img> at all: an errored image is what a browser draws as a broken
-    // glyph, and the monogram is a better answer than a glyph.
+    // glyph, and the locally drawn monogram is a better answer than a glyph.
     await waitFor(() => expect(row.querySelector("img")).toBeNull());
     expect(screen.getByTestId("monogram-AAPL").textContent).toBe("A");
     expect(row.querySelector("[data-logo-state]")?.getAttribute("data-logo-state")).toBe("failed");
+    expect(screen.queryByTestId("logo-skeleton-AAPL")).toBeNull();
 
     // The box did not move: the wrapper still declares the reserved 20 px, so
     // the failure cannot reflow the lane.

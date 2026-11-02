@@ -19,10 +19,12 @@ import * as React from "react";
 import { InsidersTab } from "@/detail/InsidersTab";
 import { NewsTab } from "@/detail/NewsTab";
 import { OwnershipTab } from "@/detail/OwnershipTab";
+import { cn } from "@/lib/utils";
 import { navigate, useSearch } from "@/shell/routes";
 
 import { FilingsTab } from "./FilingsTab";
 import { Overview } from "./Overview";
+import { TickerActions, type TickerNotice } from "./TickerActions";
 import { TickerChart } from "./TickerChart";
 import { TickerHeader } from "./TickerHeader";
 import { TickerTabs, TICKER_PANEL_ID, tabFromSearch, tabHref, tabId } from "./TickerTabs";
@@ -38,6 +40,9 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
   const active = tabFromSearch(search);
   const resources = useTicker(symbol, active);
   const header = headerView(resources, symbol);
+  // The band's one confirmation line: the action that wrote to a list says so
+  // here, once, rather than opening a dialog the reader has to dismiss.
+  const [notice, setNotice] = React.useState<TickerNotice | null>(null);
   // The snapshot is its own read, and only Overview draws it: a deep link to
   // Statements must not pay for 84 values nobody will see.
   const snapshot = useSnapshot(symbol, active === "overview");
@@ -107,7 +112,30 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
       data-tab={active}
       className="flex flex-col bg-bg"
     >
-      <TickerHeader header={header} />
+      <TickerHeader
+        header={header}
+        actions={
+          <TickerActions
+            symbol={symbol}
+            name={header.company}
+            exchange={resources.security.data?.exchange ?? null}
+            row={resources.row.data}
+            onNotice={setNotice}
+          />
+        }
+      />
+      {notice === null ? null : (
+        <p
+          role="status"
+          data-testid="ticker-action-notice"
+          className={cn(
+            "border-b border-line bg-surface px-4 pb-1.5 text-data",
+            notice.ok ? "text-fg-muted" : "text-alert",
+          )}
+        >
+          {notice.message}
+        </p>
+      )}
       <TickerTabs active={active} onChange={onChange} />
       <div
         id={TICKER_PANEL_ID}

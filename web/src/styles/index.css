@@ -375,3 +375,28 @@ body {
     opacity: 1;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Pointer affordance: a control that reacts to a click must say so with the
+ * cursor. Browsers give <button> the default arrow, which makes a live control
+ * look like a label; a row that navigates has the same problem. The reverse is
+ * just as important - a disabled control gets `not-allowed` so it never
+ * invites a click it cannot honour.
+ */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+a[href],
+select:not(:disabled),
+summary,
+label[for],
+[data-clickable="true"],
+tr[data-clickable="true"] {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"],
+select:disabled,
+[data-clickable="false"] {
+  cursor: not-allowed;
+}

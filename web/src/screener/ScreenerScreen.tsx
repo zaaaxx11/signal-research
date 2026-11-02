@@ -42,7 +42,7 @@ import { ErrorBoundary } from "@/grid/ErrorBoundary";
 import { ScreenPanel } from "@/grid/ScreenPanel";
 import { splitCatalogue } from "@/grid/catalogue";
 import { CLIENT_COLUMNS } from "@/grid/columnMeta";
-import { sameColumns, useColumnSelection } from "@/grid/columnSelection";
+import { identityColumns, sameColumns, selectAllColumns, useColumnSelection } from "@/grid/columnSelection";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { navigate } from "@/shell/routes";
 
@@ -373,6 +373,8 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
           keys={pickerColumns}
           selected={currentColumns}
           onToggle={(key) => columnSelection.toggle(active.name, key)}
+          onSelectAll={() => columnSelection.select(active.name, selectAllColumns(pickerColumns))}
+          onClearAll={() => columnSelection.select(active.name, identityColumns(pickerColumns))}
           onReset={() => columnSelection.reset(active.name)}
           custom={!sameColumns(currentColumns, defaults[active.name] ?? active.columns)}
           notice={columnSelection.notice}

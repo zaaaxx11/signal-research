@@ -21,7 +21,7 @@ import * as React from "react";
 
 import { MAX_COLUMNS } from "@/data/screens";
 
-import { CLIENT_COLUMNS } from "./columnMeta";
+import { CLIENT_COLUMNS, ROW_NUMBER_KEY } from "./columnMeta";
 
 /** The panel cap, named once so the message and the guard cannot drift. */
 export const COLUMN_CAP = MAX_COLUMNS;
@@ -165,6 +165,52 @@ export function toggleColumn(
 export function sameColumns(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((key, index) => key === right[index]);
+}
+
+/**
+ * The columns a panel cannot do without, in the order the table draws them.
+ *
+ * `no` is the client-drawn row number and `company` is a catalogue key, so both
+ * can be asked for. `ticker` is the pinned identity lane: the table draws it
+ * whether or not a selection names it, which is why it is listed here for the
+ * floor and only kept when a build actually offers it as a key (today's
+ * catalogue does not — the lane is not a column the client picks).
+ */
+export const IDENTITY_COLUMNS: readonly string[] = [ROW_NUMBER_KEY, "ticker", "company"];
+
+/**
+ * The identity floor of a picker's catalogue: the columns above that it offers,
+ * in table order.
+ *
+ * Clearing the panel lands here rather than on nothing. An empty selection is
+ * how the app says "no override, show the view's own columns", and a panel of
+ * anonymous numbers is not a floor anyone asked for.
+ */
+export function identityColumns(keys: readonly string[]): string[] {
+  const offered = new Set(keys);
+  return IDENTITY_COLUMNS.filter((key) => offered.has(key));
+}
+
+/**
+ * Every column a panel can carry, as one selection.
+ *
+ * "Select all" is a cut, not a switch: 116 keys cannot fit a 40-column panel,
+ * so the catalogue's own order decides which keys make it and the same
+ * catalogue always produces the same panel. The identity columns take the first
+ * slots even when the catalogue lists them last — the picker appends the client
+ * row number, and it would otherwise be the one column a "select all" dropped.
+ */
+export function selectAllColumns(keys: readonly string[], cap: number = COLUMN_CAP): string[] {
+  const offered = new Set(keys);
+  const seen = new Set<string>();
+  const picked: string[] = [];
+  for (const key of [...IDENTITY_COLUMNS, ...keys]) {
+    if (picked.length >= cap) break;
+    if (seen.has(key) || !offered.has(key)) continue;
+    seen.add(key);
+    picked.push(key);
+  }
+  return picked;
 }
 
 function rewriteUrl(byView: Record<string, readonly string[]>, viewNames: readonly string[]): void {

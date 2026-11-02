@@ -24,6 +24,8 @@ function setup(overrides: Partial<React.ComponentProps<typeof ColumnPicker>> = {
       keys={KEYS}
       selected={["price"]}
       onToggle={onToggle}
+      onSelectAll={vi.fn()}
+      onClearAll={vi.fn()}
       onReset={onReset}
       custom={false}
       notice={null}
@@ -37,8 +39,11 @@ describe("ColumnPicker", () => {
   it("lists every catalogue key and reports the selection against the cap", () => {
     setup();
     const dialog = screen.getByTestId("column-picker");
-    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(KEYS.length);
+    const list = within(dialog).getByRole("list", { name: "Catalogue columns" });
+    expect(within(list).getAllByRole("checkbox")).toHaveLength(KEYS.length);
     expect(within(dialog).getByTestId("column-picker-count").textContent).toBe("1 / 40");
+    // The header's select-all box is not one of the catalogue's rows.
+    expect(within(dialog).getByRole("checkbox", { name: "Select all columns" })).toBeTruthy();
     expect((within(dialog).getByRole("checkbox", { name: /Price/ }) as HTMLInputElement).checked).toBe(true);
     expect((within(dialog).getByRole("checkbox", { name: /P\/E/ }) as HTMLInputElement).checked).toBe(false);
   });
@@ -58,12 +63,13 @@ describe("ColumnPicker", () => {
     const search = screen.getByRole("searchbox", { name: "Find a column" });
 
     await user.type(search, "market");
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    const list = screen.getByRole("list", { name: "Catalogue columns" });
+    expect(within(list).getAllByRole("checkbox")).toHaveLength(1);
     expect(screen.getByRole("checkbox", { name: /Market Cap/ })).toBeTruthy();
 
     await user.clear(search);
     await user.type(search, "peg");
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(within(list).getAllByRole("checkbox")).toHaveLength(1);
   });
 
   it("shows the cap sentence it is given", () => {

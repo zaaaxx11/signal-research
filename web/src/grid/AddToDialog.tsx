@@ -34,7 +34,7 @@ export interface AddToDialogProps {
   open: boolean;
   onClose: () => void;
   list: AddToList;
-  /** A ticker already chosen by the row selection, shown ready to add. */
+  /** A ticker already chosen by the row's star, shown ready to add. */
   initialSymbol?: SymbolHit | null;
   /** Persist the choice; the answer is the sentence the reader sees. */
   onAdd: (input: AddToInput) => { ok: boolean; message: string };
