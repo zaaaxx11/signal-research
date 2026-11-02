@@ -32,6 +32,7 @@ from app.api import alt as alt_api
 from app.api import market_news as market_news_api
 from app.api import calendar as calendar_api
 from app.api import chart as chart_api
+from app.api import risk as risk_api
 from app.api import engine as engine_api
 from app.api import groups as groups_api
 from app.api import home as home_api
@@ -824,6 +825,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: ``GET /market/chart/{symbol}``: the OHLC series a browser draws, parsed once
     #: and kept for five minutes; its validator is the series' own inputs.
     mount_router(application, chart_api.router)
+    mount_router(application, risk_api.router)
     #: ``GET /market/home``: the dashboard's seven blocks in one document — the
     #: five indices, breadth, sparks, movers, a 600-tile map, three headlines and
     #: five Form 4 rows — from one scan and one universe, each block null (and
