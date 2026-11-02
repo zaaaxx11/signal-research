@@ -43,7 +43,7 @@ import { ScreenPanel } from "@/grid/ScreenPanel";
 import { splitCatalogue } from "@/grid/catalogue";
 import { CLIENT_COLUMNS } from "@/grid/columnMeta";
 import { COMPUTED_KEYS } from "@/grid/computedColumns";
-import { identityColumns, sameColumns, selectAllColumns, useColumnSelection } from "@/grid/columnSelection";
+import { sameColumns, selectAllColumns, useColumnSelection } from "@/grid/columnSelection";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { navigate } from "@/shell/routes";
 
@@ -381,8 +381,14 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
           computedKeys={COMPUTED_KEYS}
           selected={currentColumns}
           onToggle={(key) => columnSelection.toggle(active.name, key)}
-          onSelectAll={() => columnSelection.select(active.name, selectAllColumns(catalogueColumns))}
-          onClearAll={() => columnSelection.select(active.name, identityColumns(catalogueColumns))}
+          onSelectAll={(keys) => {
+            const merged = [...new Set([...currentColumns, ...keys])];
+            columnSelection.select(active.name, selectAllColumns(merged));
+          }}
+          onClearAll={(keys) => {
+            const toRemove = new Set(keys);
+            columnSelection.select(active.name, currentColumns.filter((k) => !toRemove.has(k)));
+          }}
           onReset={() => columnSelection.reset(active.name)}
           custom={!sameColumns(currentColumns, defaults[active.name] ?? active.columns)}
           notice={columnSelection.notice}

@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ColumnPicker } from "./ColumnPicker";
-import { COLUMN_CAP, identityColumns, selectAllColumns } from "./columnSelection";
+import { COLUMN_CAP, selectAllColumns } from "./columnSelection";
 
 /**
  * The header's select-all box.
@@ -45,8 +45,16 @@ function Harness({
           previous.includes(key) ? previous.filter((entry) => entry !== key) : [...previous, key],
         )
       }
-      onSelectAll={() => setSelected(selectAllColumns(keys))}
-      onClearAll={() => setSelected(identityColumns(keys))}
+      onSelectAll={(visibleKeys) => {
+        setSelected((previous) => {
+          const merged = [...new Set([...previous, ...visibleKeys])];
+          return selectAllColumns(merged);
+        });
+      }}
+      onClearAll={(visibleKeys) => {
+        const toRemove = new Set(visibleKeys);
+        setSelected((previous) => previous.filter((k) => !toRemove.has(k)));
+      }}
       onReset={vi.fn()}
       custom
       notice={null}
@@ -101,7 +109,7 @@ describe("ColumnPicker select all", () => {
     expect(box("Company (company)").checked).toBe(true);
   });
 
-  it("clears back to the identity columns when it is unticked", async () => {
+  it("clears every visible column when the box is unticked", async () => {
     const user = userEvent.setup();
     render(<Harness initial={["k00", "k01"]} />);
 
@@ -110,14 +118,10 @@ describe("ColumnPicker select all", () => {
 
     await user.click(selectAll());
 
-    // Row number and company; the ticker lane is pinned and never a key.
-    expect(count()).toBe("2 / 40");
-    expect(tickedCount()).toBe(2);
-    expect(box("No (no)").checked).toBe(true);
-    expect(box("Company (company)").checked).toBe(true);
+    // All visible keys were removed; the selection is empty.
+    expect(count()).toBe("0 / 40");
     expect(selectAll().checked).toBe(false);
-    // Two of 45 is still partial: the box never claims the panel is empty.
-    expect(selectAll().indeterminate).toBe(true);
+    expect(selectAll().indeterminate).toBe(false);
     expect(screen.queryByTestId("column-picker-cap-note")).toBeNull();
   });
 
@@ -171,5 +175,87 @@ describe("ColumnPicker select all", () => {
 
     expect(count()).toBe("40 / 40");
     expect(screen.queryByTestId("column-picker-cap-note")).toBeNull();
+  });
+
+  it("toggles only the search-matched columns when a query is active", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={["k00", "k01"]} />);
+
+    const search = screen.getByRole("searchbox", { name: "Find a column" });
+    await user.type(search, "k0");
+
+    // Only k00-k09 are visible (10 keys starting with k0)
+    // Current: k00, k01 ticked → partial among the visible set
+    expect(selectAll().indeterminate).toBe(true);
+
+    // Click select-all → should tick all 10 visible keys
+    await user.click(selectAll());
+    expect(count()).toBe("10 / 40");
+    // All 10 visible are ticked
+    expect(selectAll().checked).toBe(true);
+    expect(selectAll().indeterminate).toBe(false);
+
+    // Clear search → full catalogue visible again, select-all should be mixed
+    await user.clear(search);
+    expect(selectAll().indeterminate).toBe(true);
+
+    // Click select-all with no filter → full panel
+    await user.click(selectAll());
+    expect(count()).toBe("40 / 40");
+  });
+
+  it("select-all is mixed when search results are partially ticked", async () => {
+    const user = userEvent.setup();
+    render(<Harness keys={["pe", "peg", "price", "market_cap", "beta"]} initial={["pe"]} />);
+
+    const search = screen.getByRole("searchbox", { name: "Find a column" });
+    await user.type(search, "p");
+
+    // "p" matches: pe, peg, price, market_cap, beta (all contain "p" in key)
+    // Only "pe" is ticked → mixed
+    expect(selectAll().indeterminate).toBe(true);
+    expect(selectAll().checked).toBe(false);
+
+    // Tick all visible by clicking select-all
+    await user.click(selectAll());
+    expect(selectAll().checked).toBe(true);
+    expect(selectAll().indeterminate).toBe(false);
+    // All 5 keys are now ticked
+    expect(box("PEG (peg)").checked).toBe(true);
+    expect(box("Price (price)").checked).toBe(true);
+  });
+
+  it("clears only search-matched columns when deselecting with a query", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={["k00", "k01", "k10", "k11"]} />);
+
+    const search = screen.getByRole("searchbox", { name: "Find a column" });
+    await user.type(search, "k1");
+
+    // Visible: k10-k19 (10 keys). k00, k01 are NOT visible but still selected.
+    // In the visible set: k10, k11 are ticked → partial
+    expect(selectAll().indeterminate).toBe(true);
+
+    // Click select-all → all 10 visible (k10-k19) get ticked, plus k00, k01 = 12
+    await user.click(selectAll());
+    expect(selectAll().checked).toBe(true);
+    expect(count()).toBe("12 / 40");
+
+    // Now deselect → only the visible ones (k10-k19) are removed
+    await user.click(selectAll());
+    // k00, k01 remain selected (they were never visible during the operation)
+    expect(count()).toBe("2 / 40");
+  });
+
+  it("shows the cap note when search results exceed 40 and all are selected", async () => {
+    const user = userEvent.setup();
+    // 45 keys, all match the empty query
+    render(<Harness initial={[]} />);
+
+    await user.click(selectAll());
+    expect(count()).toBe("40 / 40");
+    expect(screen.getByTestId("column-picker-cap-note").textContent).toBe(
+      "Showing the first 40 of 45 columns",
+    );
   });
 });

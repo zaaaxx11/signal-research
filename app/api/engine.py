@@ -1261,101 +1261,57 @@ async def technicals(
 # -- options -----------------------------------------------------------------
 
 
-async def options_document(
-    symbol: str, *, expiries: int, strikes: int
-) -> dict[str, Any] | None:
+async def options_document(symbol: str) -> dict[str, Any]:
     """The option ladder for one symbol, behind the five-minute chain cache.
 
     Imported at call time, like :func:`company_profile`: this module's import
-    graph stays free of the Yahoo transport, and a test replaces this one
+    graph stays free of the CBOE transport, and a test replaces this one
     function instead of reaching for a socket.
     """
 
     from app.market.options import collect_options
 
-    return await collect_options(symbol, expiries=expiries, strikes=strikes)
-
-
-def _options_bound(raw: str, *, name: str, maximum: int) -> int:
-    """One of the two bounds, or ``422`` on its own name.
-
-    Taken as raw text rather than as an ``int`` query parameter because
-    FastAPI would answer a framework-shaped ``422`` for ``?expiries=x``, while
-    the house contract is ``{error, errorMessage}`` with a code that names the
-    parameter. The bound is ``1..maximum``; the count is validated before the
-    symbol is fetched, so a typo never costs a request.
-    """
-
-    text = raw.strip() if isinstance(raw, str) else ""
-    try:
-        value = int(text)
-    except ValueError:
-        value = 0
-    if not 1 <= value <= maximum:
-        raise ApiError(
-            422,
-            f"invalid_{name}",
-            f"{name} must be an integer 1..{maximum}, got {raw!r}",
-        )
-    return value
+    return await collect_options(symbol)
 
 
 @router.get("/options/{symbol}")
-async def options(
-    symbol: str,
-    request: Request,
-    expiries: str = "4",
-    strikes: str = "12",
-) -> dict[str, Any]:
-    """The ticker page's option ladder: expiries, days to maturity, greeks.
+async def options(symbol: str, request: Request) -> dict[str, Any]:
+    """The ticker page's option ladder: CBOE delayed quotes with greeks.
 
-    ``expiries`` (1..4) picks how many of the nearest expiration dates to show;
-    ``strikes`` (1..40) how many strikes either side of the money at each of
-    them. The greeks are computed in :mod:`app.market.options` — Yahoo ships no
-    delta — from the chain's own strike and implied volatility, with ``r`` at
-    the documented 4 % constant.
+    Every 200 carries ``delayed_minutes: 15``. CBOE publishes the full chain
+    with exchange-computed delta, gamma, theta, vega, rho, implied volatility,
+    volume and open interest. The response is the nearest expiry's strikes.
 
     The order of answers is a contract:
 
-    1. an unusable bound is ``422 invalid_expiries``/``invalid_strikes``
-       **before** anything is fetched, so a typo never looks like a symbol
-       without options;
-    2. a symbol Yahoo answered with no chain is ``404 no_option_chain`` — the
-       fact, not an empty 200 that reads like a working ladder;
-    3. a refusal with nothing on disk is ``503 options_unavailable``; with an
-       expired copy on disk it serves that copy, labelled ``yahoo-cache-stale``
-       in ``source``, because an hour-old chain is honest and a fabricated greek
+    1. a symbol CBOE does not list is ``404 no_option_chain`` — the fact, not
+       an empty 200 that reads like a working ladder;
+    2. a refusal with nothing on disk is ``503 options_unavailable``; with
+       a cached copy on disk it serves that copy, labelled ``cache`` in
+       ``source``, because a stale chain is honest and a fabricated greek
        is not.
 
-    Every contract carries ``strike``, ``right``, ``iv``, the four greeks,
-    ``open_interest``, ``bid``, ``ask`` and ``in_the_money``; a greek that
-    cannot be computed is ``null``, never ``0`` and never ``NaN`` — a matured
-    expiry or a contract with no usable IV has no delta, and saying so is the
-    answer.
+    Every contract carries ``strike``, ``type``, ``premium``, the five greeks,
+    ``volume``, ``open_interest`` and ``implied_volatility``; a greek that
+    cannot be computed is ``null``, never ``0``.
     """
 
-    # The bounds live in the module that owns the chain: one source of truth,
-    # imported at call time like the reader itself.
-    from app.market.options import MAX_EXPIRIES, MAX_STRIKES, ChainUnavailable
+    from app.market.options import ChainUnavailable, UnknownSymbol
 
-    bounded_expiries = _options_bound(expiries, name="expiries", maximum=MAX_EXPIRIES)
-    bounded_strikes = _options_bound(strikes, name="strikes", maximum=MAX_STRIKES)
     try:
-        document = await options_document(
-            symbol, expiries=bounded_expiries, strikes=bounded_strikes
-        )
+        document = await options_document(symbol)
+    except UnknownSymbol as exc:
+        raise ApiError(
+            404,
+            "no_option_chain",
+            f"{symbol!r} has no listed option chain: {exc}",
+        ) from exc
     except ChainUnavailable as exc:
         raise ApiError(
             503,
             "options_unavailable",
             f"no option chain could be read for {symbol!r}: {exc}",
         ) from exc
-    if not document or not document.get("expiries"):
-        raise ApiError(
-            404,
-            "no_option_chain",
-            f"{symbol!r} has no listed option chain",
-        )
     return dict(document)
 
 

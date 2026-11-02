@@ -44,10 +44,10 @@ export interface ColumnPickerProps {
   /** The selection currently on screen. */
   selected: readonly string[];
   onToggle: (key: string) => void;
-  /** Tick every offered key, cut to the panel cap. */
-  onSelectAll: () => void;
-  /** Return to the identity floor: row number, ticker and company. */
-  onClearAll: () => void;
+  /** Tick the visible keys, cut to the panel cap. Receives the set the reader can see. */
+  onSelectAll: (keys: readonly string[]) => void;
+  /** Untick the visible keys. Receives the set the reader can see. */
+  onClearAll: (keys: readonly string[]) => void;
   onReset: () => void;
   /** True when `selected` is not the view's own column list. */
   custom: boolean;
@@ -112,17 +112,33 @@ export function ColumnPicker({
     () => selected.filter((key) => offered.includes(key)),
     [selected, offered],
   );
-  /** As many as one panel can hold, given what is offered. */
-  const fullest = Math.min(offered.length, COLUMN_CAP);
-  const allChecked = fullest > 0 && chosenOffered.length >= fullest;
-  /** Mixed: something is ticked, but the panel is not as full as it can be. */
-  const mixed = chosenOffered.length > 0 && !allChecked;
+
+  const matches = React.useMemo(
+    () => matchingColumns(keys, query),
+    [keys, query],
+  );
+  const computedMatches = React.useMemo(
+    () => matchingColumns(computedKeys, query),
+    [computedKeys, query],
+  );
+
+  /** The set the reader can see: filtered when a query is active, all offered otherwise. */
+  const visibleKeys = React.useMemo(
+    () => (query.trim().length > 0 ? [...matches, ...computedMatches] : offered),
+    [matches, computedMatches, offered, query],
+  );
+
+  /** As many as one panel can hold, given what is visible. */
+  const fullest = Math.min(visibleKeys.length, COLUMN_CAP);
+  const allChecked = fullest > 0 && chosenOffered.filter((key) => visibleKeys.includes(key)).length >= fullest;
+  /** Mixed: something is ticked among the visible, but the panel is not as full as it can be. */
+  const mixed = chosenOffered.filter((key) => visibleKeys.includes(key)).length > 0 && !allChecked;
   /** The list a select-all produces, so the cut sentence is never a guess. */
   const cut = React.useMemo(
-    () => (offered.length > COLUMN_CAP ? selectAllColumns(offered) : []),
-    [offered],
+    () => (visibleKeys.length > COLUMN_CAP ? selectAllColumns(visibleKeys) : []),
+    [visibleKeys],
   );
-  const truncated = offered.length > COLUMN_CAP && sameColumns(chosenOffered, cut);
+  const truncated = visibleKeys.length > COLUMN_CAP && sameColumns(chosenOffered, cut);
 
   React.useEffect(() => {
     // `indeterminate` is a DOM property, not an attribute React can render:
@@ -151,14 +167,6 @@ export function ColumnPicker({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  const matches = React.useMemo(
-    () => matchingColumns(keys, query),
-    [keys, query],
-  );
-  const computedMatches = React.useMemo(
-    () => matchingColumns(computedKeys, query),
-    [computedKeys, query],
-  );
   const nothing = matches.length === 0 && computedMatches.length === 0;
 
   /** One checkbox row; the catalogue and the Computed group share it. */
@@ -214,7 +222,7 @@ export function ColumnPicker({
               ref={selectAllRef}
               type="checkbox"
               checked={allChecked}
-              onChange={(event) => (event.target.checked ? onSelectAll() : onClearAll())}
+              onChange={() => (allChecked ? onClearAll(visibleKeys) : onSelectAll(visibleKeys))}
               disabled={keys.length === 0}
               aria-label="Select all columns"
               data-testid="column-picker-select-all"
