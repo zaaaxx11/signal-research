@@ -401,6 +401,80 @@ async def test_an_unknown_sort_is_422(tmp_path: Path, monkeypatch: Any) -> None:
     assert "pe_ttm" in body["errorMessage"]
 
 
+async def test_perf_4w_orders_by_the_one_month_return_over_http(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The live 422: the grid's "Perf Month" header sends ``-perf_4w``.
+
+    The row spells that cell ``ret_1m``; the route has to translate the catalogue
+    spelling instead of refusing it, and the page has to arrive ordered by the
+    translated column — not merely 200 with the default order.
+    """
+
+    rows = [
+        {"symbol": "MID", "name": "Mid", "price": 10.0, "market_cap_usd": 1e9, "ret_1m": 3.0},
+        {"symbol": "TOP", "name": "Top", "price": 10.0, "market_cap_usd": 1e9, "ret_1m": 12.0},
+        {"symbol": "BOTTOM", "name": "Bottom", "price": 10.0, "market_cap_usd": 1e9, "ret_1m": -4.0},
+        {"symbol": "NONE", "name": "None", "price": 10.0, "market_cap_usd": 1e9, "ret_1m": None},
+    ]
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        from app.api import screens as screens_api
+
+        monkeypatch.setattr(
+            screens_api, "build_universe", lambda _rows, **_: [dict(row) for row in rows]
+        )
+        response = await harness.client.post(
+            "/screens/select", json=select_body([], sort="-perf_4w")
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["sort"] == "-perf_4w", "the request echoes the spelling the grid sent"
+    assert [row["symbol"] for row in body["rows"]] == [
+        "BOTTOM",
+        "MID",
+        "TOP",
+        "NONE",
+    ], "ascending one-month return, missing last"
+
+
+async def test_every_default_screener_column_sorts_both_ways_over_http(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Every column the screener opens with, pressed in both directions.
+
+    The keys come from the client's own ``defaultColumns.ts`` — the file that
+    sends them — so a column added there without a rank field fails here instead
+    of shipping a header that answers 422. ``no`` is the one client-only column
+    and must stay refused, with a message that says why.
+    """
+
+    from app.screen.rank import CLIENT_ONLY_SORTS
+
+    columns = S.default_screener_columns()
+    requestable = [key for key in columns if key not in CLIENT_ONLY_SORTS]
+    assert len(requestable) >= 13, f"the default set is the whole table: {columns}"
+
+    async with S.screen_client(tmp_path, monkeypatch) as harness:
+        for key in requestable:
+            for token in (key, f"-{key}"):
+                response = await harness.client.post(
+                    "/screens/select", json=select_body([], sort=token)
+                )
+                assert response.status_code == 200, (token, response.text)
+                assert response.json()["sort"] == token
+
+        for token in ("no", "-no"):
+            refused = await harness.client.post(
+                "/screens/select", json=select_body([], sort=token)
+            )
+            assert refused.status_code == 422, refused.text
+            body = refused.json()
+            assert body["error"] == "unknown_sort"
+            assert "client-only" in body["errorMessage"], body["errorMessage"]
+
+
 async def test_a_signal_orders_its_population(tmp_path: Path, monkeypatch: Any) -> None:
     rows = [
         {"symbol": "SLOW", "name": "Slow", "price": 10.0, "change_pct": 1.0, "market_cap_usd": 1e9},

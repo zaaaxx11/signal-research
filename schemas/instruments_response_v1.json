@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ztockz.local/schemas/instruments-response-v1.json",
+  "title": "InstrumentsResponseV1",
+  "description": "One row per coinids manifest entry, in manifest order. The computable signals are copied from the selector's own scan row (plus the depth overlay); option greeks, observed expiry and days-to-maturity have no source yet and are null, named once in unavailable[]. A row the scan cannot price is still present with priced=false and a reason.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "as_of",
+    "manifest",
+    "region",
+    "scan",
+    "universe_total",
+    "signals",
+    "unavailable",
+    "rows"
+  ],
+  "properties": {
+    "as_of": {
+      "type": "string",
+      "description": "The read moment, ISO-8601 with seconds in UTC."
+    },
+    "manifest": {
+      "$ref": "#/$defs/manifest"
+    },
+    "region": {
+      "enum": [
+        "us"
+      ],
+      "description": "The scanned population the stock entries were priced against."
+    },
+    "scan": {
+      "enum": [
+        "hit",
+        "miss",
+        "skipped"
+      ],
+      "description": "How the universe was answered: the scan cache's hit/miss, or skipped when no entry needed pricing. A failed scan is a 503 error envelope, never this document."
+    },
+    "universe_total": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Rows in the scanned universe; null when the scan was skipped."
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The row cells that are real numbers when a row is priced."
+    },
+    "unavailable": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/unavailable"
+      },
+      "description": "Every signal this deployment cannot compute, with its reason."
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "present",
+        "version",
+        "updated_at",
+        "count",
+        "legacy"
+      ],
+      "properties": {
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "present": {
+          "type": "boolean",
+          "description": "False when the file is absent: an empty manifest, not an error."
+        },
+        "version": {
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "count": {
+          "type": "integer"
+        },
+        "legacy": {
+          "type": "boolean",
+          "description": "True when the owner's flat {id: symbol} form was read."
+        }
+      }
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signal",
+        "reason"
+      ],
+      "properties": {
+        "signal": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expiry",
+        "strike",
+        "right"
+      ],
+      "properties": {
+        "expiry": {
+          "type": "string",
+          "description": "ISO date declared by the manifest."
+        },
+        "strike": {
+          "type": "number"
+        },
+        "right": {
+          "enum": [
+            "C",
+            "P"
+          ]
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "symbol",
+        "asset",
+        "contract",
+        "priced",
+        "reason",
+        "price",
+        "change_pct",
+        "volume",
+        "beta_1y",
+        "market_cap_usd",
+        "dividend_yield",
+        "recommendation",
+        "pe_ttm",
+        "pe_forward",
+        "rsi_14",
+        "sma_50",
+        "sma_200",
+        "ret_ytd",
+        "ret_1w",
+        "ret_1m",
+        "greeks",
+        "expiry",
+        "days_to_maturity"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The owner's label; null when the entry has none."
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "asset": {
+          "enum": [
+            "stock",
+            "option"
+          ]
+        },
+        "contract": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/contract"
+            }
+          ],
+          "description": "The manifest's declared contract terms for an option row; null for a stock. This is configuration, not an observation."
+        },
+        "priced": {
+          "type": "boolean",
+          "description": "True iff the scan answered a last price for this row. An individual signal cell can still be null when the provider sent no value; an unpriced row carries no other cells."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the row is unpriced; null when priced."
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "change_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "volume": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "beta_1y": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "market_cap_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "dividend_yield": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "recommendation": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "pe_ttm": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "pe_forward": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "rsi_14": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "sma_50": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "sma_200": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "ret_ytd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "ret_1w": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "ret_1m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The scan's own cell, or null when the provider sent none."
+        },
+        "greeks": {
+          "type": "null"
+        },
+        "expiry": {
+          "type": "null"
+        },
+        "days_to_maturity": {
+          "type": "null"
+        }
+      }
+    }
+  }
+}

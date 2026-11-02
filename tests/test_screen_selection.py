@@ -925,14 +925,20 @@ def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> No
 
 
 def test_the_schema_vocabularies_are_the_code_vocabularies() -> None:
-    properties = SELECTION_REQUEST_SCHEMA["properties"]
+    document: Any = SELECTION_REQUEST_SCHEMA
+    properties = document["properties"]
     assert properties["mode"]["enum"] == list(MODES)
     assert properties["region"]["enum"] == list(REGIONS)
-    # Since T8 the order vocabulary is the catalog's numeric fields, both
-    # directions, plus the legacy aliases — derived, never retyped.
-    names = set(ORDER_BY) | set(ALIASES)
-    assert properties["criteria"]["properties"]["sort"]["enum"] == sorted(
+    # Since T8 the order vocabulary is every comparable column — the catalog's
+    # numeric fields, the row's own text columns (A-Z / Z-A) and the aliases of
+    # either — both directions, derived, never retyped.
+    criteria: Any = properties["criteria"]
+    names = set(ORDER_BY) | set(ALIASES) | {name for name, kind in FIELDS.items() if kind == "text"}
+    assert criteria["properties"]["sort"]["enum"] == sorted(
         names | {f"-{name}" for name in names}
+    )
+    assert "no" not in criteria["properties"]["sort"]["enum"], (
+        "the client-only row number is refused, so it is not a token"
     )
     assert properties["criteria"]["properties"]["limit"]["minimum"] == 1
     assert properties["criteria"]["properties"]["limit"]["default"] == PANEL_LIMIT

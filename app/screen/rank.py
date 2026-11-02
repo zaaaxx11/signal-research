@@ -10,11 +10,37 @@ down a second time:
 * ``<field>`` — descending, e.g. ``market_cap_usd``, ``pe_ttm``;
 * ``-<field>`` — ascending, e.g. ``-pe_ttm`` (Finviz's own ``o=-marketcap``).
 
-Three legacy names survive as aliases (``market_cap`` → ``market_cap_usd``,
-``gainers`` → ``change_pct``, ``turnover`` → ``turnover``), because
-``GET /screens?sort=``, the export manifest and every bookmark use them. They
-are *aliases*, not a second vocabulary: :func:`order_metric` resolves them to the
-same column the catalog spelling names.
+**The vocabulary is the catalogue's, not a second one.** A client does not know
+that the row spells the one-month return ``ret_1m``; it knows the column it
+draws, which is the catalogue key ``perf_4w``. So every catalogue/UI spelling
+that names a different row column is an alias of it — ``perf_4w`` →
+``ret_1m``, ``pe`` → ``pe_ttm``, ``sma50`` → ``sma_50``, ``company`` →
+``name`` — read from :data:`app.screen.columns.CATALOGUE_COLUMNS`, the one
+table that already answers "which row field does this catalogue key mean?" for
+the views, the ``columns`` projection and the filter DSL. There is no list
+here to drift: a key that resolves to a comparable row column sorts, and a key
+whose column no row carries (``eps``, ``news_url``, ``security_type``) is not an
+alias at all, so it stays the 422 it should be. A catalogue key that already
+*is* the row column (``sector``, ``price``, ``volume``) needs no entry either:
+resolution falls through to :data:`app.screen.filters.FIELDS`.
+
+The three legacy names the browse route and every bookmark use survive in the
+same table: ``market_cap`` → ``market_cap_usd``, ``gainers`` → ``change_pct``,
+and ``turnover`` → itself (a real catalog column, mapped to itself on purpose so
+that a reader looking for "does turnover need translating?" finds the answer).
+
+**Two refusals, both explicit.** A token that names nothing stays a ``ValueError``
+(``422 unknown_sort``) naming the accepted fields — widening the vocabulary must
+not turn a typo into a silent market-cap sort. ``no`` is refused with its own
+message: it is the one column the client draws from the page offset, the server
+has no per-row ordinal, and a sort on it could only be empty. It is listed in
+:data:`CLIENT_ONLY_SORTS` so a refusal and the client's own
+``CLIENT_COLUMNS`` say the same thing.
+
+An alias may never re-kind a column: a text field the row already spells
+(``sector``) cannot be pointed at a number by a synonym, because
+:func:`_key` chooses its comparison from the *target's* kind — so a text sort
+stays alphabetical instead of being coerced through ``float()``.
 
 The sort is **deterministic**: equal values break on ``symbol``, so the same
 universe produces the same order twice — and so page N and page N+1 cannot
@@ -34,13 +60,15 @@ import math
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.screen.columns import CATALOGUE_COLUMNS
 from app.screen.filters import FIELDS
 
 #: The closed vocabulary ``GET /screens?sort=`` exposes — the browse route's
 #: three buttons. Kept narrower than :data:`ORDER_BY` on purpose: that route
 #: shows the top 20 of a snapshot by one of three metrics, and widening it would
 #: change a published contract nobody asked to change. ``/screens/select`` is the
-#: route that orders by any numeric column.
+#: route that orders by any comparable column, under its own or its catalogue
+#: spelling (:data:`ALIASES`).
 SORTS: tuple[str, ...] = ("market_cap", "turnover", "gainers")
 
 #: Every column a selection may order by: the catalog's numeric fields, sorted
@@ -50,14 +78,48 @@ ORDER_BY: tuple[str, ...] = tuple(
     sorted(name for name, kind in FIELDS.items() if kind == "number")
 )
 
-#: Legacy spellings → the column they mean. ``turnover`` maps to itself on
-#: purpose: it is a real catalog column, and the alias table is where a reader
-#: looks to find out that it needs no translation.
+#: Comparison kinds a sort can use. A field outside this set (``is_primary`` is
+#: a bool) is not an order.
+_SORTABLE_KINDS: frozenset[str] = frozenset({"number", "text"})
+
+#: Catalogue/UI spelling → the row column it names, for the spellings the row
+#: writes differently. Derived from :data:`app.screen.columns.CATALOGUE_COLUMNS`
+#: — the single answer to "which row field does this key mean?" — so the
+#: screener's headers, the ``columns`` projection and the filter DSL cannot
+#: disagree. Two filters are deliberate:
+#:
+#: * identity keys (``sector``, ``price``, ``volume``) are omitted, because
+#:   :func:`order_metric` already falls through to ``FIELDS`` for them;
+#: * a key whose column no row carries (``eps``, ``net_income``, ``news_url``,
+#:   ``security_type``) is omitted too, so the catalogue spelling of an absent
+#:   metric stays a 422 instead of sorting an all-null column.
+_CATALOGUE_ALIASES: dict[str, str] = {
+    name: column
+    for name, column in CATALOGUE_COLUMNS.items()
+    if name != column and FIELDS.get(column) in _SORTABLE_KINDS
+}
+
+#: The spellings ``criteria.sort`` accepts that are not a row column's own name.
+#: The catalogue half is derived (above); the three legacy names are the browse
+#: route's published contract and every bookmark that predates the panel.
 ALIASES: Mapping[str, str] = MappingProxyType(
     {
-        "market_cap": "market_cap_usd",
+        **_CATALOGUE_ALIASES,
         "gainers": "change_pct",
         "turnover": "turnover",
+    }
+)
+
+#: Columns the client draws from the page's own geometry, and the reason a sort
+#: on one is refused. ``no`` is ``ROW_NUMBER_KEY``/``CLIENT_COLUMNS`` on the
+#: client: the server has no per-row ordinal, so there is no column to order and
+#: an accepted token would answer an empty page that reads as "no rows".
+CLIENT_ONLY_SORTS: Mapping[str, str] = MappingProxyType(
+    {
+        "no": (
+            "the row number is drawn from the page offset in the browser, not a "
+            "row column, so the server has no ordinal to order by"
+        )
     }
 )
 
@@ -65,21 +127,32 @@ ALIASES: Mapping[str, str] = MappingProxyType(
 def order_metric(sort: str) -> tuple[str, bool]:
     """``sort`` → ``(column, ascending)``; a leading ``-`` is ascending.
 
+    The token may be a row column (``ret_1m``), a catalogue/UI spelling of one
+    (``perf_4w``, ``pe``, ``company``) or a legacy name (``gainers``); the
+    leading ``-`` is stripped before resolution and survives it.
+
     Raises :class:`ValueError` naming the accepted catalog fields for anything
-    that is not a numeric column — a text field is not an order, and neither is
-    a typo. ``\"\"`` and ``\"-\"`` are refused for the same reason.
+    that is not a comparable column — a typo, an empty string, a client-only
+    column (whose refusal names the reason instead).
     """
 
     text = sort if isinstance(sort, str) else str(sort)
     name = text[1:] if text.startswith("-") else text
+    client_only = CLIENT_ONLY_SORTS.get(name)
+    if client_only is not None:
+        raise ValueError(
+            f"sort {sort!r} is client-only: {client_only}; "
+            "order by a served column such as market_cap, pe or perf_4w"
+        )
     column = ALIASES.get(name, name)
     # Text columns sort too - a country list ordered A-Z is a legitimate order.
     # A field we do not know is still refused, and so is a typo.
     kind = FIELDS.get(column)
-    if kind not in ("number", "text") and column != "symbol":
+    if kind not in _SORTABLE_KINDS and column != "symbol":
         raise ValueError(
             f"unknown sort {sort!r}; expected one of {', '.join(ORDER_BY)} "
-            f"(a leading '-' orders ascending)"
+            "(or a catalogue/UI spelling such as pe, perf_4w or market_cap; "
+            "a leading '-' orders ascending)"
         )
     return column, text.startswith("-")
 
@@ -180,6 +253,7 @@ def top_rows(rows: Sequence[Mapping[str, Any]], count: int) -> list[dict[str, An
 
 __all__ = [
     "ALIASES",
+    "CLIENT_ONLY_SORTS",
     "ORDER_BY",
     "SORTS",
     "order_metric",

@@ -24,11 +24,34 @@ from typing import Any
 
 import pytest
 
+from app.screen.columns import ABSENT_COLUMNS, CATALOGUE_COLUMNS
 from app.screen.filters import FIELDS
-from app.screen.rank import ALIASES, ORDER_BY, order_metric, rank_rows
+from app.screen.rank import ALIASES, CLIENT_ONLY_SORTS, ORDER_BY, order_metric, rank_rows
 from app.screen.selection import SelectionError, parse_selection, select_rows
+from tests._screen import default_screener_columns
 
 AS_OF = "2026-11-02T14:30:00.000000+00:00"
+
+#: Catalogue/UI spellings that name a column the ranker can compare. Derived
+#: from the one column table and the field kinds, never retyped: a key is here
+#: exactly when the row carries its column.
+SORTABLE_CATALOGUE_KEYS: tuple[str, ...] = tuple(
+    sorted(
+        key
+        for key, column in CATALOGUE_COLUMNS.items()
+        if FIELDS.get(column) in ("number", "text")
+    )
+)
+
+#: Catalogue keys whose column no row carries: a sort on one of these could
+#: only be empty, so they stay refused by name rather than sorting as nothing.
+UNSORTABLE_CATALOGUE_KEYS: tuple[str, ...] = tuple(
+    sorted(
+        key
+        for key, column in CATALOGUE_COLUMNS.items()
+        if FIELDS.get(column) not in ("number", "text")
+    )
+)
 
 
 def request(sort: str | None = None) -> dict[str, Any]:
@@ -106,12 +129,12 @@ def test_ties_still_break_on_the_symbol() -> None:
     assert [entry["symbol"] for entry in ranked] == ["AAA", "MMM", "ZZZ"]
 
 
-def test_the_three_legacy_sorts_still_work() -> None:
-    assert ALIASES == {
-        "market_cap": "market_cap_usd",
-        "gainers": "change_pct",
-        "turnover": "turnover",
-    }
+def test_the_three_legacy_sorts_still_resolve() -> None:
+    """The browse route's three buttons keep working — now as ordinary aliases."""
+
+    assert ALIASES["market_cap"] == "market_cap_usd"
+    assert ALIASES["gainers"] == "change_pct"
+    assert ALIASES["turnover"] == "turnover", "a self-map is the documented one"
     assert order_metric("market_cap") == ("market_cap_usd", False)
     assert order_metric("gainers") == ("change_pct", False)
     assert order_metric("turnover") == ("turnover", False)
@@ -160,3 +183,192 @@ def test_text_columns_sort_alphabetically_both_ways() -> None:
     assert [row["symbol"] for row in asc] == ["CCC", "BBB", "AAA", "DDD"]
     # Missing stays last in both directions.
     assert asc[-1]["symbol"] == "DDD"
+
+
+# ---------------------------------------------------------------------------
+# The catalogue/UI spelling is a sort token too
+#
+# The live failure this section pins: the screener's headers send the *catalogue*
+# key (``perf_4w``, ``pe``, ``sma50``) while the ranker speaks the row's own
+# column names (``ret_1m``, ``pe_ttm``, ``sma_50``). Only three spellings were
+# translated, so twelve of the thirteen default columns answered 422
+# ``unknown_sort`` when a reader pressed a header.
+# ---------------------------------------------------------------------------
+
+
+def test_perf_4w_orders_by_the_one_month_return() -> None:
+    """``perf_4w`` → ``ret_1m``: the exact token the live route refused."""
+
+    assert order_metric("perf_4w") == ("ret_1m", False)
+    assert order_metric("-perf_4w") == ("ret_1m", True)
+
+    rows = [
+        row("MID", ret_1m=3.0),
+        row("TOP", ret_1m=12.0),
+        row("BOTTOM", ret_1m=-4.0),
+        row("NONE", ret_1m=None),
+    ]
+
+    descending = rank_rows(rows, "perf_4w")
+    assert [entry["symbol"] for entry in descending] == ["TOP", "MID", "BOTTOM", "NONE"]
+
+    ascending = rank_rows(rows, "-perf_4w")
+    assert [entry["symbol"] for entry in ascending] == ["BOTTOM", "MID", "TOP", "NONE"], (
+        "a leading '-' is lowest first, and a missing value stays last"
+    )
+    assert [entry["rank"] for entry in ascending] == [1, 2, 3, 4]
+
+
+def test_perf_4w_survives_the_parser_and_the_selection_pipeline() -> None:
+    parsed = parse_selection(request("-perf_4w"))
+    assert parsed.sort == "-perf_4w", "the request echoes the spelling the caller used"
+
+    rows = [row("B", ret_1m=2.0), row("A", ret_1m=1.0)]
+    selection = select_rows(rows, parsed, region="us", as_of=AS_OF)
+    assert [entry["symbol"] for entry in selection.rows] == ["A", "B"]
+
+
+@pytest.mark.parametrize("key", SORTABLE_CATALOGUE_KEYS)
+def test_every_catalogue_key_sorts_by_the_column_it_names(key: str) -> None:
+    """Every key the UI can draw is a key a reader can press, both ways."""
+
+    column = CATALOGUE_COLUMNS[key]
+    assert order_metric(key) == (column, False)
+    assert order_metric(f"-{key}") == (column, True)
+    assert parse_selection(request(f"-{key}")).sort == f"-{key}"
+
+
+@pytest.mark.parametrize("key", UNSORTABLE_CATALOGUE_KEYS)
+def test_a_catalogue_key_with_no_row_column_is_still_refused(key: str) -> None:
+    """No alias may invent a column: ``eps`` and ``news_url`` have no cell."""
+
+    with pytest.raises(ValueError):
+        order_metric(key)
+
+    with pytest.raises(SelectionError) as caught:
+        parse_selection(request(key))
+    assert caught.value.code == "unknown_sort"
+
+
+def test_the_alias_table_is_the_catalogue_not_a_second_vocabulary() -> None:
+    """Structural: an alias lands on a comparable row column and never re-kinds
+    a name the row already spells.
+
+    That second clause is what stops a text field being sorted as a number: a
+    synonym may rename ``perf_4w`` to ``ret_1m``, but it may not point a text
+    column at a numeric one (or the reverse), because :func:`app.screen.rank._key`
+    picks its comparison from the target's kind.
+    """
+
+    assert ALIASES["perf_4w"] == "ret_1m"
+    assert ALIASES["ticker"] == "symbol"
+    assert ALIASES["company"] == "name"
+
+    for name, column in ALIASES.items():
+        assert column in FIELDS, f"alias {name!r} points at {column!r}, not a row column"
+        assert FIELDS[column] in ("number", "text"), (
+            f"alias {name!r} points at {column!r} ({FIELDS[column]}), which is not comparable"
+        )
+        assert column not in ABSENT_COLUMNS, f"alias {name!r} points at an absent column"
+        if name in FIELDS and name != column:
+            assert FIELDS[name] == FIELDS[column], (
+                f"alias {name!r} re-kinds an existing {FIELDS[name]} column as "
+                f"{FIELDS[column]}: a text field would be sorted as a number"
+            )
+
+    renamed = {
+        key
+        for key, column in CATALOGUE_COLUMNS.items()
+        if column != key and FIELDS.get(column) in ("number", "text")
+    }
+    assert renamed <= set(ALIASES), (
+        "every catalogue spelling the row spells differently is translated: "
+        f"missing {sorted(renamed - set(ALIASES))}"
+    )
+
+
+def test_a_text_alias_sorts_alphabetically_never_numerically() -> None:
+    """``company`` → ``name`` is a text sort; the cells are never coerced."""
+
+    assert order_metric("company") == ("name", False)
+    assert order_metric("-ticker") == ("symbol", True)
+
+    rows = [
+        {"symbol": "AAA", "name": "9 Labs"},
+        {"symbol": "BBB", "name": "Alpha"},
+        {"symbol": "CCC", "name": "2 Beta"},
+    ]
+
+    descending = rank_rows(rows, "company")
+    assert [entry["symbol"] for entry in descending] == ["BBB", "AAA", "CCC"], (
+        "alphabetical, not numeric: a float() attempt would fail on every row and "
+        "leave the symbol tie-break (AAA, BBB, CCC)"
+    )
+    ascending = rank_rows(rows, "-company")
+    assert [entry["symbol"] for entry in ascending] == ["CCC", "AAA", "BBB"]
+
+
+def test_the_row_number_is_refused_as_client_only() -> None:
+    """``no`` is drawn from the page offset; the server says so instead of 500."""
+
+    assert "no" in CLIENT_ONLY_SORTS, "the one client-only column is named"
+
+    with pytest.raises(ValueError) as caught:
+        order_metric("no")
+    assert "client-only" in str(caught.value)
+    assert "page offset" in str(caught.value)
+
+    with pytest.raises(SelectionError) as refused:
+        parse_selection(request("-no"))
+    assert refused.value.code == "unknown_sort"
+    assert "client-only" in str(refused.value)
+
+
+@pytest.mark.parametrize("token", ["sectr", "marketcap", "perf_5w", "perf_4w_", "PE"])
+def test_a_genuinely_unknown_token_is_still_unknown_sort(token: str) -> None:
+    """Widening the vocabulary did not turn a typo into a silent market-cap sort."""
+
+    with pytest.raises(ValueError):
+        order_metric(token)
+
+    with pytest.raises(SelectionError) as caught:
+        parse_selection(request(token))
+    assert caught.value.code == "unknown_sort"
+    assert token in str(caught.value)
+
+
+def test_every_default_screener_column_sorts_or_is_client_only() -> None:
+    """The list under test is the client's own two arrays, not a hand copy.
+
+    A default column the ranker cannot order is a header that answers 422 the
+    moment a reader presses it — which is exactly the shipped bug.
+    """
+
+    columns = default_screener_columns()
+    assert len(columns) >= 13, f"the shipped default set is missing columns: {columns}"
+    assert columns[0] == "no", "the row number leads the table and is client-only"
+
+    for key in columns:
+        if key in CLIENT_ONLY_SORTS:
+            with pytest.raises(ValueError):
+                order_metric(key)
+            continue
+        column, ascending = order_metric(key)
+        assert column in FIELDS, f"default column {key!r} resolves to {column!r}"
+        assert order_metric(f"-{key}") == (column, not ascending)
+
+
+def test_the_published_enum_lists_every_default_screener_column() -> None:
+    """The schema a client validates against accepts the request it sends."""
+
+    from app.screen.selection import SELECTION_REQUEST_SCHEMA
+
+    document: Any = SELECTION_REQUEST_SCHEMA
+    enum = set(document["properties"]["criteria"]["properties"]["sort"]["enum"])
+
+    for key in default_screener_columns():
+        if key in CLIENT_ONLY_SORTS:
+            assert key not in enum, f"{key!r} is client-only and must stay unpublished"
+            continue
+        assert key in enum, f"the default column {key!r} is missing from the enum"
+        assert f"-{key}" in enum, f"the ascending form of {key!r} is missing"

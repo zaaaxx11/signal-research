@@ -426,7 +426,7 @@ def _limit(raw: Any) -> int:
 
 
 def _sort(raw: Any) -> str | None:
-    """The order the page is ranked by: a numeric catalog field, ``-`` ascending.
+    """The order the page is ranked by: a comparable column, ``-`` ascending.
 
     ``None`` means the payload named no sort at all, which is **not** the same
     answer as ``market_cap``: a signal's own measure becomes the default order
@@ -436,8 +436,11 @@ def _sort(raw: Any) -> str | None:
     ``market_cap`` explicitly and one that names nothing still answer with the
     same applied order.
 
-    Anything else is a ``422 unknown_sort`` naming the accepted fields —
-    including a text column (``sector`` is not an order) and a misspelling.
+    The token may be a row column (``ret_1m``), the catalogue/UI spelling of one
+    (``perf_4w``, ``pe``, ``sma50``) or a legacy name (``gainers``); the
+    resolution and its refusals live in :func:`app.screen.rank.order_metric`.
+    Anything it refuses is a ``422 unknown_sort`` naming the accepted fields —
+    a misspelling, and the client-only ``no`` with the reason it cannot sort.
     """
 
     if raw is None:
@@ -1483,12 +1486,21 @@ def _sort_vocabulary() -> list[str]:
     """Every spelling ``criteria.sort`` accepts, sorted.
 
     Both directions of every numeric catalog field (``pe_ttm`` descending,
-    ``-pe_ttm`` ascending — Finviz's ``o=-marketcap``) plus the three legacy
-    names the browse route and every bookmark still use. Derived from
-    :mod:`app.screen.rank`, so the published enum cannot outlive the validator.
+    ``-pe_ttm`` ascending — Finviz's ``o=-marketcap``), the catalogue/UI
+    spellings that rename one (``perf_4w``, ``pe``, ``sma50``) and the three
+    legacy names the browse route and every bookmark still use. The row's own
+    **text** columns are published too (``sector``, ``country``, ``exchange``):
+    a country list ordered A-Z is a legitimate order, the validator accepts it,
+    and the shipped header sends ``sort=country`` — an enum without them would
+    reject the client's own request. The client-only ``no`` is deliberately
+    absent: it is refused, not ordered.
+
+    Derived from :mod:`app.screen.rank` and :data:`app.screen.filters.FIELDS`,
+    so the published enum cannot outlive the validator.
     """
 
     names = set(ranking.ORDER_BY) | set(ranking.ALIASES)
+    names |= {name for name, kind in FIELDS.items() if kind == "text"}
     return sorted(names | {f"-{name}" for name in names})
 
 
@@ -1543,12 +1555,15 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "`x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to "
         "one row column, and a key no column can answer is a 422 that names it. "
         "The two tables together are the vocabulary a filter picker is built "
-        "from. `criteria.sort` orders by any numeric catalog field (`-field` "
-        "ascends), and the top-level `signal` narrows the whole query to one of "
-        "the signal populations. `GET /screens/filters` publishes the "
-        "Descriptive group itself — every control, its options, its availability "
-        "and the predicate each option compiles to — so a panel never hardcodes "
-        "a vocabulary the server owns."
+        "from. `criteria.sort` orders by any comparable row column — its own "
+        "name (`pe_ttm`), the catalogue/UI spelling the screener sends "
+        "(`perf_4w`, `pe`, `sma50`, `company`) or a legacy name (`gainers`) — "
+        "with `-field` ascending; a text column sorts alphabetically and `no` "
+        "is client-only and refused. The top-level `signal` narrows the whole "
+        "query to one of the signal populations. `GET /screens/filters` "
+        "publishes the Descriptive group itself — every control, its options, "
+        "its availability and the predicate each option compiles to — so a "
+        "panel never hardcodes a vocabulary the server owns."
     ),
     "type": "object",
     "additionalProperties": False,
@@ -1657,11 +1672,17 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
                     "enum": _sort_vocabulary(),
                     "default": DEFAULT_SORT,
                     "description": (
-                        "The one metric the page is ordered by: any numeric "
-                        "catalog field, descending, or `-<field>` for ascending "
-                        "(the panel's own `o=-marketcap`). The three legacy names "
-                        "`market_cap`, `turnover` and `gainers` still resolve. A "
-                        "text column is not an order — `sector` is a 422 "
+                        "The one metric the page is ordered by: any comparable "
+                        "catalog column, descending, or `-<field>` for ascending "
+                        "(the panel's own `o=-marketcap`). A column may be named "
+                        "by its row field (`ret_1m`), by the catalogue/UI "
+                        "spelling the screener sends (`perf_4w`, `pe`, `sma50`, "
+                        "`company`, `ticker`) or by a legacy name (`market_cap`, "
+                        "`turnover`, `gainers`); every spelling resolves to the "
+                        "same column. A text column sorts alphabetically (A-Z / "
+                        "Z-A), and a missing value sorts last in both "
+                        "directions. `no` is client-only — the row number comes "
+                        "from the page offset — and an unknown spelling is a 422 "
                         "`unknown_sort` naming the accepted fields. When `signal` "
                         "is named and this is absent, the signal's own measure "
                         "becomes the order; an explicit sort always wins."

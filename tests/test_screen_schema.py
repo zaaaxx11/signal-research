@@ -235,8 +235,11 @@ def test_the_published_sort_vocabulary_is_the_catalog_and_its_aliases() -> None:
 
     assert set(ORDER_BY) <= enum, "every numeric catalog field is orderable"
     assert {f"-{name}" for name in ORDER_BY} <= enum, "a leading '-' is ascending"
-    assert set(ALIASES) <= enum, "the three legacy names still validate"
-    assert "sector" not in enum, "a text column is not an order"
+    assert set(ALIASES) <= enum, "every catalogue spelling of a column validates"
+    assert {"sector", "country", "exchange", "-sector"} <= enum, (
+        "a text column sorts alphabetically, and the shipped header sends it"
+    )
+    assert "no" not in enum, "the client-only row number is refused, not published"
     assert "marketcap" not in enum, "Finviz's own spelling is not our vocabulary"
     assert sort["default"] == "market_cap"
     assert "ascending" in sort["description"]

@@ -23,6 +23,7 @@
 # --- data locations (paths are resolved by app/engine/paths.py)
 MEE_DATA_DIR: data root; app/engine/paths.py data_dir, app/screen/depth_source.py
 MEE_BACKUP_DIR: backup root; app/engine/paths.py backup_dir
+MEE_COINIDS_PATH: instrument manifest location; app/market/coinids.py resolve_manifest_path
 
 # --- engine snapshot and cache
 MEE_ENGINE_CACHE_DIR: document cache; app/main.py _cache_dir, app/api/engine.py, app/engine/bootstrap.py

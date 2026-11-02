@@ -43,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import re
 import sqlite3
 from contextlib import asynccontextmanager, closing
 from dataclasses import dataclass
@@ -71,6 +72,41 @@ REGIONS: tuple[str, ...] = ("us", "global")
 SORTS: tuple[str, ...] = ("market_cap", "turnover", "gainers")
 SCOPES: tuple[str, ...] = ("all", "top20")
 DATA_FORMATS: tuple[str, ...] = ("csv", "xlsx", "jsonl", "parquet")
+
+#: The shipped screener's default columns, read from the client's own two lists
+#: rather than retyped here: the bug these tests pin is precisely that the UI
+#: sent keys the ranker did not know, so the list under test has to be the one
+#: the UI renders. A copy would have agreed with the backend by construction.
+WEB_SRC = ROOT / "web" / "src"
+DEFAULT_COLUMNS_TS = WEB_SRC / "screener" / "defaultColumns.ts"
+COLUMN_META_TS = WEB_SRC / "grid" / "columnMeta.ts"
+
+
+def _ts_string_array(source: str, name: str) -> list[str]:
+    """The entries of an ``export const NAME = [...] as const`` list.
+
+    Entries are quoted strings except the one identifier reference
+    (``ROW_NUMBER_KEY``), which is returned verbatim and resolved by
+    :func:`default_screener_columns`.
+    """
+
+    match = re.search(rf"export const {name} = \[(.*?)\] as const", source, re.S)
+    assert match is not None, f"{name} is no longer a literal list in the client"
+    return [token.strip().strip('"') for token in match.group(1).split(",") if token.strip()]
+
+
+def default_screener_columns() -> list[str]:
+    """Every column the screener opens with, in the order the client lists them."""
+
+    source = DEFAULT_COLUMNS_TS.read_text(encoding="utf-8")
+    keys = _ts_string_array(source, "DEFAULT_COLUMN_ORDER") + _ts_string_array(
+        source, "DEFAULT_EXTRA_COLUMNS"
+    )
+    meta = COLUMN_META_TS.read_text(encoding="utf-8")
+    row_number = re.search(r'export const ROW_NUMBER_KEY = "([^"]+)"', meta)
+    assert row_number is not None, "ROW_NUMBER_KEY is the client's row-number spelling"
+    return [row_number.group(1) if key == "ROW_NUMBER_KEY" else key for key in keys]
+
 
 #: The display contract: one screen page is the top 20 of a snapshot.
 DISPLAY_ROWS = 20

@@ -35,6 +35,7 @@ from app.api import chart as chart_api
 from app.api import engine as engine_api
 from app.api import groups as groups_api
 from app.api import home as home_api
+from app.api import instruments as instruments_api
 from app.api import logos as logos_api
 from app.api import map as map_api
 from app.api import signals
@@ -806,6 +807,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: computable today), from one pass over the selector's universe and the
     #: same scan cache — so the page and a screen describe one population.
     mount_router(application, signals.router)
+    #: ``GET /market/instruments``: the server-side manifest (``coinid.json``)
+    #: as one row per declared instrument, priced off the selector's own scan and
+    #: depth overlay; ``/meta`` reports the manifest's state and its gaps.
+    mount_router(application, instruments_api.router)
     #: ``GET /market/map``: the treemap's inputs — every tile of the selector's
     #: universe with its cap and its change — from one scan, one build, one pass,
     #: memoised per scan generation. The largest body in the app (~173 KB).
