@@ -72,6 +72,10 @@ class Row:
     type: str = "stock"
     subtype: str = "common"
     currency: str = "USD"
+    #: The provider's industry string ("Semiconductors"). It is a parity text
+    #: field, so it arrives only when the scan asked for that column; the
+    #: default is ``None`` — a row the provider did not classify.
+    industry: str | None = None
 
     def cells(self) -> dict[str, Any]:
         """The provider's cells for this row, by column name."""
@@ -82,6 +86,7 @@ class Row:
             "exchange": self.exchange,
             "country": self.country,
             "sector": self.sector,
+            "industry": self.industry,
             "type": self.type,
             "subtype": self.subtype,
             "currency": self.currency,

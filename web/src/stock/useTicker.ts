@@ -10,7 +10,9 @@
  *     known.
  *   * `GET /engine/security/{symbol}` — identity: company, sector, industry.
  *   * `GET /engine/fundamentals/{symbol}` — the statement-derived metrics the
- *     snapshot draws.
+ *     snapshot falls back to when its own endpoint is unavailable.
+ *   * `GET /engine/snapshot/{symbol}` — the 84-cell snapshot's one read, with
+ *     a unit per key (see `useSnapshot`; Overview is its only customer).
  *   * `POST /screens/select` in symbols mode — the scan row: price, change,
  *     market cap, volume, previous close and the six ownership cells.
  *   * `GET /engine/peers/{symbol}?limit=10` — the industry list.
@@ -26,6 +28,8 @@
 import * as React from "react";
 
 import { ApiError, getJson, postJsonConditional, readErrorMessage } from "@/lib/api";
+import type { SnapshotDocument } from "./snapshot";
+import { parseSnapshot } from "./snapshot";
 import {
   parseFundamentals,
   parseInsider,
@@ -486,4 +490,76 @@ export function useTicker(symbol: string, active: TickerTabId = "overview"): Tic
  */
 export function useCompany(symbol: string): Resource<CompanyProfile> {
   return useResource(symbol, loadCompany);
+}
+
+/** What the snapshot grid's own read is doing, and what to say about it. */
+export interface SnapshotState {
+  readonly data: SnapshotDocument | null;
+  readonly status: "loading" | "ready" | "unavailable";
+  /**
+   * One sentence for the grid's header when the read failed. `null` while the
+   * request is in flight and after it answers — a grid of em dashes is only
+   * honest when the endpoint said the values are null.
+   */
+  readonly notice: string | null;
+}
+
+/**
+ * `GET /engine/snapshot/{symbol}`: one read for the 84-cell grid.
+ *
+ * The other resources treat a 404 as an empty answer and drop its message.
+ * This one cannot: the endpoint is new, and while a deployment does not serve
+ * it the grid falls back to the fundamentals document and the scan row. The
+ * reader is owed the reason in one line, not twelve silent em dashes, so the
+ * message survives into `notice`.
+ *
+ * Fired once per symbol while the overview is the open tab: leaving the tab
+ * aborts an in-flight read, and coming back is a fresh read of the same URL.
+ */
+export function useSnapshot(symbol: string, enabled = true): SnapshotState {
+  const [state, setState] = React.useState<SnapshotState>({
+    status: "loading",
+    data: null,
+    notice: null,
+  });
+
+  React.useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    let live = true;
+    setState({ status: "loading", data: null, notice: null });
+
+    getJson(`/engine/snapshot/${encodeURIComponent(symbol)}`, controller.signal)
+      .then((body) => {
+        if (!live) return;
+        const data = parseSnapshot(body, symbol);
+        if (data === null) {
+          setState({
+            status: "unavailable",
+            data: null,
+            notice:
+              "The snapshot endpoint answered without values. Showing the fundamentals document and the latest scan row.",
+          });
+          return;
+        }
+        setState({ status: "ready", data, notice: null });
+      })
+      .catch((error: unknown) => {
+        if (!live || controller.signal.aborted || isAbortError(error)) return;
+        const reason =
+          error instanceof Error && error.message.length > 0 ? error.message : "the request failed";
+        setState({
+          status: "unavailable",
+          data: null,
+          notice: `Snapshot unavailable — ${reason}. Showing the fundamentals document and the latest scan row.`,
+        });
+      });
+
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [symbol, enabled]);
+
+  return state;
 }

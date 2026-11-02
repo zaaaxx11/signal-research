@@ -51,6 +51,136 @@ export function rowPayload(symbol = "AAPL"): Record<string, unknown> {
   };
 }
 
+/**
+ * `GET /engine/snapshot/{symbol}`: one document, one unit per numeric key.
+ *
+ * The values are canonical for their unit — a `ratio` is 0.7654, not 76.54 —
+ * because the whole point of the endpoint is that the client no longer has to
+ * guess whether a number arrived as a fraction or a percentage. `optionable`
+ * is a flag; a date is text; a key the engine cannot answer is `null` and is
+ * named in `missing`.
+ */
+export function snapshotPayload(symbol = "AAPL"): Record<string, unknown> {
+  const values: Record<string, unknown> = {
+    index_membership: "NDX, S&P 500",
+    market_cap: 5_180_000_000_000,
+    enterprise_value: 5_242_000_000_000,
+    net_income: 128_930_000_000,
+    sales: 466_823_000_000,
+    book_per_share: 7.36,
+    cash_per_share: 2.71,
+    dividend: 1.04,
+    dividend_ttm: 1.04,
+    dividend_ex_date: "2026-11-07",
+    dividend_growth_3y: null,
+    payout_ratio: 11.93,
+    employees: 164_000,
+    ipo_date: "1980-12-12",
+
+    pe: 34.12,
+    forward_pe: 29.4,
+    peg: 2.31,
+    ps: 8.19,
+    pb: 47.31,
+    pc: 22.14,
+    pfcf: 31.53,
+    ev_ebitda: 24.18,
+    ev_sales: 8.42,
+    quick_ratio: 0.93,
+    current_ratio: 1.0032,
+    debt_to_equity: 0.7654,
+    lt_debt_to_equity: 0.6632,
+    optionable: true,
+
+    eps: 8.72,
+    recommendation: 1.71,
+    target_price: 372.5,
+    earnings_date: "2026-10-29",
+
+    insider_own: 1.648,
+    inst_own: 66.338,
+    roa: 33.64,
+    roe: 119.91,
+
+    shares_outstanding: 14_594_200_000,
+    shares_float: 14_576_745_336.8,
+    short_float: 0.9,
+    short_ratio: 3.48,
+    high_52w: 358.42,
+    low_52w: 208.14,
+    beta: 1.08,
+    rsi: 55.35,
+    average_volume: 52_100_000,
+    volume: 54_300_000,
+
+    perf_1w: 2.41,
+    change: 1.24,
+    prev_close: 339.15,
+    price: 343.36,
+  };
+
+  const units: Record<string, string> = {
+    market_cap: "usd",
+    enterprise_value: "usd",
+    net_income: "usd",
+    sales: "usd",
+    book_per_share: "usd",
+    cash_per_share: "usd",
+    dividend: "usd",
+    dividend_ttm: "usd",
+    payout_ratio: "percent",
+    employees: "count",
+
+    pe: "ratio",
+    forward_pe: "ratio",
+    peg: "ratio",
+    ps: "ratio",
+    pb: "ratio",
+    pc: "ratio",
+    pfcf: "ratio",
+    ev_ebitda: "ratio",
+    ev_sales: "ratio",
+    quick_ratio: "ratio",
+    current_ratio: "ratio",
+    debt_to_equity: "ratio",
+    lt_debt_to_equity: "ratio",
+    optionable: "bool",
+
+    eps: "usd",
+    recommendation: "ratio",
+    target_price: "usd",
+
+    insider_own: "percent",
+    inst_own: "percent",
+    roa: "percent",
+    roe: "percent",
+
+    shares_outstanding: "count",
+    shares_float: "count",
+    short_float: "percent",
+    short_ratio: "ratio",
+    high_52w: "usd",
+    low_52w: "usd",
+    beta: "ratio",
+    rsi: "ratio",
+    average_volume: "count",
+    volume: "count",
+
+    perf_1w: "percent",
+    change: "percent",
+    prev_close: "usd",
+    price: "usd",
+  };
+
+  return {
+    symbol,
+    as_of: "2026-11-02T14:30:00Z",
+    values,
+    units,
+    missing: Object.keys(values).filter((key) => values[key] === null),
+  };
+}
+
 export function securityPayload(symbol = "AAPL"): Record<string, unknown> {
   return {
     symbol,
@@ -295,6 +425,7 @@ export interface TickerRoutes {
   profile?: RouteHandler;
   security?: RouteHandler;
   fundamentals?: RouteHandler;
+  snapshot?: RouteHandler;
   peers?: RouteHandler;
   insider?: RouteHandler;
   news?: RouteHandler;
@@ -321,7 +452,9 @@ export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.f
         ? routes.security
         : url.includes("/engine/fundamentals/")
           ? routes.fundamentals
-          : url.includes("/engine/peers/")
+          : url.includes("/engine/snapshot/")
+            ? routes.snapshot
+            : url.includes("/engine/peers/")
             ? routes.peers
             : url.includes("/engine/insider/")
               ? routes.insider
@@ -345,6 +478,9 @@ export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.f
     }
     if (url.includes("/engine/fundamentals/")) {
       return Promise.resolve(json(fundamentalsPayload()));
+    }
+    if (url.includes("/engine/snapshot/")) {
+      return Promise.resolve(notFound("snapshot_not_found: the snapshot endpoint is not deployed"));
     }
     if (url.includes("/engine/security/")) {
       return Promise.resolve(json(securityPayload()));

@@ -20,9 +20,14 @@ import {
   json,
   notFound,
   profilePayload,
+  snapshotPayload,
   stubTickerApi,
   statementsPayload,
 } from "./__fixtures__/ticker";
+
+function snapshotCell(key: string): Element | null {
+  return screen.getByTestId("snapshot-grid").querySelector(`[data-snapshot-cell="${key}"]`);
+}
 
 beforeEach(() => {
   resetSnapshotCache();
@@ -162,5 +167,38 @@ describe("TickerPage", () => {
     expect(
       fetchMock.mock.calls.some((call) => String((call as unknown[])[0]).includes("/engine/statements/")),
     ).toBe(false);
+  });
+
+  it("fills the snapshot from /engine/snapshot once per symbol", async () => {
+    const fetchMock = stubTickerApi({ snapshot: () => json(snapshotPayload()) });
+    render(<TickerPage symbol="AAPL" />);
+
+    // The grid is drawn before the read lands (84 honest em dashes), then
+    // every reported key is filled from the document.
+    await waitFor(() => expect(snapshotCell("pe")?.textContent).toBe("34.12"), { timeout: 4_000 });
+    expect(snapshotCell("forward_pe")?.textContent).toBe("29.40");
+    expect(snapshotCell("market_cap")?.textContent).toBe("$5.18T");
+    expect(snapshotCell("debt_to_equity")?.textContent).toBe("0.77");
+    expect(screen.queryByTestId("snapshot-notice")).toBeNull();
+
+    const reads = fetchMock.mock.calls.filter((call) =>
+      String((call as unknown[])[0]).includes("/engine/snapshot/"),
+    );
+    expect(reads).toHaveLength(1);
+    expect(String((reads[0] as unknown[])[0])).toBe("/engine/snapshot/AAPL");
+  });
+
+  it("shows the missing endpoint's reason in one line and keeps the fallback", async () => {
+    stubTickerApi({ snapshot: () => notFound("snapshot_not_found: no snapshot for AAPL") });
+    render(<TickerPage symbol="AAPL" />);
+
+    const notice = await screen.findByTestId("snapshot-notice");
+    expect(notice.textContent).toContain("snapshot_not_found: no snapshot for AAPL");
+    // One sentence, not a stack of paragraphs.
+    expect(notice.querySelectorAll("br, p, div")).toHaveLength(0);
+
+    // The grid is still complete: the fundamentals and the scan row fill it.
+    expect(screen.getByTestId("snapshot-grid").querySelectorAll("[data-snapshot-cell]")).toHaveLength(84);
+    await waitFor(() => expect(snapshotCell("market_cap")?.textContent).toBe("$5.18T"));
   });
 });

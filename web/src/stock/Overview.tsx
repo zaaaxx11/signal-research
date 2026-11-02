@@ -7,9 +7,10 @@
  * peers, three funds, ten insider rows, ten headlines — and every panel says
  * the truth when it has nothing: an empty sentence, never an empty frame.
  *
- * The snapshot is drawn from data already on the page (fundamentals, the scan
- * row, the optional profile). It has no read of its own, so it cannot be the
- * reason the page is slow and it cannot disagree with the header.
+ * The snapshot is drawn from `GET /engine/snapshot/{symbol}` — one call for all
+ * 84 cells, with the endpoint's own unit per key. When that read fails the grid
+ * falls back to the fundamentals document and the scan row and says why in one
+ * line above itself.
  */
 
 import * as React from "react";
@@ -43,6 +44,8 @@ export const HELD_BY_FUNDS = [
 export interface OverviewProps {
   readonly symbol: string;
   readonly sources: SnapshotSources;
+  /** One line above the snapshot when its own read failed, else null. */
+  readonly notice?: string | null;
   readonly peers: Resource<PeersData>;
   readonly insiders: Resource<InsiderData>;
   readonly news: Resource<NewsData>;
@@ -286,6 +289,7 @@ function NewsOverview({ state }: { state: Resource<NewsData> }): React.ReactElem
 export function Overview({
   symbol,
   sources,
+  notice = null,
   peers,
   insiders,
   news,
@@ -306,7 +310,7 @@ export function Overview({
             Fundamentals and the latest scan row
           </span>
         </div>
-        <SnapshotGrid sources={sources} />
+        <SnapshotGrid sources={sources} notice={notice} />
       </section>
 
       <CompanyProfile symbol={symbol} />

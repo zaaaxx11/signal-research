@@ -32,21 +32,21 @@ export function StockPage({ symbol }: StockPageProps): React.ReactElement {
     <main
       data-testid="stock-page"
       data-symbol={symbol}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="flex min-w-0 flex-1 flex-col"
     >
       <ErrorBoundary
         resetKey={`${symbol}:${attempt}`}
         label={`Ticker page for ${symbol}`}
         hint="Its code could not be downloaded — a deploy may have replaced this chunk. Retry, or go back to the signals."
         onRetry={() => setAttempt((value) => value + 1)}
-        className="flex min-h-0 flex-1"
+        className="min-w-0"
       >
         <React.Suspense
           fallback={
             <div
               aria-busy="true"
               aria-label={`Loading the ticker page for ${symbol}`}
-              className="min-h-0 flex-1 bg-surface"
+              className="h-40 bg-surface"
             />
           }
         >

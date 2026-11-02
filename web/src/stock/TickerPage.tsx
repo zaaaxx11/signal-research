@@ -27,7 +27,7 @@ import { TickerChart } from "./TickerChart";
 import { TickerHeader } from "./TickerHeader";
 import { TickerTabs, TICKER_PANEL_ID, tabFromSearch, tabHref, tabId } from "./TickerTabs";
 import type { SnapshotSources } from "./snapshot";
-import { headerView, useTicker } from "./useTicker";
+import { headerView, useSnapshot, useTicker } from "./useTicker";
 
 export interface TickerPageProps {
   readonly symbol: string;
@@ -38,14 +38,18 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
   const active = tabFromSearch(search);
   const resources = useTicker(symbol, active);
   const header = headerView(resources, symbol);
+  // The snapshot is its own read, and only Overview draws it: a deep link to
+  // Statements must not pay for 84 values nobody will see.
+  const snapshot = useSnapshot(symbol, active === "overview");
 
   const sources = React.useMemo<SnapshotSources>(
     () => ({
+      snapshot: snapshot.data,
       metrics: resources.fundamentals.data?.metrics ?? null,
       row: resources.row.data,
       profile: resources.profile.data?.raw ?? null,
     }),
-    [resources.fundamentals.data, resources.row.data, resources.profile.data],
+    [snapshot.data, resources.fundamentals.data, resources.row.data, resources.profile.data],
   );
 
   const onChange = React.useCallback(
@@ -87,6 +91,7 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
           <Overview
             symbol={symbol}
             sources={sources}
+            notice={snapshot.notice}
             peers={resources.peers}
             insiders={resources.insiders}
             news={resources.news}
@@ -100,7 +105,7 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
       data-testid="ticker-page"
       data-symbol={symbol}
       data-tab={active}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg"
+      className="flex flex-col bg-bg"
     >
       <TickerHeader header={header} />
       <TickerTabs active={active} onChange={onChange} />
@@ -109,7 +114,7 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
         role="tabpanel"
         aria-labelledby={tabId(active)}
         tabIndex={0}
-        className="focus-ring min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
+        className="focus-ring px-4 py-3"
       >
         {content}
       </div>

@@ -34,9 +34,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,10 +65,21 @@ from app.engine.screener import ScreenError, ScreenQuery, ScreenResult, parse_qu
 from app.engine.service import EngineService, EngineUnavailable
 from app.engine.statements import collect_statements
 from app.engine.statement_table import statement_document
+from app.market.indicators_extra import (
+    DEFAULT_MOMENTUM_PERIOD,
+    DEFAULT_PERIODS,
+    DEFAULT_RSI_PERIOD,
+    MAX_PERIOD,
+    MAX_PERIODS,
+    technicals as technicals_document,
+)
 from app.market.quote import QuoteTick
 from app.screen import index_membership
+from app.screen.depth_overlay import SCREEN_ALIASES, overlay
+from app.screen.depth_source import current_depth
 from app.screen.scanner import ScanError
 from app.screen.ticker import peer_document, profile_document
+from app.screen.ticker_snapshot import snapshot_document
 
 router = APIRouter(prefix="/engine", tags=["engine"])
 
@@ -362,6 +375,101 @@ async def profile(symbol: str, request: Request) -> dict[str, Any]:
             f"security {symbol!r} is not in the scanned universe",
         )
     return profile_document(row, index_members=index_members_for(target))
+
+
+@router.get("/snapshot/{symbol}")
+async def snapshot(symbol: str, request: Request) -> dict[str, Any]:
+    """The ticker page's whole snapshot: one catalogue row, one call.
+
+    The page's six-column grid asks for 84 catalogue cells at once. Reading
+    them from three documents is how it ended up with twelve em dashes in the
+    Valuation column and a percentage (76.54) in the Debt/Equity slot: the SEC
+    facts document carries none of those multiples, and the one leverage cell it
+    computes is ``total_debt / equity * 100`` declared as a multiple. This route
+    answers the grid from the data the screener itself trusts:
+
+    1. **the scan row** ``/screens`` already builds (``ticker_universe`` — same
+       cache, same parity columns, no second provider path), resolved through
+       :func:`app.screen.columns.value_for` so ``pe_ttm`` answers ``pe``;
+    2. **the depth overlay** the selection route merges
+       (``overlay(..., aliases=SCREEN_ALIASES)``, fill-missing-only), which is
+       where forward P/E, P/S, EV/Sales, LT Debt/Equity, ``optionable`` and
+       ``shortable`` come from.
+
+    ``values`` carries every key, ``null`` where neither store answered, and
+    ``missing`` names those keys in draw order. ``units`` states each
+    quantity's format (``ratio``, ``percent``, ``usd``, ``count``, ``bool``);
+    ``debt_to_equity`` and ``lt_debt_to_equity`` are **ratios** there
+    (0.7844, never 76.54) and their percent spelling is the explicit
+    ``_pct`` sibling. ``optionable``/``shortable`` are booleans with unit
+    ``bool``, not ``"Yes"`` text. Date and index-membership cells are
+    self-describing text and carry no unit.
+
+    Three answers stay distinct: a symbol neither the scan nor the depth store
+    knows is ``404 unknown_symbol``; a symbol outside the scan that the depth
+    store *does* know (a foreign listing) is an honest ``200`` with everything
+    it could not fill named in ``missing``; a blocked scan is
+    ``503 scanner_unavailable`` unless the depth store can still answer the
+    symbol — in which case the response is depth-only and says so in
+    ``degraded``. ``as_of`` is the depth collector's stamp, ``null`` when no
+    depth store is loaded: the scan cache keeps no per-page timestamp on this
+    path, and this route does not invent one.
+    """
+
+    target = str(symbol or "").strip().upper()
+    depth = current_depth()
+
+    scan_error: ScanError | None = None
+    rows: Sequence[Mapping[str, Any]] = ()
+    try:
+        rows = await ticker_universe(request)
+    except ScanError as exc:
+        # A blocked scan is not fatal yet: the depth store may know this
+        # symbol on its own, and "the scanner is down" must not erase a
+        # measurement the store holds. Below, only a symbol *both* stores
+        # miss answers 503.
+        scan_error = exc
+
+    row = next(
+        (
+            candidate
+            for candidate in rows
+            if str(candidate.get("symbol") or "").strip().upper() == target
+        ),
+        None,
+    )
+    base: Mapping[str, Any] = dict(row) if row is not None else {"symbol": target}
+    merged = overlay(
+        [base], depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES
+    )[0]
+    # The overlay copies the row and appends the store's cells, so a merge that
+    # is longer than its input is the store saying it knows this symbol — the
+    # dotted/hyphen lookup included, without a second spelling table here.
+    known_to_depth = len(merged) > len(base)
+
+    if row is None and not known_to_depth:
+        if scan_error is not None:
+            raise ApiError(
+                503,
+                "scanner_unavailable",
+                f"the scanner could not answer the snapshot: {scan_error}",
+            )
+        raise ApiError(
+            404,
+            "unknown_symbol",
+            f"symbol {symbol!r} is in neither the scanned universe nor the depth store",
+        )
+
+    document = snapshot_document(
+        target,
+        merged,
+        as_of=depth.as_of,
+        index_members=index_members_for(target),
+        scan_row=base,
+    )
+    if scan_error is not None:
+        document["degraded"] = "scan_unavailable"
+    return document
 
 
 async def company_profile(symbol: str) -> Mapping[str, Any] | None:
@@ -1020,6 +1128,235 @@ async def _refreshed(
         _screened(refreshed, query),
         snapshot_from_ticks(ticks, scope=scope, requested=len(symbols)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Derived technicals
+# ---------------------------------------------------------------------------
+
+
+def _indicator_periods(raw: Any) -> tuple[int, ...]:
+    """``13,21,50`` as validated windows, or ``422 invalid_periods``.
+
+    Digits only: ``+13`` and ``1_0`` are not how a caller writes a window, and
+    accepting them would make the parameter's grammar larger than its meaning.
+    """
+
+    tokens = [token.strip() for token in raw.split(",")] if isinstance(raw, str) else []
+    if (
+        not tokens
+        or any(not token.isdigit() for token in tokens)
+        or len(tokens) > MAX_PERIODS
+        or len({int(token) for token in tokens}) != len(tokens)
+        or any(not 1 <= int(token) <= MAX_PERIOD for token in tokens)
+    ):
+        raise ApiError(
+            status_code=422,
+            error="invalid_periods",
+            message=(
+                f"periods must be 1-{MAX_PERIODS} distinct comma-separated "
+                f"integers in 1..{MAX_PERIOD}; got {raw!r}"
+            ),
+        )
+    return tuple(int(token) for token in tokens)
+
+
+def _indicator_window(raw: Any, *, name: str, error: str) -> int:
+    """One positive integer window, or the parameter's own ``422``."""
+
+    token = raw.strip() if isinstance(raw, str) else ""
+    if not token.isdigit() or not 1 <= int(token) <= MAX_PERIOD:
+        raise ApiError(
+            status_code=422,
+            error=error,
+            message=f"{name} must be an integer in 1..{MAX_PERIOD}; got {raw!r}",
+        )
+    return int(token)
+
+
+def _indicator_threshold(raw: Any) -> float | None:
+    """A non-negative percent band, or ``422 invalid_momentum_threshold``."""
+
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = math.nan
+    if not math.isfinite(value) or value < 0:
+        raise ApiError(
+            status_code=422,
+            error="invalid_momentum_threshold",
+            message=(
+                "momentum_threshold must be a finite number >= 0 (percent); "
+                f"got {raw!r}"
+            ),
+        )
+    return value
+
+
+@router.get("/technicals/{symbol}")
+async def technicals(
+    symbol: str,
+    request: Request,
+    periods: str = ",".join(str(period) for period in DEFAULT_PERIODS),
+    rsi: str = str(DEFAULT_RSI_PERIOD),
+    momentum: str = str(DEFAULT_MOMENTUM_PERIOD),
+    momentum_threshold: str | None = None,
+) -> dict[str, Any]:
+    """The derived technicals for one symbol, from one daily close series.
+
+    ``values`` always carries every key the request asked for. A window the
+    series cannot fill is ``null`` and named in ``missing`` — never ``0`` — so a
+    young ticker is visibly young rather than suspiciously flat. ``units`` maps
+    every published key to ``price``, ``percent``, ``index`` (RSI, 0–100) or
+    ``label`` (the opt-in momentum signal), because the numbers live on
+    different scales.
+
+    ``as_of`` is the **last bar's** date, not the moment of the request: the
+    document states which session it describes. ``perf_wtd`` and ``perf_mtd``
+    are calendar returns — the base is the close strictly before this week's
+    Monday / this month's first day — so a holiday-shortened week cannot turn
+    "week to date" into "the last five bars". A series that does not reach back
+    past the boundary leaves both null.
+
+    The series is the chart route's daily one (:func:`app.api.chart.fetch_series`),
+    parsed by the same rules that route publishes, so a zero or inconsistent
+    provider row is dropped here exactly as it is dropped there.
+    """
+
+    from app.api import chart as chart_api
+
+    wanted = chart_api.chart_symbol(symbol)
+    wanted_periods = _indicator_periods(periods)
+    rsi_window = _indicator_window(rsi, name="rsi", error="invalid_rsi")
+    momentum_window = _indicator_window(
+        momentum, name="momentum", error="invalid_momentum"
+    )
+    threshold = _indicator_threshold(momentum_threshold)
+
+    series = await chart_api.fetch_series(wanted, window="1y", interval="1d")
+    daily = [
+        (datetime.fromtimestamp(bar["t"], UTC).date(), bar["c"])
+        for bar in series.bars
+    ]
+    document = technicals_document(
+        [close for _, close in daily],
+        [day for day, _ in daily],
+        periods=wanted_periods,
+        rsi_period=rsi_window,
+        momentum_period=momentum_window,
+        momentum_threshold=threshold,
+    )
+    return {
+        "symbol": wanted,
+        "as_of": document["as_of"],
+        "series_length": document["series_length"],
+        "values": document["values"],
+        "units": document["units"],
+        "missing": document["missing"],
+    }
+
+
+# -- options -----------------------------------------------------------------
+
+
+async def options_document(
+    symbol: str, *, expiries: int, strikes: int
+) -> dict[str, Any] | None:
+    """The option ladder for one symbol, behind the five-minute chain cache.
+
+    Imported at call time, like :func:`company_profile`: this module's import
+    graph stays free of the Yahoo transport, and a test replaces this one
+    function instead of reaching for a socket.
+    """
+
+    from app.market.options import collect_options
+
+    return await collect_options(symbol, expiries=expiries, strikes=strikes)
+
+
+def _options_bound(raw: str, *, name: str, maximum: int) -> int:
+    """One of the two bounds, or ``422`` on its own name.
+
+    Taken as raw text rather than as an ``int`` query parameter because
+    FastAPI would answer a framework-shaped ``422`` for ``?expiries=x``, while
+    the house contract is ``{error, errorMessage}`` with a code that names the
+    parameter. The bound is ``1..maximum``; the count is validated before the
+    symbol is fetched, so a typo never costs a request.
+    """
+
+    text = raw.strip() if isinstance(raw, str) else ""
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if not 1 <= value <= maximum:
+        raise ApiError(
+            422,
+            f"invalid_{name}",
+            f"{name} must be an integer 1..{maximum}, got {raw!r}",
+        )
+    return value
+
+
+@router.get("/options/{symbol}")
+async def options(
+    symbol: str,
+    request: Request,
+    expiries: str = "4",
+    strikes: str = "12",
+) -> dict[str, Any]:
+    """The ticker page's option ladder: expiries, days to maturity, greeks.
+
+    ``expiries`` (1..4) picks how many of the nearest expiration dates to show;
+    ``strikes`` (1..40) how many strikes either side of the money at each of
+    them. The greeks are computed in :mod:`app.market.options` — Yahoo ships no
+    delta — from the chain's own strike and implied volatility, with ``r`` at
+    the documented 4 % constant.
+
+    The order of answers is a contract:
+
+    1. an unusable bound is ``422 invalid_expiries``/``invalid_strikes``
+       **before** anything is fetched, so a typo never looks like a symbol
+       without options;
+    2. a symbol Yahoo answered with no chain is ``404 no_option_chain`` — the
+       fact, not an empty 200 that reads like a working ladder;
+    3. a refusal with nothing on disk is ``503 options_unavailable``; with an
+       expired copy on disk it serves that copy, labelled ``yahoo-cache-stale``
+       in ``source``, because an hour-old chain is honest and a fabricated greek
+       is not.
+
+    Every contract carries ``strike``, ``right``, ``iv``, the four greeks,
+    ``open_interest``, ``bid``, ``ask`` and ``in_the_money``; a greek that
+    cannot be computed is ``null``, never ``0`` and never ``NaN`` — a matured
+    expiry or a contract with no usable IV has no delta, and saying so is the
+    answer.
+    """
+
+    # The bounds live in the module that owns the chain: one source of truth,
+    # imported at call time like the reader itself.
+    from app.market.options import MAX_EXPIRIES, MAX_STRIKES, ChainUnavailable
+
+    bounded_expiries = _options_bound(expiries, name="expiries", maximum=MAX_EXPIRIES)
+    bounded_strikes = _options_bound(strikes, name="strikes", maximum=MAX_STRIKES)
+    try:
+        document = await options_document(
+            symbol, expiries=bounded_expiries, strikes=bounded_strikes
+        )
+    except ChainUnavailable as exc:
+        raise ApiError(
+            503,
+            "options_unavailable",
+            f"no option chain could be read for {symbol!r}: {exc}",
+        ) from exc
+    if not document or not document.get("expiries"):
+        raise ApiError(
+            404,
+            "no_option_chain",
+            f"{symbol!r} has no listed option chain",
+        )
+    return dict(document)
 
 
 __all__ = ["engine_service_of", "router"]
