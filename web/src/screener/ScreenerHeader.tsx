@@ -249,6 +249,73 @@ export function ScreenerHeader({
   }, [columns, activeSortKey]);
 
   /**
+   * Which end of the ordering each direction means in words.
+   *
+   * WHAT: the two options the direction control offers, spelled the way the
+   *       Order by select's own title already spells them.
+   * WHY: the wire token hides the meaning — `-country` is "lowest first" — so
+   *      the reader has to be told which end they are picking.
+   */
+  const directionOptions = React.useMemo(
+    () => [
+      { value: "desc" as const, label: "Highest first" },
+      { value: "asc" as const, label: "Lowest first" },
+    ],
+    [],
+  );
+
+  /**
+   * Write the same one token the Order by select writes, and nothing else.
+   *
+   * WHAT: the chosen direction is encoded onto the column that is being
+   *       ordered right now, so a flip rewrites exactly one token rather than
+   *       keeping a second copy of the ordering somewhere in this component.
+   * WHY: the header must hold no sort state of its own — the screen owns it,
+   *      and two writers to one value is how the two controls disagree.
+   *
+   * An empty sort has no column to hang a direction on, so it falls back to
+   * the screen's default column: a lone `-` is not a token the server reads,
+   * and an empty one would order by nothing.
+   */
+  const setDirection = (direction: "asc" | "desc") => {
+    const key = activeSortKey.length > 0 ? activeSortKey : SORTS[0];
+    onSortChange(direction === "asc" ? `-${key}` : key);
+  };
+
+  /**
+   * Answer the two keys the reader uses most on the direction control, here.
+   *
+   * WHAT: the arrow keys walk the two ends of the ordering — Down to the next
+   *       option, Up to the previous one, wrapping at the ends — and Enter
+   *       takes the other end. Both go through `setDirection`, which rewrites
+   *       the same one sort token the Order by select writes.
+   * WHY: a native `<select>`'s own keyboard answers live in the browser's
+   *      listbox popup, which no test environment can drive — without this
+   *      handler the only way to reverse the order would be a click, and a
+   *      keyboard reader would have to leave the control to sort at all.
+   *      `preventDefault` is what keeps one writer per keypress: the
+   *      browser's own change event never arrives to apply the same move a
+   *      second time.
+   */
+  const walkDirection = (event: React.KeyboardEvent<HTMLSelectElement>) => {
+    const current = sortDirection(sort);
+    let next: "asc" | "desc";
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const at = directionOptions.findIndex((option) => option.value === current);
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      next =
+        directionOptions[(at + step + directionOptions.length) % directionOptions.length]
+          .value;
+    } else if (event.key === "Enter") {
+      next = current === "desc" ? "asc" : "desc";
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setDirection(next);
+  };
+
+  /**
    * A built-in tab.
    *
    * The Columns select and the tab bar are different vocabularies on purpose —
@@ -413,15 +480,26 @@ export function ScreenerHeader({
                     </option>
                   ))}
                 </select>
-                <span
-                  aria-hidden="true"
+                {/* The end of the ordering, no longer decoration: the arrow used
+                    to be `aria-hidden` with nothing to press, so a reader had to
+                    find the column's own header — or the Order by select — to
+                    reverse it. This select rewrites the same token instead. */}
+                <select
+                  aria-label="Order direction"
                   data-testid="order-direction"
                   data-direction={sortDirection(sort)}
-                  title={sortDirection(sort) === "desc" ? "Highest first" : "Lowest first"}
-                  className="font-mono text-data text-accent-fg"
+                  value={sortDirection(sort)}
+                  onChange={(event) => setDirection(event.target.value as "asc" | "desc")}
+                  onKeyDown={walkDirection}
+                  title={`Order the whole screen by this column, ${sortDirection(sort) === "desc" ? "highest" : "lowest"} first.`}
+                  className="h-7 rounded-sm border border-line-strong bg-surface px-1.5 text-data text-fg"
                 >
-                  {sortDirection(sort) === "desc" ? "↓" : "↑"}
-                </span>
+                  {directionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="flex items-center gap-1.5">

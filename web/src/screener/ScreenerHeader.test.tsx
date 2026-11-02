@@ -477,6 +477,103 @@ describe("the two column vocabularies", () => {
     await user.selectOptions(screen.getByTestId("signal-select"), "");
     expect(spies.onSignalChange).toHaveBeenLastCalledWith(null);
   });
+});
+
+describe("the direction control is a real control", () => {
+  /**
+   * The arrow used to be decoration: `aria-hidden` and no way to change it, so
+   * the only way to reverse the order was a click on the Order by column. These
+   * tests hold the replacement — a labelled `<select>` that rewrites the one
+   * sort token through the same `onSortChange` the Order by select writes.
+   */
+
+  it("draws a labelled select beside the arrow mirror for the descending token", () => {
+    setup({ sort: "-country" });
+
+    const control = screen.getByTestId("order-direction") as HTMLSelectElement;
+    expect(control.tagName).toBe("SELECT");
+    expect(control.getAttribute("aria-label")).toBe("Order direction");
+    expect(control.getAttribute("aria-hidden")).toBeNull();
+
+    // The mirror reports the true direction, whatever the control now holds.
+    expect(control.getAttribute("data-direction")).toBe("asc");
+    expect(control.value).toBe("asc");
+  });
+
+  it("shows the other half of the same mirror for the ascending token", () => {
+    setup({ sort: "country" });
+
+    const control = screen.getByTestId("order-direction") as HTMLSelectElement;
+    expect(control.getAttribute("data-direction")).toBe("desc");
+    expect(control.value).toBe("desc");
+  });
+
+  it("flipping desc to asc drops the leading minus and calls onSortChange once", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ sort: "-country" });
+
+    await user.selectOptions(screen.getByTestId("order-direction"), "desc");
+
+    expect(spies.onSortChange).toHaveBeenCalledTimes(1);
+    expect(spies.onSortChange).toHaveBeenCalledWith("country");
+  });
+
+  it("flipping asc to desc puts the leading minus back on", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ sort: "country" });
+
+    await user.selectOptions(screen.getByTestId("order-direction"), "asc");
+
+    expect(spies.onSortChange).toHaveBeenCalledTimes(1);
+    expect(spies.onSortChange).toHaveBeenCalledWith("-country");
+  });
+
+  it("keeps the column when only the direction moves", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ sort: "-market_cap" });
+
+    await user.selectOptions(screen.getByTestId("order-direction"), "desc");
+
+    expect(spies.onSortChange).toHaveBeenCalledWith("market_cap");
+    expect(spies.onSortChange.mock.calls[0]?.[0].startsWith("-")).toBe(false);
+  });
+
+  it("is tabbable and changes the token with the arrow keys alone", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ sort: "-country" });
+
+    screen.getByTestId("order-direction").focus();
+    expect(document.activeElement).toBe(screen.getByTestId("order-direction"));
+
+    await user.keyboard("{ArrowDown}");
+    expect(spies.onSortChange).toHaveBeenLastCalledWith("country");
+  });
+
+  it("changes the token with Enter alone, no click", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ sort: "country" });
+
+    const control = screen.getByTestId("order-direction");
+    control.focus();
+    await user.keyboard("{Enter}");
+
+    expect(spies.onSortChange).toHaveBeenCalledTimes(1);
+    expect(spies.onSortChange).toHaveBeenCalledWith("-country");
+  });
+
+  it("with no active sort yet, choosing a direction lands on a real column", async () => {
+    const user = userEvent.setup();
+    const { spies } = setup({ sort: "" });
+
+    const control = screen.getByTestId("order-direction") as HTMLSelectElement;
+    expect(control.value).toBe("desc");
+
+    await user.selectOptions(screen.getByTestId("order-direction"), "asc");
+
+    const token = spies.onSortChange.mock.calls[0]?.[0];
+    expect(token, "a lone '-' is not a sort").toBeTruthy();
+    expect(token).toBe("-market_cap");
+  });
 
   it("sends no vendor name through any label the reader sees", () => {
     setup();
