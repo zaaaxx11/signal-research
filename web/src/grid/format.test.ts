@@ -350,9 +350,11 @@ describe("Computed columns formatting", () => {
     const { container } = render(
       React.createElement(CellValue, { spec: columnSpec("perf_wtd"), value: 1.2 }),
     );
-    const span = container.querySelector("span") as HTMLElement;
-    expect(span.textContent).toBe("+1.20%");
-    expect(span.getAttribute("data-kind")).toBe("delta");
-    expect(span.getAttribute("data-value")).toBe("1.2");
+    const cell = container.querySelector('[data-sign="1"]') as HTMLElement;
+    // The sign is in the text and the arrow is aria-hidden: colour is never the
+    // only carrier of direction.
+    expect(cell.textContent).toContain("+1.20%");
+    expect(cell.getAttribute("title")).toBe("+1.20%");
+    expect(container.querySelector('[aria-hidden="true"]')?.textContent).toBe("▲");
   });
 });
