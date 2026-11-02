@@ -345,4 +345,14 @@ describe("Computed columns formatting", () => {
       expect(cell.text).toBe("—");
     }
   });
+
+  it("draws a computed percent cell with its sign in the DOM", () => {
+    const { container } = render(
+      React.createElement(CellValue, { spec: columnSpec("perf_wtd"), value: 1.2 }),
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.textContent).toBe("+1.20%");
+    expect(span.getAttribute("data-kind")).toBe("delta");
+    expect(span.getAttribute("data-value")).toBe("1.2");
+  });
 });

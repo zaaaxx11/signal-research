@@ -269,6 +269,18 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         "sma_20": "number",  # the average price itself, not the distance to it
         "sma_50": "number",
         "sma_200": "number",
+        # The Computed columns' row fields (app.screen.derived_columns). They are
+        # prices (MAs, and `Mom` — a price **difference**, not a percent), so a
+        # comparison is a plain numeric one.
+        "ema_13": "number",
+        "ema_21": "number",
+        "ema_50": "number",
+        "ema_100": "number",
+        "ema_200": "number",
+        "sma_13": "number",
+        "sma_21": "number",
+        "sma_100": "number",
+        "momentum_10d": "number",
         "rsi_14": "number",
         "beta_1y": "number",  # one-year window; Finviz's beta is five-year
         "high_52w": "number",

@@ -13,6 +13,9 @@
  *     snapshot falls back to when its own endpoint is unavailable.
  *   * `GET /engine/snapshot/{symbol}` — the 84-cell snapshot's one read, with
  *     a unit per key (see `useSnapshot`; Overview is its only customer).
+ *   * `GET /engine/technicals/{symbol}` and `GET /engine/risk/{symbol}` — the
+ *     Overview's technicals block: moving averages, RSI, momentum, WTD/MTD and
+ *     the benchmark-relative risk group. Each is its own failure.
  *   * `POST /screens/select` in symbols mode — the scan row: price, change,
  *     market cap, volume, previous close and the six ownership cells.
  *   * `GET /engine/peers/{symbol}?limit=10` — the industry list.
@@ -30,6 +33,11 @@ import * as React from "react";
 import { ApiError, getJson, postJsonConditional, readErrorMessage } from "@/lib/api";
 import type { SnapshotDocument } from "./snapshot";
 import { parseSnapshot } from "./snapshot";
+import {
+  parseRisk,
+  parseTechnicals,
+  type MetricDocument,
+} from "./technicals";
 import {
   parseFundamentals,
   parseInsider,
@@ -562,4 +570,86 @@ export function useSnapshot(symbol: string, enabled = true): SnapshotState {
   }, [symbol, enabled]);
 
   return state;
+}
+
+/** What one derived-metric read is doing, and the reason when it failed. */
+export type MetricStatus = "loading" | "ready" | "error";
+
+export interface MetricResource {
+  readonly status: MetricStatus;
+  readonly data: MetricDocument | null;
+  /** The endpoint's own message. A 404 is a failure here, not an empty state. */
+  readonly error: string | null;
+  readonly retry: () => void;
+}
+
+/**
+ * One read of a derived document, fired once per symbol.
+ *
+ * Unlike the identity resources, a 404 is **not** an empty answer: the block
+ * the reader is looking at exists to carry these numbers, so the reason must
+ * reach the page. The two reads are independent — the technicals failing must
+ * not take the risk group with it — which is why each hook owns its own
+ * controller and error string.
+ */
+function useMetricDocument(
+  symbol: string,
+  kind: "technicals" | "risk",
+  parse: (body: unknown, symbol: string) => MetricDocument | null,
+): MetricResource {
+  const [state, setState] = React.useState<Omit<MetricResource, "retry">>({
+    status: "loading",
+    data: null,
+    error: null,
+  });
+  const [attempt, setAttempt] = React.useState(0);
+  const retry = React.useCallback(() => setAttempt((value) => value + 1), []);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    setState({ status: "loading", data: null, error: null });
+
+    getJson(`/engine/${kind}/${encodeURIComponent(symbol)}`, controller.signal)
+      .then((body) => {
+        if (!live) return;
+        const data = parse(body, symbol);
+        if (data === null) {
+          setState({
+            status: "error",
+            data: null,
+            error: "The endpoint answered without any values.",
+          });
+          return;
+        }
+        setState({ status: "ready", data, error: null });
+      })
+      .catch((error: unknown) => {
+        if (!live || controller.signal.aborted || isAbortError(error)) return;
+        const reason =
+          error instanceof ApiError
+            ? error.message
+            : error instanceof Error && error.message.length > 0
+              ? error.message
+              : "the request failed";
+        setState({ status: "error", data: null, error: reason });
+      });
+
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [symbol, kind, parse, attempt]);
+
+  return { ...state, retry };
+}
+
+/** `GET /engine/technicals/{symbol}`. Overview's block is its only customer. */
+export function useTechnicals(symbol: string): MetricResource {
+  return useMetricDocument(symbol, "technicals", parseTechnicals);
+}
+
+/** `GET /engine/risk/{symbol}` — Alpha, Beta and the rest, vs the S&P 500. */
+export function useRisk(symbol: string): MetricResource {
+  return useMetricDocument(symbol, "risk", parseRisk);
 }

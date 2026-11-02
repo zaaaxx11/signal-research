@@ -143,6 +143,11 @@
             "-dividend_growth_5y",
             "-dividend_yield",
             "-earnings_date",
+            "-ema_100",
+            "-ema_13",
+            "-ema_200",
+            "-ema_21",
+            "-ema_50",
             "-eps_forecast_next_fq",
             "-eps_forecast_next_fy",
             "-eps_next_5y",
@@ -180,6 +185,7 @@
             "-lt_debt_to_equity",
             "-market_cap",
             "-market_cap_usd",
+            "-momentum_10d",
             "-name",
             "-net_margin",
             "-oper_margin",
@@ -245,8 +251,11 @@
             "-sma20",
             "-sma200",
             "-sma50",
+            "-sma_100",
+            "-sma_13",
             "-sma_20",
             "-sma_200",
+            "-sma_21",
             "-sma_50",
             "-symbol",
             "-target_price",
@@ -286,6 +295,11 @@
             "dividend_growth_5y",
             "dividend_yield",
             "earnings_date",
+            "ema_100",
+            "ema_13",
+            "ema_200",
+            "ema_21",
+            "ema_50",
             "eps_forecast_next_fq",
             "eps_forecast_next_fy",
             "eps_next_5y",
@@ -323,6 +337,7 @@
             "lt_debt_to_equity",
             "market_cap",
             "market_cap_usd",
+            "momentum_10d",
             "name",
             "net_margin",
             "oper_margin",
@@ -388,8 +403,11 @@
             "sma20",
             "sma200",
             "sma50",
+            "sma_100",
+            "sma_13",
             "sma_20",
             "sma_200",
+            "sma_21",
             "sma_50",
             "symbol",
             "target_price",
@@ -563,7 +581,7 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "One of the 82 filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 25 bucket-only key (sh_opt, ipodate, idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, ah_close, ah_change, news_date, news_keywords, etf_heldby) that filters through a named bucket, and the 6 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 128 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 210 keys a filter may name, and any other key is a 422 that names it."
+          "description": "One of the 82 filter keys. The 48 that resolve to one row column, the 3 that filter through their option vocabulary, the 25 bucket-only key (sh_opt, ipodate, idx, fa_epsyoy, fa_epsyoy1, fa_epsqoq, fa_epsyoyttm, fa_eps3years, fa_eps5years, fa_estltgrowth, fa_salesqoq, fa_salesyoyttm, fa_sales3years, fa_sales5years, fa_divgrowth, sh_insttrans, fa_epsrev, ta_highlow50d, ta_alltime, ta_candlestick, ah_close, ah_change, news_date, news_keywords, etf_heldby) that filters through a named bucket, and the 6 that are refused with their reason, are listed in x-filter-keys. A filter may also name one of the 137 catalogue spellings in x-filter-aliases (`pe`, `roic`, `market_cap`), each published with the row column it means; the two tables together are the 219 keys a filter may name, and any other key is a 422 that names it."
         },
         "field": {
           "enum": [
@@ -585,6 +603,11 @@
             "dividend_growth_5y",
             "dividend_yield",
             "earnings_date",
+            "ema_100",
+            "ema_13",
+            "ema_200",
+            "ema_21",
+            "ema_50",
             "eps_forecast_next_fq",
             "eps_forecast_next_fy",
             "eps_next_5y",
@@ -614,6 +637,7 @@
             "low_52w",
             "lt_debt_to_equity",
             "market_cap_usd",
+            "momentum_10d",
             "name",
             "oper_margin",
             "payout_ratio",
@@ -653,8 +677,11 @@
             "sector",
             "shares_outstanding",
             "short_float",
+            "sma_100",
+            "sma_13",
             "sma_20",
             "sma_200",
+            "sma_21",
             "sma_50",
             "symbol",
             "target_price",
@@ -1608,7 +1635,7 @@
       "bucket": true
     }
   },
-  "x-filter-alias-count": 128,
+  "x-filter-alias-count": 137,
   "x-filter-aliases": {
     "all_time_high": {
       "field": "all_time_high",
@@ -1717,6 +1744,26 @@
       "field": "earnings_date",
       "kind": "number",
       "label": "Earnings"
+    },
+    "ema_100": {
+      "field": "ema_100",
+      "kind": "number"
+    },
+    "ema_13": {
+      "field": "ema_13",
+      "kind": "number"
+    },
+    "ema_200": {
+      "field": "ema_200",
+      "kind": "number"
+    },
+    "ema_21": {
+      "field": "ema_21",
+      "kind": "number"
+    },
+    "ema_50": {
+      "field": "ema_50",
+      "kind": "number"
     },
     "eps_forecast_next_fq": {
       "field": "eps_forecast_next_fq",
@@ -1873,6 +1920,10 @@
     },
     "market_cap_usd": {
       "field": "market_cap_usd",
+      "kind": "number"
+    },
+    "momentum_10d": {
+      "field": "momentum_10d",
       "kind": "number"
     },
     "name": {
@@ -2145,12 +2196,24 @@
       "kind": "number",
       "label": "SMA50"
     },
+    "sma_100": {
+      "field": "sma_100",
+      "kind": "number"
+    },
+    "sma_13": {
+      "field": "sma_13",
+      "kind": "number"
+    },
     "sma_20": {
       "field": "sma_20",
       "kind": "number"
     },
     "sma_200": {
       "field": "sma_200",
+      "kind": "number"
+    },
+    "sma_21": {
+      "field": "sma_21",
       "kind": "number"
     },
     "sma_50": {

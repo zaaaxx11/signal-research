@@ -573,6 +573,12 @@ export function stubTickerApi(routes: TickerRoutes = {}): ReturnType<typeof vi.f
     if (url.includes("/engine/snapshot/")) {
       return Promise.resolve(notFound("snapshot_not_found: the snapshot endpoint is not deployed"));
     }
+    if (url.includes("/engine/technicals/")) {
+      return Promise.resolve(json(technicalsPayload()));
+    }
+    if (url.includes("/engine/risk/")) {
+      return Promise.resolve(json(riskPayload()));
+    }
     if (url.includes("/engine/security/")) {
       return Promise.resolve(json(securityPayload()));
     }

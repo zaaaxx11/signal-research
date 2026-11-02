@@ -201,4 +201,26 @@ describe("TickerPage", () => {
     expect(screen.getByTestId("snapshot-grid").querySelectorAll("[data-snapshot-cell]")).toHaveLength(84);
     await waitFor(() => expect(snapshotCell("market_cap")?.textContent).toBe("$5.18T"));
   });
+
+  it("shows a technicals 404's reason without breaking the rest of Overview", async () => {
+    stubTickerApi({
+      technicals: () => notFound("technicals_unavailable: no daily close series for ZZZZ"),
+    });
+    render(<TickerPage symbol="AAPL" />);
+
+    const failure = await screen.findByTestId("technicals-error", undefined, { timeout: 4_000 });
+    expect(failure.textContent).toContain(
+      "technicals_unavailable: no daily close series for ZZZZ",
+    );
+
+    // The frame and the other panels are untouched: the band still quotes the
+    // row, the snapshot is still complete, and the risk read still paints.
+    expect(screen.getByTestId("header-price").textContent).toBe("$343.36");
+    expect(screen.getByTestId("snapshot-grid").querySelectorAll("[data-snapshot-cell]")).toHaveLength(84);
+    expect(
+      screen
+        .getByTestId("technicals-block")
+        .querySelector('[data-technical="alpha"]')?.textContent,
+    ).toBe("+4.82%");
+  });
 });

@@ -11,6 +11,10 @@
  * 84 cells, with the endpoint's own unit per key. When that read fails the grid
  * falls back to the fundamentals document and the scan row and says why in one
  * line above itself.
+ *
+ * Below the company profile, the technicals block prints the mentor's derived
+ * numbers (`/engine/technicals` and `/engine/risk`): the moving averages,
+ * RSI, momentum, WTD and MTD — the reading that used to exist only in the API.
  */
 
 import * as React from "react";
@@ -31,6 +35,7 @@ import type { PeersData } from "./useTicker";
 import { CompanyProfile } from "./CompanyProfile";
 import { SnapshotGrid } from "./SnapshotGrid";
 import type { SnapshotSources } from "./snapshot";
+import { TechnicalsBlock } from "./TechnicalsBlock";
 import { TickerChart } from "./TickerChart";
 import { tabHref } from "./TickerTabs";
 
@@ -314,6 +319,8 @@ export function Overview({
       </section>
 
       <CompanyProfile symbol={symbol} />
+
+      <TechnicalsBlock symbol={symbol} />
 
       <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2">
         <section aria-labelledby="peers-heading">
