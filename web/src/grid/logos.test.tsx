@@ -107,7 +107,7 @@ describe("the identity lane", () => {
     });
   });
 
-  it("reserves a 20 px box, loads lazily and decodes off the main thread", async () => {
+  it("reserves a 20 px box, loads eagerly and decodes off the main thread", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(rows(["AAPL", "BRK.B"]))));
     render(
       <ScreenPanel
@@ -125,7 +125,7 @@ describe("the identity lane", () => {
     expect(Number(image.getAttribute("width"))).toBe(LOGO_SIZE);
     expect(LOGO_SIZE).toBeGreaterThanOrEqual(20);
     expect(LOGO_SIZE).toBeLessThanOrEqual(24);
-    expect(image.getAttribute("loading")).toBe("lazy");
+    expect(image.getAttribute("loading")).toBe("eager");
     expect(image.getAttribute("decoding")).toBe("async");
 
     // A dotted symbol survives into the DOM unchanged.

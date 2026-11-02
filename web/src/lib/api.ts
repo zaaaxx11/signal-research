@@ -103,6 +103,72 @@ export function readErrorMessage(body: unknown, status: number): string {
   return messageOf(body, `HTTP ${status}`);
 }
 
+/** A POST whose answer is a file: the bytes plus the headers that name them. */
+export interface FileAnswer {
+  status: number;
+  ok: boolean;
+  /** The body, on success; `null` on a refusal. */
+  blob: Blob | null;
+  /** The server's `Content-Disposition`, unparsed — the caller owns the name. */
+  contentDisposition: string | null;
+  /** The server's `X-Row-Count`, when it sent one. */
+  rowCount: number | null;
+  /** The refusal envelope, when the server sent JSON. */
+  body: unknown;
+}
+
+/**
+ * One POST whose success is a file rather than a document.
+ *
+ * It lives here, beside `request`, because this module is the shell's **entire**
+ * network surface — the mount test refuses a second `fetch(` anywhere in
+ * `src/`, so a download that reached for the global would be a second, unowned
+ * egress path. The transport policy is the same one `request` applies:
+ * same-origin, `no-store`, and a refusal read as the house envelope.
+ */
+export async function postFile(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<FileAnswer> {
+  const response = await fetch(path, {
+    method: "POST",
+    signal: signal ?? null,
+    headers: { accept: "*/*", "content-type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+    mode: "same-origin",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let refusal: unknown = null;
+    try {
+      refusal = await readJson(response);
+    } catch {
+      // A non-JSON refusal is still a refusal; the status sentence stands.
+    }
+    return {
+      status: response.status,
+      ok: false,
+      blob: null,
+      contentDisposition: null,
+      rowCount: null,
+      body: refusal,
+    };
+  }
+
+  const rowCount = Number.parseInt(response.headers.get("x-row-count") ?? "", 10);
+  return {
+    status: response.status,
+    ok: true,
+    blob: await response.blob(),
+    contentDisposition: response.headers.get("content-disposition"),
+    rowCount: Number.isFinite(rowCount) ? rowCount : null,
+    body: null,
+  };
+}
+
 export interface ConditionalAnswer {
   status: number;
   etag: string | null;

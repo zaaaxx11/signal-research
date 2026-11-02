@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LogoMark } from "./LogoMark";
+import { forgetLogo } from "./logo";
 import { LOGO_SIZE } from "./logo";
 
 /**
@@ -28,6 +29,7 @@ function box(symbol = "AAPL"): HTMLElement {
 
 describe("LogoMark", () => {
   it("shows a neutral skeleton before any bytes arrive, never the monogram", () => {
+    forgetLogo("AAPL");
     render(<LogoMark symbol="AAPL" />);
 
     expect(box().getAttribute("data-logo-state")).toBe("loading");
@@ -36,7 +38,7 @@ describe("LogoMark", () => {
 
     // The request is already in flight behind the skeleton.
     expect(image().getAttribute("src")).toBe("/logos/AAPL");
-    expect(image().getAttribute("loading")).toBe("lazy");
+    expect(image().getAttribute("loading")).toBe("eager");
     expect(image().getAttribute("decoding")).toBe("async");
   });
 
