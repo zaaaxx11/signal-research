@@ -1389,6 +1389,25 @@ async def options_for(request: Request, key: str) -> dict[str, Any]:
     )
 
 
+@router.get("/taxonomy")
+async def taxonomy() -> dict[str, Any]:
+    """The source panel's **Theme** / **Sub-theme** taxonomy (40 + 268).
+
+    The vocabulary behind two of Finviz's classification pickers, published as a
+    tree so a two-level picker can render its second level without a round trip.
+    It is **static** (the vendored probe's tokens and labels) and **count-free**:
+    no row carries a theme column, so a census would answer zero for every theme
+    — the shape of a lie, which :data:`app.screen.filter_fields.UNAVAILABLE`
+    refuses instead of answering. Every node carries ``available: False`` and
+    the refusal sentence, so a client draws the picker and still cannot promise
+    a filter: the same contract a disabled control publishes inline in
+    ``GET /screens/filters``.
+    """
+    from app.screen import theme_taxonomy
+
+    return theme_taxonomy.document()
+
+
 @router.post("/select")
 async def select(request: Request) -> Any:
     """Answer a two-mode selection: a criteria query or an explicit ticker list.
