@@ -51,7 +51,7 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Callable
 from weakref import WeakKeyDictionary
 
@@ -60,10 +60,13 @@ from fastapi.responses import JSONResponse
 
 from app.api.cache import cache_headers, etag_for, not_modified
 from app.auth import ApiError
+from app.market.barstore import BarStore
+from app.market.chart import ChartBar
 from app.market.depth import DepthCollector, DepthStore
 from app.market.depth_fields import CATALOG_FIELDS
 from app.market.health_ledger import HealthLedger
 from app.market.hub import QuoteHub
+from app.market.patterns import ALL_PATTERNS
 from app.market.quote import QuoteEngine, QuoteTick
 from app.market.sources import InvalidSymbol, build_quote_engine, parse_symbol_list
 
@@ -766,7 +769,6 @@ async def enrich(
     for symbol, fields in observations.items():
         if not fields:
             continue
-        from datetime import UTC, datetime
 
         from app.market.depth import DepthObservation
 
@@ -789,4 +791,114 @@ async def enrich(
         "errors": dict(getattr(stage, "last_errors", {}) or {}),
         "tier": "premium" if expected else "open",
     }
+
+
+@router.get("/bars")
+async def bars(
+    request: Request,
+    response: Response,
+    symbols: str | None = Query(
+        default=None,
+        description="Comma-separated provider symbols, e.g. AAPL,MSFT",
+    ),
+    include_patterns: bool = Query(
+        default=False,
+        description="When true, include chart_pattern boolean columns",
+    ),
+    include_mtd: bool = Query(
+        default=False,
+        description="When true, include mtd percent column",
+    ),
+) -> dict[str, Any]:
+    """Read daily OHLCV bars from the bar store, with optional pattern/MTD flags.
+
+    The bar store is the JSON Lines backfill written by the nightly job.
+    A symbol with no stored bars is omitted from the response (it is not
+    fabricated with zeros).
+    """
+
+    try:
+        wanted = parse_symbol_list(symbols or "")
+    except InvalidSymbol as exc:
+        raise ApiError(
+            422,
+            "invalid_symbols",
+            f"{exc} — symbols are comma-separated provider tickers (AAPL,MSFT,BRK-B)",
+        ) from exc
+    if not wanted:
+        raise ApiError(
+            422,
+            "invalid_symbols",
+            "symbols is required: pass ?symbols=AAPL,MSFT",
+        )
+
+    limit = request.app.state.runtime.settings.quote_max_symbols
+    if len(wanted) > limit:
+        raise ApiError(
+            422,
+            "too_many_symbols",
+            f"{len(wanted)} symbols requested after dedupe; the maximum is {limit}",
+        )
+
+    store = BarStore()
+    out: dict[str, Any] = {"symbols": {}, "as_of": None, "requested": len(wanted)}
+
+    newest_ts: datetime | None = None
+    for symbol in wanted:
+        bars = store.load(symbol)
+        if not bars:
+            continue
+        latest = bars[-1]
+        if newest_ts is None or latest.day > newest_ts.date():
+            newest_ts = datetime.combine(latest.day, datetime.min.time(), tzinfo=UTC)
+
+        record: dict[str, Any] = {
+            "symbol": symbol,
+            "bars": [
+                {
+                    "day": bar.day.isoformat(),
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                }
+                for bar in bars
+            ],
+        }
+
+        if include_patterns:
+            record["chart_patterns"] = {  # type: ignore[call-overload]
+                name: fn(bars) for name, fn in ALL_PATTERNS.items()
+            }
+
+        if include_mtd:
+            mtd = _compute_mtd(bars, latest.day)
+            record["mtd"] = mtd
+
+        out["symbols"][symbol] = record
+
+    out["as_of"] = newest_ts.isoformat() if newest_ts is not None else None
+    out["returned"] = len(out["symbols"])
+    out["missing"] = [s for s in wanted if s not in out["symbols"]]
+
+    return out
+
+
+def _compute_mtd(bars: list[ChartBar], current_day: Any) -> float | None:
+    """Month-to-date return from stored bars."""
+
+    if not bars:
+        return None
+    current = bars[-1]
+    prev_month = current_day.month - 1 if current_day.month > 1 else 12
+    prev_year = current_day.year if current_day.month > 1 else current_day.year - 1
+    prev_month_close: float | None = None
+    for bar in reversed(bars[:-1]):
+        if bar.day.year == prev_year and bar.day.month == prev_month:
+            prev_month_close = bar.close
+            break
+    if prev_month_close is None or prev_month_close <= 0:
+        return None
+    return (current.close / prev_month_close - 1.0) * 100.0
 

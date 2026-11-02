@@ -144,6 +144,9 @@ class BarStore:
     ) -> list[ChartBar]:
         """Drop bars already stored (by day), preserving order."""
 
+        path = self._path(symbol)
+        if not path.exists():
+            return list(bars)
         last = self._last_bar(symbol)
         if last is None:
             return list(bars)
