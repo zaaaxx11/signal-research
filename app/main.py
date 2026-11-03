@@ -31,6 +31,7 @@ from app.api import discovery, exchanges, health, market, markets, news, provide
 from app.api import alt as alt_api
 from app.api import market_news as market_news_api
 from app.api import calendar as calendar_api
+from app.api import insider as insider_api
 from app.api import chart as chart_api
 from app.api import risk as risk_api
 from app.api import engine as engine_api
@@ -808,6 +809,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: computable today), from one pass over the selector's universe and the
     #: same scan cache — so the page and a screen describe one population.
     mount_router(application, signals.router)
+    application.include_router(insider_api.router)
     #: ``GET /market/instruments``: the server-side manifest (``coinid.json``)
     #: as one row per declared instrument, priced off the selector's own scan and
     #: depth overlay; ``/meta`` reports the manifest's state and its gaps.
