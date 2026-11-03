@@ -167,6 +167,7 @@ from app.screen.export import (
 from app.screen.facts import enrich_rows as enrich_facts
 from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth, resolve_store_path
+from app.screen.pattern_overlay import detect_patterns
 from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.selection import (
@@ -1047,6 +1048,14 @@ async def _current_universe(
     # (forward P/E, short float, insider own) still wins over it below.
     if depth.symbols:
         universe = overlay(universe, depth.symbols, default_ticker_key="symbol", aliases=SCREEN_ALIASES)
+
+    # Pattern overlay: detect once per process lifetime
+    from app.screen.pattern_overlay import _current as _pattern_current
+    if not _pattern_current:
+        try:
+            detect_patterns(cache_dir=Path("ztockz-data/bars"))
+        except Exception:
+            logger.warning("Pattern detection failed, continuing without chart patterns")
 
     runtime = runtime_of(request)
     universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
