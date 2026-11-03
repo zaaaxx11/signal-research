@@ -136,13 +136,13 @@ def exactly_one(item: dict[str, Any]) -> bool:
 
 
 def test_the_catalogue_has_eighty_two_keys_and_every_one_has_a_disposition() -> None:
-    assert len(CATALOGUE) == 82, f"the Finviz catalogue is 82 keys, got {len(CATALOGUE)}"
+    assert len(CATALOGUE) == 83, f"the Finviz catalogue is 83 keys, got {len(CATALOGUE)}"
     assert tuple(entry.key for entry in CATALOGUE) == tuple(FILTER_CATALOG), (
         "the binding catalogue must follow the probe's panel order"
     )
     assert set(mapped_keys()) | set(unavailable_keys()) == set(FILTER_CATALOG)
     assert not set(mapped_keys()) & set(unavailable_keys())
-    assert len(mapped_keys()) == 76, (
+    assert len(mapped_keys()) == 77, (
         "seven light columns, the parity metrics a bulk scan copies, the three "
         "derived columns computed from those cells, the three fundamentals joined "
         "from the snapshot store, the two ratios computed from that snapshot, the "
@@ -933,7 +933,7 @@ def test_the_schema_is_the_repo_artifact() -> None:
 def test_the_schema_publishes_all_eighty_two_keys_with_their_disposition() -> None:
     extension = SELECTION_REQUEST_SCHEMA["x-filter-keys"]
     assert isinstance(extension, dict)
-    assert SELECTION_REQUEST_SCHEMA["x-filter-key-count"] == 82
+    assert SELECTION_REQUEST_SCHEMA["x-filter-key-count"] == 83
     assert list(extension) == list(FILTER_CATALOG), "panel order, same as the catalogue"
     mapped = {key: entry for key, entry in extension.items() if entry["field"] is not None}
     chosen = {key: entry for key, entry in extension.items() if "choice" in entry}

@@ -446,8 +446,8 @@ def _validate() -> None:
             "the refusal list and the bucket family disagree on the sentence: "
             f"{drifted}"
         )
-    if len(keys) != 82:
-        raise RuntimeError(f"the filter catalogue is 82 keys, got {len(keys)}")
+    if len(keys) != 83:
+        raise RuntimeError(f"the filter catalogue is 83 keys, got {len(keys)}")
     for key, field in ROW_FIELDS.items():
         if field not in FIELDS:
             raise RuntimeError(f"filter key {key!r} names non-existent row field {field!r}")

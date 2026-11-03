@@ -100,12 +100,12 @@ logger = logging.getLogger("mee.screen.fundamentals")
 #: panel order. Each is a cell of the snapshot vocabulary (``FUNDAMENTAL_FIELDS``),
 #: stored full width — ``None`` means "the provider has no value", not "not a
 #: fundamental column".
-JOINED_ROW_FIELDS: tuple[str, ...] = ("pe_forward", "ps", "payout_ratio")
+JOINED_ROW_FIELDS: tuple[str, ...] = ("pe_forward", "ps", "payout_ratio", "shares_outstanding")
 
 #: The row columns this join **computes** from snapshot cells, in Finviz panel
 #: order. A ratio the store does not hold is arithmetic over the cells it does
 #: hold — and nothing else: no estimate, no lookback, no second table.
-DERIVED_ROW_FIELDS: tuple[str, ...] = ("price_to_cash", "ev_to_sales")
+DERIVED_ROW_FIELDS: tuple[str, ...] = ("price_to_cash", "ev_to_sales", "fcf_margin")
 
 #: Every row column this module owns: the three copies followed by the two
 #: computed ratios. This is the union :mod:`app.screen.filter_fields` checks a
@@ -136,6 +136,7 @@ FUNDAMENTALS_FILTER_KEYS: Mapping[str, str] = MappingProxyType(
         "fa_pc": "price_to_cash",
         "fa_evsales": "ev_to_sales",
         "fa_payoutratio": "payout_ratio",
+        "fa_fcfmargin": "fcf_margin",
     }
 )
 
@@ -147,6 +148,7 @@ DERIVED_FORMULAS: Mapping[str, str] = MappingProxyType(
     {
         "price_to_cash": "market_cap / cash_and_equivalents",
         "ev_to_sales": "(market_cap + total_debt - cash_and_equivalents) / revenue_ttm",
+        "fcf_margin": "fcf_ttm / revenue_ttm",
     }
 )
 
@@ -163,6 +165,7 @@ DERIVED_INPUTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "cash_and_equivalents",
             "revenue_ttm",
         ),
+        "fcf_margin": ("fcf_ttm", "revenue_ttm"),
     }
 )
 
@@ -172,6 +175,7 @@ DERIVED_DENOMINATORS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "price_to_cash": ("cash_and_equivalents",),
         "ev_to_sales": ("revenue_ttm",),
+        "fcf_margin": ("revenue_ttm",),
     }
 )
 
@@ -242,7 +246,13 @@ def derive_cells(snapshot: FundamentalsSnapshot) -> dict[str, float | None]:
         if enterprise_value is not None and revenue is not None and revenue > 0
         else None
     )
-    return {"price_to_cash": price_to_cash, "ev_to_sales": ev_to_sales}
+    fcf = _cell(cells.get("fcf_ttm"))
+    fcf_margin = (
+        fcf / revenue
+        if fcf is not None and revenue is not None and revenue > 0
+        else None
+    )
+    return {"price_to_cash": price_to_cash, "ev_to_sales": ev_to_sales, "fcf_margin": fcf_margin}
 
 
 def fresh_snapshots(

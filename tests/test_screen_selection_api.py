@@ -490,10 +490,10 @@ async def test_the_schema_route_serves_the_repo_artifact(
         "the served schema and schemas/stock_selection_request_v1.json must be one document"
     )
     served = response.json()
-    assert served["x-filter-key-count"] == 82
-    assert len(served["x-filter-keys"]) == 82
+    assert served["x-filter-key-count"] == 83
+    assert len(served["x-filter-keys"]) == 83
     mapped = [key for key, entry in served["x-filter-keys"].items() if entry["field"]]
-    assert len(mapped) == 48, (
+    assert len(mapped) == 49, (
         "the published schema must name every key that filters a parity row, the "
         "three derived columns, the five fundamentals columns (three joined, two "
         "computed) and the three facts columns included"

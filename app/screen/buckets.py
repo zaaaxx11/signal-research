@@ -417,6 +417,7 @@ _BANDS: Mapping[str, Mapping[str, tuple[str, Any]]] = MappingProxyType(
         "fa_pb": {"low": ("lt", 1.0), "high": ("gt", 5.0)},
         "fa_pc": {"low": ("lt", 3.0), "high": ("gt", 50.0)},
         "fa_pfcf": {"low": ("lt", 15.0), "high": ("gt", 50.0)},
+        "fa_fcfmargin": {"pos": ("gt", 0.0), "neg": ("lt", 0.0), "high": ("gt", 20.0)},
         "fa_evebitda": {
             "negative": ("lt", 0.0),
             "low": ("lt", 15.0),
@@ -597,6 +598,7 @@ _CONTROL_KEYS: dict[str, str] = {
     "pb": "fa_pb",
     "pc": "fa_pc",
     "pfcf": "fa_pfcf",
+    "fcfmargin": "fa_fcfmargin",
     "evebitda": "fa_evebitda",
     "evsales": "fa_evsales",
     # -- fundamental: growth (T18) -----------------------------------------
@@ -2384,6 +2386,7 @@ def _build_registry() -> dict[str, tuple[Bucket, ...]]:
         "pb": _family("pb", "fa_pb", "pb"),
         "pc": _family("pc", "fa_pc", "price_to_cash"),
         "pfcf": _family("pfcf", "fa_pfcf", "pfcf"),
+        "fcfmargin": _family("fcfmargin", "fa_fcfmargin", "fcf_margin"),
         "evebitda": _family("evebitda", "fa_evebitda", "ev_ebitda"),
         "evsales": _family("evsales", "fa_evsales", "ev_to_sales"),
         # -- fundamental: growth (T18) ----------------------------------------

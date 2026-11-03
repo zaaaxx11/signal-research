@@ -133,7 +133,7 @@ def provider_row(symbol: str, **cells: Any) -> dict[str, Any]:
 
 
 def test_the_catalogue_is_still_the_probe_eighty_two_keys() -> None:
-    assert len(FILTER_KEYS) == 82
+    assert len(FILTER_KEYS) == 83
     assert tuple(FILTER_CATALOG) == FILTER_KEYS
     assert tuple(entry.key for entry in CATALOGUE) == FILTER_KEYS, "panel order"
 
@@ -144,9 +144,9 @@ def test_the_disposition_is_seventy_six_available_and_six_refused() -> None:
     # overlay under catalogue names, plus ``idx``, the two after-hours controls,
     # ``news_keywords`` and ``etf_heldby`` — the five the source panel charges
     # for, now built and gated by tier instead of refused).
-    assert len(mapped_keys()) == 76
+    assert len(mapped_keys()) == 77
     assert len(unavailable_keys()) == 6
-    assert len(mapped_keys()) + len(unavailable_keys()) == 82
+    assert len(mapped_keys()) + len(unavailable_keys()) == 83
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
     assert not set(mapped_keys()) & set(unavailable_keys()), "one disposition per key"
@@ -351,7 +351,7 @@ def test_the_published_schema_reports_the_three_keys_as_available() -> None:
 
     extension = SELECTION_REQUEST_SCHEMA["x-filter-keys"]
     published: dict[str, Any] = dict(extension)  # type: ignore[arg-type]
-    assert SELECTION_REQUEST_SCHEMA["x-filter-key-count"] == 82
+    assert SELECTION_REQUEST_SCHEMA["x-filter-key-count"] == 83
 
     for key, field in P11B.items():
         entry = published[key]

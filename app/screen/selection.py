@@ -1597,7 +1597,7 @@ SELECTION_REQUEST_SCHEMA: dict[str, object] = {
         "inside the universe addressed by `snapshot_id`, in request order, with "
         "its own `limit`. The response carries `total` (every row that matched) "
         "separately from `returned` (the page), so a 100-row panel never claims "
-        "to be a 100-stock market. A filter key may be one of the 82 filter "
+        "to be a 100-stock market. A filter key may be one of the 83 filter "
         "keys (`x-filter-keys`) or one of the catalogue spellings in "
         "`x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to "
         "one row column, and a key no column can answer is a 422 that names it. "

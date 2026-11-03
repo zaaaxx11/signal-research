@@ -4107,6 +4107,94 @@
         }
       ]
     },
+    "fa_fcfmargin": {
+      "key": "fa_fcfmargin",
+      "tab": "fundamental",
+      "label": "FCF Margin",
+      "elite": false,
+      "options": [
+        {
+          "token": "pos",
+          "label": "Positive (>0%)"
+        },
+        {
+          "token": "neg",
+          "label": "Negative (<0%)"
+        },
+        {
+          "token": "high",
+          "label": "High (>20%)"
+        },
+        {
+          "token": "o0",
+          "label": "Over 0%"
+        },
+        {
+          "token": "o5",
+          "label": "Over 5%"
+        },
+        {
+          "token": "o10",
+          "label": "Over 10%"
+        },
+        {
+          "token": "o15",
+          "label": "Over 15%"
+        },
+        {
+          "token": "o20",
+          "label": "Over 20%"
+        },
+        {
+          "token": "o25",
+          "label": "Over 25%"
+        },
+        {
+          "token": "o30",
+          "label": "Over 30%"
+        },
+        {
+          "token": "o40",
+          "label": "Over 40%"
+        },
+        {
+          "token": "o50",
+          "label": "Over 50%"
+        },
+        {
+          "token": "u5",
+          "label": "Under 5%"
+        },
+        {
+          "token": "u10",
+          "label": "Under 10%"
+        },
+        {
+          "token": "u15",
+          "label": "Under 15%"
+        },
+        {
+          "token": "u20",
+          "label": "Under 20%"
+        },
+        {
+          "token": "u25",
+          "label": "Under 25%"
+        },
+        {
+          "token": "u30",
+          "label": "Under 30%"
+        },
+        {
+          "token": "u40",
+          "label": "Under 40%"
+        },
+        {
+          "token": "u50",
+          "label": "Under 50%"
+        }
+      ]
+    },
     "fa_evsales": {
       "key": "fa_evsales",
       "tab": "fundamental",

@@ -83,7 +83,7 @@ def test_the_document_has_five_tabs() -> None:
     # descriptive keeps its 25 controls (order, signal, 23 keys incl. sh_dilution)
     assert {group["id"]: len(group["controls"]) for group in doc["groups"]} == {
         "descriptive": 25,
-        "fundamental": 37,
+        "fundamental": 38,
         "technical": 20,
         "news": 2,
         "etf": 1,

@@ -216,6 +216,7 @@ CATALOGUE_COLUMNS: Mapping[str, str] = MappingProxyType(
         "pfcf": "pfcf",
         "ev_ebitda": "ev_ebitda",
         "ev_sales": "ev_to_sales",
+        "fcf_margin": "fcf_margin",
         "target_price": "target_price",
         "recommendation": "recommendation",
         # -- quality ---------------------------------------------------------

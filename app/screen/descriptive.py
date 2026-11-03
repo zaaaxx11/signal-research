@@ -1341,7 +1341,7 @@ DISPOSITION_BY_KEY: Mapping[str, str] = MappingProxyType(
         "sh_price": "scan_row",
         "targetprice": "scan_row",
         "ipodate": "join",
-        "sh_outstanding": "scan_row",
+        "sh_outstanding": "join",
         "sh_float": "scan_row",
         "theme": "new_source",
         "subtheme": "new_source",
@@ -1353,6 +1353,7 @@ DISPOSITION_BY_KEY: Mapping[str, str] = MappingProxyType(
         "fa_pb": "scan_row",
         "fa_pc": "join",
         "fa_pfcf": "scan_row",
+        "fa_fcfmargin": "join",
         "fa_evebitda": "scan_row",
         "fa_evsales": "join",
         # -- fundamental: growth (every cell is a depth growth rate) ----------
@@ -1884,7 +1885,7 @@ def _validate_groups() -> None:
     expected = {tab: len(keys) for tab, keys in GROUPS_BY_TAB.items()}
     if expected != {
         "descriptive": 22,
-        "fundamental": 37,
+        "fundamental": 38,
         "technical": 20,
         "news": 2,
         "etf": 1,

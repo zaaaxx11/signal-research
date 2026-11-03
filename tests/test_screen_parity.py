@@ -143,11 +143,11 @@ def symbols_of(document: dict[str, Any]) -> list[str]:
 
 
 def test_the_disposition_is_seventy_six_available_and_six_refused() -> None:
-    assert len(mapped_keys()) == 76
+    assert len(mapped_keys()) == 77
     assert len(unavailable_keys()) == 6
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert set(unavailable_keys()) == set(UNAVAILABLE)
-    assert len(mapped_keys()) + len(unavailable_keys()) == 82
+    assert len(mapped_keys()) + len(unavailable_keys()) == 83
     assert set(ROW_FIELDS.values()) <= set(FIELDS)
     assert set(ROW_FIELDS.values()) <= (
         set(DEPTH_FIELDS)

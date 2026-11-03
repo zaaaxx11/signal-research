@@ -188,6 +188,11 @@ FIELDS: Mapping[str, str] = MappingProxyType(
         # net cash above the market cap — and Finviz's own vocabulary has a
         # `negative` bucket for it.
         "ev_to_sales": "number",
+        # FCF margin: `fcf_ttm / revenue_ttm`, computed by the fundamentals
+        # join from the snapshot's own cells (app.screen.fundamentals). A ratio
+        # in [0, 1] range for positive-FCF companies; None when either input is
+        # missing or revenue <= 0.
+        "fcf_margin": "number",
         # -- dividends (percent, as the provider reports it: 0.47 = 0.47%)
         "dividend_yield": "number",  # dividends_yield, percent not a fraction
         # Percent of earnings paid out (12.04 = 12.04%), joined from the
@@ -1282,6 +1287,15 @@ _CATALOG_SPECS: tuple[FilterSpec, ...] = (
          "u50", "u60", "u70", "u80", "u90", "u100", "o5", "o10", "o15", "o20",
          "o25", "o30", "o35", "o40", "o45", "o50", "o60", "o70", "o80", "o90",
          "o100", "frange"),
+    ),
+    FilterSpec(
+        "fa_fcfmargin",
+        "FCF Margin",
+        "fundamental",
+        "floatRangeSelect",
+        "fcf_margin",
+        ("", "pos", "neg", "high", "o0", "o5", "o10", "o15", "o20", "o25", "o30", "o40",
+         "o50", "u5", "u10", "u15", "u20", "u25", "u30", "u40", "u50", "frange"),
     ),
     FilterSpec(
         "fa_evebitda",

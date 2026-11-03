@@ -88,7 +88,7 @@ async def test_get_screens_filters_serves_the_five_tabs(
     assert body["schema_version"] == "screener-3"
     assert [(group["id"], len(group["controls"])) for group in body["groups"]] == [
         ("descriptive", 25),
-        ("fundamental", 37),
+        ("fundamental", 38),
         ("technical", 20),
         ("news", 2),
         ("etf", 1),

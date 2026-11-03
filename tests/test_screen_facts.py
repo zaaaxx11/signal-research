@@ -689,9 +689,9 @@ def test_the_facts_keys_resolve_to_the_joined_columns() -> None:
 
 
 def test_the_catalogue_moved_to_seventy_six_available_and_six_refused() -> None:
-    assert len(mapped_keys()) == 76
+    assert len(mapped_keys()) == 77
     assert len(unavailable_keys()) == 6
-    assert len(mapped_keys()) + len(unavailable_keys()) == 82
+    assert len(mapped_keys()) + len(unavailable_keys()) == 83
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     assert not set(mapped_keys()) & set(unavailable_keys())
     for key in P11J:
@@ -712,7 +712,7 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_facts_keys() 
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 6
+    assert len(mapped) == 49 and len(chosen) == 3 and len(refused) == 6
     assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
     assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
     assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())

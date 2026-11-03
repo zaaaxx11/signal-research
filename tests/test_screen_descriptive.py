@@ -177,7 +177,7 @@ def test_the_document_serves_five_tabs_and_descriptive_keeps_its_twenty_five() -
     ]
     assert {group["id"]: len(group["controls"]) for group in document["groups"]} == {
         "descriptive": 25,
-        "fundamental": 37,
+        "fundamental": 38,
         "technical": 20,
         "news": 2,
         "etf": 1,

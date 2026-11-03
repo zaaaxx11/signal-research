@@ -608,14 +608,14 @@ def test_the_schema_publishes_the_choice_codes_vocabulary_and_counts() -> None:
     chosen = [key for key, entry in published.items() if "choice" in entry]
     assert chosen == list(KEYS)
     mapped = [key for key, entry in published.items() if entry["field"] is not None]
-    assert len(mapped) == 48
+    assert len(mapped) == 49
     refused = [
         key
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry
     ]
     assert len(refused) == 31, "21 bucket-only keys and the 10 refusals"
-    assert len(mapped) + len(chosen) + len(refused) == 82
+    assert len(mapped) + len(chosen) + len(refused) == 83
 
     definitions: dict[str, Any] = dict(SELECTION_REQUEST_SCHEMA["$defs"])  # type: ignore[arg-type]
     description = definitions["filter"]["properties"]["key"]["description"]

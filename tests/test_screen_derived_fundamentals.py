@@ -79,6 +79,7 @@ MARKET_CAP_USD = 2_000_000_000_000.0
 CASH = 250_000_000_000.0
 DEBT = 120_000_000_000.0
 REVENUE = 400_000_000_000.0
+FCF_TTM = 100_000_000_000.0
 
 
 def snapshot(
@@ -133,6 +134,7 @@ def full_snapshot(symbol: str = "AAPL", **overrides: Any) -> FundamentalsSnapsho
         "market_cap": MARKET_CAP,
         "market_cap_usd": MARKET_CAP_USD,
         "cash_and_equivalents": CASH,
+        "fcf_ttm": FCF_TTM,
         "total_debt": DEBT,
         "revenue_ttm": REVENUE,
     }
@@ -198,8 +200,8 @@ def test_the_formula_tables_name_the_same_two_columns_and_only_snapshot_cells() 
     assert set(joined.DERIVED_FORMULAS) == set(joined.DERIVED_ROW_FIELDS)
     assert set(joined.DERIVED_INPUTS) == set(joined.DERIVED_ROW_FIELDS)
     assert joined.FUNDAMENTALS_ROW_FIELDS == joined.JOINED_ROW_FIELDS + joined.DERIVED_ROW_FIELDS
-    assert set(joined.JOINED_ROW_FIELDS) == {"pe_forward", "ps", "payout_ratio"}
-    assert tuple(joined.DERIVED_ROW_FIELDS) == ("price_to_cash", "ev_to_sales")
+    assert set(joined.JOINED_ROW_FIELDS) == {"pe_forward", "ps", "payout_ratio", "shares_outstanding"}
+    assert tuple(joined.DERIVED_ROW_FIELDS) == ("price_to_cash", "ev_to_sales", "fcf_margin")
     for name, inputs in joined.DERIVED_INPUTS.items():
         assert inputs, f"{name} reads no cell"
         assert set(inputs) <= set(FUNDAMENTAL_FIELDS), (
@@ -282,7 +284,7 @@ def test_a_non_finite_or_non_numeric_cell_is_unknown(value: Any) -> None:
 def test_an_empty_snapshot_answers_none_for_both() -> None:
     cells = joined.derive_cells(snapshot("EMPTY"))
 
-    assert cells == {"price_to_cash": None, "ev_to_sales": None}
+    assert cells == {"price_to_cash": None, "ev_to_sales": None, "fcf_margin": None}
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +299,7 @@ def test_the_join_writes_both_columns_and_leaks_no_snapshot_input() -> None:
     row = enriched[0]
     assert row["price_to_cash"] == 4.0
     assert row["ev_to_sales"] == pytest.approx(2.175)
+    assert row["fcf_margin"] == pytest.approx(FCF_TTM / REVENUE)
     for name in ("market_cap", "cash_and_equivalents", "total_debt", "revenue_ttm"):
         assert name not in row, (
             f"{name} is a snapshot input, not a selection cell: the join publishes "
@@ -310,7 +313,7 @@ def test_a_symbol_the_store_does_not_hold_gets_none_not_zero() -> None:
     enriched = joined.apply_fundamentals(rows, {"AAPL": full_snapshot()})
 
     tsm = enriched[1]
-    assert (tsm["price_to_cash"], tsm["ev_to_sales"]) == (None, None)
+    assert (tsm["price_to_cash"], tsm["ev_to_sales"], tsm["fcf_margin"]) == (None, None, None)
 
 
 def test_the_two_columns_are_present_on_every_row_even_without_a_store() -> None:
@@ -318,8 +321,8 @@ def test_the_two_columns_are_present_on_every_row_even_without_a_store() -> None
     enriched = joined.apply_fundamentals(rows, {})
 
     for row in enriched:
-        assert "price_to_cash" in row and "ev_to_sales" in row
-        assert row["price_to_cash"] is None and row["ev_to_sales"] is None
+        assert "price_to_cash" in row and "ev_to_sales" in row and "fcf_margin" in row
+        assert row["price_to_cash"] is None and row["ev_to_sales"] is None and row["fcf_margin"] is None
 
 
 def test_a_stale_snapshot_computes_nothing() -> None:
@@ -383,16 +386,16 @@ def test_the_two_keys_resolve_to_the_computed_columns(key: str, field: str) -> N
     assert FIELDS[field] == "number"
 
 
-def test_the_disposition_is_seventy_six_available_and_six_refused() -> None:
-    assert len(mapped_keys()) == 76
+def test_the_disposition_is_seventy_seven_available_and_six_refused() -> None:
+    assert len(mapped_keys()) == 77
     assert len(unavailable_keys()) == 6
-    assert len(mapped_keys()) + len(unavailable_keys()) == 82
+    assert len(mapped_keys()) + len(unavailable_keys()) == 83
     assert set(mapped_keys()) == set(ROW_FIELDS) | set(CHOICE_FIELDS) | set(BUCKET_KEYS)
     for key in P11I:
         assert key not in unavailable_keys()
 
 
-def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
+def test_the_published_schema_counts_and_names_the_three_new_columns() -> None:
     artifact = ROOT / "schemas" / "stock_selection_request_v1.json"
     assert json.loads(artifact.read_text(encoding="utf-8")) == SELECTION_REQUEST_SCHEMA
 
@@ -405,7 +408,7 @@ def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
         for key, entry in published.items()
         if entry["field"] is None and "choice" not in entry and not entry.get("bucket")
     }
-    assert len(mapped) == 48 and len(chosen) == 3 and len(refused) == 6
+    assert len(mapped) == 49 and len(chosen) == 3 and len(refused) == 6
     assert set(bucketed) == set(BUCKET_KEYS), "the flag is the buckets table"
     assert {"idx"} <= set(bucketed), "the one bucket-only key publishes no column"
     assert set(mapped) | set(chosen) | set(bucketed) == set(mapped_keys())
@@ -417,7 +420,7 @@ def test_the_published_schema_counts_and_names_the_two_new_columns() -> None:
         assert "reason" not in mapped[key], f"{key} is mapped, so it carries no refusal"
 
     description = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]["key"]["description"]  # type: ignore[index]
-    assert "The 48 that resolve to one row column" in description
+    assert "The 49 that resolve to one row column" in description
     assert "the 6 that are refused" in description
     assert "25 bucket-only key" in description and "idx" in description
 
@@ -579,6 +582,7 @@ def test_a_snapshot_row_built_from_the_store_shape_answers_both_ratios() -> None
 
     payload: Mapping[str, Any] = {
         "cash_and_equivalents": 62_469_001_216.0,
+        "fcf_ttm": 100_000_000_000.0,
         "market_cap": 5_094_050_889_728.0,
         "market_cap_usd": 5_094_050_889_728.0,
         "revenue_ttm": 302_970_011_648.0,
@@ -593,4 +597,7 @@ def test_a_snapshot_row_built_from_the_store_shape_answers_both_ratios() -> None
     assert cells["ev_to_sales"] == pytest.approx(
         (5_094_050_889_728.0 + 38_860_001_280.0 - 62_469_001_216.0)
         / 302_970_011_648.0
+    )
+    assert cells["fcf_margin"] == pytest.approx(
+        100_000_000_000.0 / 302_970_011_648.0
     )
