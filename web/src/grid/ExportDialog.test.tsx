@@ -185,7 +185,7 @@ describe("the guided export dialog", () => {
   it("defaults the count display to 200", () => {
     stubFetch();
     renderDialog();
-    expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+    expect((screen.getByTestId("export-count-value") as HTMLInputElement).value).toBe("200");
   });
 
   it("+/- stepper increases and decreases count, clamped 1–200", async () => {
@@ -198,14 +198,14 @@ describe("the guided export dialog", () => {
     });
 
     await user.click(screen.getByTestId("export-count-down"));
-    expect(screen.getByTestId("export-count-value").textContent).toBe("199");
+    expect((screen.getByTestId("export-count-value") as HTMLInputElement).value).toBe("199");
 
     await user.click(screen.getByTestId("export-count-up"));
-    expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+    expect((screen.getByTestId("export-count-value") as HTMLInputElement).value).toBe("200");
 
     // + at ceiling stays 200
     await user.click(screen.getByTestId("export-count-up"));
-    expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+    expect((screen.getByTestId("export-count-value") as HTMLInputElement).value).toBe("200");
   });
 
   it("disables + at 200 and − at 1", async () => {
@@ -226,7 +226,7 @@ describe("the guided export dialog", () => {
       await user.click(downBtn);
     }
     await waitFor(() => {
-      expect(screen.getByTestId("export-count-value").textContent).toBe("1");
+      expect((screen.getByTestId("export-count-value") as HTMLInputElement).value).toBe("1");
     });
     expect(downBtn.disabled).toBe(true);
   });
@@ -252,7 +252,7 @@ describe("the guided export dialog", () => {
       await user.click(downBtn);
     }
     await waitFor(() => {
-      expect(screen.getByTestId("export-count-value").textContent).toBe("50");
+      expect((screen.getByTestId("export-count-value") as HTMLInputElement).value).toBe("50");
     });
 
     await user.click(screen.getByTestId("export-run"));

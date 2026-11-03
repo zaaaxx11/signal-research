@@ -283,7 +283,7 @@ export function ExportDialog({
           );
         })}
 
-        {/* Number stepper: +/- buttons, NO text input */}
+        {/* Number input with +/- stepper */}
         <div className="flex flex-col gap-1">
           <span className="text-data text-fg-muted">Rows</span>
           <div className="flex items-center gap-1">
@@ -300,14 +300,20 @@ export function ExportDialog({
             >
               −
             </button>
-            <span
+            <input
+              type="number"
               data-testid="export-count-value"
-              aria-live="polite"
               aria-label={`${clamped.count} rows`}
-              className="inline-flex h-7 min-w-[3ch] items-center justify-center rounded-sm border border-line-control bg-surface-sunken px-2 font-mono text-data text-fg"
-            >
-              {clamped.count}
-            </span>
+              min={1}
+              max={MAX_EXPORT_ROWS}
+              value={count}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                if (Number.isNaN(parsed)) return;
+                setCount(clampCount(parsed).count);
+              }}
+              className="h-7 w-[5ch] rounded-sm border border-line-control bg-surface-sunken px-1.5 font-mono text-data text-fg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
             <button
               type="button"
               data-testid="export-count-up"
