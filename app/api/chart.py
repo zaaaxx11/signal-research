@@ -114,7 +114,7 @@ SOURCE = "yahoo_chart"
 #: provider accepts a five-year daily series, and ``app.api.risk`` has spoken
 #: ``5y`` all along, so the chart was the one surface that could not show the
 #: history every other page quotes.
-RANGES: tuple[str, ...] = ("1d", "5d", "1mo", "6mo", "1y", "5y")
+RANGES: tuple[str, ...] = ("1d", "5d", "1mo", "6mo", "1y", "5y", "max")
 
 #: The intervals the provider is asked for, in ascending coarseness.
 INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "1d")
@@ -127,6 +127,7 @@ DEFAULT_INTERVALS: dict[str, str] = {
     "6mo": "1d",
     "1y": "1d",
     "5y": "1d",
+    "max": "1d",
 }
 
 #: The legal intervals per range. A minute bar inside one session, a quarter-hour
@@ -142,6 +143,7 @@ LEGAL_INTERVALS: dict[str, tuple[str, ...]] = {
     "6mo": ("1h", "1d"),
     "1y": ("1h", "1d"),
     "5y": ("1d",),
+    "max": ("1d",),
 }
 
 #: How long a parsed series is served from memory. Five minutes is a fifth of a
@@ -167,7 +169,7 @@ MAX_BARS = 1000
 #: "5y", so the long daily ranges get their own ceiling and every other range
 #: keeps the default. A body of 1,300 bars is ~75 KB, inside the ~120 KB the
 #: memo budget already prices.
-BAR_LIMITS: dict[str, int] = {"5y": 1_500}
+BAR_LIMITS: dict[str, int] = {"5y": 1_500, "max": 3_000}
 
 
 def bars_for(window: str) -> int:

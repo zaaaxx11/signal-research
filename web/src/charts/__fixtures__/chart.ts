@@ -34,6 +34,7 @@ const RANGE_BARS: Readonly<Record<ChartRange, number>> = {
   // Five trading years, and over the route's default thousand-bar cap on
   // purpose: a fixture that stopped at 1,000 could not notice the cap.
   "5y": 1_260,
+  "max": 3_500,
 };
 
 export function bar(t: number, o: number, h: number, l: number, c: number, v = 1_000_000): Bar {

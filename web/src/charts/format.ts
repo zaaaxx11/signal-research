@@ -39,6 +39,7 @@ const AXIS_STAMPS: Readonly<Record<ChartRange, Stamp>> = {
   "6mo": { month: "short", day: "numeric" },
   "1y": { month: "short" },
   "5y": { month: "short", year: "numeric" },
+  "max": { month: "short", year: "numeric" },
 };
 
 /** The readout is more specific than the axis: a bar has a day *and* a time. */
@@ -49,6 +50,7 @@ const READOUT_STAMPS: Readonly<Record<ChartRange, Stamp>> = {
   "6mo": { month: "short", day: "numeric" },
   "1y": { month: "short", day: "numeric", year: "numeric" },
   "5y": { month: "short", day: "numeric", year: "numeric" },
+  "max": { month: "short", day: "numeric", year: "numeric" },
 };
 
 const formatters = new Map<string, Intl.DateTimeFormat>();

@@ -121,6 +121,7 @@ describe("Chart — range selector", () => {
       "6M",
       "1Y",
       "5Y",
+      "Max",
     ]);
     expect(buttons[0]?.getAttribute("aria-pressed")).toBe("true");
     expect(buttons[1]?.getAttribute("aria-pressed")).toBe("false");

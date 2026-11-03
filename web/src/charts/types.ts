@@ -25,7 +25,7 @@
  * second clock.
  */
 
-export const CHART_RANGES = ["1d", "5d", "1mo", "6mo", "1y", "5y"] as const;
+export const CHART_RANGES = ["1d", "5d", "1mo", "6mo", "1y", "5y", "max"] as const;
 
 export type ChartRange = (typeof CHART_RANGES)[number];
 
@@ -37,6 +37,7 @@ export const RANGE_LABELS: Readonly<Record<ChartRange, string>> = {
   "6mo": "6M",
   "1y": "1Y",
   "5y": "5Y",
+  "max": "Max",
 };
 
 /** The long form, for a label a screen reader hears rather than sees. */
@@ -47,6 +48,7 @@ export const RANGE_NAMES: Readonly<Record<ChartRange, string>> = {
   "6mo": "6 months",
   "1y": "1 year",
   "5y": "5 years",
+  "max": "All time",
 };
 
 export function isChartRange(value: unknown): value is ChartRange {

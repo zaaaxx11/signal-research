@@ -18,9 +18,14 @@ import * as React from "react";
 import { toBars } from "@/charts/bars";
 import { ChartBarsLazy } from "@/charts/lazy";
 import { useChartData } from "@/charts/useChartData";
+import type { ChartRange } from "@/charts/types";
+import { RANGE_LABELS, RANGE_NAMES } from "@/charts/types";
 import { cn } from "@/lib/utils";
 
 import { aggregateBars, INTERVALS, type BarInterval } from "./aggregate";
+
+/** The chart ranges shown in the ticker range selector. */
+const TICKER_RANGES: readonly ChartRange[] = ["1y", "5y", "max"];
 
 export interface TickerChartProps {
   readonly symbol: string;
@@ -33,8 +38,9 @@ export function TickerChart({
   height = 240,
   className,
 }: TickerChartProps): React.ReactElement {
+  const [range, setRange] = React.useState<ChartRange>("1y");
   const [interval, setInterval] = React.useState<BarInterval>("D");
-  const view = useChartData(symbol, "1y");
+  const view = useChartData(symbol, range);
 
   const daily = React.useMemo(
     () => (view.series ? toBars(view.series) : []),
@@ -59,9 +65,34 @@ export function TickerChart({
           id="ticker-chart-heading"
           className="text-label font-medium uppercase tracking-[0.08em] text-fg-subtle"
         >
-          Price · 1 year
+          Price · {RANGE_NAMES[range]}
         </h2>
-        <div role="group" aria-label="Bar interval" className="flex items-center gap-0.5">
+        <div className="flex items-center gap-2">
+          <div role="group" aria-label="Chart range" className="flex items-center gap-0.5">
+            {TICKER_RANGES.map((option) => {
+              const active = option === range;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={RANGE_NAMES[option]}
+                  title={RANGE_NAMES[option]}
+                  data-testid={`chart-range-${option}`}
+                  onClick={() => setRange(option)}
+                  className={cn(
+                    "focus-ring h-6 rounded-sm px-2 text-data font-medium transition-colors",
+                    active
+                      ? "border-line-control bg-surface-raised text-fg"
+                      : "border-line text-fg-muted hover:text-fg",
+                  )}
+                >
+                  {RANGE_LABELS[option]}
+                </button>
+              );
+            })}
+          </div>
+          <div role="group" aria-label="Bar interval" className="flex items-center gap-0.5">
           {INTERVALS.map((option) => {
             const active = option.id === interval;
             return (
@@ -84,6 +115,7 @@ export function TickerChart({
               </button>
             );
           })}
+        </div>
         </div>
       </div>
 
@@ -114,7 +146,7 @@ export function TickerChart({
           style={{ minHeight: height }}
           className="flex items-center border border-line bg-surface-sunken px-3 text-data text-fg-muted"
         >
-          No bars were reported for {symbol} in the last year.
+          No bars were reported for {symbol} in this period.
         </p>
       ) : (
         <ChartBarsLazy
