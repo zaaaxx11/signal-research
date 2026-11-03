@@ -18,6 +18,8 @@ build/
 *.log
 output/
 .ruff_cache/
+ztockz-data/
+web/tsconfig.tsbuildinfo
 .mypy_cache/
 
 # Local agent scratch (not part of the product)
