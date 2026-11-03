@@ -138,36 +138,6 @@ export function ScreenPanel({
   const filterKey = filtersSignature(activeFilters);
   const sort = sortProp ?? "market_cap";
 
-  /** Table density: persisted across sessions in localStorage. */
-  const [density, setDensity] = React.useState<'compact' | 'normal' | 'spacious'>(() => {
-    try {
-      if (typeof document !== 'undefined') {
-        return (localStorage.getItem('ztockz.density') as 'compact' | 'normal' | 'spacious') || 'normal';
-      }
-    } catch { /* quota / private browsing */ }
-    return 'normal';
-  });
-
-  /** Apply density class to <html> so CSS custom properties cascade everywhere. */
-  const setDensityClass = React.useCallback((mode: 'compact' | 'normal' | 'spacious') => {
-    if (typeof document === 'undefined') return;
-    const root = document.documentElement;
-    root.classList.remove('ztz-density-compact', 'ztz-density-normal', 'ztz-density-spacious');
-    root.classList.add(`ztz-density-${mode}`);
-    try { localStorage.setItem('ztockz.density', mode); } catch { /* noop */ }
-    setDensity(mode);
-  }, []);
-
-  // Apply the initial density class on mount
-  React.useEffect(() => {
-    if (typeof document !== 'undefined') {
-      const saved = density;
-      const root = document.documentElement;
-      root.classList.remove('ztz-density-compact', 'ztz-density-normal', 'ztz-density-spacious');
-      root.classList.add(`ztz-density-${saved}`);
-    }
-  }, []);
-
   /** Rows per request: the toolbar's 20 / 50 / 100. */
   const [limit, setLimit] = React.useState<number>(PANEL_LIMIT);
   /** Auto-refresh cadence, or null when off. */
@@ -631,8 +601,6 @@ export function ScreenPanel({
         cached={screens.fromCache && sameView}
         statusText={label ?? ""}
         notice={notice}
-        density={density}
-        onDensityChange={setDensityClass}
       />
 
       {sameView && screens.revalidated ? (

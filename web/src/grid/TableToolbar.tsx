@@ -89,9 +89,6 @@ export interface TableToolbarProps {
   /** A short confirmation from the last action, announced politely. */
   notice: string | null;
   className?: string;
-  /** Table density: compact (22px), normal (28px), spacious (36px). */
-  density?: 'compact' | 'normal' | 'spacious';
-  onDensityChange?: (mode: 'compact' | 'normal' | 'spacious') => void;
 }
 
 export function TableToolbar({
@@ -121,8 +118,6 @@ export function TableToolbar({
   cached = false,
   statusText,
   notice,
-  density = 'normal',
-  onDensityChange,
   className,
 }: TableToolbarProps) {
   const [menu, setMenu] = React.useState<"add" | "export" | null>(null);
@@ -386,32 +381,6 @@ export function TableToolbar({
                       </ul>
         ) : null}
       </div>
-
-      <span
-        data-testid="density-mode"
-        className="flex items-center gap-0"
-        title="Row density: compact / normal / spacious"
-      >
-        {(['compact', 'normal', 'spacious'] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            aria-label={`${mode} density`}
-            aria-pressed={density === mode}
-            onClick={() => onDensityChange?.(mode)}
-            className={cn(
-              "h-6 border border-line-control bg-surface-sunken font-mono text-label uppercase tracking-[0.08em]",
-              "first:rounded-l-sm last:rounded-r-sm",
-              density === mode
-                ? "border-brand bg-row-selected text-fg"
-                : "text-fg-muted hover:text-fg",
-            )}
-            style={{ width: '1.75rem' }}
-          >
-            {mode === 'compact' ? 'S' : mode === 'normal' ? 'M' : 'L'}
-          </button>
-        ))}
-      </span>
 
       <span className="h-4 w-px bg-line" aria-hidden="true" />
 

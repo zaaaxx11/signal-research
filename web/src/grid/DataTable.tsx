@@ -63,27 +63,9 @@ const features = tableFeatures({
   rowSortingFeature,
 });
 
-/** Read the current row pitch from CSS, falling back to normal density. */
-function readPitch(): number {
-  if (typeof document === 'undefined') return 28;
-  try {
-    const value = getComputedStyle(document.documentElement).getPropertyValue('--row-pitch').trim();
-    const parsed = parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  } catch { /* jsdom / sandbox */ }
-  return 28;
-}
-
-/** Read the current header height from CSS, falling back to 24px. */
-function readHeaderHeight(): number {
-  if (typeof document === 'undefined') return 24;
-  try {
-    const value = getComputedStyle(document.documentElement).getPropertyValue('--header-height').trim();
-    const parsed = parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  } catch { /* jsdom / sandbox */ }
-  return 24;
-}
+/** Hardcoded row and header dimensions so the solver and browser agree. */
+const ROW_HEIGHT = 28;
+const HEADER_HEIGHT = 24;
 
 /**
  * How far the table fades while a page turn is in flight.
@@ -717,7 +699,7 @@ export function DataTable({
                               (showNumber ? columnSpec(ROW_NUMBER_KEY).min : 0),
                           }
                         : {}),
-                      height: readHeaderHeight(),
+                      height: HEADER_HEIGHT,
                       zIndex: sticky ? 40 : 20,
                       padding: 0,
                     }}
@@ -770,7 +752,7 @@ export function DataTable({
                         ...STICKY_LANE,
                         left: 0,
                         width: COMPARE_LANE_WIDTH,
-                        height: readHeaderHeight(),
+                        height: HEADER_HEIGHT,
                         zIndex: 45,
                         padding: 0,
                       }}
@@ -785,7 +767,7 @@ export function DataTable({
                     <th
                       aria-hidden="true"
                       colSpan={lead}
-                      style={{ ...STICKY_HEADER, height: readHeaderHeight(), zIndex: 20 }}
+                      style={{ ...STICKY_HEADER, height: HEADER_HEIGHT, zIndex: 20 }}
                       className="border-b border-line-strong bg-surface-raised"
                     />
                   ) : null}
@@ -794,7 +776,7 @@ export function DataTable({
                     <th
                       aria-hidden="true"
                       colSpan={trail}
-                      style={{ ...STICKY_HEADER, height: readHeaderHeight(), zIndex: 20 }}
+                      style={{ ...STICKY_HEADER, height: HEADER_HEIGHT, zIndex: 20 }}
                       className="border-b border-line-strong bg-surface-raised"
                     />
                   ) : null}
@@ -1250,12 +1232,12 @@ const GridRow = React.memo(function GridRow({
         "hover:bg-row-hover focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-focus",
         "data-[selected=true]:bg-row-selected",
       )}
-      style={{ height: readPitch() }}
+      style={{ height: ROW_HEIGHT }}
     >
       {onToggleCompare ? (
         <td
           onClick={(event) => event.stopPropagation()}
-          style={{ ...STICKY_LANE, left: 0, height: readPitch(), zIndex: 5 }}
+          style={{ ...STICKY_LANE, left: 0, height: ROW_HEIGHT, zIndex: 5 }}
           className="bg-inherit px-0 py-0 text-center align-middle"
         >
           <input
@@ -1275,7 +1257,7 @@ const GridRow = React.memo(function GridRow({
           style={{
             ...STICKY_LANE,
             left: onToggleCompare ? COMPARE_LANE_WIDTH : 0,
-            height: readPitch(),
+            height: ROW_HEIGHT,
             zIndex: 3,
           }}
           className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle tabular-nums text-fg-subtle"
@@ -1289,7 +1271,7 @@ const GridRow = React.memo(function GridRow({
           left:
             (onToggleCompare ? COMPARE_LANE_WIDTH : 0) +
             (showNumber ? columnSpec(ROW_NUMBER_KEY).min : 0),
-          height: readPitch(),
+          height: ROW_HEIGHT,
           zIndex: 2,
         }}
         className="overflow-hidden bg-inherit px-2 py-0 text-left align-middle shadow-[inset_-1px_0_0_var(--border-strong)]"
@@ -1318,7 +1300,7 @@ const GridRow = React.memo(function GridRow({
         )}
       </td>
       {lead > 0 ? (
-        <td aria-hidden="true" colSpan={lead} style={{ height: readPitch() }} className="p-0" />
+        <td aria-hidden="true" colSpan={lead} style={{ height: ROW_HEIGHT }} className="p-0" />
       ) : null}
       {cells.map((key, cellIndex) => {
         const gap = absent?.(symbol, key) ?? null;
@@ -1326,7 +1308,7 @@ const GridRow = React.memo(function GridRow({
         return (
           <td
             key={`${rowId}:${key}`}
-            style={{ height: readPitch() }}
+            style={{ height: ROW_HEIGHT }}
             // The last cell is the anchor: the action lane is positioned
             // against it and may hang over the cell's left edge, so that one
             // must not clip. Every other cell keeps its overflow guard.
@@ -1355,7 +1337,7 @@ const GridRow = React.memo(function GridRow({
         );
       })}
       {trail > 0 ? (
-        <td aria-hidden="true" colSpan={trail} style={{ height: readPitch() }} className="p-0" />
+        <td aria-hidden="true" colSpan={trail} style={{ height: ROW_HEIGHT }} className="p-0" />
       ) : null}
     </tr>
   );
@@ -1390,13 +1372,13 @@ function SkeletonRows({ columns, widths }: { columns: number; widths: number[] }
           key={row}
           aria-hidden="true"
           className={cn("h-7", row % 2 === 0 ? "bg-row" : "bg-row-alt")}
-          style={{ height: readPitch() }}
+          style={{ height: ROW_HEIGHT }}
         >
           {Array.from({ length: columns }, (_, column) => (
             <td
               key={column}
               className="overflow-hidden px-2 py-0"
-              style={{ height: readPitch(), width: widths[column] ?? 0 }}
+              style={{ height: ROW_HEIGHT, width: widths[column] ?? 0 }}
             >
               <span
                 className={cn("block h-1.5 rounded-[1px]", column === 0 ? "bg-line-strong" : "bg-line")}

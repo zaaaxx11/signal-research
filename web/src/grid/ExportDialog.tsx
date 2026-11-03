@@ -28,6 +28,7 @@ import {
   fetchOptions,
   requestExport,
   type ExportBody,
+  type ExportFormat,
   type OptionItem,
 } from "./exportJob";
 
@@ -77,6 +78,7 @@ export function ExportDialog({
   const [country, setCountry] = React.useState("");
   const [order, setOrder] = React.useState("");
   const [signal, setSignal] = React.useState("");
+  const [format, setFormat] = React.useState<ExportFormat>("csv");
   const [count, setCount] = React.useState(DEFAULT_EXPORT_ROWS);
   const [phase, setPhase] = React.useState<Phase>("idle");
   const [error, setError] = React.useState<string | null>(null);
@@ -138,6 +140,7 @@ export function ExportDialog({
     setCountry("");
     setOrder("");
     setSignal("");
+    setFormat("csv");
     setCount(DEFAULT_EXPORT_ROWS);
     setPhase("idle");
     setError(null);
@@ -186,7 +189,7 @@ export function ExportDialog({
       order,
       signal,
       count: clamped.count,
-      format: "csv",
+      format,
       region,
       columns,
     });
@@ -229,6 +232,22 @@ export function ExportDialog({
       size="md"
     >
       <div className="flex flex-col gap-3">
+        {/* Format selector */}
+        <label className="flex flex-col gap-1">
+          <span className="text-data text-fg-muted">Format</span>
+          <select
+            data-testid="export-select-format"
+            aria-label="File format"
+            value={format}
+            onChange={(event) => setFormat(event.target.value as ExportFormat)}
+            className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
+          >
+            <option value="csv">CSV</option>
+            <option value="xlsx">XLSX</option>
+            <option value="json">JSON</option>
+          </select>
+        </label>
+
         {/* Options error banner */}
         {optionsError ? (
           <div
