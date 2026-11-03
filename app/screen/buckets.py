@@ -83,6 +83,13 @@ SESSION_REASON = (
 )
 
 
+DILUTION_REASON = (
+    "the dilution module (app.market.dilution.py) and bucket definitions exist; "
+    "wiring the scan to compute dilution values with CIK resolution and a cache "
+    "dir is the next step"
+)
+
+
 class BucketError(ValueError):
     """A bucket id that cannot be applied, carrying a stable machine code."""
 
@@ -928,6 +935,49 @@ def _short_family() -> tuple[Bucket, ...]:
                 finviz=token,
                 predicate=_column_predicate(column, op, value),
                 describe=_describe(column, op, value),
+            )
+        )
+    return tuple(family)
+
+
+# -- dilution risk: percentage change in shares outstanding ------------------
+
+
+def _dilution_family() -> tuple[Bucket, ...]:
+    """Five Finviz dilution-risk tokens, all unavailable until the scan
+    computes dilution values via ``app.market.dilution.py``.
+    """
+
+    labels = {
+        "minimal": "Minimal (<2%)",
+        "low": "Low (2-5%)",
+        "moderate": "Moderate (5-15%)",
+        "high": "High (15-30%)",
+        "severe": "Severe (>30%)",
+    }
+    bands: Mapping[str, tuple[str, Any]] = MappingProxyType(
+        {
+            "minimal": ("lt", 2.0),
+            "low": ("span", (2.0, 5.0)),
+            "moderate": ("span", (5.0, 15.0)),
+            "high": ("span", (15.0, 30.0)),
+            "severe": ("gte", 30.0),
+        }
+    )
+    column = "dilution_pct"
+    family: list[Bucket] = []
+    for token in ("severe", "high", "moderate", "low", "minimal"):
+        op, value = bands[token]
+        family.append(
+            Bucket(
+                id=f"sh_dilution:{token}",
+                key="sh_dilution",
+                label=labels[token],
+                finviz=token,
+                predicate=_column_predicate(column, op, value),
+                describe=_describe(column, op, value),
+                available=False,
+                reason=DILUTION_REASON,
             )
         )
     return tuple(family)
@@ -2410,6 +2460,8 @@ def _build_registry() -> dict[str, tuple[Bucket, ...]]:
         "ah_change": _ah_family("ah_change", "ah_change", after_hours.CHANGE_CELL),
         # -- news (T23) --------------------------------------------------------
         "news": _news_family(),
+        # -- dilution risk (not a Finviz filter key, not in the 82-key catalogue) --
+        "sh_dilution": _dilution_family(),
     }
     return registry
 
@@ -2423,8 +2475,15 @@ _BY_ID: Mapping[str, Bucket] = MappingProxyType(
 
 #: filter key → its family, in panel order. Keyed by the *key* the request
 #: names (``sh_price``), not by the control its ids are namespaced by (``price``).
+#: Controls that are not in ``_CONTROL_KEYS`` use their own control id as the key
+#: (``sh_dilution`` is registered but has no 82-key catalogue entry).
 _BY_KEY: Mapping[str, tuple[Bucket, ...]] = MappingProxyType(
-    {_CONTROL_KEYS[control]: family for control, family in _REGISTRY.items()}
+    {
+        **{_CONTROL_KEYS[control]: family for control, family in _REGISTRY.items()
+            if control in _CONTROL_KEYS},
+        **{control: family for control, family in _REGISTRY.items()
+            if control not in _CONTROL_KEYS},
+    }
 )
 
 

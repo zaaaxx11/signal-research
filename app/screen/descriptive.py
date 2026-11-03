@@ -707,11 +707,9 @@ VENDORED_KEYS: tuple[str, ...] = (
 #: because the depth store really does carry ``optionable``/``shortable`` and
 #: ``ipo_date`` (see :mod:`app.screen.buckets`).
 _DILUTION_REASON = (
-    "needs dilution wiring: app/market/dilution.py can derive a share-count "
-    "series from the SEC companyfacts cache (dei:EntityCommonStockSharesOutstanding "
-    "per filing), answering first/last/pct_change/count/as_of — wiring it into "
-    "the scan needs symbol→CIK resolution and an engine cache-dir passthrough, "
-    "both available, awaiting integration"
+    "the dilution module (app.market.dilution.py) and bucket definitions exist; "
+    "wiring the scan to compute dilution values with CIK resolution and a cache "
+    "dir is the next step"
 )
 
 
@@ -1253,20 +1251,7 @@ def _controls(
             reason=_reason("subtheme"),
             status="unavailable",
         ),
-        Control(
-            id="sh_dilution",
-            label="Dilution Risk",
-            key="sh_dilution",
-            control="select",
-            form="single",
-            op="eq",
-            options=_disabled_options(
-                "sh_dilution", control="sh_dilution", reason=_DILUTION_REASON
-            ),
-            available=False,
-            reason=_DILUTION_REASON,
-            status="unavailable",
-        ),
+        _bucket_control("sh_dilution", "sh_dilution", "Dilution Risk", unit="percent"),
     )
 
 
