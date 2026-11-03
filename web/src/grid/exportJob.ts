@@ -24,9 +24,104 @@
  */
 
 import type { ScreenFilter } from "@/data/screens";
-import { postFile, readErrorMessage } from "@/lib/api";
+import { getJson, postFile, readErrorMessage } from "@/lib/api";
 
 import { narrowToFilters, narrowToSignal, type NarrowSpec } from "./narrow";
+
+// ---------------------------------------------------------------------------
+// Option lists for the guided export step-by-step selects
+// ---------------------------------------------------------------------------
+
+/** One option row from GET /screens/options/{key}. */
+export interface OptionItem {
+  id: string;
+  label: string;
+  predicate: string;
+  count: number;
+}
+
+/** The document GET /screens/options/{key} answers with. */
+interface OptionDocument {
+  key: string;
+  options: OptionItem[];
+  as_of: string;
+}
+
+/** Session-scoped cache of option lists; static within a dialog open. */
+const _optionCache = new Map<string, OptionItem[]>();
+
+/**
+ * Fetch the option list for a column (sector, industry, country, exchange).
+ *
+ * The census is memoised for the life of the tab because a sector does not move
+ * within a session.  A failed fetch throws so the dialog can surface it.
+ */
+export async function fetchOptions(key: string): Promise<OptionItem[]> {
+  const cached = _optionCache.get(key);
+  if (cached) return cached;
+  const doc = (await getJson(`/screens/options/${key}`)) as OptionDocument;
+  const items: OptionItem[] = Array.isArray(doc.options) ? doc.options : [];
+  _optionCache.set(key, items);
+  return items;
+}
+
+/** The inputs the guided step-by-step export collects. */
+export interface GuidedExportInput {
+  /** Sector predicate (empty = all). */
+  sector: string;
+  /** Industry predicate (empty = all). */
+  industry: string;
+  /** Country predicate (empty = all). */
+  country: string;
+  /** Row count 1–200. */
+  count: number;
+  format: ExportFormat;
+  region: string;
+  columns?: readonly string[];
+}
+
+/** The filter key the API expects for each guided dimension. */
+const GUIDED_KEY: Record<"sector" | "industry" | "country", string> = {
+  sector: "sec",
+  industry: "industry",
+  country: "geo",
+};
+
+/**
+ * Build an ExportBody from the guided step-by-step selects.
+ *
+ * Each non-empty selection becomes a single ``eq`` filter ANDed into the
+ * criteria.  An empty selection (the "All" row) means no filter for that
+ * dimension — the export runs over all stocks in the region.  The sort is
+ * always ``-market_cap`` (most valuable first), which is the default the
+ * screener itself uses when no sort is named.
+ */
+export function buildGuidedExportBody(input: GuidedExportInput): ExportBody {
+  const filters: ScreenFilter[] = [];
+  if (input.sector) {
+    filters.push({ key: GUIDED_KEY.sector, op: "eq", value: input.sector });
+  }
+  if (input.industry) {
+    filters.push({ key: GUIDED_KEY.industry, op: "eq", value: input.industry });
+  }
+  if (input.country) {
+    filters.push({ key: GUIDED_KEY.country, op: "eq", value: input.country });
+  }
+
+  return {
+    mode: "criteria",
+    region: input.region,
+    format: input.format,
+    limit: input.count,
+    criteria: {
+      filters,
+      sort: "-market_cap",
+    },
+    ...(input.columns && input.columns.length > 0
+      ? { columns: [...input.columns] }
+      : {}),
+  };
+}
 
 /** The one export route. Absolute from the origin, like every path in `lib/api`. */
 export const EXPORT_URL = "/screens/export";

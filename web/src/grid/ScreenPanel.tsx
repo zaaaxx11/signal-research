@@ -730,12 +730,8 @@ export function ScreenPanel({
         open={exporting !== null}
         onClose={() => setExporting(null)}
         choice={exporting ?? "csv"}
-        criteria={{ filters: toWire(activeFilters), sort }}
         columns={selection}
         region="us"
-        matched={total}
-        pageSymbols={rows.map((row) => String(row.symbol ?? "")).filter(Boolean)}
-        selectedSymbols={compareSelected}
       />
     </section>
   );

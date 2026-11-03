@@ -1,28 +1,20 @@
 /**
- * Export: pick what, pick how many, pick a format — then the file arrives.
+ * Export: guided step-by-step selects that build filter criteria, plus a
+ * stepper for how many rows, and one button that hands the file to the browser.
  *
- * The screen's rows belong to the server (see `exportJob.ts`), so this dialog
- * never serialises anything: it collects four answers, POSTs one body and hands
- * the response's Blob to the browser. The four answers are:
+ * The dialog asks for three optional dimensions — sector, industry, country —
+ * each backed by the live option census at ``GET /screens/options/{key}``.
+ * The options are fetched once when the dialog opens and cached for the
+ * session.  Every non-empty selection ANDs an ``eq`` filter into the criteria
+ * sent to ``POST /screens/export``; an "All" row removes that dimension.
  *
- * * **scope** — the whole screen, this page, the ticked rows, or a typed list.
- *   A page and a selection are ticker lists, and they travel as `mode:
- *   "symbols"`; the screen is its filters, and travels as `mode: "criteria"`.
- *   Sending the page as "the screen" is the bug this distinction exists to
- *   prevent: two different populations under one word.
- * * **rows** — 200 by default and 200 at most. Typing 500 clamps the input to
- *   200 *and says so*; a silent clamp would hand a reader a 200-row file they
- *   believe holds 500. The API refuses a request over the cap instead, so the
- *   two limits are one number in two places (the client's note and the 422).
- * * **format** — CSV, XLSX, JSON, or the API pane (the URL, and nothing else:
- *   there is no file to download for a URL).
- * * **columns** — the grid's visible cells, so the file holds what the reader
- *   is looking at rather than an arbitrary default.
+ * The row count is 1–200, stepped with +/- buttons so the reader cannot type a
+ * non-number.  The cap is 200 and the clamp is visible — a note appears when
+ * the count is at the ceiling.
  *
- * Every outcome is visible in place: a spinner while the request is open, a red
- * failure with a **Retry** that resends the same body, and a green success that
- * names the row count and the file. The download fires on success only — a
- * failed request must never leave an empty file in the reader's Downloads.
+ * Every outcome is visible in place: a spinner while the request is open, a
+ * red failure with **Retry**, and a green success naming the row count and
+ * the file.
  */
 
 import * as React from "react";
@@ -36,20 +28,15 @@ import {
   EXPORT_ROW_CLAMP,
   EXPORT_URL,
   MAX_EXPORT_ROWS,
-  SCOPE_LABELS,
-  buildExportBody,
-  clampRows,
+  buildGuidedExportBody,
   downloadFile,
-  matchSummary,
-  parseTickers,
+  fetchOptions,
   requestExport,
   type ExportBody,
   type ExportChoice,
-  type ExportCriteria,
   type ExportFormat,
-  type ExportScope,
+  type OptionItem,
 } from "./exportJob";
-import { narrowIsEmpty, type NarrowSpec } from "./narrow";
 
 export type { ExportChoice } from "./exportJob";
 
@@ -58,17 +45,9 @@ export interface ExportDialogProps {
   onClose: () => void;
   /** The format the toolbar's menu opened with (or `api`). */
   choice: ExportChoice;
-  /** The screen's filters and ordering; ignored for the ticker scopes. */
-  criteria: ExportCriteria;
   /** The grid's visible cells, in the reader's order. */
   columns?: readonly string[];
   region?: string;
-  /** How many rows the screen matches — the live count line. */
-  matched: number;
-  /** The symbols on the page the reader is looking at. */
-  pageSymbols?: readonly string[];
-  /** The rows ticked in compare mode. */
-  selectedSymbols?: readonly string[];
 }
 
 type Phase = "idle" | "loading" | "error" | "done";
@@ -80,79 +59,113 @@ const FORMAT_LABELS: Record<ExportChoice, string> = {
   api: "API",
 };
 
-const SCOPE_HINTS: Record<ExportScope, string> = {
-  screen: "Every row the screen matches, in its own order.",
-  page: "Only the rows on this page, in the order they are shown.",
-  selected: "Only the rows ticked for comparison.",
-  tickers: "The tickers you type, in the order you type them.",
+const OPTION_KEYS = ["sector", "industry", "country"] as const;
+type OptionKey = (typeof OPTION_KEYS)[number];
+
+const OPTION_LABELS: Record<OptionKey, string> = {
+  sector: "Sector",
+  industry: "Industry",
+  country: "Country",
 };
 
+/** True when the choice is a file format (not the API pane). */
 function isFormat(value: ExportChoice): value is ExportFormat {
   return value !== "api";
+}
+
+/** Clamp a count to 1–200, returning the clamped value and whether it moved. */
+function clampCount(value: number): { count: number; clamped: boolean } {
+  if (!Number.isFinite(value) || value < 1) return { count: 1, clamped: true };
+  if (value > MAX_EXPORT_ROWS) return { count: MAX_EXPORT_ROWS, clamped: true };
+  return { count: Math.trunc(value), clamped: false };
 }
 
 export function ExportDialog({
   open,
   onClose,
   choice,
-  criteria,
   columns = [],
   region = "us",
-  matched,
-  pageSymbols = [],
-  selectedSymbols = [],
 }: ExportDialogProps) {
   const [format, setFormat] = React.useState<ExportChoice>(choice);
-  const [scope, setScope] = React.useState<ExportScope>("screen");
-  /** What the reader typed; the effective limit is derived and clamped from it. */
-  const [rowsText, setRowsText] = React.useState<string>(String(DEFAULT_EXPORT_ROWS));
-  const [tickerText, setTickerText] = React.useState("");
+  const [sector, setSector] = React.useState("");
+  const [industry, setIndustry] = React.useState("");
+  const [country, setCountry] = React.useState("");
+  const [count, setCount] = React.useState(DEFAULT_EXPORT_ROWS);
   const [phase, setPhase] = React.useState<Phase>("idle");
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   /** The body behind the last attempt, so Retry resends exactly it. */
   const [attempt, setAttempt] = React.useState<ExportBody | null>(null);
-  /** The narrow dimensions: market_cap, performance, volume, sector. */
-  const [narrow, setNarrow] = React.useState<NarrowSpec>({});
-  /** Whether the narrow disclosure panel is open. */
-  const [narrowOpen, setNarrowOpen] = React.useState(false);
 
+  /** Option lists, keyed by dimension. */
+  const [options, setOptions] = React.useState<
+    Record<OptionKey, OptionItem[] | null>
+  >({ sector: null, industry: null, country: null });
+  /** Non-null when fetching options failed. */
+  const [optionsError, setOptionsError] = React.useState<string | null>(null);
+
+  // ------------------------------------------------------------------
+  // Fetch option lists once the dialog opens.
+  // ------------------------------------------------------------------
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    async function load() {
+      setOptionsError(null);
+      const result: Record<OptionKey, OptionItem[] | null> = {
+        sector: null,
+        industry: null,
+        country: null,
+      };
+      for (const key of OPTION_KEYS) {
+        try {
+          result[key] = await fetchOptions(key);
+        } catch (cause) {
+          if (!cancelled) {
+            setOptionsError(
+              `Could not load ${OPTION_LABELS[key]} options: ${cause instanceof Error ? cause.message : "unknown error"}`,
+            );
+          }
+          return;
+        }
+      }
+      if (!cancelled) setOptions(result);
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // ------------------------------------------------------------------
+  // Reset local state every time the dialog opens.
+  // ------------------------------------------------------------------
   React.useEffect(() => {
     if (!open) return;
     setFormat(choice);
-    setScope("screen");
-    setRowsText(String(DEFAULT_EXPORT_ROWS));
-    setTickerText("");
+    setSector("");
+    setIndustry("");
+    setCountry("");
+    setCount(DEFAULT_EXPORT_ROWS);
     setPhase("idle");
     setError(null);
     setSuccess(null);
     setAttempt(null);
-    setNarrow({});
-    setNarrowOpen(false);
   }, [open, choice]);
 
-  // The clamp is derived, not stored: a number typed past the cap is clamped
-  // *and* announced (the note below), while the field keeps the reader's digits
-  // until they leave it — correcting a keystroke under their cursor is worse
-  // than correcting it on blur.
-  const limit = clampRows(rowsText);
-  const rows = limit.rows;
-  const clamped = limit.clamped && rowsText.trim() !== String(rows);
+  const clamped = clampCount(count);
 
-  const typed = React.useMemo(() => parseTickers(tickerText), [tickerText]);
-  const symbols = React.useMemo<readonly string[]>(() => {
-    if (scope === "page") return pageSymbols;
-    if (scope === "selected") return selectedSymbols;
-    if (scope === "tickers") return typed;
-    return [];
-  }, [scope, pageSymbols, selectedSymbols, typed]);
+  const canExport =
+    isFormat(format) &&
+    phase !== "loading" &&
+    options.sector !== null; // options must be loaded
 
-  const count = scope === "screen" ? matched : symbols.length;
-  // When narrowed, the button is disabled if no rows would be exported.
-  const narrowedEmpty = count === 0;
-  const canRun =
-    isFormat(format) && phase !== "loading" && (scope === "screen" || symbols.length > 0) && !narrowedEmpty;
-
+  // ------------------------------------------------------------------
+  // Run
+  // ------------------------------------------------------------------
   const run = React.useCallback(
     async (body: ExportBody) => {
       setAttempt(body);
@@ -161,8 +174,6 @@ export function ExportDialog({
       setSuccess(null);
       try {
         const file = await requestExport(body);
-        // Only after the server answered with bytes: a failed request must not
-        // leave an empty download behind.
         downloadFile(file);
         setPhase("done");
         setSuccess(
@@ -172,7 +183,9 @@ export function ExportDialog({
         );
       } catch (cause) {
         setPhase("error");
-        setError(cause instanceof Error ? cause.message : "The export could not be written");
+        setError(
+          cause instanceof Error ? cause.message : "The export could not be written",
+        );
       }
     },
     [],
@@ -180,15 +193,14 @@ export function ExportDialog({
 
   const submit = () => {
     if (!isFormat(format)) return;
-    const body = buildExportBody({
-      scope,
+    const body = buildGuidedExportBody({
+      sector,
+      industry,
+      country,
+      count: clamped.count,
       format,
-      rows,
       region,
-      criteria,
-      symbols,
       columns,
-      narrow: narrowIsEmpty(narrow) ? undefined : narrow,
     });
     void run(body);
   };
@@ -197,15 +209,26 @@ export function ExportDialog({
     if (attempt) void run(attempt);
   };
 
+  // ------------------------------------------------------------------
+  // Number stepper helpers
+  // ------------------------------------------------------------------
+  const stepUp = () =>
+    setCount((prev) => clampCount(prev + 1).count);
+  const stepDown = () =>
+    setCount((prev) => clampCount(prev - 1).count);
+
   return (
     <DialogShell
       open={open}
       onClose={onClose}
-      title={format === "api" ? "Export API" : `Export ${FORMAT_LABELS[format]}`}
-      description="A file of the server's rows — the same rows the screen shows, written by the screener."
+      title={
+        format === "api" ? "Export API" : `Export ${FORMAT_LABELS[format]}`
+      }
+      description="Pick the dimensions, choose how many rows, and the server writes the file."
       size="md"
     >
       <div className="flex flex-col gap-3">
+        {/* Format picker */}
         <div role="group" aria-label="Format" className="flex flex-wrap items-center gap-1">
           {[...EXPORT_FORMATS, "api" as const].map((option) => (
             <button
@@ -233,6 +256,7 @@ export function ExportDialog({
         </div>
 
         {format === "api" ? (
+          /* API pane — identical to the old dialog */
           <div className="flex flex-col gap-2" data-testid="export-api-pane">
             <pre
               data-testid="export-api-url"
@@ -246,223 +270,193 @@ export function ExportDialog({
           </div>
         ) : (
           <>
-            <div role="group" aria-label="Scope" className="flex flex-wrap items-center gap-1">
-              {(Object.keys(SCOPE_LABELS) as ExportScope[]).map((option) => {
-                const size =
-                  option === "page"
-                    ? pageSymbols.length
-                    : option === "selected"
-                      ? selectedSymbols.length
-                      : option === "tickers"
-                        ? typed.length
-                        : null;
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    data-testid={`export-scope-${option}`}
-                    aria-pressed={scope === option}
-                    onClick={() => {
-                      setScope(option);
+            {/* Options error banner */}
+            {optionsError ? (
+              <div
+                role="alert"
+                data-testid="export-options-error"
+                className="rounded-sm border border-down bg-surface-raised px-2 py-1.5 text-data text-down"
+              >
+                {optionsError}
+              </div>
+            ) : null}
+
+            {/* Step-by-step selects */}
+            {OPTION_KEYS.map((key) => {
+              const items = options[key];
+              const loading = items === null && !optionsError;
+              const value =
+                key === "sector"
+                  ? sector
+                  : key === "industry"
+                    ? industry
+                    : country;
+              const setter =
+                key === "sector"
+                  ? setSector
+                  : key === "industry"
+                    ? setIndustry
+                    : setCountry;
+
+              return (
+                <label
+                  key={key}
+                  className="flex flex-col gap-1"
+                >
+                  <span className="text-data text-fg-muted">
+                    {OPTION_LABELS[key]}
+                  </span>
+                  <select
+                    data-testid={`export-select-${key}`}
+                    aria-label={OPTION_LABELS[key]}
+                    value={value}
+                    disabled={loading}
+                    onChange={(event) => {
+                      setter(event.target.value);
                       setPhase("idle");
                       setError(null);
                       setSuccess(null);
                     }}
                     className={cn(
-                      "h-7 rounded-sm border px-2 text-ui transition-colors",
-                      scope === option
-                        ? "border-brand text-brand"
-                        : "border-line-control text-fg-muted hover:border-brand hover:text-fg",
+                      "h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg",
+                      loading && "opacity-50",
                     )}
                   >
-                    {SCOPE_LABELS[option]}
-                    {size === null ? null : (
-                      <span className="ml-1 font-mono text-data text-fg-subtle">{size}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                    <option value="">
+                      All {OPTION_LABELS[key]}s
+                    </option>
+                    {items?.map((item) => (
+                      <option key={item.id} value={item.predicate}>
+                        {item.label} ({item.count.toLocaleString("en-US")})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
 
-            <p className="text-data text-fg-subtle">{SCOPE_HINTS[scope]}</p>
-
-            {scope === "tickers" ? (
-              <label className="flex flex-col gap-1">
-                <span className="text-data text-fg-muted">Tickers</span>
-                <textarea
-                  data-testid="export-tickers"
-                  aria-label="Tickers to export"
-                  value={tickerText}
-                  onChange={(event) => setTickerText(event.target.value)}
-                  rows={2}
-                  placeholder="AAPL, MSFT, BRK.B"
-                  className="rounded-sm border border-line-control bg-surface-sunken p-2 font-mono text-data text-fg"
-                />
-              </label>
-            ) : null}
-
-            {/* Narrow disclosure — collapsed by default, expands to four dimension controls */}
-            <div className="border-t border-line py-2">
-              <button
-                type="button"
-                data-testid="export-narrow-disclosure"
-                aria-expanded={narrowOpen}
-                onClick={() => setNarrowOpen((value) => !value)}
-                className={cn(
-                  "flex items-center gap-1 text-ui text-fg-muted transition-colors hover:text-fg",
-                  !narrowIsEmpty(narrow) && "text-brand",
-                )}
-              >
-                <span
+            {/* Number stepper: +/- buttons, NO text input */}
+            <div className="flex flex-col gap-1">
+              <span className="text-data text-fg-muted">Rows</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  data-testid="export-count-down"
+                  aria-label="Fewer rows"
+                  disabled={count <= 1}
+                  onClick={stepDown}
                   className={cn(
-                    "inline-block transition-transform",
-                    narrowOpen && "rotate-90",
+                    "h-7 w-7 rounded-sm border border-line-control text-ui transition-colors hover:border-brand hover:text-fg",
+                    count <= 1 && "opacity-40",
                   )}
-                  aria-hidden="true"
                 >
-                  ▶
+                  −
+                </button>
+                <span
+                  data-testid="export-count-value"
+                  aria-live="polite"
+                  aria-label={`${clamped.count} rows`}
+                  className="inline-flex h-7 min-w-[3ch] items-center justify-center rounded-sm border border-line-control bg-surface-sunken px-2 font-mono text-data text-fg"
+                >
+                  {clamped.count}
                 </span>
-                Narrow
-                {!narrowIsEmpty(narrow) ? (
-                  <span className="ml-1 font-mono text-data text-brand">
-                    [{Object.keys(narrow).filter(
-                      (k) => narrow[k as keyof NarrowSpec] !== undefined,
-                    ).length}]
-                  </span>
-                ) : null}
-              </button>
-
-              {narrowOpen ? (
-                <div
-                  data-testid="export-narrow-panel"
-                  className="mt-2 ml-4 flex flex-wrap items-center gap-2"
+                <button
+                  type="button"
+                  data-testid="export-count-up"
+                  aria-label="More rows"
+                  disabled={count >= MAX_EXPORT_ROWS}
+                  onClick={stepUp}
+                  className={cn(
+                    "h-7 w-7 rounded-sm border border-line-control text-ui transition-colors hover:border-brand hover:text-fg",
+                    count >= MAX_EXPORT_ROWS && "opacity-40",
+                  )}
                 >
-                  {/* Market cap */}
-                  <select
-                    data-testid="export-narrow-cap"
-                    aria-label="Market cap"
-                    value={narrow.market_cap ?? ""}
-                    onChange={(event) =>
-                      setNarrow((prev) => ({
-                        ...prev,
-                        market_cap: (event.target.value || undefined) as NarrowSpec["market_cap"],
-                      }))
-                    }
-                    className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
-                  >
-                    <option value="">Market cap</option>
-                    <option value="micro">Under $2B</option>
-                    <option value="small">$2–10B</option>
-                    <option value="mid">$10–200B</option>
-                    <option value="mega">$200B and up</option>
-                  </select>
-
-                  {/* Performance (signal) */}
-                  <select
-                    data-testid="export-narrow-performance"
-                    aria-label="Performance"
-                    value={narrow.performance ?? ""}
-                    onChange={(event) =>
-                      setNarrow((prev) => ({
-                        ...prev,
-                        performance: (event.target.value || undefined) as NarrowSpec["performance"],
-                      }))
-                    }
-                    className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
-                  >
-                    <option value="">Performance</option>
-                    <option value="gainers">Gainers</option>
-                    <option value="losers">Losers</option>
-                    <option value="new_high">New High</option>
-                    <option value="new_low">New Low</option>
-                    <option value="overbought">Overbought</option>
-                    <option value="oversold">Oversold</option>
-                    <option value="unusual_volume">Unusual Volume</option>
-                    <option value="most_active">Most Active</option>
-                    <option value="most_volatile">Most Volatile</option>
-                    <option value="insider_buying">Insider Buying</option>
-                    <option value="insider_selling">Insider Selling</option>
-                  </select>
-
-                  {/* Volume */}
-                  <select
-                    data-testid="export-narrow-volume"
-                    aria-label="Volume"
-                    value={narrow.volume ?? ""}
-                    onChange={(event) =>
-                      setNarrow((prev) => ({
-                        ...prev,
-                        volume: (event.target.value || undefined) as NarrowSpec["volume"],
-                      }))
-                    }
-                    className="h-7 rounded-sm border border-line-control bg-surface-sunken px-1.5 text-data text-fg"
-                  >
-                    <option value="">Volume</option>
-                    <option value="u500k">Under 500K</option>
-                    <option value="500k-2m">500K–2M</option>
-                    <option value="2m-10m">2M–10M</option>
-                    <option value="o10m">10M and up</option>
-                  </select>
-
-                  {/* Sector */}
-                  <input
-                    data-testid="export-narrow-sector"
-                    aria-label="Sector"
-                    type="text"
-                    value={narrow.sector ?? ""}
-                    onChange={(event) =>
-                      setNarrow((prev) => ({
-                        ...prev,
-                        sector: event.target.value || undefined,
-                      }))
-                    }
-                    placeholder="Sector"
-                    className="h-7 w-28 rounded-sm border border-line-control bg-surface-sunken px-1.5 font-mono text-data text-fg"
-                  />
-                </div>
+                  +
+                </button>
+              </div>
+              {clamped.clamped ? (
+                <p data-testid="export-rows-note" className="text-data text-alert">
+                  {EXPORT_ROW_CLAMP}
+                </p>
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-data text-fg-muted">Rows</span>
-                <input
-                  data-testid="export-rows"
-                  aria-label="Rows to export"
-                  type="number"
-                  min={1}
-                  max={MAX_EXPORT_ROWS}
-                  step={1}
-                  value={rowsText}
-                  onChange={(event) => setRowsText(event.target.value)}
-                  onBlur={() => setRowsText(String(rows))}
-                  className="h-7 w-20 rounded-sm border border-line-control bg-surface-sunken px-1.5 font-mono text-data text-fg"
-                />
-              </label>
-              <p data-testid="export-match" className="pb-1 text-data text-fg-muted">
-                {matchSummary(count, rows)}
-              </p>
-            </div>
-
-            {clamped ? (
-              <p data-testid="export-rows-note" className="text-data text-alert">
-                {EXPORT_ROW_CLAMP}
-              </p>
-            ) : null}
-
+            {/* Action row */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* Primary: Export button that follows the format choice */}
               <button
                 type="button"
                 data-testid="export-run"
                 onClick={submit}
-                disabled={!canRun}
+                disabled={!canExport}
                 className={cn(
                   "h-7 rounded-sm border border-brand px-2 text-ui text-fg transition-colors hover:bg-row-selected",
-                  !canRun && "opacity-50",
+                  !canExport && "opacity-50",
                 )}
               >
                 Export {FORMAT_LABELS[format]}
               </button>
+
+              {/* Quick-format: Export CSV button */}
+              {format !== "csv" ? (
+                <button
+                  type="button"
+                  data-testid="export-quick-csv"
+                  onClick={() => {
+                    setFormat("csv");
+                    // Submit on next tick so setFormat settles
+                    window.setTimeout(() => {
+                      const body = buildGuidedExportBody({
+                        sector,
+                        industry,
+                        country,
+                        count: clamped.count,
+                        format: "csv",
+                        region,
+                        columns,
+                      });
+                      void run(body);
+                    }, 0);
+                  }}
+                  disabled={!canExport}
+                  className={cn(
+                    "h-7 rounded-sm border border-line-control px-2 text-ui text-fg-muted transition-colors hover:border-brand hover:text-fg",
+                    !canExport && "opacity-50",
+                  )}
+                >
+                  Export CSV
+                </button>
+              ) : null}
+
+              {/* Quick-format: Export JSON button */}
+              {format !== "json" ? (
+                <button
+                  type="button"
+                  data-testid="export-quick-json"
+                  onClick={() => {
+                    setFormat("json");
+                    window.setTimeout(() => {
+                      const body = buildGuidedExportBody({
+                        sector,
+                        industry,
+                        country,
+                        count: clamped.count,
+                        format: "json",
+                        region,
+                        columns,
+                      });
+                      void run(body);
+                    }, 0);
+                  }}
+                  disabled={!canExport}
+                  className={cn(
+                    "h-7 rounded-sm border border-line-control px-2 text-ui text-fg-muted transition-colors hover:border-brand hover:text-fg",
+                    !canExport && "opacity-50",
+                  )}
+                >
+                  Export JSON
+                </button>
+              ) : null}
 
               {phase === "loading" ? (
                 <span className="flex items-center gap-1.5 text-data text-fg-muted">
@@ -476,6 +470,7 @@ export function ExportDialog({
               ) : null}
             </div>
 
+            {/* Error */}
             {error ? (
               <div
                 role="alert"
@@ -496,6 +491,7 @@ export function ExportDialog({
               </div>
             ) : null}
 
+            {/* Success */}
             {success ? (
               <p
                 role="status"
@@ -505,12 +501,6 @@ export function ExportDialog({
                 {success}
               </p>
             ) : null}
-
-            <p className="text-data text-fg-subtle">
-              The file is written by the server from the screen's own rows. A venue is
-              exported as its code (<span className="font-mono">XNAS</span>), never as the
-              label the table draws.
-            </p>
           </>
         )}
       </div>

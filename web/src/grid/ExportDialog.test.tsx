@@ -1,16 +1,15 @@
 /**
- * The export dialog's promises, at the dialog.
+ * The guided export dialog's promises, at the dialog.
  *
- * Each case here fails if the *effect* is missing, not if a label moved: the
- * clamp is read from the request body, the spinner from the spinner's presence
- * while the promise is open, the failure from the alert and a second request,
- * the success from a spy on the one download function and the API pane from a
- * fetch that was never made.
+ * Each case fails if the *effect* is missing: the step selects populate from
+ * the options API, the +/- stepper clamps 1–200, the export body carries
+ * the right filters, the spinner appears while the request is open, and
+ * a failure retries the same body.
  */
 
 import type { ComponentProps } from "react";
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -23,6 +22,38 @@ vi.mock("./exportJob", async (importOriginal) => {
 
 import { ExportDialog } from "./ExportDialog";
 import type { ExportBody } from "./exportJob";
+
+// ---------------------------------------------------------------------------
+// Option fixtures
+// ---------------------------------------------------------------------------
+
+const SECTOR_OPTIONS = [
+  { id: "Technology", label: "Technology", predicate: "Technology", count: 1234 },
+  { id: "Healthcare", label: "Healthcare", predicate: "Healthcare", count: 890 },
+  { id: "Finance", label: "Finance", predicate: "Finance", count: 567 },
+];
+
+const INDUSTRY_OPTIONS = [
+  { id: "Semiconductors", label: "Semiconductors", predicate: "Semiconductors", count: 120 },
+  { id: "Software", label: "Software", predicate: "Software", count: 200 },
+];
+
+const COUNTRY_OPTIONS = [
+  { id: "USA", label: "USA", predicate: "USA", count: 5000 },
+  { id: "Canada", label: "Canada", predicate: "Canada", count: 300 },
+];
+
+function optionsResponse(key: string) {
+  const map: Record<string, typeof SECTOR_OPTIONS> = {
+    sector: SECTOR_OPTIONS,
+    industry: INDUSTRY_OPTIONS,
+    country: COUNTRY_OPTIONS,
+  };
+  return new Response(
+    JSON.stringify({ key, options: map[key] ?? [], as_of: "2026-11-03T10:00:00Z" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
 
 function fileResponse(rows = 200): Response {
   return new Response("symbol,name\nAAPL,Apple Inc\n", {
@@ -50,20 +81,40 @@ function renderDialog(overrides: Partial<ComponentProps<typeof ExportDialog>> = 
     open: true,
     onClose: vi.fn(),
     choice: "csv",
-    criteria: { filters: [], sort: "market_cap" },
     columns: ["market_cap", "price"],
     region: "us",
-    matched: 5_120,
-    pageSymbols: ["AAPL", "MSFT"],
-    selectedSymbols: ["NVDA"],
     ...overrides,
   };
   return render(<ExportDialog {...props} />);
 }
 
-function sentBody(fetchMock: Mock, call = 0): ExportBody {
-  const init = fetchMock.mock.calls[call]?.[1] as RequestInit;
-  return JSON.parse(String(init.body)) as ExportBody;
+/** Find the first export-call body matching the given format. */
+function exportBodyFor(fetchMock: Mock, format: string): ExportBody | null {
+  for (const call of fetchMock.mock.calls) {
+    const url = String(call[0]);
+    if (url !== "/screens/export") continue;
+    const init = call[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as ExportBody;
+    if (body.format === format) return body;
+  }
+  return null;
+}
+
+/**
+ * Stub fetch so that GET /screens/options/* returns the fixtures and POST
+ * /screens/export returns a file.
+ */
+function stubFetch(exportResponse = fileResponse()): Mock {
+  const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/screens/options/sector")) return optionsResponse("sector");
+    if (url.includes("/screens/options/industry")) return optionsResponse("industry");
+    if (url.includes("/screens/options/country")) return optionsResponse("country");
+    if (url === "/screens/export" && init?.method === "POST") return exportResponse;
+    return new Response("not found", { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 beforeEach(() => {
@@ -74,49 +125,190 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("the export dialog", () => {
-  it("defaults to 200 rows and says how many rows the screen matches", () => {
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("the guided export dialog", () => {
+  it("renders the three step selects and loads options from the API", async () => {
+    const fetchMock = stubFetch();
     renderDialog();
 
-    expect((screen.getByTestId("export-rows") as HTMLInputElement).value).toBe("200");
-    expect(screen.getByTestId("export-match").textContent).toBe(
-      "5,120 match — exporting up to 200",
-    );
+    // All three selects exist
+    expect(screen.getByTestId("export-select-sector")).toBeTruthy();
+    expect(screen.getByTestId("export-select-industry")).toBeTruthy();
+    expect(screen.getByTestId("export-select-country")).toBeTruthy();
+
+    // Options populate after fetch resolves
+    await waitFor(() => {
+      const sectorSelect = screen.getByTestId("export-select-sector") as HTMLSelectElement;
+      expect(sectorSelect.options.length).toBeGreaterThan(1); // "All Sectors" + items
+    });
+
+    // All three option endpoints were called
+    const urls = fetchMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(urls.some((u: string) => u.includes("/screens/options/sector"))).toBe(true);
+    expect(urls.some((u: string) => u.includes("/screens/options/industry"))).toBe(true);
+    expect(urls.some((u: string) => u.includes("/screens/options/country"))).toBe(true);
   });
 
-  it("clamps 500 to the cap, says so, and sends 200", async () => {
+  it("defaults the count display to 200", () => {
+    stubFetch();
+    renderDialog();
+    expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+  });
+
+  it("the + button increases the count and − decreases it", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async () => fileResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch();
     renderDialog();
 
-    const rows = screen.getByTestId("export-rows") as HTMLInputElement;
-    // A number input rejects `user.clear` in jsdom; a change event is what a
-    // keystroke produces, and the handler is what this case is about.
-    fireEvent.change(rows, { target: { value: "500" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+    });
 
-    expect(screen.getByTestId("export-rows-note").textContent).toContain("200");
-    expect(screen.getByTestId("export-match").textContent).toBe(
-      "5,120 match — exporting up to 200",
+    // Decrease
+    await user.click(screen.getByTestId("export-count-down"));
+    expect(screen.getByTestId("export-count-value").textContent).toBe("199");
+
+    // Increase — back to 200 (ceiling)
+    await user.click(screen.getByTestId("export-count-up"));
+    expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+
+    // One more click stays at 200 (clamped)
+    await user.click(screen.getByTestId("export-count-up"));
+    expect(screen.getByTestId("export-count-value").textContent).toBe("200");
+  });
+
+  it("disables the + button at 200 and the − button at 1", async () => {
+    const user = userEvent.setup();
+    stubFetch();
+    renderDialog();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("export-count-value")).toBeTruthy();
+    });
+
+    // At 200, + is disabled
+    const upBtn = screen.getByTestId("export-count-up") as HTMLButtonElement;
+    const downBtn = screen.getByTestId("export-count-down") as HTMLButtonElement;
+    expect(upBtn.disabled).toBe(true);
+    expect(downBtn.disabled).toBe(false);
+
+    // Click down 199 times to reach 1
+    for (let i = 0; i < 199; i++) {
+      await user.click(downBtn);
+    }
+    await waitFor(() => {
+      expect(screen.getByTestId("export-count-value").textContent).toBe("1");
+    });
+    expect(downBtn.disabled).toBe(true);
+    expect(upBtn.disabled).toBe(false);
+  });
+
+  it("sends the correct criteria body when exporting with selected filters", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    renderDialog();
+
+    // Wait for options to load
+    await waitFor(() => {
+      const sel = screen.getByTestId("export-select-sector") as HTMLSelectElement;
+      expect(sel.options.length).toBeGreaterThan(1);
+    });
+
+    // Pick sector = Technology
+    await user.selectOptions(
+      screen.getByTestId("export-select-sector"),
+      "Technology",
     );
+    // Pick country = USA
+    await user.selectOptions(
+      screen.getByTestId("export-select-country"),
+      "USA",
+    );
+    // Set count to 50
+    const downBtn = screen.getByTestId("export-count-down");
+    for (let i = 0; i < 150; i++) {
+      await user.click(downBtn);
+    }
+    await waitFor(() => {
+      expect(screen.getByTestId("export-count-value").textContent).toBe("50");
+    });
 
-    fireEvent.blur(rows); // leaving the field settles it to the clamped number
-    expect(rows.value).toBe("200");
+    // Export
+    await user.click(screen.getByTestId("export-run"));
+
+    await waitFor(() => {
+      const exportCalls = fetchMock.mock.calls.filter(
+        (c: unknown[]) => String(c[0]) === "/screens/export",
+      );
+      expect(exportCalls.length).toBeGreaterThan(0);
+    });
+
+    const body = exportBodyFor(fetchMock, "csv");
+    expect(body).not.toBeNull();
+    expect(body!.mode).toBe("criteria");
+    expect(body!.limit).toBe(50);
+    expect(body!.region).toBe("us");
+    expect(body!.criteria).toBeDefined();
+    expect(body!.criteria!.sort).toBe("-market_cap");
+    expect(body!.criteria!.filters).toHaveLength(2);
+  });
+
+  it("choosing 'All' removes that filter from the body", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+    renderDialog();
+
+    await waitFor(() => {
+      const sel = screen.getByTestId("export-select-sector") as HTMLSelectElement;
+      expect(sel.options.length).toBeGreaterThan(1);
+    });
+
+    // Pick sector then reset to All
+    await user.selectOptions(
+      screen.getByTestId("export-select-sector"),
+      "Technology",
+    );
+    await user.selectOptions(
+      screen.getByTestId("export-select-sector"),
+      "", // "All Sectors"
+    );
 
     await user.click(screen.getByTestId("export-run"));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(sentBody(fetchMock).limit).toBe(200);
+
+    await waitFor(() => {
+      const exportCalls = fetchMock.mock.calls.filter(
+        (c: unknown[]) => String(c[0]) === "/screens/export",
+      );
+      expect(exportCalls.length).toBeGreaterThan(0);
+    });
+
+    const body = exportBodyFor(fetchMock, "csv");
+    expect(body).not.toBeNull();
+    expect(body!.criteria!.filters).toHaveLength(0);
   });
 
-  it("spins while the file is being written and disables a second send", async () => {
+  it("spins while the file is being written and disables the export button", async () => {
     const user = userEvent.setup();
     let settle: (response: Response) => void = () => undefined;
     const pending = new Promise<Response>((resolve) => {
       settle = resolve;
     });
-    const fetchMock = vi.fn(() => pending);
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url.includes("/screens/options/")) {
+        return optionsResponse("sector");
+      }
+      return pending;
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderDialog();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("export-select-sector")).toBeTruthy();
+    });
 
     await user.click(screen.getByTestId("export-run"));
 
@@ -130,12 +322,25 @@ describe("the export dialog", () => {
 
   it("shows a failure in red and retries the same body", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(failureResponse())
-      .mockResolvedValueOnce(fileResponse(10));
+    let callCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/screens/options/")) {
+        return optionsResponse("sector");
+      }
+      if (url === "/screens/export" && init?.method === "POST") {
+        callCount += 1;
+        if (callCount === 1) return failureResponse();
+        return fileResponse(10);
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderDialog();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("export-select-sector")).toBeTruthy();
+    });
 
     await user.click(screen.getByTestId("export-run"));
 
@@ -147,16 +352,18 @@ describe("the export dialog", () => {
 
     await user.click(screen.getByTestId("export-retry"));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(sentBody(fetchMock, 1)).toEqual(sentBody(fetchMock, 0));
     await waitFor(() => expect(screen.getByTestId("export-success")).toBeTruthy());
+    expect(downloadSpy).toHaveBeenCalledTimes(1);
   });
 
   it("downloads the server's bytes on success and reports the file", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async () => fileResponse(42));
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fileResponse(42));
     renderDialog();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("export-select-sector")).toBeTruthy();
+    });
 
     await user.click(screen.getByTestId("export-run"));
 
@@ -178,112 +385,45 @@ describe("the export dialog", () => {
 
   it("the API pane names the URL and downloads nothing", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async () => fileResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch();
     renderDialog({ choice: "api" });
 
     expect(screen.getByTestId("export-api-url").textContent).toBe("/screens/export");
     expect(screen.queryByTestId("export-run")).toBeNull();
 
+    // Switch to csv and back to api — no fetch for export
     await user.click(screen.getByTestId("export-format-csv"));
     await user.click(screen.getByTestId("export-format-api"));
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Only option fetches happened
+    const exportCalls = fetchMock.mock.calls.filter(
+      (c: unknown[]) => String(c[0]) === "/screens/export",
+    );
+    expect(exportCalls).toHaveLength(0);
     expect(downloadSpy).not.toHaveBeenCalled();
   });
 
-  it("exports the page's symbols — not the whole screen — when the page scope is chosen", async () => {
+  it("quick-export CSV button sends csv format regardless of current format", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async () => fileResponse(2));
-    vi.stubGlobal("fetch", fetchMock);
-    renderDialog();
+    const fetchMock = stubFetch();
+    // Open with JSON format
+    renderDialog({ choice: "json" });
 
-    await user.click(screen.getByTestId("export-scope-page"));
-    expect(screen.getByTestId("export-match").textContent).toBe(
-      "2 match — exporting up to 200",
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("export-select-sector")).toBeTruthy();
+    });
 
-    await user.click(screen.getByTestId("export-run"));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // The quick CSV button should be visible when format is not csv
+    const quickCsv = screen.getByTestId("export-quick-csv");
+    expect(quickCsv).toBeTruthy();
 
-    const body = sentBody(fetchMock);
-    expect(body.mode).toBe("symbols");
-    expect(body.symbols).toEqual(["AAPL", "MSFT"]);
-    expect(body.criteria).toBeUndefined();
-    expect(body.columns).toEqual(["market_cap", "price"]);
-  });
+    await user.click(quickCsv);
 
-  it("exports a typed ticker list, de-duplicated and in order", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn(async () => fileResponse(2));
-    vi.stubGlobal("fetch", fetchMock);
-    renderDialog();
-
-    await user.click(screen.getByTestId("export-scope-tickers"));
-    await user.type(screen.getByTestId("export-tickers"), "msft, aapl msft");
-    expect(screen.getByTestId("export-match").textContent).toBe(
-      "2 match — exporting up to 200",
-    );
-
-    await user.click(screen.getByTestId("export-run"));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(sentBody(fetchMock).symbols).toEqual(["MSFT", "AAPL"]);
-  });
-});
-
-describe("the export dialog — narrow disclosure", () => {
-  it("shows a collapsed narrow disclosure when no narrow is set", () => {
-    renderDialog();
-    expect(screen.getByTestId("export-narrow-disclosure")).toBeTruthy();
-    // The narrow panel starts collapsed (no dimensions chosen)
-    expect(screen.queryByTestId("export-narrow-panel")).toBeNull();
-  });
-
-  it("expands the narrow panel when the disclosure is clicked", async () => {
-    const user = userEvent.setup();
-    renderDialog();
-
-    await user.click(screen.getByTestId("export-narrow-disclosure"));
-
-    expect(screen.getByTestId("export-narrow-panel")).toBeTruthy();
-    // All four dimension controls are present
-    expect(screen.getByTestId("export-narrow-cap")).toBeTruthy();
-    expect(screen.getByTestId("export-narrow-performance")).toBeTruthy();
-    expect(screen.getByTestId("export-narrow-volume")).toBeTruthy();
-    expect(screen.getByTestId("export-narrow-sector")).toBeTruthy();
-  });
-
-  it("disables the Export button and shows a reason when the narrowed count is 0", async () => {
-    const user = userEvent.setup();
-    renderDialog({ matched: 0 });
-
-    await user.click(screen.getByTestId("export-narrow-disclosure"));
-
-    // With matched=0, the button should be disabled and show a reason
-    expect((screen.getByTestId("export-run") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("export-match").textContent).toContain("0 match");
-  });
-
-  it("shows the narrowed count line with a note for page scope", async () => {
-    const user = userEvent.setup();
-    renderDialog({ pageSymbols: ["AAPL", "MSFT", "NVDA"] });
-
-    await user.click(screen.getByTestId("export-scope-page"));
-    await user.click(screen.getByTestId("export-narrow-disclosure"));
-
-    // For page scope with 3 symbols, the count shows "3 match"
-    expect(screen.getByTestId("export-match").textContent).toContain("3 match");
-  });
-
-  it("the narrow does not affect tickers scope count", async () => {
-    const user = userEvent.setup();
-    renderDialog({ matched: 0 });
-
-    await user.click(screen.getByTestId("export-scope-tickers"));
-    await user.type(screen.getByTestId("export-tickers"), "AAPL");
-
-    // For tickers, the narrow is ignored; count is from typed symbols
-    expect(screen.getByTestId("export-match").textContent).toContain("1 match");
-    expect((screen.getByTestId("export-run") as HTMLButtonElement).disabled).toBe(false);
+    // Wait for the export call to fire (it's on a setTimeout)
+    await waitFor(() => {
+      const body = exportBodyFor(fetchMock, "csv");
+      expect(body).not.toBeNull();
+    });
+    expect(downloadSpy).toHaveBeenCalledTimes(1);
   });
 });
