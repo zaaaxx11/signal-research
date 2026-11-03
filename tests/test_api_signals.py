@@ -49,7 +49,9 @@ import pytest
 
 from tests import _screen as S
 
-#: The thirteen tables, in the order the document publishes them.
+from app.market.signal_aggregator import NEWS_UNAVAILABLE_REASON
+
+#: The sixteen tables, in the order the document publishes them.
 _GROUP_IDS: tuple[str, ...] = (
     "gainers",
     "losers",
@@ -60,19 +62,24 @@ _GROUP_IDS: tuple[str, ...] = (
     "unusual_volume",
     "most_active",
     "most_volatile",
+    "earnings_before",
+    "earnings_after",
+    "major_news",
     "insider_buying",
     "insider_selling",
     "upgrades",
     "downgrades",
 )
 
-#: The four the data cannot answer. Insider buying and selling are here because
+#: The five the data cannot answer. Insider buying and selling are here because
 #: `insider_trans` is a vendor field whose own values cannot be read as a flow
 #: (TSLA 76.0, META 45.9, GME 8.7: ownership levels mixed with junk), so the two
 #: tables were withdrawn rather than published on an interpretation the data
 #: does not support. Real insider activity is a Form 4 filing, read per company.
+#: Major news is here because real-time headline scanning across a news corpus
+#: is too heavyweight for a sub-second signal; keyword infrastructure is ready.
 _UNAVAILABLE: frozenset[str] = frozenset(
-    {"insider_buying", "insider_selling", "upgrades", "downgrades"}
+    {"major_news", "insider_buying", "insider_selling", "upgrades", "downgrades"}
 )
 
 _DOCUMENT_KEYS = frozenset(
@@ -339,6 +346,9 @@ _EXPECTED: dict[str, list[str]] = {
     "unusual_volume": ["AAA", "CCC"],
     "most_active": ["AAA", "GGG", "CCC", "DDD", "BBB", "HHH", "EEE"],
     "most_volatile": ["AAA", "BBB", "CCC", "DDD", "GGG", "HHH"],
+    "earnings_before": [],
+    "earnings_after": [],
+    "major_news": [],
     "insider_buying": ["AAA"],
     "insider_selling": ["BBB"],
     "upgrades": [],
@@ -347,7 +357,7 @@ _EXPECTED: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# Shape: thirteen groups, nine of them available
+# Shape: sixteen groups, eleven of them available
 # ---------------------------------------------------------------------------
 
 
@@ -375,9 +385,9 @@ async def test_the_document_publishes_thirteen_groups_nine_available(
 
     groups = body["groups"]
     assert [group["id"] for group in groups] == list(_GROUP_IDS)
-    assert len(groups) == 13
+    assert len(groups) == 16
     assert all(set(group) == _GROUP_KEYS for group in groups), groups[0]
-    assert sum(1 for group in groups if group["available"]) == 9
+    assert sum(1 for group in groups if group["available"]) == 11
     assert {group["id"] for group in groups if not group["available"]} == _UNAVAILABLE
 
     for group in groups:
@@ -418,6 +428,8 @@ async def test_the_four_unavailable_signals_say_why_and_carry_no_rows(
             "insider flow needs filings, not a vendor field"
             if group_id.startswith("insider_")
             else "no analyst ratings source"
+            if group_id in ("upgrades", "downgrades")
+            else NEWS_UNAVAILABLE_REASON
         )
         assert group["reason"] == expected, (group_id, group["reason"])
     for group_id, group in groups.items():
@@ -890,11 +902,15 @@ async def test_the_live_shape_publishes_all_thirteen_groups_within_per(
         scans = _scans(web)
 
     assert body["universe_total"] == _LIVE_TOTAL
-    assert len(body["groups"]) == 13
-    assert sum(1 for group in body["groups"] if group["available"]) == 9
+    assert len(body["groups"]) == 16
+    assert sum(1 for group in body["groups"] if group["available"]) == 11
     for group in body["groups"]:
         assert len(group["rows"]) <= 20, (group["id"], len(group["rows"]))
         if group["available"]:
+            # New signal groups (earnings_before, earnings_after) may be empty
+            # when no depth store provides earnings dates.
+            if group["id"] in ("earnings_before", "earnings_after"):
+                continue
             assert group["rows"], f"{group['id']} is empty on a universe this wide"
     assert scans == 1
 

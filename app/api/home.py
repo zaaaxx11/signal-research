@@ -191,6 +191,9 @@ SPARK_COUNT = 8
 MOVERS_PER_GROUP = 10
 MOVER_GROUPS: tuple[str, ...] = ("gainers", "new_high", "overbought", "new_low")
 
+#: Which signals feed the home page's earnings block ("today" and "after").
+EARNINGS_GROUPS: tuple[str, ...] = ("earnings_before", "earnings_after")
+
 #: How many tiles the dashboard's treemap carries, and therefore how big it is.
 #: 600 is a treemap a phone can draw; the full 5,573-tile document stays on
 #: ``/market/map`` for the page that wants it.
@@ -225,7 +228,7 @@ FILINGS_LIMIT = 8
 #: The document's shape and meaning, folded into the tag. Bump it when a key
 #: changes or a number changes meaning: a tag that survives a shape change is a
 #: ``304`` for a body the client cannot parse.
-HOME_SHAPE = "1"
+HOME_SHAPE = "2"
 
 #: The raw payload budget for the US tab, asserted by the suite.
 PAYLOAD_BUDGET = 60 * 1024
@@ -463,6 +466,35 @@ def movers_of(groups: Sequence[Any]) -> list[dict[str, Any]]:
     by_id = {result.rule.id: result for result in groups}
     rows: list[dict[str, Any]] = []
     for group in MOVER_GROUPS:
+        result = by_id.get(group)
+        if result is None:
+            continue
+        for row in result.rows[:MOVERS_PER_GROUP]:
+            rows.append(
+                {
+                    "symbol": row.get("symbol"),
+                    "name": row.get("name"),
+                    "price": row.get("price"),
+                    "change_pct": row.get("change_pct"),
+                    "group": group,
+                }
+            )
+    return rows
+
+
+def earnings_of(groups: Sequence[Any]) -> list[dict[str, Any]]:
+    """Earnings-before and earnings-after rows, each naming its group.
+
+    ``groups`` is :func:`app.api.signals.collect`'s result — the same pass
+    the signals page publishes — so an earnings row is the same row, in the
+    same order, as it appears on that page at ``per=10``.  The projection
+    keeps five keys: the dashboard row needs a symbol, a name, a price,
+    a change and a group.
+    """
+
+    by_id = {result.rule.id: result for result in groups}
+    rows: list[dict[str, Any]] = []
+    for group in EARNINGS_GROUPS:
         result = by_id.get(group)
         if result is None:
             continue
@@ -1122,6 +1154,7 @@ def home_document(
     insider_latest: list[dict[str, Any]] | None = None,
     insider_top: list[dict[str, Any]] | None = None,
     economic: list[dict[str, Any]] | None = None,
+    earnings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The answer, from blocks already built. Pure: the same blocks print the same body."""
 
@@ -1140,6 +1173,7 @@ def home_document(
         "insider_latest": insider_latest,
         "insider_top": insider_top,
         "economic": economic,
+        "earnings": earnings,
         "unavailable": list(unavailable),
         "method": dict(METHOD),
     }
@@ -1308,6 +1342,7 @@ async def build_document(
                 insider_latest=None,
                 insider_top=None,
                 economic=None,
+                earnings=None,
             ),
             None,
             "miss",
@@ -1344,6 +1379,7 @@ async def build_document(
     # An empty table is a measurement — "nothing qualified today" — not a failed
     # source, so it is published as ``[]``; only a dead scan makes movers null.
     movers = movers_of(groups)
+    earnings = earnings_of(groups)
     map_block = truncate_map(
         map_api.build_map_document(
             universe, region=region, metric=map_api.METRIC_DEFAULT, as_of=as_of
@@ -1386,6 +1422,7 @@ async def build_document(
             insider_latest=insider_latest,
             insider_top=insider_top,
             economic=None,
+            earnings=earnings,
             unavailable=unavailable,
         ),
         int(page.generation),
@@ -1484,6 +1521,7 @@ async def market_home_head(request: Request, region: str = "us") -> Response:
 __all__ = [
     "CLOSES_INDEX",
     "CLOSES_SPARK",
+    "EARNINGS_GROUPS",
     "FILINGS_SYMBOLS",
     "FILINGS_TTL_S",
     "HOME_SHAPE",
@@ -1508,6 +1546,7 @@ __all__ = [
     "group_rows",
     "home_document",
     "home_revision",
+    "earnings_of",
     "market_home",
     "market_home_head",
     "movers_of",

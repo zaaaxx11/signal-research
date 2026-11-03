@@ -71,6 +71,7 @@ _DOCUMENT_KEYS = frozenset(
         "insider_latest",
         "insider_top",
         "economic",
+        "earnings",
         "as_of",
         "indices",
         "breadth",

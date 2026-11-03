@@ -136,6 +136,11 @@ from app.api.cache import not_modified
 from app.api.discovery import _universe_family
 from app.api.screens import _scan_cache, _scan_key
 from app.auth import ApiError
+from app.market.signal_aggregator import (
+    is_earnings_today as _earnings_before_today,
+    is_earnings_soon as _earnings_after_today,
+    NEWS_UNAVAILABLE_REASON,
+)
 from app.screen.columns import value_for
 from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth
@@ -192,6 +197,7 @@ class _Reading:
     volatility: float | None
     atr: float | None
     insider_trans: float | None
+    earnings_date: Any | None
 
 
 def _number(value: Any) -> float | None:
@@ -245,6 +251,7 @@ def _read_row(row: Mapping[str, Any]) -> _Reading:
         volatility=_number(value_for(row, "volatility")),
         atr=_number(value_for(row, "atr_14")),
         insider_trans=_number(value_for(row, "insider_trans")),
+        earnings_date=value_for(row, "earnings_date"),
     )
 
 
@@ -298,6 +305,56 @@ def _never(_reading: _Reading, _value: float) -> bool:
     """Unavailable signals accept nothing: a table with no source has no rows."""
 
     return False
+
+
+def _earnings_before_measure(reading: _Reading) -> float | None:
+    """The row's earnings date as a sortable epoch float, when it is today.
+
+    A row whose ``earnings_date`` is None is excluded; a date that parses
+    but is not today returns None (not a match).  The returned float is the
+    epoch seconds of the parsed date for deterministic ordering (descending
+    = most recent first, which for a single day is a tie-break by symbol).
+    """
+    if reading.earnings_date is None:
+        return None
+    if not _earnings_before_today(reading.earnings_date):
+        return None
+    from datetime import datetime, timezone
+
+    from app.market.signal_aggregator import earnings_date_for
+
+    moment = earnings_date_for(reading.earnings_date)
+    if moment is None:
+        return None
+    return datetime(moment.year, moment.month, moment.day, tzinfo=timezone.utc).timestamp()
+
+
+def _earnings_before_accept(_reading: _Reading, _value: float) -> bool:
+    return True  # already filtered in _earnings_before_measure
+
+
+def _earnings_after_measure(reading: _Reading) -> float | None:
+    """The row's earnings date as a sortable epoch float, when it is in the
+    next two business days.  Today's dates are excluded (belongs in
+    earnings_before)."""
+    if reading.earnings_date is None:
+        return None
+    if _earnings_before_today(reading.earnings_date):
+        return None
+    if not _earnings_after_today(reading.earnings_date):
+        return None
+    from datetime import datetime, timezone
+
+    from app.market.signal_aggregator import earnings_date_for
+
+    moment = earnings_date_for(reading.earnings_date)
+    if moment is None:
+        return None
+    return datetime(moment.year, moment.month, moment.day, tzinfo=timezone.utc).timestamp()
+
+
+def _earnings_after_accept(_reading: _Reading, _value: float) -> bool:
+    return True  # already filtered in _earnings_after_measure
 
 
 def _change_pct(reading: _Reading) -> float | None:
@@ -486,6 +543,32 @@ SIGNALS: tuple[SignalRule, ...] = (
         metric="volatility (or atr_14 and price)",
         measure=_volatility,
         accepts=_always,
+    ),
+    SignalRule(
+        id="earnings_before",
+        label="Earnings Today",
+        criterion="earnings_date == today (New York time, with weekend fallback)",
+        metric="earnings_date",
+        measure=_earnings_before_measure,
+        accepts=_earnings_before_accept,
+    ),
+    SignalRule(
+        id="earnings_after",
+        label="Earnings After",
+        criterion="earnings_date in the next two New York business days",
+        metric="earnings_date",
+        measure=_earnings_after_measure,
+        accepts=_earnings_after_accept,
+    ),
+    SignalRule(
+        id="major_news",
+        label="Major News",
+        criterion="headline keyword match (merger, acquisition, FDA, lawsuit, …)",
+        metric="headline text",
+        measure=_no_measure,
+        accepts=_never,
+        available=False,
+        reason=NEWS_UNAVAILABLE_REASON,
     ),
     SignalRule(
         id="insider_buying",
