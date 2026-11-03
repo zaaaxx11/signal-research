@@ -30,17 +30,19 @@ close.**
 ``previous_close`` is Yahoo's ``chartPreviousClose`` — the close of the previous
 *session*, and the label is deliberate: on a Monday a ``1d`` chart's previous
 session is Friday, so it is **not** "yesterday's close"; for ``1mo``/``6mo``/
-``1y`` it is the close immediately before the window's first bar, which is a
-month or a year old. It is the baseline the series starts from, published under
-one honest name rather than three convenient ones. ``previousClose`` is the
-fallback when ``chartPreviousClose`` is absent, and ``None`` when neither is a
-positive number — a missing previous close is unknown, never ``0.0``.
+``1y``/``5y`` it is the close immediately before the window's first bar, which
+is a month, a year or five years old. It is the baseline the series starts from,
+published under one honest name rather than three convenient ones.
+``previousClose`` is the fallback when ``chartPreviousClose`` is absent, and
+``None`` when neither is a positive number — a missing previous close is
+unknown, never ``0.0``.
 **Adversarial (b).**
 
 The interval is chosen per range, and the legal pairs are the provider's
 -------------------------------------------------------------
-``1d``→``5m``, ``5d``→``15m``, ``1mo``/``6mo``/``1y``→``1d`` are the defaults,
-and :data:`LEGAL_INTERVALS` is the whole truth about what a caller may ask for:
+``1d``→``5m``, ``5d``→``15m``, ``1mo``/``6mo``/``1y``/``5y``→``1d`` are the
+defaults, and :data:`LEGAL_INTERVALS` is the whole truth about what a caller may
+ask for:
 a minute bar is only meaningful for one session, an hourly bar for at most two
 years. An interval outside its range's table is a ``422 invalid_interval`` whose
 sentence names the legal set — refused before any fetch, so a typo costs
@@ -108,7 +110,11 @@ BASE_URL = "https://query1.finance.yahoo.com"
 SOURCE = "yahoo_chart"
 
 #: The ranges this route speaks, in the only order a menu should print them.
-RANGES: tuple[str, ...] = ("1d", "5d", "1mo", "6mo", "1y")
+#: ``5y`` closes the gap that made a five-year chart impossible here: the
+#: provider accepts a five-year daily series, and ``app.api.risk`` has spoken
+#: ``5y`` all along, so the chart was the one surface that could not show the
+#: history every other page quotes.
+RANGES: tuple[str, ...] = ("1d", "5d", "1mo", "6mo", "1y", "5y")
 
 #: The intervals the provider is asked for, in ascending coarseness.
 INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "1d")
@@ -120,17 +126,22 @@ DEFAULT_INTERVALS: dict[str, str] = {
     "1mo": "1d",
     "6mo": "1d",
     "1y": "1d",
+    "5y": "1d",
 }
 
 #: The legal intervals per range. A minute bar inside one session, a quarter-hour
 #: bar inside a week, an hourly bar up to two years, a daily bar anywhere: every
 #: pair here is one the provider accepts, and nothing outside it is forwarded.
+#: ``5y`` speaks daily alone for that reason — the provider's hourly history
+#: stops at two years, so a ``5y``+``1h`` pair is refused here rather than
+#: failing upstream with an error a caller cannot read.
 LEGAL_INTERVALS: dict[str, tuple[str, ...]] = {
     "1d": ("1m", "5m", "15m", "1h"),
     "5d": ("5m", "15m", "1h"),
     "1mo": ("15m", "1h", "1d"),
     "6mo": ("1h", "1d"),
     "1y": ("1h", "1d"),
+    "5y": ("1d",),
 }
 
 #: How long a parsed series is served from memory. Five minutes is a fifth of a
@@ -148,6 +159,25 @@ MEMO_LIMIT = 128
 #: ``truncated`` says that it happened rather than letting a client believe it
 #: has the whole window.
 MAX_BARS = 1000
+
+#: The bars the long daily windows may carry. Five years of daily bars is
+#: ~1,260 — over :data:`MAX_BARS`, which was sized for a year of *hourly* bars
+#: (~1,750) where a canvas cannot use them all. Capping a five-year **daily**
+#: series at a thousand would silently drop its oldest year and call the rest
+#: "5y", so the long daily ranges get their own ceiling and every other range
+#: keeps the default. A body of 1,300 bars is ~75 KB, inside the ~120 KB the
+#: memo budget already prices.
+BAR_LIMITS: dict[str, int] = {"5y": 1_500}
+
+
+def bars_for(window: str) -> int:
+    """How many bars ``window`` publishes: its own ceiling, or the default.
+
+    Read once per request, before the fetch, so the cap is a stated decision
+    rather than a surprise in ``truncated``.
+    """
+
+    return BAR_LIMITS.get(window, MAX_BARS)
 
 #: The document's shape and meaning, folded into the tag.
 CHART_SHAPE = "1"
@@ -493,12 +523,16 @@ async def fetch_series(
     interval: str,
     base_url: str = BASE_URL,
     timeout_s: float = FETCH_TIMEOUT_S,
+    limit: int = MAX_BARS,
 ) -> ChartSeries:
     """One provider read, parsed. The only function here that touches the network.
 
-    A ``404`` — or a ``200`` whose ``chart.error`` says the symbol is unknown —
-    is ``404 unknown_symbol``; any other failure is ``503 chart_unavailable``,
-    because "we could not ask" is not "there is nothing".
+    ``limit`` is ``window``'s own bar ceiling (:func:`bars_for`), passed in
+    rather than looked up here so a caller that knows the window decides how
+    much of it is published. A ``404`` — or a ``200`` whose ``chart.error``
+    says the symbol is unknown — is ``404 unknown_symbol``; any other failure
+    is ``503 chart_unavailable``, because "we could not ask" is not "there is
+    nothing".
     """
 
     # The HTTP seam is imported here rather than at module scope so the route
@@ -557,7 +591,7 @@ async def fetch_series(
             error="unknown_symbol",
             message=f"the chart provider has no series for {symbol}{description}",
         )
-    return parse_chart_series(result[0])
+    return parse_chart_series(result[0], limit=limit)
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +627,9 @@ async def _chart_answer(
         return Response(status_code=304, headers=headers)
 
     if cached is None:
-        series = await fetch_series(wanted, window=window, interval=chosen)
+        series = await fetch_series(
+            wanted, window=window, interval=chosen, limit=bars_for(window)
+        )
         body = encode(
             chart_document(wanted, window=window, interval=chosen, series=series)
         )
@@ -659,6 +695,7 @@ async def market_chart_head(
 
 
 __all__ = [
+    "BAR_LIMITS",
     "BASE_URL",
     "CACHE_TTL_S",
     "CHART_SHAPE",
@@ -673,6 +710,7 @@ __all__ = [
     "ChartCache",
     "ChartSeries",
     "chart_cache",
+    "bars_for",
     "chart_document",
     "chart_interval",
     "chart_range",

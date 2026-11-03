@@ -28,7 +28,9 @@ type Stamp = Intl.DateTimeFormatOptions;
  * 1D is a clock. 5D and 1M are dates, because five sessions contain five
  * midnights and an hour label would repeat itself. 6M keeps the day (its ticks
  * are ~3 weeks apart), and 1Y drops to the month — six ticks over a year are
- * two months apart and the day is noise.
+ * two months apart and the day is noise. 5Y adds the year back, because a
+ * month repeats every twelve and five years of ticks would name the same month
+ * five times.
  */
 const AXIS_STAMPS: Readonly<Record<ChartRange, Stamp>> = {
   "1d": { hour: "2-digit", minute: "2-digit", hour12: false },
@@ -36,6 +38,7 @@ const AXIS_STAMPS: Readonly<Record<ChartRange, Stamp>> = {
   "1mo": { month: "short", day: "numeric" },
   "6mo": { month: "short", day: "numeric" },
   "1y": { month: "short" },
+  "5y": { month: "short", year: "numeric" },
 };
 
 /** The readout is more specific than the axis: a bar has a day *and* a time. */
@@ -45,6 +48,7 @@ const READOUT_STAMPS: Readonly<Record<ChartRange, Stamp>> = {
   "1mo": { month: "short", day: "numeric" },
   "6mo": { month: "short", day: "numeric" },
   "1y": { month: "short", day: "numeric", year: "numeric" },
+  "5y": { month: "short", day: "numeric", year: "numeric" },
 };
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
@@ -66,7 +70,7 @@ function formatter(stamp: Stamp, timezone: string): Intl.DateTimeFormat {
   return created;
 }
 
-/** `1767225600` → `14:35` (1D) or `Jan 2` (5D/1M/6M) or `Jan` (1Y). */
+/** `1767225600` → `14:35` (1D) or `Jan 2` (5D/1M/6M) or `Jan` (1Y) or `Jan '21` (5Y). */
 export function axisTime(epochSeconds: number, range: ChartRange, timezone = "UTC"): string {
   if (!Number.isFinite(epochSeconds)) return "";
   return formatter(AXIS_STAMPS[range], timezone).format(new Date(epochSeconds * 1000));

@@ -7,6 +7,7 @@ import { installCanvas, type CanvasHarness } from "./__fixtures__/canvas";
 import { bar, intradayBars, json, wireFor } from "./__fixtures__/chart";
 import { Chart } from "./Chart";
 import { barTime } from "./format";
+import type { ChartRange } from "./types";
 
 /**
  * The instrument at DOM level, over a mocked `fetch` and a recording canvas.
@@ -113,7 +114,14 @@ describe("Chart — range selector", () => {
     expect(group).toBeTruthy();
 
     const buttons = within(group).getAllByRole("button");
-    expect(buttons.map((button) => button.textContent)).toEqual(["1D", "5D", "1M", "6M", "1Y"]);
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "1D",
+      "5D",
+      "1M",
+      "6M",
+      "1Y",
+      "5Y",
+    ]);
     expect(buttons[0]?.getAttribute("aria-pressed")).toBe("true");
     expect(buttons[1]?.getAttribute("aria-pressed")).toBe("false");
   });
@@ -122,7 +130,7 @@ describe("Chart — range selector", () => {
     const mock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       const range = /range=([^&]+)/.exec(url)?.[1] ?? "1d";
-      return Promise.resolve(json(wireFor("AAPL", range as "1d" | "5d" | "1mo" | "6mo" | "1y")));
+      return Promise.resolve(json(wireFor("AAPL", range as ChartRange)));
     });
     vi.stubGlobal("fetch", mock);
     render(<Chart symbol="AAPL" />);
@@ -141,13 +149,19 @@ describe("Chart — range selector", () => {
     await waitFor(() => expect(mock).toHaveBeenCalledTimes(4));
     expect(String(mock.mock.calls[3]?.[0])).toBe("/market/chart/AAPL?range=1y");
 
+    // The long window the toolbar was missing: it must fetch too, once.
+    fireEvent.click(screen.getByTestId("chart-range-5y"));
+    await waitFor(() => expect(mock).toHaveBeenCalledTimes(5));
+    expect(String(mock.mock.calls[4]?.[0])).toBe("/market/chart/AAPL?range=5y");
+    expect(screen.getByTestId("chart-range-5y").getAttribute("aria-pressed")).toBe("true");
+
     // Clicking the active range is not a new fact; it must not refetch.
-    fireEvent.click(screen.getByTestId("chart-range-1y"));
+    fireEvent.click(screen.getByTestId("chart-range-5y"));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(mock).toHaveBeenCalledTimes(4);
-    expect(screen.getByTestId("chart-range-1y").getAttribute("aria-pressed")).toBe("true");
+    expect(mock).toHaveBeenCalledTimes(5);
+    expect(screen.getByTestId("chart-range-5y").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("aborts the in-flight request when a new range is clicked", async () => {

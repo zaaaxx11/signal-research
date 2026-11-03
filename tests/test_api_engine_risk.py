@@ -121,7 +121,9 @@ class StubSeries:
         self.series = dict(series)
         self.calls: list[tuple[str, str, str]] = []
 
-    async def __call__(self, symbol: str, *, window: str, interval: str) -> ChartSeries:
+    async def __call__(
+        self, symbol: str, *, window: str, interval: str, limit: int = 1_000
+    ) -> ChartSeries:
         self.calls.append((symbol, window, interval))
         if symbol not in self.series:
             raise AssertionError(f"unexpected provider read for {symbol}")

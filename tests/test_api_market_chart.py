@@ -798,3 +798,60 @@ async def test_cold_warm_and_304_stay_inside_the_budgets(
     assert cheap_ms - floor_304_ms < 2.0, (
         f"304 {cheap_ms:.2f} ms over a {floor_304_ms:.2f} ms floor"
     )
+
+
+async def test_five_years_is_a_range_the_route_speaks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``range=5y`` answers daily bars, and five years of them fit whole.
+
+    A year of daily bars is ~252, so five years is ~1,260 — over the
+    thousand-bar default. The long window has its own cap, and
+    ``truncated`` stays false, or a reader would be told the series is
+    whole while the oldest year was silently dropped.
+    """
+
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth={}) as harness:
+        harness.web.json("yahoo", _payload(_long(1_300)))
+        response = await harness.get("/market/chart/AAPL", range="5y")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["range"] == "5y"
+    assert body["interval"] == "1d"
+    assert len(body["bars"]) == 1_300
+    assert body["truncated"] is False
+
+
+async def test_five_years_speaks_daily_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The provider accepts an hourly bar for at most two years, so ``5y``
+    refuses ``1h`` by name rather than forwarding a pair that would fail
+    upstream."""
+
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth={}) as harness:
+        harness.web.json("yahoo", _payload(_bars(100.0)))
+        response = await harness.get("/market/chart/AAPL", range="5y", interval="1h")
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"] == "invalid_interval"
+    assert "1d" in body["errorMessage"]
+    assert harness.web.count("yahoo") == 0
+
+
+async def test_the_invalid_range_message_names_five_years(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller who asked for ``7y`` is told the whole legal set, and the
+    set now contains five years."""
+
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth={}) as harness:
+        harness.web.json("yahoo", _payload(_bars(100.0)))
+        response = await harness.get("/market/chart/AAPL", range="7y")
+
+    assert response.status_code == 422
+    message = response.json()["errorMessage"]
+    assert "5y" in message
+    assert "1y" in message
