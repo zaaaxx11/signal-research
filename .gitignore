@@ -37,3 +37,4 @@ research/fv-measure/*.json
 
 # scratch probes
 .probe_*.py
+node_modules/
