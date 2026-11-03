@@ -978,8 +978,7 @@ def _dilution_family() -> tuple[Bucket, ...]:
                 finviz=token,
                 predicate=_column_predicate(column, op, value),
                 describe=_describe(column, op, value),
-                available=False,
-                reason=DILUTION_REASON,
+                available=True,
             )
         )
     return tuple(family)

@@ -71,7 +71,6 @@ UNAVAILABLE: tuple[str, ...] = (
     "sh_trades",
     "theme",
     "subtheme",
-    "sh_dilution",
 )
 
 #: Control → the probe key whose options it publishes.

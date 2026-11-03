@@ -168,6 +168,7 @@ from app.screen.facts import enrich_rows as enrich_facts
 from app.screen.depth_overlay import SCREEN_ALIASES, overlay
 from app.screen.depth_source import current_depth, resolve_store_path
 from app.screen.pattern_overlay import detect_patterns
+from app.screen.dilution_overlay import precompute as precompute_dilution, lookup as dilution_lookup
 from app.screen.fundamentals import enrich_rows
 from app.screen.schema import SCREEN_RESPONSE_SCHEMA
 from app.screen.selection import (
@@ -1057,6 +1058,14 @@ async def _current_universe(
         except Exception:
             logger.warning("Pattern detection failed, continuing without chart patterns")
 
+    # Dilution overlay: precompute once per process lifetime
+    from app.screen.dilution_overlay import _current as _dilution_current
+    if not _dilution_current:
+        try:
+            precompute_dilution(cache_dir=Path("data/cache"))
+        except Exception:
+            logger.warning("Dilution precompute failed, continuing without dilution data")
+
     runtime = runtime_of(request)
     universe = await enrich_rows(universe, getattr(runtime, "fundamentals_store", None))
 
@@ -1085,6 +1094,13 @@ async def _current_universe(
     # nothing for it — the honest answer during a regular session, never a value
     # inferred from the last one.
     universe = after_hours.enrich_rows(universe)
+
+    # Attach dilution_pct to each row for the sh_dilution bucket control
+    for row in universe:
+        symbol = row.get("symbol", "")
+        if symbol and "dilution_pct" not in row:
+            row["dilution_pct"] = dilution_lookup(symbol)
+
     return _UniversePage(rows=universe, scan=scan, generation=generation)
 
 

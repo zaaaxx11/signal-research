@@ -1433,7 +1433,7 @@ DISPOSITION_BY_CONTROL: Mapping[str, str] = MappingProxyType(
     {
         "order": "scan_row",
         "signal": "derived",
-        "sh_dilution": "new_source",
+        "sh_dilution": "derived",
     }
 )
 
