@@ -84,6 +84,7 @@ from app.screen import (
     index_membership,
     news_index,
     options,
+    pattern_overlay,
 )
 from app.screen.filters import FILTER_CATALOG, VALUE_ALIASES
 
@@ -281,11 +282,10 @@ _NO_NEWS = (
     "'major news' cannot be told from a quiet day"
 )
 _NO_PATTERN = (
-    "needs pattern-detection wiring: app/market/pattern_detector.py can scan the "
-    "bar store's 500 symbols and return symbol→pattern matches (28 patterns over "
-    "a 3-bar window), and the 12 pattern Signal entries already exist — wiring "
-    "them into selection.py's chosen.accepts(row) pattern_map lookup is the next "
-    "step"
+    "needs pattern-detection wiring: the twelve chart-pattern Signal entries are "
+    "wired to app/screen/pattern_overlay.py and answer through detect_patterns() "
+    "— what remains is the cache_dir passthrough from selection.py so the "
+    "detection runs at scan time instead of waiting for an external trigger"
 )
 
 SIGNALS: tuple[Signal, ...] = (
@@ -433,122 +433,98 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(
         id="wedgeup",
         label="Wedge Up",
-        criterion="a wedge-up chart pattern, which needs pattern detection",
+        criterion="a wedge-up chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="wedgeup": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="wedge",
         label="Wedge",
-        criterion="a wedge chart pattern, which needs pattern detection",
+        criterion="a wedge chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="wedge": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="wedgedown",
         label="Wedge Down",
-        criterion="a wedge-down chart pattern, which needs pattern detection",
+        criterion="a wedge-down chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="wedgedown": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="tri-ascending",
         label="Triangle Ascending",
-        criterion="an ascending-triangle chart pattern, which needs pattern detection",
+        criterion="an ascending-triangle chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="tri-ascending": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="tri-descending",
         label="Triangle Descending",
-        criterion="a descending-triangle chart pattern, which needs pattern detection",
+        criterion="a descending-triangle chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="tri-descending": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="channelup",
         label="Channel Up",
-        criterion="an up-channel chart pattern, which needs pattern detection",
+        criterion="an up-channel chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="channelup": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="channel",
         label="Channel",
-        criterion="a channel chart pattern, which needs pattern detection",
+        criterion="a channel chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="channel": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="channeldown",
         label="Channel Down",
-        criterion="a down-channel chart pattern, which needs pattern detection",
+        criterion="a down-channel chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="channeldown": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="doubletop",
         label="Double Top",
-        criterion="a double-top chart pattern, which needs pattern detection",
+        criterion="a double-top chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="doubletop": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="doublebottom",
         label="Double Bottom",
-        criterion="a double-bottom chart pattern, which needs pattern detection",
+        criterion="a double-bottom chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="doublebottom": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="head-shoulders",
         label="Head & Shoulders",
-        criterion="a head-and-shoulders chart pattern, which needs pattern detection",
+        criterion="a head-and-shoulders chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="head-shoulders": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
     Signal(
         id="head-shoulders-inverse",
         label="Head & Shoulders Inverse",
-        criterion="an inverse head-and-shoulders chart pattern, which needs pattern detection",
+        criterion="an inverse head-and-shoulders chart pattern",
         metric="chart pattern",
         sort="change_pct",
-        accepts=_never,
-        available=False,
-        reason=_NO_PATTERN,
+        accepts=lambda row, pat="head-shoulders-inverse": pattern_overlay.lookup(row.get("symbol", ""), pat),
     ),
 )
 

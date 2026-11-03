@@ -385,13 +385,13 @@ def test_the_order_control_is_the_catalog_not_a_literal() -> None:
         assert name in order["hint"], f"the legacy alias {name} is still an order"
 
 
-def test_the_signal_control_publishes_the_vocabulary_and_its_ten() -> None:
+def test_the_signal_control_publishes_the_vocabulary_and_its_22() -> None:
     signal = controls()["signal"]
 
     assert signal["control"] == "signal"
     assert len(signal["options"]) == 27
     available = [option for option in signal["options"] if option["available"]]
-    assert len(available) == 10
+    assert len(available) == 22
     assert [option["id"] for option in available] == [
         "top-gainers",
         "top-losers",
@@ -403,6 +403,18 @@ def test_the_signal_control_publishes_the_vocabulary_and_its_ten() -> None:
         "oversold",
         "new-high",
         "new-low",
+        "wedgeup",
+        "wedge",
+        "wedgedown",
+        "tri-ascending",
+        "tri-descending",
+        "channelup",
+        "channel",
+        "channeldown",
+        "doubletop",
+        "doublebottom",
+        "head-shoulders",
+        "head-shoulders-inverse",
     ]
     for option in signal["options"]:
         if option["available"]:

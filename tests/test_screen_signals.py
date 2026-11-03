@@ -71,7 +71,7 @@ PATTERN_IDS: tuple[str, ...] = (
     "head-shoulders-inverse",
 )
 
-#: The ten signals this build can compute; the other seventeen say why not.
+#: The 22 signals this build can compute; the other five say why not.
 AVAILABLE: frozenset[str] = frozenset(
     {
         "top-gainers",
@@ -84,6 +84,18 @@ AVAILABLE: frozenset[str] = frozenset(
         "oversold",
         "new-high",
         "new-low",
+        "wedgeup",
+        "wedge",
+        "wedgedown",
+        "tri-ascending",
+        "tri-descending",
+        "channelup",
+        "channel",
+        "channeldown",
+        "doubletop",
+        "doublebottom",
+        "head-shoulders",
+        "head-shoulders-inverse",
     }
 )
 
@@ -127,7 +139,7 @@ def test_the_vocabulary_is_27() -> None:
     assert ids[15:] == PATTERN_IDS, "the twelve patterns, in panel order"
     assert len(set(ids)) == 27, "an id may name one signal"
     assert {item.id for item in SIGNALS if item.available} == AVAILABLE
-    assert len([item for item in SIGNALS if item.available]) == 10
+    assert len([item for item in SIGNALS if item.available]) == 22
     for item in SIGNALS:
         assert item.label.strip(), f"{item.id} has no label"
         if item.available:

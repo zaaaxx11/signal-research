@@ -54,7 +54,7 @@
         "head-shoulders",
         "head-shoulders-inverse"
       ],
-      "description": "Criteria only: one of the 27 signals. 10 can run here (top-gainers, top-losers, most-active, most-volatile, most-increased-volume, unusual-volume, overbought, oversold, new-high, new-low); the other 17 are a 422 `unavailable_signal` naming the metric they would need (analyst revisions, an earnings session stamp, the news store, chart-pattern detection). A signal sets the **population**, and when `criteria.sort` is absent its own measure becomes the order (`top-losers` ascends); an explicit sort always wins. A `symbols` selection does not take it."
+      "description": "Criteria only: one of the 27 signals. 22 can run here (top-gainers, top-losers, most-active, most-volatile, most-increased-volume, unusual-volume, overbought, oversold, new-high, new-low, wedgeup, wedge, wedgedown, tri-ascending, tri-descending, channelup, channel, channeldown, doubletop, doublebottom, head-shoulders, head-shoulders-inverse); the other 5 are a 422 `unavailable_signal` naming the metric they would need (analyst revisions, an earnings session stamp, the news store, chart-pattern detection). A signal sets the **population**, and when `criteria.sort` is absent its own measure becomes the order (`top-losers` ascends); an explicit sort always wins. A `symbols` selection does not take it."
     },
     "asset_class": {
       "enum": [
