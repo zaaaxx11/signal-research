@@ -184,7 +184,11 @@
 
   /* ---- density -------------------------------------------------------- */
   /* Row pitch and type size are decisions D5, not per-component choices. */
-  --row-pitch: 28px;
+  --row-pitch-compact: 22px;
+  --row-pitch-normal: 28px;
+  --row-pitch-spacious: 36px;
+  --row-pitch: var(--row-pitch-normal);
+  --header-height: 24px;
   --bar-height: 48px;
   --tab-height: 36px;
   --status-height: 28px;
@@ -211,6 +215,11 @@
   --input: var(--border-control);
   --ring: var(--focus);
 }
+
+/* Density mode classes — toggle on <html> to switch row pitch globally */
+.ztz-density-compact { --row-pitch: var(--row-pitch-compact); }
+.ztz-density-normal  { --row-pitch: var(--row-pitch-normal); }
+.ztz-density-spacious { --row-pitch: var(--row-pitch-spacious); }
 
 /*
  * ── DAY ─────────────────────────────────────────────────────────────────────
