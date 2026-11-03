@@ -1382,7 +1382,7 @@ async def build_document(
     earnings = earnings_of(groups)
     map_block = truncate_map(
         map_api.build_map_document(
-            universe, region=region, metric=map_api.METRIC_DEFAULT, as_of=as_of
+            universe, region=region, metric_name="change_1d", as_of=as_of
         )
     )
 
