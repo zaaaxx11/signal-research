@@ -75,6 +75,12 @@ function rowSymbols(): string[] {
   return screen.getAllByTestId("alt-row").map((row) => row.getAttribute("data-symbol") ?? "");
 }
 
+/** Switch to the table view — the sort tests assert the header controls, which are the table's. */
+async function toTable(): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(screen.getByTestId("alt-view-table"));
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -127,6 +133,7 @@ describe("AltPage — the table", () => {
     stub();
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     expect(screen.getAllByTestId("alt-row")).toHaveLength(40);
     expect(rowSymbols()[0]).toBe("SYM00-USD");
@@ -143,6 +150,7 @@ describe("AltPage — the table", () => {
     stub();
     render(<AltPage marketClass="futures" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     expect(screen.getByTestId("alt-th-volume").textContent).toBe("Contract");
     expect(screen.getByTestId("alt-th-last").textContent).toContain("Last");
@@ -158,6 +166,7 @@ describe("AltPage — the table", () => {
     );
     render(<AltPage marketClass="forex" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     expect(screen.getByTestId("alt-volume").textContent).toBe("—");
     expect(screen.getByTestId("alt-last").textContent).toBe("$1.1166");
@@ -167,6 +176,7 @@ describe("AltPage — the table", () => {
     stub(altDocument([wireRow(1, { symbol: "ES=F", name: null })]));
     render(<AltPage marketClass="futures" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     const name = screen.getByTestId("alt-name");
     expect(name.textContent).toBe("ES=F");
@@ -177,6 +187,7 @@ describe("AltPage — the table", () => {
     stub(altDocument([wireRow(1, { symbol: "BTC-USD" })]));
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     // The cell is the monogram plus the ticker; the ticker is text, not an anchor.
@@ -216,6 +227,7 @@ describe("AltPage — the table", () => {
     );
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     const cell = (symbol: string) => {
       const row = screen.getAllByTestId("alt-row").find((candidate) => candidate.getAttribute("data-symbol") === symbol);
@@ -269,6 +281,7 @@ describe("AltPage — the filter", () => {
     const user = userEvent.setup();
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     const filter = screen.getByTestId("alt-filter");
     await user.click(filter);
@@ -336,6 +349,7 @@ describe("AltPage — the sort", () => {
     stub(sorted());
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     const header = screen.getByTestId("alt-th-last");
     expect(header.getAttribute("aria-sort")).toBe("none");
@@ -354,6 +368,7 @@ describe("AltPage — the sort", () => {
     stub(sorted());
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     await user.click(screen.getByTestId("alt-sort-change"));
     expect(screen.getByTestId("alt-th-change").getAttribute("aria-sort")).toBe("descending");
@@ -366,6 +381,7 @@ describe("AltPage — the sort", () => {
     stub(sorted());
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     await user.click(screen.getByTestId("alt-sort-change"));
     await user.click(screen.getByTestId("alt-sort-symbol"));
@@ -379,6 +395,7 @@ describe("AltPage — the sort", () => {
     stub(sorted());
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     await user.type(screen.getByTestId("alt-filter"), "usd");
     await user.click(screen.getByTestId("alt-sort-change"));
@@ -396,6 +413,7 @@ describe("AltPage — the sort", () => {
     stub(sorted());
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
+    await toTable();
 
     const filter = screen.getByTestId("alt-filter");
     await user.type(filter, "btc");
@@ -466,5 +484,166 @@ describe("AltPage — the states", () => {
 
     const error = await screen.findByTestId("alt-error");
     expect(error.textContent).toMatch(/does not serve/i);
+  });
+});
+
+describe("AltPage — card grid", () => {
+  it("renders cards instead of a table by default", async () => {
+    stub();
+    render(<AltPage marketClass="crypto" />);
+    await screen.findByTestId("alt-table");
+
+    expect(screen.getByTestId("alt-card-view")).toBeTruthy();
+    expect(screen.getByTestId("card-grid")).toBeTruthy();
+    // 40 cards, one per row
+    expect(screen.getAllByTestId("alt-row")).toHaveLength(40);
+  });
+
+  it("can switch to table view", async () => {
+    stub();
+    const user = userEvent.setup();
+    render(<AltPage marketClass="crypto" />);
+    await screen.findByTestId("alt-table");
+
+    await user.click(screen.getByTestId("alt-view-table"));
+    // The <table> node should now be a real table element, not the hidden div
+    const realTable = screen.getByTestId("alt-table");
+    expect(realTable.tagName).toBe("TABLE");
+  });
+});
+
+describe("AltPage — category tabs", () => {
+  function wireFutures() {
+    return altDocument(
+      [
+        wireRow(1, { symbol: "ES=F", name: "E-mini S&P 500", price: 6000 }),
+        wireRow(2, { symbol: "CL=F", name: "Crude Oil", price: 70 }),
+        wireRow(3, { symbol: "GC=F", name: "Gold", price: 2700 }),
+        wireRow(4, { symbol: "6E=F", name: "Euro FX", price: 1.08 }),
+      ],
+      { class: "futures" },
+    );
+  }
+
+  it("renders category tabs for futures", async () => {
+    stub(wireFutures());
+    render(<AltPage marketClass="futures" />);
+    await screen.findByTestId("alt-table");
+
+    expect(screen.getByTestId("alt-category-tabs")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-all")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-indices")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-energy")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-metals")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-currencies")).toBeTruthy();
+  });
+
+  it("filters by category client-side", async () => {
+    stub(wireFutures());
+    const user = userEvent.setup();
+    render(<AltPage marketClass="futures" />);
+    await screen.findByTestId("alt-table");
+
+    await user.click(screen.getByTestId("alt-category-indices"));
+    // Only ES=F
+    expect(rowSymbols()).toEqual(["ES=F"]);
+
+    await user.click(screen.getByTestId("alt-category-all"));
+    expect(rowSymbols()).toEqual(["ES=F", "CL=F", "GC=F", "6E=F"]);
+  });
+
+  it("crypto has quote-currency tabs", async () => {
+    stub(
+      altDocument([
+        wireRow(1, { symbol: "BTC-USD", name: "Bitcoin", price: 77399 }),
+        wireRow(2, { symbol: "ETH-USDT", name: "Ether", price: 2249 }),
+        wireRow(3, { symbol: "BTC-BTC", name: "Bitcoin", price: 1 }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<AltPage marketClass="crypto" />);
+    await screen.findByTestId("alt-table");
+
+    expect(screen.getByTestId("alt-category-usd")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-usdt")).toBeTruthy();
+    expect(screen.getByTestId("alt-category-btc")).toBeTruthy();
+
+    await user.click(screen.getByTestId("alt-category-usd"));
+    expect(rowSymbols()).toEqual(["BTC-USD"]);
+
+    await user.click(screen.getByTestId("alt-category-usdt"));
+    expect(rowSymbols()).toEqual(["ETH-USDT"]);
+  });
+
+  it("resets the text filter when switching tabs", async () => {
+    stub(wireFutures());
+    const user = userEvent.setup();
+    render(<AltPage marketClass="futures" />);
+    await screen.findByTestId("alt-table");
+
+    const filter = screen.getByTestId("alt-filter") as HTMLInputElement;
+    await user.type(filter, "crude");
+
+    await user.click(screen.getByTestId("alt-category-energy"));
+    // Filter input should be cleared
+    expect(filter.value).toBe("");
+  });
+});
+
+describe("AltPage — forex chart", () => {
+  function wireForex() {
+    return altDocument(
+      [
+        {
+          symbol: "EURUSD=X", name: "Euro / US Dollar", price: 1.1166,
+          change_pct: 0.35, volume: 0, currency: "USD",
+        },
+        {
+          symbol: "GBPUSD=X", name: "British Pound / US Dollar", price: 1.2750,
+          change_pct: -0.15, volume: 0, currency: "USD",
+        },
+        {
+          symbol: "JPY=X", name: "Japanese Yen", price: 146.82,
+          change_pct: -0.42, volume: 0, currency: "JPY",
+        },
+        {
+          symbol: "EURGBP=X", name: "Euro / British Pound", price: 0.8750,
+          change_pct: 0.10, volume: 0, currency: "GBP",
+        },
+      ],
+      { class: "forex" },
+    );
+  }
+
+  it("renders the forex chart in card view", async () => {
+    stub(wireForex());
+    render(<AltPage marketClass="forex" />);
+    await screen.findByTestId("alt-table");
+
+    expect(screen.getByTestId("forex-chart")).toBeTruthy();
+    expect(screen.getByTestId("forex-chart").textContent).toContain("Currency Strength vs USD");
+  });
+
+  it("does not render the forex chart in table view", async () => {
+    stub(wireForex());
+    const user = userEvent.setup();
+    render(<AltPage marketClass="forex" />);
+    await screen.findByTestId("alt-table");
+
+    await user.click(screen.getByTestId("alt-view-table"));
+    expect(screen.queryByTestId("forex-chart")).toBeNull();
+  });
+
+  it("shows only USD-quoted pairs in the chart", async () => {
+    stub(wireForex());
+    render(<AltPage marketClass="forex" />);
+    await screen.findByTestId("alt-table");
+
+    const chart = screen.getByTestId("forex-chart");
+    // EURUSD and GBPUSD are USD-quoted; JPY=X is a JPY quote form, EURGBP is cross
+    expect(chart.textContent).toContain("EUR");
+    expect(chart.textContent).toContain("GBP");
+    // EURGBP is a cross, not USD-quoted, so it should not appear
+    expect(chart.textContent).not.toContain("EURGBP");
   });
 });

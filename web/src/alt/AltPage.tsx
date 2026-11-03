@@ -21,22 +21,29 @@
 
 import * as React from "react";
 
+import { CardGrid, CardGridCard } from "@/components/CardGrid";
 import { CellValue } from "@/grid/cellRenderers";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
 import { cn } from "@/lib/utils";
 
 import {
+  CATEGORY_TABS,
   CHANGE_SPEC,
+  categoryCounts,
+  categoryRows,
   classCopy,
   formatPrice,
   formatReadAt,
   formatVolume,
+  forexStrength,
   nextSort,
   stockHref,
+  strengthScale,
   visibleRows,
   type AltRow,
   type AltReport,
+  type CategoryTab,
   type MarketClass,
   type SortKey,
   type SortState,
@@ -287,8 +294,311 @@ function Table({
   );
 }
 
+type ViewMode = "cards" | "table";
+
 export interface AltPageProps {
   readonly marketClass: MarketClass;
+}
+
+/* ---------------------------------------------------------------------------
+ * Category tabs
+ * ------------------------------------------------------------------------ */
+
+function CategoryTabs({
+  tabs,
+  active,
+  counts,
+  total,
+  onSelect,
+}: {
+  readonly tabs: readonly CategoryTab[];
+  readonly active: string;
+  readonly counts: Readonly<Record<string, number>>;
+  readonly total: number;
+  readonly onSelect: (id: string) => void;
+}) {
+  // Only the `all` tab is always drawn; named tabs appear even when empty so
+  // the reader knows they exist and can see that nothing is priced in them.
+  return (
+    <nav aria-label="Category">
+      <div
+        data-testid="alt-category-tabs"
+        className="mb-2 flex flex-wrap gap-1"
+        role="tablist"
+      >
+        {tabs.map((tab) => {
+          const count = tab.id === "all" ? total : (counts[tab.id] ?? 0);
+          const pressed = active === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              data-testid={`alt-category-${tab.id}`}
+              aria-selected={pressed}
+              aria-pressed={pressed}
+              onClick={() => onSelect(tab.id)}
+              className={cn(
+                "focus-ring rounded-sm border px-2 py-0.5 text-label transition-colors",
+                pressed
+                  ? "border-brand bg-brand/10 text-fg"
+                  : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
+              )}
+            >
+              {tab.label}
+              <span className="ml-1 text-fg-subtle nums">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Forex performance chart
+ * ------------------------------------------------------------------------ */
+
+function ForexChart({ rows }: { readonly rows: readonly AltRow[] }) {
+  const entries = React.useMemo(() => forexStrength(rows), [rows]);
+  const scale = React.useMemo(() => strengthScale(entries), [entries]);
+  const hasData = entries.length > 0 && scale > 0;
+
+  return (
+    <div
+      data-testid="forex-chart"
+      className="mb-3 rounded-md border border-line bg-surface p-3"
+    >
+      <h2 className="mb-2 text-label font-medium uppercase tracking-[0.06em] text-fg-muted">
+        Currency Strength vs USD
+      </h2>
+
+      {!hasData ? (
+        <p className="text-data text-fg-subtle">
+          No dollar-quoted pairs with a priced change.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {entries.map((entry) => {
+            const pct = entry.changePct;
+            const width = (Math.abs(pct) / scale) * 100;
+            const barCls = cn(
+              "h-[14px] rounded-[2px] transition-all",
+              pct >= 0 ? "bg-up" : "bg-down",
+            );
+
+            return (
+              <div key={entry.code} className="flex items-center gap-2">
+                <span className="w-10 shrink-0 text-right font-mono text-label text-fg">
+                  {entry.code}
+                </span>
+                <div className="flex-1">
+                  <div className="h-[14px] relative bg-line/30 rounded-[2px] overflow-hidden">
+                    {/* Axis at 50% */}
+                    <div className="absolute top-0 bottom-0 left-1/2 w-px bg-line-strong z-10" />
+                    <div
+                      className={barCls}
+                      style={{
+                        width: `${width}%`,
+                        marginLeft: pct >= 0 ? "50%" : `${50 - width}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "w-16 shrink-0 text-right text-data nums",
+                    pct >= 0 ? "text-up" : "text-down",
+                  )}
+                >
+                  {pct >= 0 ? "+" : ""}
+                  {pct.toFixed(2)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Card grid view
+ * ------------------------------------------------------------------------ */
+
+function CardRow({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount: boolean }) {
+  const name = row.name ?? row.symbol;
+  const priceText = formatPrice(row.price);
+  const changePct = row.changePct;
+  const changeSign = changePct === null ? null : changePct >= 0 ? "+" : "";
+  const changeDirection =
+    changePct === null ? "muted" : changePct > 0 ? "up" : changePct < 0 ? "down" : "muted";
+  const changeLabel =
+    changePct === null
+      ? "—"
+      : `${changeSign}${changePct.toFixed(2)}%`;
+  const volume = hasAmount && row.volume !== null ? formatVolume(row.volume) : null;
+
+  const inner = (
+    <>
+      {/* Header: logo + symbol */}
+      <div className="mb-1.5 flex items-center gap-1.5 min-w-0">
+        <LogoMark symbol={row.symbol} size={16} />
+        <span className="truncate font-mono text-label font-medium text-fg">
+          {row.symbol}
+        </span>
+      </div>
+
+      {/* Name */}
+      <p
+        title={name}
+        className={cn(
+          "mb-1 truncate text-[11px] leading-snug",
+          row.name === null ? "font-mono text-fg-subtle" : "text-fg-muted",
+        )}
+      >
+        {name}
+      </p>
+
+      {/* Price */}
+      <p className="text-data font-medium text-fg leading-tight nums" title={priceText}>
+        {priceText}
+      </p>
+
+      {/* Change */}
+      <p
+        className={cn(
+          "mt-0.5 text-data nums font-medium leading-tight",
+          changeDirection === "up"
+            ? "text-up"
+            : changeDirection === "down"
+              ? "text-down"
+              : "text-fg-muted",
+        )}
+      >
+        {changeLabel}
+      </p>
+
+      {/* Detail row: volume, currency */}
+      <div className="mt-1.5 flex justify-between text-label text-fg-subtle">
+        {volume !== null ? (
+          <span>
+            Vol: <span className="nums text-fg-muted">{volume}</span>
+          </span>
+        ) : (
+          <span />
+        )}
+        {row.currency ? (
+          <span className="font-mono uppercase tracking-[0.04em] text-fg-muted">
+            {row.currency}
+          </span>
+        ) : null}
+      </div>
+    </>
+  );
+
+  return (
+    <CardGridCard className="cursor-default">
+      <div data-testid="alt-row" data-symbol={row.symbol}>
+        {inner}
+      </div>
+    </CardGridCard>
+  );
+}
+
+function CardView({
+  rows,
+  hasAmount,
+  sort,
+  onSort,
+}: {
+  readonly rows: readonly AltRow[];
+  readonly hasAmount: boolean;
+  readonly sort: SortState | null;
+  readonly onSort: (key: SortKey) => void;
+}) {
+  return (
+    <div data-testid="alt-card-view" data-alt-ready="true">
+      <div data-testid="alt-table" />
+      {/* Sort controls: compact pill row */}
+      <div className="mb-2 flex items-center gap-1" data-testid="alt-card-sort-bar">
+        <span className="text-label text-fg-subtle mr-1">Sort:</span>
+        {(
+          [
+            { key: "symbol" as SortKey, label: "Symbol" },
+            { key: "price" as SortKey, label: "Last" },
+            { key: "change" as SortKey, label: "Change" },
+          ] as const
+        ).map((item) => {
+          const active = sort !== null && sort.key === item.key;
+          const arrow =
+            active
+              ? sort!.dir === "asc"
+                ? "▲"
+                : "▼"
+              : "";
+          return (
+            <button
+              key={item.key}
+              type="button"
+              data-testid={`alt-card-sort-${item.key}`}
+              onClick={() => onSort(item.key)}
+              className={cn(
+                "focus-ring rounded-sm px-1.5 py-0.5 text-label transition-colors",
+                active
+                  ? "border border-brand bg-brand/10 text-fg"
+                  : "border border-line text-fg-muted hover:border-line-strong hover:text-fg",
+              )}
+            >
+              {item.label}
+              {arrow ? <span className="ml-0.5 text-[0.75em]">{arrow}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <CardGrid>
+        {rows.map((row) => (
+          <CardRow key={row.symbol} row={row} hasAmount={hasAmount} />
+        ))}
+      </CardGrid>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * View toggle
+ * ------------------------------------------------------------------------ */
+
+function ViewToggle({
+  mode,
+  onChange,
+}: {
+  readonly mode: ViewMode;
+  readonly onChange: (mode: ViewMode) => void;
+}) {
+  return (
+    <div data-testid="alt-view-toggle" className="flex items-center gap-0 rounded-sm border border-line overflow-hidden">
+      {(["cards", "table"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          data-testid={`alt-view-${m}`}
+          aria-pressed={mode === m}
+          onClick={() => onChange(m)}
+          className={cn(
+            "px-2 py-0.5 text-label uppercase tracking-[0.05em] transition-colors",
+            mode === m
+              ? "bg-brand text-white"
+              : "bg-surface text-fg-muted hover:text-fg",
+          )}
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function AltPage({ marketClass }: AltPageProps) {
@@ -296,13 +606,28 @@ export function AltPage({ marketClass }: AltPageProps) {
   const copy = classCopy(marketClass);
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState<SortState | null>(null);
+  const [category, setCategory] = React.useState("all");
+  const [viewMode, setViewMode] = React.useState<ViewMode>("cards");
 
   const report = alt.report;
   const total = report?.rows.length ?? 0;
   const rows = React.useMemo(
-    () => (report === null ? [] : visibleRows(report.rows, query, sort)),
-    [report, query, sort],
+    () =>
+      report === null
+        ? []
+        : viewMode === "cards" || category !== "all"
+          ? categoryRows(report.rows, marketClass, category, query, sort)
+          : visibleRows(report.rows, query, sort),
+    [report, query, sort, category, marketClass, viewMode],
   );
+
+  const tabCounts = React.useMemo(
+    () => (report === null ? { counts: {} as Record<string, number>, uncategorised: 0, total: 0 } : categoryCounts(report.rows, marketClass)),
+    [report, marketClass],
+  );
+
+  const tabs = CATEGORY_TABS[marketClass];
+  const hasTabs = tabs.length > 1;
 
   const onSort = React.useCallback((key: SortKey) => {
     setSort((current) => nextSort(current, key));
@@ -320,15 +645,18 @@ export function AltPage({ marketClass }: AltPageProps) {
     >
       <div className="mb-1 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
         <h1 className="text-ui font-medium text-fg">{copy.title}</h1>
-        <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-          {universe === null ? `${total} symbols` : `${universe} symbols in this class`}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
+            {universe === null ? `${total} symbols` : `${universe} symbols in this class`}
+          </p>
+          <ViewToggle mode={viewMode} onChange={setViewMode} />
+        </div>
       </div>
 
       <p className="mb-1.5 max-w-[78ch] px-0.5 text-data text-fg-muted">{copy.blurb}</p>
 
       {/* The filter lives outside the state box on purpose: a box that sits
-          inside the branch would be unmounted when the table becomes empty,
+          inside the branch would be unmounted when the Table/Cards become empty,
           and the reader would lose both their place and the text they typed. */}
       <div className="mb-1.5 flex flex-wrap items-center gap-2 px-0.5">
         <label htmlFor="alt-filter" className="sr-only">
@@ -346,9 +674,30 @@ export function AltPage({ marketClass }: AltPageProps) {
           className="focus-ring h-6 w-[220px] rounded-sm border border-line-control bg-surface px-1.5 text-data text-fg placeholder:text-fg-disabled"
         />
         <span data-testid="alt-count" className="nums text-label text-fg-subtle">
-          {query.trim().length === 0 ? `${total} rows` : `${rows.length} of ${total} rows`}
+          {query.trim().length === 0 && category === "all" ? `${total} rows` : `${rows.length} of ${total} rows`}
         </span>
       </div>
+
+      {/* Category tabs — client-side filtering, no API call */}
+      {hasTabs && report !== null ? (
+        <CategoryTabs
+          tabs={tabs}
+          active={category}
+          counts={tabCounts.counts}
+          total={total}
+          onSelect={(id) => {
+            setCategory(id);
+            // Reset filter when switching tabs so the reader does not land on
+            // an empty category and think it is the tab's fault.
+            if (id !== "all" && query.trim().length > 0) setQuery("");
+          }}
+        />
+      ) : null}
+
+      {/* Forex performance chart — only for forex, in the card view */}
+      {marketClass === "forex" && report !== null && viewMode === "cards" ? (
+        <ForexChart rows={report.rows} />
+      ) : null}
 
       <div
         data-testid="alt-frame"
@@ -382,7 +731,7 @@ export function AltPage({ marketClass }: AltPageProps) {
           </p>
         ) : rows.length === 0 ? (
           <div data-testid="alt-filter-empty" className="flex items-center gap-2 px-3 py-2 text-data">
-            <p className="min-w-0 text-fg-muted">Nothing matches “{query.trim()}”.</p>
+            <p className="min-w-0 text-fg-muted">Nothing matches "{query.trim()}".</p>
             <button
               type="button"
               data-testid="alt-filter-clear"
@@ -391,6 +740,10 @@ export function AltPage({ marketClass }: AltPageProps) {
             >
               Clear filter
             </button>
+          </div>
+        ) : viewMode === "cards" ? (
+          <div className={cn(marketClass === "forex" ? "p-2" : "p-0")}>
+            <CardView rows={rows} hasAmount={copy.hasAmount} sort={sort} onSort={onSort} />
           </div>
         ) : (
           <Table

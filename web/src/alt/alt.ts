@@ -249,6 +249,329 @@ export function visibleRows(
   return sortRows(filterRows(rows, query), sort);
 }
 
+/** Narrow by category, then filter by text, then sort. One pipeline for both views. */
+export function categoryRows(
+  rows: readonly AltRow[],
+  marketClass: MarketClass,
+  category: string,
+  query: string,
+  sort: SortState | null,
+): AltRow[] {
+  const narrowed =
+    category === "all" ? [...rows] : rows.filter((row) => categoryOf(row, marketClass) === category);
+  return sortRows(filterRows(narrowed, query), sort);
+}
+
+/* ---------------------------------------------------------------------------
+ * Categories
+ * ------------------------------------------------------------------------ */
+
+export interface CategoryTab {
+  readonly id: string;
+  readonly label: string;
+}
+
+const FUTURES_TABS: readonly CategoryTab[] = [
+  { id: "all", label: "All" },
+  { id: "indices", label: "Indices" },
+  { id: "rates", label: "Rates" },
+  { id: "energy", label: "Energy" },
+  { id: "metals", label: "Metals" },
+  { id: "grains", label: "Grains" },
+  { id: "softs", label: "Softs" },
+  { id: "currencies", label: "Currencies" },
+];
+
+const FOREX_TABS: readonly CategoryTab[] = [
+  { id: "all", label: "All" },
+  { id: "majors", label: "Majors" },
+  { id: "crosses", label: "Crosses" },
+];
+
+const CRYPTO_TABS: readonly CategoryTab[] = [
+  { id: "all", label: "All" },
+  { id: "usd", label: "USD" },
+  { id: "usdt", label: "USDT" },
+  { id: "eur", label: "EUR" },
+  { id: "btc", label: "BTC" },
+];
+
+/** The tab bar's contents for each class. */
+export const CATEGORY_TABS: Readonly<Record<MarketClass, readonly CategoryTab[]>> = {
+  futures: FUTURES_TABS,
+  forex: FOREX_TABS,
+  crypto: CRYPTO_TABS,
+};
+
+/**
+ * Futures root → category, which is what the tab bar groups by.
+ *
+ * The groups are the CME/CBOT/Bot complex the Yahoo roots belong to: equity
+ * indices, interest rates, energy, metals, grains, softs and currency futures.
+ * A root not in the table is *not* filed under a guess — it simply does not
+ * appear under a named tab, and `categoryCounts` reports how many rows are
+ * uncategorised so the bar can never claim to be complete.
+ *
+ * The lookup is by longest matching prefix, so a dated contract (`ESZ26=F`)
+ * files under the same category as the continuous front (`ES=F`).
+ */
+const FUTURES_ROOTS: Readonly<Record<string, string>> = {
+  // Equity index
+  ES: "indices",
+  NQ: "indices",
+  YM: "indices",
+  RTY: "indices",
+  EMD: "indices",
+  NKD: "indices",
+  FDAX: "indices",
+  FTSE: "indices",
+  FESX: "indices",
+  HSI: "indices",
+  ER: "indices",
+  // Interest rates
+  ZB: "rates",
+  ZN: "rates",
+  ZF: "rates",
+  ZT: "rates",
+  ZQ: "rates",
+  ZT_F: "rates",
+  UB: "rates",
+  TN: "rates",
+  FF: "rates",
+  GE: "rates",
+  TWE: "rates",
+  KB: "rates",
+  DX: "rates",
+  // Energy
+  CL: "energy",
+  BZ: "energy",
+  NG: "energy",
+  RB: "energy",
+  HO: "energy",
+  EH: "energy",
+  QL: "energy",
+  // Metals
+  GC: "metals",
+  SI: "metals",
+  HG: "metals",
+  PL: "metals",
+  PA: "metals",
+  MGC: "metals",
+  // Grains and oilseeds
+  ZC: "grains",
+  ZS: "grains",
+  ZW: "grains",
+  ZL: "grains",
+  ZM: "grains",
+  ZR: "grains",
+  ZO: "grains",
+  // Softs
+  SB: "softs",
+  KC: "softs",
+  CT: "softs",
+  CC: "softs",
+  LE: "softs",
+  OJ: "softs",
+  LBS: "softs",
+  // Currency futures
+  "6E": "currencies",
+  "6J": "currencies",
+  "6B": "currencies",
+  "6A": "currencies",
+  "6C": "currencies",
+  "6S": "currencies",
+  "6N": "currencies",
+  "6M": "currencies",
+  "6L": "currencies",
+  "6R": "currencies",
+  "6Z": "currencies",
+  "6J_F": "currencies",
+};
+
+/** The roots sorted longest-first, so `FDAX` beats a shorter prefix. */
+const ROOT_PREFIXES: readonly string[] = Object.keys(FUTURES_ROOTS).sort(
+  (a, b) => b.length - a.length,
+);
+
+/**
+ * `ES=F` → `indices`; `ESZ26=F` → `indices`; `GC=F` → `metals`.
+ *
+ * The `=F` suffix is Yahoo's continuous-future marker. A symbol without it is
+ * not a futures root and belongs to no category.
+ */
+function futuresCategory(symbol: string): string | null {
+  if (!symbol.endsWith("=F")) return null;
+  const root = symbol.slice(0, -2).toUpperCase();
+  for (const prefix of ROOT_PREFIXES) {
+    if (root === prefix || root.startsWith(prefix)) return FUTURES_ROOTS[prefix] ?? null;
+  }
+  return null;
+}
+
+/** `EURUSD=X` → `USD`; `BTC-USD` → `USD`; `BTCUSDT` → `USDT`. */
+const KNOWN_QUOTES: readonly string[] = [
+  "USDT",
+  "USDC",
+  "USD",
+  "EUR",
+  "BTC",
+  "ETH",
+  "GBP",
+  "JPY",
+  "AUD",
+  "CAD",
+  "CHF",
+  "NZD",
+  "CNY",
+];
+
+function quoteCurrency(symbol: string): string | null {
+  const upper = symbol.toUpperCase();
+  const tail = upper.includes("-")
+    ? upper.slice(upper.lastIndexOf("-") + 1)
+    : upper.includes("=X")
+      ? upper.slice(0, -2)
+      : upper;
+
+  for (const quote of KNOWN_QUOTES) {
+    if (tail.endsWith(quote)) return quote;
+  }
+  return null;
+}
+
+/** Fiat majors quoted against the dollar. Everything else is a cross. */
+// Reserved for a future "majors" filter; not referenced today.
+
+/**
+ * Which tab a row belongs under.
+ *
+ * Futures: the ticker's root on the left of the `=F` suffix, e.g. `ES=F` →
+ * `indices`. A root that is in no group belongs to none of the named tabs; it
+ * stays visible under `all` and is counted as uncategorised rather than being
+ * filed under a guess.
+ *
+ * Crypto: the symbol's quote leg.
+ *
+ * Forex: a four-or-six-letter pair of known fiat codes is a cross, anything
+ * else with `=X` is a major.
+ */
+export function categoryOf(row: AltRow, marketClass: MarketClass): string | null {
+  const symbol = row.symbol.toUpperCase();
+
+  if (marketClass === "futures") {
+    return futuresCategory(symbol);
+  }
+
+  if (marketClass === "crypto") {
+    return quoteCurrency(symbol)?.toLowerCase() ?? null;
+  }
+
+  return null;
+}
+
+/**
+ * How many rows land under each tab, and how many match no tab at all.
+ *
+ * The tab bar prints its own count per tab so an empty category reads as empty
+ * rather than as a broken page, and `uncategorised` keeps the arithmetic honest:
+ * the tab counts plus it equal `rows.length`.
+ */
+export interface CategoryCounts {
+  readonly counts: Readonly<Record<string, number>>;
+  readonly uncategorised: number;
+  readonly total: number;
+}
+
+export function categoryCounts(
+  rows: readonly AltRow[],
+  marketClass: MarketClass,
+): CategoryCounts {
+  const counts: Record<string, number> = {};
+  let uncategorised = 0;
+
+  for (const row of rows) {
+    const category = categoryOf(row, marketClass);
+    if (category === null) uncategorised += 1;
+    else counts[category] = (counts[category] ?? 0) + 1;
+  }
+
+  return { counts, uncategorised, total: rows.length };
+}
+
+/* ---------------------------------------------------------------------------
+ * Forex performance — currency strength vs the dollar
+ * ------------------------------------------------------------------------ */
+
+/** One bar of the forex strength chart. */
+export interface PerfEntry {
+  /** The base currency, e.g. `EUR` from `EURUSD=X`. */
+  readonly code: string;
+  /** Percent the pair moved; positive means the base beat the USD leg. */
+  readonly changePct: number;
+}
+
+/** `EURUSD=X` → `EUR`; `JPY=X` → `JPY`; anything else → null. */
+function forexBase(symbol: string): string | null {
+  if (!symbol.endsWith("=X")) return null;
+  const pair = symbol.slice(0, -2).toUpperCase();
+  if (pair.length !== 6 && pair.length !== 3) return null;
+  // `EURUSD` → the base is the first three letters. `JPY` alone is USD/JPY's
+  // inverse form and is skipped: its change is already the dollar's own move.
+  if (pair.length === 6) {
+    const base = pair.slice(0, 3);
+    const quote = pair.slice(3);
+    return quote === "USD" ? base : null;
+  }
+  return null;
+}
+
+/**
+ * Bars for the forex chart: every pair quoted *against* the dollar, so one
+ * common denominator and no normalisation fudge.
+ *
+ * Pairs not quoted in USD (a cross such as `EURGBP=X`) do not appear: their
+ * move mixes two currencies and would read as a dollar reading it is not. A row
+ * with no `change_pct` is skipped too — a bar cannot be drawn for an absent
+ * magnitude, and treating it as flat would put it on the axis as a claim.
+ *
+ * Sorted strongest first so the chart reads top-down.
+ */
+export function forexStrength(rows: readonly AltRow[]): PerfEntry[] {
+  const entries: PerfEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    if (row.changePct === null) continue;
+    const base = forexBase(row.symbol);
+    if (base === null || seen.has(base)) continue;
+    seen.add(base);
+    entries.push({ code: base, changePct: row.changePct });
+  }
+
+  entries.sort((a, b) => {
+    if (a.changePct !== b.changePct) return b.changePct - a.changePct;
+    return compareSymbol(a.code, b.code);
+  });
+
+  return entries;
+}
+
+/**
+ * The chart's symmetric scale: half-width = the largest absolute move.
+ *
+ * Returning the magnitude rather than a percentage per bar keeps the axis in
+ * one place, so a +0.4% bar and a −0.4% bar are the same length on either side.
+ * A chart with no bars has scale 0 and draws no bar widths at all.
+ */
+export function strengthScale(entries: readonly PerfEntry[]): number {
+  let peak = 0;
+  for (const entry of entries) {
+    const magnitude = Math.abs(entry.changePct);
+    if (magnitude > peak) peak = magnitude;
+  }
+  return peak;
+}
+
 /* ---------------------------------------------------------------------------
  * Formatting
  * ------------------------------------------------------------------------ */
