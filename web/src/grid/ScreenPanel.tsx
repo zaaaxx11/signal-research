@@ -41,7 +41,7 @@ import { sameColumns } from "./columnSelection";
 import { AlertDialog } from "./AlertDialog";
 import { alertsStore } from "./alerts";
 import { AddToDialog, type AddToInput } from "./AddToDialog";
-import { ExportDialog, type ExportChoice } from "./ExportDialog";
+import { ExportDialog } from "./ExportDialog";
 import { Pager } from "./Pager";
 import { TableToolbar, type AddToList } from "./TableToolbar";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
@@ -144,7 +144,7 @@ export function ScreenPanel({
   const [autoRefreshMs, setAutoRefreshMs] = React.useState<number | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [alerting, setAlerting] = React.useState(false);
-  const [exporting, setExporting] = React.useState<ExportChoice | null>(null);
+  const [exporting, setExporting] = React.useState(false);
   /** The list whose search-first box is open, or null. */
   const [addList, setAddList] = React.useState<AddToList | null>(null);
   /**
@@ -597,7 +597,7 @@ export function ScreenPanel({
           }
           alertOn(pointedSymbol);
         }}
-        onExport={(choice) => setExporting(choice)}
+        onExport={() => setExporting(true)}
         cached={screens.fromCache && sameView}
         statusText={label ?? ""}
         notice={notice}
@@ -727,9 +727,8 @@ export function ScreenPanel({
       ) : null}
 
       <ExportDialog
-        open={exporting !== null}
-        onClose={() => setExporting(null)}
-        choice={exporting ?? "csv"}
+        open={exporting}
+        onClose={() => setExporting(false)}
         columns={selection}
         region="us"
       />

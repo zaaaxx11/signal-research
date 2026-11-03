@@ -25,7 +25,6 @@ import * as React from "react";
 import { Icon } from "@/components/Icon";
 import { cn } from "@/lib/utils";
 
-import type { ExportChoice } from "./ExportDialog";
 import { countReadout } from "./pager";
 
 /** The page sizes the table offers, in the order the select lists them. */
@@ -82,7 +81,7 @@ export interface TableToolbarProps {
   /** Leave compare mode without navigating. */
   onCompareCancel?: () => void;
   onAlert: () => void;
-  onExport: (choice: ExportChoice) => void;
+  onExport: () => void;
   /** True when the rows on screen came from the tab's page cache. */
   cached?: boolean;
   /** The pending sentence shown in the one live region. */
@@ -161,10 +160,10 @@ export function TableToolbar({
     onAddTo(list);
   };
 
-  const pickExport = (choice: ExportChoice) => {
+  const pickExport = () => {
     setMenu(null);
     exportTrigger.current?.focus();
-    onExport(choice);
+    onExport();
   };
 
   return (
@@ -364,24 +363,22 @@ export function TableToolbar({
         {menu === "export" ? (
           <ul
             role="menu"
-            aria-label="Export"
-            data-testid="export-menu"
-            className="absolute right-0 top-[calc(100%+4px)] z-30 min-w-[130px] overflow-hidden rounded-sm border border-line-strong bg-surface-raised py-0.5 shadow-lg"
-          >
-            {(["csv", "xlsx", "json", "api"] as const).map((choice) => (
-              <li key={choice} role="none">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => pickExport(choice)}
-                  className={MENU_ITEM}
-                >
-                  <Icon name={choice === "api" ? "split" : "download"} />
-                  {choice === "api" ? "API" : choice.toUpperCase()}
-                </button>
-              </li>
-            ))}
-          </ul>
+                        aria-label="Export"
+                        data-testid="export-menu"
+                        className="absolute right-0 top-[calc(100%+4px)] z-30 min-w-[130px] overflow-hidden rounded-sm border border-line-strong bg-surface-raised py-0.5 shadow-lg"
+                      >
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => pickExport()}
+                            className={MENU_ITEM}
+                          >
+                            <Icon name="download" />
+                            Export
+                          </button>
+                        </li>
+                      </ul>
         ) : null}
       </div>
 

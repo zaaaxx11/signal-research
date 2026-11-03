@@ -135,7 +135,7 @@ describe("the auto-refresh select", () => {
 });
 
 describe("the export menu", () => {
-  it("lists CSV, XLSX, JSON and API, and closes on Escape", async () => {
+  it("lists a single Export item and closes on Escape", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(20, 5_600)));
     const user = userEvent.setup();
     renderPanel();
@@ -147,10 +147,7 @@ describe("the export menu", () => {
     const menu = screen.getByTestId("export-menu");
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
-      "CSV",
-      "XLSX",
-      "JSON",
-      "API",
+      "Export",
     ]);
 
     await user.keyboard("{Escape}");
@@ -158,17 +155,16 @@ describe("the export menu", () => {
     expect(button.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("opens the export dialog for the format that was chosen", async () => {
+  it("opens the export dialog when Export is chosen", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(20, 5_600)));
     const user = userEvent.setup();
     renderPanel();
 
     await user.click(await screen.findByTestId("export-button"));
-    await user.click(within(screen.getByTestId("export-menu")).getByRole("menuitem", { name: "XLSX" }));
+    await user.click(within(screen.getByTestId("export-menu")).getByRole("menuitem", { name: "Export" }));
 
-    const dialog = await screen.findByRole("dialog", { name: /Export/i });
-    expect(dialog.textContent?.toLowerCase()).toContain("xlsx");
-    // The menu is gone once a choice was made: it acts, it does not linger.
+    const dialog = await screen.findByRole("dialog", { name: "Export" });
+    expect(dialog).toBeTruthy();
     expect(screen.queryByTestId("export-menu")).toBeNull();
   });
 });

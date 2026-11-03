@@ -53,12 +53,32 @@ const _optionCache = new Map<string, OptionItem[]>();
 /**
  * Fetch the option list for a column (sector, industry, country, exchange).
  *
- * The census is memoised for the life of the tab because a sector does not move
- * within a session.  A failed fetch throws so the dialog can surface it.
+ * The census is memoised for the life of the tab because a sector does not
+ * move within a session.  A failed fetch throws so the dialog can surface it.
+ *
+ * ``order`` and ``signal`` read from the screener's own filter document at
+ * ``GET /screens/filters`` rather than the options endpoint, because they are
+ * the screener's vocabulary, not a census.
  */
 export async function fetchOptions(key: string): Promise<OptionItem[]> {
   const cached = _optionCache.get(key);
   if (cached) return cached;
+
+  if (key === "order" || key === "signal") {
+    const doc = (await getJson("/screens/filters")) as {
+      groups?: { id?: string; controls?: { id: string; options?: OptionItem[] }[] }[];
+    };
+    const controls =
+      doc.groups
+        ?.find((g) => g.id === "descriptive")
+        ?.controls?.find((c) => c.id === key)?.options ?? [];
+    const items: OptionItem[] = controls
+      .filter((o: OptionItem) => o.id)
+      .map((o: OptionItem) => ({ ...o, count: o.count ?? 0 }));
+    _optionCache.set(key, items);
+    return items;
+  }
+
   const doc = (await getJson(`/screens/options/${key}`)) as OptionDocument;
   const items: OptionItem[] = Array.isArray(doc.options) ? doc.options : [];
   _optionCache.set(key, items);
@@ -73,6 +93,10 @@ export interface GuidedExportInput {
   industry: string;
   /** Country predicate (empty = all). */
   country: string;
+  /** Order-by column name from the screener's own list (empty = -market_cap). */
+  order: string;
+  /** Signal id from the screener's own vocabulary (empty = none). */
+  signal: string;
   /** Row count 1–200. */
   count: number;
   format: ExportFormat;
@@ -115,8 +139,9 @@ export function buildGuidedExportBody(input: GuidedExportInput): ExportBody {
     limit: input.count,
     criteria: {
       filters,
-      sort: "-market_cap",
+      sort: input.order || "-market_cap",
     },
+    ...(input.signal ? { signal: input.signal } : {}),
     ...(input.columns && input.columns.length > 0
       ? { columns: [...input.columns] }
       : {}),
