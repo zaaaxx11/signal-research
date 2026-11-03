@@ -77,13 +77,13 @@ async def test_the_document_and_its_rows_have_the_contracted_shape(
         M.Row("BBB", "Finance", 100e9, -1.5),
     ]
     async with M.market_client(tmp_path, monkeypatch, rows=rows) as harness:
-        response = await harness.get("/market/map", region="us", metric="change")
+        response = await harness.get("/market/map", region="us", timeframe="1d")
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == _DOCUMENT_KEYS, sorted(body)
     assert body["region"] == "us"
-    assert body["metric"] == "change"
+    assert body["metric"] == "change_1d"
     assert body["as_of"]
     assert body["universe_total"] == 2
     assert body["mapped"] == 2
@@ -346,7 +346,7 @@ async def test_the_payload_for_5576_rows_fits_its_budget(
 
     rows = M.universe(5_576)
     async with M.market_client(tmp_path, monkeypatch, rows=rows) as harness:
-        response = await harness.get("/market/map", region="us", metric="change")
+        response = await harness.get("/market/map", region="us", timeframe="1d")
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -514,16 +514,16 @@ async def test_a_warm_read_and_a_304_are_fast(
 async def test_a_metric_the_route_cannot_publish_is_refused_before_any_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``metric=volume`` is a 422 in the house envelope, not a silent percent."""
+    """``timeframe=volume`` is a 422 in the house envelope, not a silent percent."""
 
     rows = [M.Row("AAA", "Finance", 1e9, 1.0)]
     async with M.market_client(tmp_path, monkeypatch, rows=rows) as harness:
-        response = await harness.get("/market/map", region="us", metric="volume")
+        response = await harness.get("/market/map", region="us", timeframe="volume")
 
     assert response.status_code == 422
     body = response.json()
-    assert body["error"] == "invalid_metric"
-    assert "change" in body["errorMessage"]
+    assert body["error"] == "invalid_timeframe"
+    assert "timeframe" in body["errorMessage"]
     assert harness.web.count("tradingview") == 0
 
 

@@ -64,7 +64,7 @@ const features = tableFeatures({
 });
 
 /** Hardcoded row and header dimensions so the solver and browser agree. */
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 24;
 const HEADER_HEIGHT = 24;
 
 /**
@@ -648,7 +648,11 @@ export function DataTable({
             ))}
           </colgroup>
 
-          <thead>
+          {/* Sticky header: the column names stay at the top of the scroll box
+              while the rows travel under them. Each `<th>` still carries its
+              own `position: sticky; top: 0` inline (the pinned lanes need
+              per-cell offsets); the wrapper makes the row paint as one band. */}
+          <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((group) => {
               const byId = (id: string) =>
                 group.headers.find((header) => header.column.id === id);
@@ -1223,7 +1227,7 @@ const GridRow = React.memo(function GridRow({
         onActivate(symbol);
       }}
       className={cn(
-        "group relative h-7 cursor-pointer outline-offset-[-2px] odd:bg-row even:bg-row-alt",
+        "group relative cursor-pointer outline-offset-[-2px] odd:bg-row even:bg-row-alt",
         // One 2 px rose ring around the row, drawn inset so the sticky header
         // cannot clip it. `relative z-10` while focused lifts the ring above the
         // pinned lane's own background — without it the sticky `<td>` paints
@@ -1371,7 +1375,7 @@ function SkeletonRows({ columns, widths }: { columns: number; widths: number[] }
         <tr
           key={row}
           aria-hidden="true"
-          className={cn("h-7", row % 2 === 0 ? "bg-row" : "bg-row-alt")}
+          className={cn("h-6", row % 2 === 0 ? "bg-row" : "bg-row-alt")}
           style={{ height: ROW_HEIGHT }}
         >
           {Array.from({ length: columns }, (_, column) => (

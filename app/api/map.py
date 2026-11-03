@@ -98,36 +98,37 @@ router = APIRouter(tags=["discovery"])
 METRIC_DEFAULT = "change"
 METRICS: frozenset[str] = frozenset({"change"})
 
+#: Timeframe → the row cell the change is read from and the metric the document
+#: names. ``1d`` is the selector's ``change_pct``; ``1w``/``1m`` are parity-scan
+#: cells (``Perf.W`` → ``ret_1w``, ``Perf.1M`` → ``ret_1m``) copied verbatim onto
+#: the same universe row, so one scan serves every timeframe and no historical
+#: store is required. An unknown token is a ``422 invalid_timeframe``.
+TIMEFRAMES: Mapping[str, tuple[str, str]] = {
+    "1d": ("change_pct", "change_1d"),
+    "1w": ("ret_1w", "change_1w"),
+    "1m": ("ret_1m", "change_1m"),
+}
+TIMEFRAME_DEFAULT = "1d"
+
 #: The document's shape and meaning, folded into the tag. Bump it when a key
 #: changes or a number changes meaning: clients replay tags across deploys, and a
 #: tag that survives a shape change is a ``304`` for a body they cannot parse.
 MAP_SHAPE = "1"
 
 
-def _metric(raw: str) -> str:
-    """``metric`` as one of :data:`METRICS`, or ``422 invalid_metric``."""
-
-    token = raw.strip().casefold() if isinstance(raw, str) else ""
-    if token in METRICS:
-        return token
-    raise ApiError(
-        status_code=422,
-        error="invalid_metric",
-        message=(
-            f"metric must be one of {', '.join(sorted(METRICS))}; got {raw!r}"
-        ),
-    )
-
-
 def build_map_document(
-    rows: Iterable[Mapping[str, Any]], *, region: str, metric: str, as_of: str
+    rows: Iterable[Mapping[str, Any]], *, region: str, metric_name: str, as_of: str
 ) -> dict[str, Any]:
     """The treemap document, from one pass over the universe. Pure.
 
-    Sectors are ordered ``count`` descending then ``id`` — biggest legend first,
-    stable across calls, so two responses diff cleanly. Symbols inside a sector
-    are ordered cap descending then symbol, which is the order a treemap draws
-    them in and the order a client would have to sort them into anyway.
+    The rows already have ``change_pct`` set to the selected window metric
+    (``change_pct`` native, ``ret_1w``, ``ret_1m``); ``tally_sectors`` reads it
+    directly. ``metric_name`` is what the document calls it on the wire
+    (``change_1d``, ``change_1w``, ``change_1m``). Sectors are ordered
+    ``count`` descending then ``id`` — biggest legend first, stable across
+    calls, so two responses diff cleanly. Symbols inside a sector are ordered
+    cap descending then symbol, which is the order a treemap draws them in and
+    the order a client would have to sort them into anyway.
     """
 
     tallies = tally_sectors(rows)
@@ -161,7 +162,7 @@ def build_map_document(
     return {
         "as_of": as_of,
         "region": region,
-        "metric": metric,
+        "metric": metric_name,
         "universe_total": sum(tally.count for tally in tallies.values()),
         "mapped": mapped,
         "sectors": sectors,
@@ -188,20 +189,20 @@ def _build(
     *,
     region: str,
     family: str,
-    metric: str,
+    metric_name: str,
     generation: int,
 ) -> CachedDocument:
     """Build, encode and name one document (the memo miss path)."""
 
     document = build_map_document(
-        rows, region=region, metric=metric, as_of=moment()
+        rows, region=region, metric_name=metric_name, as_of=moment()
     )
     return CachedDocument(
         body=encode(document),
         etag=etag(
             "map",
             map_revision(
-                region=region, family=family, metric=metric, generation=generation
+                region=region, family=family, metric=metric_name, generation=generation
             ),
         ),
         generation=int(generation),
@@ -209,12 +210,23 @@ def _build(
 
 
 async def _map_answer(
-    request: Request, *, region: str, metric: str, head: bool
+    request: Request, *, region: str, timeframe: str, head: bool
 ) -> Response:
     """The document, its ``304``, or its ``HEAD`` — cheapest path first."""
 
     family = _universe_family(region, None)
-    chosen = _metric(metric)
+    pair = TIMEFRAMES.get(timeframe)
+    if pair is None:
+        raise ApiError(
+            status_code=422,
+            error="invalid_timeframe",
+            message=(
+                f"timeframe must be one of {', '.join(sorted(TIMEFRAMES))};"
+                f" got {timeframe!r}"
+            ),
+        )
+    metric_field, metric_name = pair
+
     memo: BodyMemo = memo_for(request, "map")
 
     # A revalidation is decided from the generation alone: `stamp_for` is
@@ -222,49 +234,73 @@ async def _map_answer(
     # generation produced. A matching tag costs a dict lookup and a comparison.
     stamp = stamp_for(request, region=region, family=family)
     if stamp is not None:
-        cached = memo.get((region, family, chosen, stamp))
+        cached = memo.get((region, family, metric_name, stamp))
         if cached is not None:
             return serve(request, cached, scan="hit", head=head)
 
     page = await universe_for(request, region=region, family=family)
-    key = (region, family, chosen, page.generation)
+    key = (region, family, metric_name, page.generation)
     cached = memo.get(key)
     if cached is None:
+        rows = _rows_for_timeframe(page.rows, metric_field)
         cached = memo.put(
             key,
             _build(
-                page.rows,
+                rows,
                 region=region,
                 family=family,
-                metric=chosen,
+                metric_name=metric_name,
                 generation=page.generation,
             ),
         )
     return serve(request, cached, scan=page.scan, head=head)
 
 
+def _rows_for_timeframe(
+    rows: Iterable[Mapping[str, Any]], metric_field: str
+) -> list[dict[str, Any]]:
+    """Rows with the chosen window cell copied onto ``change_pct``.
+
+    ``tally_sectors`` reads ``change_pct``; the parity scan carries the window
+    metric (``ret_1w``, ``ret_1m``) under its own name, so a windowed map is the
+    same universe with one column renamed. ``None`` stays ``None`` — unknown is
+    not flat — and the shallow copy keeps the universe's other cells untouched.
+    """
+
+    if metric_field == "change_pct":
+        return list(rows)  # type: ignore[return-value]
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        copied: dict[str, Any] = dict(row)
+        copied["change_pct"] = row.get(metric_field)
+        output.append(copied)
+    return output
+
+
 @router.get("/market/map")
 async def market_map(
-    request: Request, region: str = "us", metric: str = METRIC_DEFAULT
+    request: Request, region: str = "us", timeframe: str = TIMEFRAME_DEFAULT
 ) -> Response:
     """Every tile of the market, in one payload (GET)."""
 
-    return await _map_answer(request, region=region, metric=metric, head=False)
+    return await _map_answer(request, region=region, timeframe=timeframe, head=False)
 
 
 @router.head("/market/map", include_in_schema=False)
 async def market_map_head(
-    request: Request, region: str = "us", metric: str = METRIC_DEFAULT
+    request: Request, region: str = "us", timeframe: str = TIMEFRAME_DEFAULT
 ) -> Response:
     """The same headers as GET, no body: a monitor's question, not the document."""
 
-    return await _map_answer(request, region=region, metric=metric, head=True)
+    return await _map_answer(request, region=region, timeframe=timeframe, head=True)
 
 
 __all__ = [
     "MAP_SHAPE",
     "METRICS",
     "METRIC_DEFAULT",
+    "TIMEFRAMES",
+    "TIMEFRAME_DEFAULT",
     "build_map_document",
     "map_revision",
     "market_map",

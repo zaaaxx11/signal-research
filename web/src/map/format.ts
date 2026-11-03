@@ -78,8 +78,9 @@ export function marketCapLabel(billions: number): string {
  * an unknown metric is printed as itself rather than mislabelled "1-Day".
  */
 export function metricLabel(metric: string): string {
-  if (metric === "change") return "1-Day performance";
+  if (metric === "change" || metric === "change_1d") return "1-Day performance";
   if (metric === "change_1w") return "1-Week performance";
+  if (metric === "change_1m") return "1-Month performance";
   return metric.replace(/[_-]+/g, " ");
 }
 

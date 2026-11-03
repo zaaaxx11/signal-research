@@ -37,11 +37,11 @@ export interface MapView {
 }
 
 const DEFAULT_REGION = "us";
-const DEFAULT_METRIC = "change";
+const DEFAULT_TIMEFRAME = "1d";
 
 /** The same-origin path. Root-absolute, mount-free, never a client-side count. */
-export function mapPath(region: string, metric: string): string {
-  const params = new URLSearchParams({ region, metric });
+export function mapPath(region: string, timeframe: string): string {
+  const params = new URLSearchParams({ region, timeframe });
   return `/market/map?${params.toString()}`;
 }
 
@@ -56,13 +56,13 @@ const LOADING: Snapshot = { status: "loading", payload: null, error: null, statu
 
 export interface MapQuery {
   readonly region?: string;
-  readonly metric?: string;
+  readonly timeframe?: string;
 }
 
 export function useMapData(query: MapQuery = {}): MapView {
   const region = query.region ?? DEFAULT_REGION;
-  const metric = query.metric ?? DEFAULT_METRIC;
-  const path = mapPath(region, metric);
+  const timeframe = query.timeframe ?? DEFAULT_TIMEFRAME;
+  const path = mapPath(region, timeframe);
 
   const [snapshot, setSnapshot] = React.useState<Snapshot>(LOADING);
   const [nonce, setNonce] = React.useState(0);

@@ -18,26 +18,26 @@ afterEach(() => {
 });
 
 describe("useMapData", () => {
-  it("asks the map route once, with the region and metric", async () => {
+  it("asks the map route once, with the region and timeframe", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(json(SMALL_WIRE)));
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result } = renderHook(() => useMapData({ region: "us", metric: "change" }));
+    const { result } = renderHook(() => useMapData({ region: "us", timeframe: "1d" }));
     expect(result.current.status).toBe("loading");
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
     const [path] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(path).toBe("/market/map?region=us&metric=change");
+    expect(path).toBe("/market/map?region=us&timeframe=1d");
     expect(result.current.payload?.sectors).toHaveLength(3);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("builds the path from the query, encoded", () => {
-    expect(mapPath("us", "change")).toBe("/market/map?region=us&metric=change");
-    expect(mapPath("eu", "change_1w")).toBe("/market/map?region=eu&metric=change_1w");
+    expect(mapPath("us", "1d")).toBe("/market/map?region=us&timeframe=1d");
+    expect(mapPath("eu", "1w")).toBe("/market/map?region=eu&timeframe=1w");
   });
 
-  it("aborts the first request when the metric changes", async () => {
+  it("aborts the first request when the timeframe changes", async () => {
     const signals: AbortSignal[] = [];
     vi.stubGlobal(
       "fetch",
@@ -47,12 +47,13 @@ describe("useMapData", () => {
       }),
     );
 
-    const { rerender } = renderHook(({ metric }: { metric: string }) => useMapData({ metric }), {
-      initialProps: { metric: "change" },
-    });
+    const { rerender } = renderHook(
+      ({ timeframe }: { timeframe: string }) => useMapData({ timeframe }),
+      { initialProps: { timeframe: "1d" } },
+    );
     await waitFor(() => expect(signals).toHaveLength(1));
 
-    rerender({ metric: "change_1w" });
+    rerender({ timeframe: "1w" });
     await waitFor(() => expect(signals).toHaveLength(2));
 
     expect(signals[0]?.aborted).toBe(true);
@@ -68,10 +69,11 @@ describe("useMapData", () => {
     const fetchMock = vi.fn().mockImplementationOnce(() => first).mockImplementationOnce(() => second);
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result, rerender } = renderHook(({ metric }: { metric: string }) => useMapData({ metric }), {
-      initialProps: { metric: "change" },
-    });
-    rerender({ metric: "change_1w" });
+    const { result, rerender } = renderHook(
+      ({ timeframe }: { timeframe: string }) => useMapData({ timeframe }),
+      { initialProps: { timeframe: "1d" } },
+    );
+    rerender({ timeframe: "1w" });
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
     // The first answer arrives afterwards, with a document that would be a lie.

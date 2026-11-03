@@ -138,7 +138,7 @@ export function generateWireMap(options: GenerateOptions = {}): WireMap {
   return {
     as_of: options.asOf ?? "2026-10-31T20:58:12+00:00",
     region: "us",
-    metric: "change",
+    metric: "change_1d",
     universe_total: total + 102,
     mapped: total,
     sectors,
@@ -176,7 +176,7 @@ export function generateGiantSector(total = 401): WireMap {
 export const SMALL_WIRE: WireMap = {
   as_of: "2026-10-31T20:58:12+00:00",
   region: "us",
-  metric: "change",
+  metric: "change_1d",
   universe_total: 9,
   mapped: 7,
   sectors: [

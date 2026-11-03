@@ -183,7 +183,7 @@
   --accent-soft: #31262c; /* shadcn `accent` surface: menu hover, skeleton pulse */
 
   /* ---- density -------------------------------------------------------- */
-  --row-pitch: 28px;
+  --row-pitch: 24px;
   --header-height: 24px;
   --bar-height: 48px;
   --tab-height: 36px;

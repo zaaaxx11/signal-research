@@ -23,17 +23,27 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-import { clockLabel, formatCount, marketCapLabel, metricLabel, signedPercent, toneClass } from "./format";
+import { clockLabel, formatCount, marketCapLabel, signedPercent, toneClass } from "./format";
 import { MapCanvas, type MapCanvasStats } from "./MapCanvas";
 import { readTheme, swatch } from "./theme";
 import { sectorCap } from "./types";
 import { useMapData } from "./useMapData";
 
+const TIMEFRAMES = [
+  { id: "1d", label: "1D" },
+  { id: "1w", label: "1W" },
+  { id: "1m", label: "1M" },
+] as const;
+
+const TIMEFRAME_LABELS: Record<string, string> = {
+  "1d": "1-Day performance",
+  "1w": "1-Week performance",
+  "1m": "1-Month performance",
+};
+
 export interface MapPageProps {
   /** Defaults to the US market, the only region the endpoint serves today. */
   readonly region?: string;
-  /** `change` is the 1-day metric; anything else is printed as it arrives. */
-  readonly metric?: string;
   /** Opens a stock. Defaults to the `/stock/{symbol}` route. */
   readonly onOpenSymbol?: (symbol: string) => void;
 }
@@ -50,8 +60,9 @@ function Retry({ onRetry }: { readonly onRetry: () => void }) {
   );
 }
 
-export function MapPage({ region = "us", metric = "change", onOpenSymbol }: MapPageProps) {
-  const view = useMapData({ region, metric });
+export function MapPage({ region = "us", onOpenSymbol }: MapPageProps) {
+  const [timeframe, setTimeframe] = React.useState("1d");
+  const view = useMapData({ region, timeframe });
   const theme = React.useMemo(() => readTheme(), []);
   const [focus, setFocus] = React.useState<string | null>(null);
   const [stats, setStats] = React.useState<MapCanvasStats | null>(null);
@@ -67,6 +78,11 @@ export function MapPage({ region = "us", metric = "change", onOpenSymbol }: MapP
   }, []);
 
   const payload = view.payload;
+
+  // The label follows the reader's own choice, not the wire: the payload's
+  // `metric` is the API's name for the same window, and it only exists once
+  // the document lands.
+  const metricLabelText = TIMEFRAME_LABELS[timeframe] ?? "Performance";
 
   // Largest sector first — the layout's order, the legend's order and the
   // keyboard's order are one decision. Tie-break by id so it is stable.
@@ -100,8 +116,35 @@ export function MapPage({ region = "us", metric = "change", onOpenSymbol }: MapP
     >
       <header className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-surface px-2">
         <h1 className="shrink-0 text-ui font-semibold text-fg">Maps</h1>
+        <div
+          data-testid="map-timeframes"
+          role="group"
+          aria-label="Map timeframe"
+          className="flex shrink-0 items-center gap-px"
+        >
+          {TIMEFRAMES.map((option) => {
+            const active = option.id === timeframe;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                data-testid={`map-tf-${option.id}`}
+                aria-pressed={active}
+                onClick={() => setTimeframe(option.id)}
+                className={cn(
+                  "rounded-sm px-1.5 py-0.5 font-mono text-label uppercase tracking-[0.08em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus",
+                  active
+                    ? "bg-row-selected text-accent-text"
+                    : "text-fg-subtle hover:bg-row-hover hover:text-fg",
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
         <p data-testid="map-metric" className="shrink-0 text-data text-fg-muted">
-          {metricLabel(metric)}
+          {metricLabelText}
         </p>
         {ready ? (
           <p data-testid="map-counts" className="min-w-0 truncate font-mono text-label uppercase tracking-[0.06em] text-fg-subtle">
@@ -173,7 +216,7 @@ export function MapPage({ region = "us", metric = "change", onOpenSymbol }: MapP
           <div>
             <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">Metric</p>
             <p data-testid="map-metric-label" className="text-ui text-fg">
-              {metricLabel(metric)}
+              {metricLabelText}
             </p>
             <p className="mt-0.5 text-label text-fg-subtle">Size by Market Cap</p>
           </div>
@@ -254,7 +297,7 @@ export function MapPage({ region = "us", metric = "change", onOpenSymbol }: MapP
         <div data-testid="map-table-wrap" className="sr-only">
           <table data-testid="map-table">
             <caption>
-              Market map by sector. {metricLabel(metric)}; blocks are sized by market cap.{" "}
+              Market map by sector. {metricLabelText}; blocks are sized by market cap.{" "}
               {formatCount(payload.mapped)} of {formatCount(payload.universeTotal)} stocks mapped.
             </caption>
             <thead>

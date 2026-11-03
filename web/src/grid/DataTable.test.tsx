@@ -143,15 +143,15 @@ describe("the sticky contract", () => {
     expect(cells[1]?.style.left).toBe("");
   });
 
-  it("renders the header at 24 px and rows at 28 px", () => {
+  it("renders the header at 24 px and rows at 24 px (compact density)", () => {
     renderGrid();
     const table = screen.getByTestId("grid-table");
     const header = table.querySelector<HTMLElement>("thead th");
     const row = table.querySelector<HTMLElement>("tbody tr[data-symbol]");
 
     expect(header?.style.height).toBe("24px");
-    expect(row?.style.height).toBe("28px");
-    expect(row?.className).toContain("h-7");
+    expect(row?.style.height).toBe("24px");
+    expect(row?.className).not.toContain("h-7");
   });
 });
 
@@ -655,6 +655,75 @@ describe("row actions without a checkbox lane", () => {
 });
 
 /** Compare is a mode: boxes exist only while the toolbar has asked for them. */
+describe("Batch 1 Quick Wins", () => {
+  describe("zebra striping", () => {
+    it("gives even-indexed rows a different background class than odd rows", () => {
+      renderGrid();
+      const table = screen.getByTestId("grid-table");
+      const rows = table.querySelectorAll<HTMLElement>("tbody tr[data-symbol]");
+
+      // Row 0 (first) — odd child → bg-row
+      expect(rows[0]?.className).toMatch(/odd:bg-row/);
+      // Row 1 (second) — even child → bg-row-alt
+      expect(rows[1]?.className).toMatch(/even:bg-row-alt/);
+      // Row 2 (third) — odd again
+      expect(rows[2]?.className).toMatch(/odd:bg-row/);
+    });
+
+    it("every row carries both zebra classes (Tailwind picks the right one at render time)", () => {
+      renderGrid();
+      const table = screen.getByTestId("grid-table");
+      const rows = table.querySelectorAll<HTMLElement>("tbody tr[data-symbol]");
+      expect(rows).toHaveLength(100);
+
+      for (const row of rows) {
+        expect(row.className).toMatch(/odd:bg-row/);
+        expect(row.className).toMatch(/even:bg-row-alt/);
+      }
+    });
+  });
+
+  describe("sticky column headers", () => {
+    it("the thead element carries the sticky class", () => {
+      renderGrid();
+      const table = screen.getByTestId("grid-table");
+      const thead = table.querySelector("thead");
+      expect(thead).not.toBeNull();
+      expect(thead?.className).toMatch(/\bsticky\b/);
+      expect(thead?.className).toMatch(/\btop-0\b/);
+      expect(thead?.className).toMatch(/\bz-10\b/);
+    });
+
+    it("every th still has sticky inline style", () => {
+      renderGrid();
+      const table = screen.getByTestId("grid-table");
+      const headers = table.querySelectorAll<HTMLElement>("thead th");
+      for (const th of headers) {
+        expect(th.style.position).toBe("sticky");
+        expect(th.style.top).toBe("0px");
+      }
+    });
+  });
+
+  describe("compact density", () => {
+    it("renders rows at 24 px instead of 28 px", () => {
+      renderGrid();
+      const table = screen.getByTestId("grid-table");
+      const row = table.querySelector<HTMLElement>("tbody tr[data-symbol]");
+      expect(row?.style.height).toBe("24px");
+      // No h-7 class (h-7 = 1.75rem = 28px); should have h-6 or no fixed h-* class
+      expect(row?.className).not.toMatch(/\bh-7\b/);
+    });
+
+    it("renders the header at 24 px", () => {
+      renderGrid();
+      const table = screen.getByTestId("grid-table");
+      const header = table.querySelector<HTMLElement>("thead th");
+      expect(header?.style.height).toBe("24px");
+    });
+  });
+});
+
 describe("compare selection mode", () => {
   it("has no checkbox lane until compareSelection is supplied", () => {
     renderGrid();

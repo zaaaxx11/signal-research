@@ -247,6 +247,64 @@ describe("MapPage — the legend zooms a sector", () => {
   });
 });
 
+describe("MapPage — timeframe selector", () => {
+  it("renders 1D / 1W / 1M pills and defaults to 1D", async () => {
+    await renderReady();
+    const group = screen.getByRole("group", { name: /timeframe/i });
+    const buttons = within(group).getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual(["1D", "1W", "1M"]);
+    expect(screen.getByTestId("map-tf-1d").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("map-tf-1w").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("map-tf-1m").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("re-fetches with ?timeframe=1w when 1W is clicked", async () => {
+    const smaller = {
+      ...SMALL_WIRE,
+      metric: "change_1w",
+      sectors: [SMALL_WIRE.sectors[1]],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.resolve(json(SMALL_WIRE)))
+      .mockImplementationOnce(() => Promise.resolve(json(smaller)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MapPage />);
+    await screen.findByTestId("map-canvas");
+
+    fireEvent.click(screen.getByTestId("map-tf-1w"));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [second] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+      expect(second).toBe("/market/map?region=us&timeframe=1w");
+    });
+    expect(screen.getByTestId("map-tf-1w").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("map-tf-1d").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("clicks 1M → API called with ?timeframe=1m", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.resolve(json(SMALL_WIRE)))
+      .mockImplementationOnce(() => Promise.resolve(json({ ...SMALL_WIRE, metric: "change_1m" })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MapPage />);
+    await screen.findByTestId("map-canvas");
+
+    fireEvent.click(screen.getByTestId("map-tf-1m"));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [second] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+      expect(second).toBe("/market/map?region=us&timeframe=1m");
+    });
+    expect(screen.getByTestId("map-tf-1m").getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
 describe("MapPage — the hidden table", () => {
   it("carries one row per sector with the same numbers", async () => {
     await renderReady();
@@ -267,9 +325,10 @@ describe("MapPage — the hidden table", () => {
 });
 
 describe("MapPage — request lifecycle", () => {
-  it("aborts the first read when the metric changes and never draws it twice", async () => {
+  it("aborts the first read when the timeframe changes and never draws it twice", async () => {
     const smaller = {
       ...SMALL_WIRE,
+      metric: "change_1w",
       mapped: 2,
       sectors: [SMALL_WIRE.sectors[2]],
     };
@@ -286,10 +345,10 @@ describe("MapPage — request lifecycle", () => {
       });
     vi.stubGlobal("fetch", fetchMock);
 
-    const { rerender } = render(<MapPage metric="change" />);
+    render(<MapPage />);
     await waitFor(() => expect(screen.getByTestId("map-canvas").getAttribute("data-tiles")).toBe("7"));
 
-    rerender(<MapPage metric="change_1w" />);
+    fireEvent.click(screen.getByTestId("map-tf-1w"));
     await waitFor(() =>
       expect(screen.getByTestId("map-canvas").getAttribute("data-tiles")).toBe("2"),
     );
