@@ -281,8 +281,11 @@ _NO_NEWS = (
     "'major news' cannot be told from a quiet day"
 )
 _NO_PATTERN = (
-    "needs chart-pattern detection: the scan returns no pattern classification, "
-    "and a pattern drawn from two closes would be an invention"
+    "needs pattern-detection wiring: app/market/pattern_detector.py can scan the "
+    "bar store's 500 symbols and return symbol→pattern matches (28 patterns over "
+    "a 3-bar window), and the 12 pattern Signal entries already exist — wiring "
+    "them into selection.py's chosen.accepts(row) pattern_map lookup is the next "
+    "step"
 )
 
 SIGNALS: tuple[Signal, ...] = (
@@ -728,10 +731,11 @@ VENDORED_KEYS: tuple[str, ...] = (
 #: because the depth store really does carry ``optionable``/``shortable`` and
 #: ``ipo_date`` (see :mod:`app.screen.buckets`).
 _DILUTION_REASON = (
-    "needs a dilution input (share-count history): the scan carries shares "
-    "outstanding today, not the series, so a dilution *risk* would have to be "
-    "invented — SEC `dei:EntityCommonStockSharesOutstanding` across filings "
-    "would answer it"
+    "needs dilution wiring: app/market/dilution.py can derive a share-count "
+    "series from the SEC companyfacts cache (dei:EntityCommonStockSharesOutstanding "
+    "per filing), answering first/last/pct_change/count/as_of — wiring it into "
+    "the scan needs symbol→CIK resolution and an engine cache-dir passthrough, "
+    "both available, awaiting integration"
 )
 
 

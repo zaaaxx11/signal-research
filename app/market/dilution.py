@@ -11,7 +11,7 @@ Why it exists
 The screener's ``sh_dilution`` control ("Dilution Risk") is published
 **unavailable** with this reason:
 
-needs a dilution input (share-count history): the scan carries shares outstanding today, not the series, so a dilution *risk* would have to be invented — SEC `dei:EntityCommonStockSharesOutstanding` across filings would answer it
+needs dilution wiring: app/market/dilution.py can derive a share-count series from the SEC companyfacts cache (dei:EntityCommonStockSharesOutstanding per filing), answering first/last/pct_change/count/as_of — wiring it into the scan needs symbol→CIK resolution and an engine cache-dir passthrough, both available, awaiting integration
 
 That sentence is this module's whole contract, quoted verbatim so the code and the
 document cannot describe different gaps. The scan carries one count; the filings
