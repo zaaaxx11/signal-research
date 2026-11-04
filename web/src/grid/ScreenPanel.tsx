@@ -47,6 +47,7 @@ import { TableToolbar, type AddToList } from "./TableToolbar";
 import { VIEW_PANEL_ID, viewTabId } from "./ViewTabs";
 import { addHolding, addSymbol, MAX_SYMBOLS, portfolioStore, watchlistStore } from "@/lists/storage";
 import { COMPARE_MAX, compareHref } from "@/compare/symbols";
+import { notify } from "@/lib/notify";
 import { navigate } from "@/shell/routes";
 
 import type { ActiveFilter } from "@/filters/types";
@@ -393,6 +394,32 @@ export function ScreenPanel({
   }, [autoRefreshMs, refresh]);
 
   /**
+   * A failure page-level toast, once per real failure.
+   *
+   * The grid's alert names the error in place; the toast is the second channel
+   * for the reader whose eyes are elsewhere (the drawer, another tab of the
+   * same screen). It fires on the transition into an error for a given
+   * request — keyed by status + message, so a retry that fails the same way
+   * says so again, and the error state left by an abandoned request does not
+   * re-toast as the screen re-renders.
+   */
+  const failureKey =
+    status === "error"
+      ? `${pageIndex}:${screens.error?.status ?? 0}:${screens.error?.message ?? ""}`
+      : null;
+  const lastFailure = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (failureKey === null || !sameView) return;
+    if (lastFailure.current === failureKey) return;
+    lastFailure.current = failureKey;
+    notify.error(
+      "The screen request failed",
+      screens.error?.message ?? "The API returned an error without a message.",
+    );
+  }, [failureKey, sameView, screens.error]);
+
+
+  /**
    * One add, to one list, through the store that owns it.
    *
    * The watchlist is a symbol list, so `addSymbol` decides what a legal ticker
@@ -667,6 +694,8 @@ export function ScreenPanel({
         rowCount={total}
         sort={sort}
         onSort={(key) => onSortChange?.(nextSort(sort, key))}
+        onClearFilters={onClearFilters}
+        assetKind={assetClass}
         caption={
           `${view.label}: ` +
           (rows.length === 0

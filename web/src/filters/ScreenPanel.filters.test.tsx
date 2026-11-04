@@ -194,7 +194,7 @@ describe("ScreenPanel filters", () => {
 
     render(<Harness initial={[{ id: "f1", key: "sec", op: "eq", value: "Nothing Inc." }]} />);
 
-    await waitFor(() => expect(screen.getByText("No rows in this view")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No stocks match")).toBeTruthy());
     const chips = screen.getByTestId("chip-bar");
     expect(chips.textContent).toContain("Sector");
     expect(chips.textContent).toContain("Nothing Inc.");

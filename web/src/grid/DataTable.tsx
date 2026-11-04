@@ -39,6 +39,7 @@ import { sortDirection, sortKey } from "@/data/screens";
 import { Icon } from "@/components/Icon";
 import { Link } from "@/shell/routes";
 import { cn } from "@/lib/utils";
+import { quoteProps, type QuoteInfo } from "@/lib/quoteAttrs";
 
 import { CellValue, IdentityCell } from "./cellRenderers";
 import {
@@ -246,6 +247,17 @@ export interface DataTableProps {
   sort?: string;
   /** A column header was pressed: ask the shell's one sort state to change. */
   onSort?: (key: string) => void;
+  /**
+   * Which market the rows come from (`stock` on the screener, `etf` on
+   * `/screener/etf`): it rides the row's `data-quote` attribute so the global
+   * HoverBubble fetches and tints the right kind. It never changes a cell.
+   */
+  assetKind?: QuoteInfo["kind"];
+  /**
+   * The reader unfiltered the screen from the empty state's CTA; absent there
+   * is no button at all (a grid that cannot clear filters draws only words).
+   */
+  onClearFilters?: () => void;
 }
 
 function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>, override?: number) {
@@ -319,6 +331,8 @@ export function DataTable({
   busy,
   sort,
   onSort,
+  assetKind = "stock",
+  onClearFilters,
 }: DataTableProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const width = useContainerWidth(scrollRef, containerWidth);
@@ -708,7 +722,7 @@ export function DataTable({
                       padding: 0,
                     }}
                     className={cn(
-                      "border-b border-line-strong bg-surface-raised text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted",
+                      "border-b border-line-strong bg-surface-raised text-left font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:bg-[var(--surface)] hover:text-fg-muted",
                       sticky && "bg-surface-raised shadow-[inset_-1px_0_0_var(--border-strong)]",
                     )}
                     title={meta?.full ?? key}
@@ -721,25 +735,29 @@ export function DataTable({
                         title={`Sort by ${meta?.full ?? key}, ${
                           active && sortedDirection === "asc" ? "lowest" : "highest"
                         } first.`}
-                        className={cn(
-                          "flex h-full w-full min-w-0 items-center gap-1 px-2 py-0 uppercase tracking-[0.08em] transition-colors hover:text-fg",
-                          lane ? "justify-start" : "justify-end",
-                          active && "text-fg",
-                        )}
-                      >
-                        <span className="block truncate">{label}</span>
-                        {active ? (
+                          className={cn(
+                            "group flex h-full w-full min-w-0 items-center gap-1 px-2 py-0 uppercase tracking-[0.08em] transition-colors hover:text-fg",
+                            lane ? "justify-start" : "justify-end",
+                            active && "text-fg",
+                          )}
+                        >
+                          <span className="block truncate">{label}</span>
                           <span
                             aria-hidden="true"
-                            data-testid={`sort-arrow-${token}`}
+                            data-testid={active ? `sort-arrow-${token}` : undefined}
                             data-direction={sortedDirection}
-                            className="shrink-0 text-accent-text"
+                            className={cn(
+                              // The slot is always drawn, so a header label does
+                              // not lurch sideways the first time it is sorted.
+                              "shrink-0 transition-opacity duration-150",
+                              active ? "text-accent-text" : "text-fg-subtle opacity-0",
+                              !active && "group-hover:opacity-40",
+                            )}
                           >
-                            {sortedDirection === "desc" ? "▾" : "▴"}
+                            {active ? (sortedDirection === "desc" ? "▾" : "▴") : "↕"}
                           </span>
-                        ) : null}
-                      </button>
-                    ) : (
+                        </button>
+                      ) : (
                       <span className="block truncate px-2">{label}</span>
                     )}
                   </th>
@@ -810,11 +828,34 @@ export function DataTable({
             {status === "empty" || (status === "ready" && !hasRows) ? (
               <tr>
                 <td colSpan={columnCount} className="px-0 py-0">
-                  <div className="flex h-40 flex-col items-center justify-center gap-1 text-center">
-                    <p className="text-ui font-medium text-fg">No rows in this view</p>
-                    <p className="text-data text-fg-subtle">
-                      The screen matched nothing at this page. Try another view.
-                    </p>
+                  <div className="flex h-40 flex-col items-center justify-center gap-1.5 text-center">
+                    {rowCount > 0 ? (
+                      <>
+                        <p className="text-ui font-medium text-fg">No rows on this page</p>
+                        <p className="max-w-[60ch] text-data text-fg-subtle">
+                          The screen holds {rowCount.toLocaleString("en-US")} rows; this page came
+                          back empty. Go back a page.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-ui font-medium text-fg">No stocks match</p>
+                        <p className="max-w-[60ch] text-data text-fg-subtle">
+                          No stocks match. Try removing filters, or widen the screen with a signal
+                          off.
+                        </p>
+                        {onClearFilters ? (
+                          <button
+                            type="button"
+                            onClick={onClearFilters}
+                            data-testid="grid-clear-filters"
+                            className="mt-1 rounded-sm border border-line-control px-2 py-1 font-mono text-label uppercase tracking-[0.08em] text-fg-muted transition-colors hover:border-fg hover:text-fg"
+                          >
+                            Clear filters
+                          </button>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -855,6 +896,7 @@ export function DataTable({
                   onFocusRow={focusRow}
                   onKeyDown={onRowKeyDown}
                   setRowRef={setRowRef}
+                  assetKind={assetKind}
                 />
               );
             })}
@@ -927,6 +969,8 @@ interface GridRowProps {
   onFocusRow: (index: number) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => void;
   setRowRef: (index: number, element: HTMLTableRowElement | null) => void;
+  /** Which market the row is, for the HoverBubble's `data-quote` tag. */
+  assetKind: NonNullable<DataTableProps["assetKind"]>;
 }
 
 const ACTION_BUTTON =
@@ -1180,12 +1224,32 @@ const GridRow = React.memo(function GridRow({
   onFocusRow,
   onKeyDown,
   setRowRef,
+  assetKind,
 }: GridRowProps) {
+  // The row is one `data-quote` target: the global HoverBubble walks up to it
+  // (`.closest([data-quote])`), so a dwell anywhere on the row shows the mini
+  // chart — the same contract the calendar and the ticker pages carry. The
+  // quote is built from the row payload only (`price`, `change` and the
+  // company name; a missing field is simply absent) and computed here so the
+  // memoised row's props stay referentially stable.
+  const price = typeof data["price"] === "number" ? data["price"] : null;
+  const changePct = typeof data["change"] === "number" ? data["change"] : null;
+  const companyName = typeof data["company"] === "string" && data["company"].length > 0
+    ? data["company"]
+    : undefined;
+  const quote = quoteProps({
+    symbol,
+    name: companyName,
+    price,
+    changePct,
+    kind: assetKind,
+  });
   return (
     <tr
       ref={(element) => setRowRef(index, element)}
       data-symbol={symbol}
       data-row-id={rowId}
+      {...quote}
       data-selected={current ? "true" : "false"}
       // F3: `aria-selected` on a `<tr>` is only mapped inside `role=grid` /
       // `treegrid`; this table is a plain `table`, so Chrome dropped it and the
@@ -1402,6 +1466,7 @@ function ApiErrorState({ error, onRetry }: { error: ScreenError | null; onRetry:
       role="alert"
       className="mx-3 my-3 flex items-start gap-3 rounded-md border border-line border-l-2 border-l-alert bg-surface-raised px-4 py-3"
     >
+      <Icon name="funnel" size={20} className="mt-0.5 shrink-0 text-alert" />
       <div className="min-w-0 flex-1">
         <p className="text-ui font-medium text-fg">
           {error && error.status > 0 ? `The screen request failed (${error.status})` : "The screen request failed"}
@@ -1411,12 +1476,13 @@ function ApiErrorState({ error, onRetry }: { error: ScreenError | null; onRetry:
         </p>
         <p className="mt-1 font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
           POST /screens/select
+          {error && error.status > 0 ? <span aria-hidden="true"> · {error.status}</span> : null}
         </p>
       </div>
       <button
         type="button"
         onClick={onRetry}
-        className="shrink-0 rounded-sm border border-line-strong px-2 py-1 text-ui text-fg-muted transition-colors hover:text-fg"
+        className="shrink-0 rounded-sm border border-line-strong px-2 py-1 text-ui text-fg-muted transition-colors hover:text-fg hover:border-fg"
       >
         Retry
       </button>

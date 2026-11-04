@@ -24,3 +24,17 @@ afterEach(() => {
   cleanup();
 });
 import '@testing-library/jest-dom/vitest';
+
+// Radix's portal content (tooltip, popover) measures itself with a
+// ResizeObserver, which jsdom does not ship — the vendored tooltip component
+// is a portal like any other, so the stub keeps its layout effect from
+// throwing. Give it the same three methods the real class exposes; nothing
+// under test actually resizes.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
+}

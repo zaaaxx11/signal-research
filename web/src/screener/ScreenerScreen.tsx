@@ -44,13 +44,14 @@ import { splitCatalogue } from "@/grid/catalogue";
 import { CLIENT_COLUMNS } from "@/grid/columnMeta";
 import { COMPUTED_KEYS } from "@/grid/computedColumns";
 import { sameColumns, selectAllColumns, useColumnSelection } from "@/grid/columnSelection";
+import { SectionTitle } from "@/components/SectionTitle";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { navigate } from "@/shell/routes";
 
 import { ScreenerHeader } from "./ScreenerHeader";
 import type { ResolvedPreset } from "./columnPresets";
 import { defaultColumns } from "./defaultColumns";
-import { publishedFilters, useFiltersDocument } from "./filtersDocument";
+import { isFilterControl, publishedFilters, useFiltersDocument } from "./filtersDocument";
 import { useUserColumnPresets } from "./userPresets";
 
 export interface ScreenerScreenProps {
@@ -185,6 +186,26 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
   };
 
   /**
+   * The content band's title: the hashtag of the product's own vocabulary.
+   *
+   * WHAT: a SectionTitle in the asset class's variant colour (cyan for the
+   *       stock screener, mint for the ETF one), with the number of filter
+   *       controls the published document carries — the 83-filter system
+   *       Finviz's anatomy prescribes, or fewer while the engine is still
+   *       onboarding sources.
+   * WHY: every other page's sections headline themselves with one of the
+   *      eight title fills; the screener's content band went bare, so its rows
+   *      lacked the one visual anchor the shell's other surfaces carry.
+   */
+  const publishedFilterCount = React.useMemo(() => {
+    const groups = vocabulary.doc?.groups ?? [];
+    return groups.reduce(
+      (total, group) => total + group.controls.filter(isFilterControl).length,
+      0,
+    );
+  }, [vocabulary.doc]);
+
+  /**
    * One preset click, applied to the one state.
    *
    * A view preset is `?view=`; a preset with its own columns is `?cols=` for
@@ -245,6 +266,14 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
       />
 
       <main className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+        <SectionTitle
+          variant={assetClass === "etf" ? 3 : 2}
+          hint={catalogue.keys.length > 0 ? `${catalogue.keys.length} columns` : undefined}
+          count={`${publishedFilterCount} filters`}
+          testId="screener-stage-title"
+        >
+          {assetClass === "etf" ? "ETF screener" : "Stock screener"}
+        </SectionTitle>
         <div
           id={GRID_REGION_ID}
           // The skip link's destination. `tabIndex={-1}` makes it a programmatic

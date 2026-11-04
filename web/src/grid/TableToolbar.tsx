@@ -23,6 +23,12 @@
 import * as React from "react";
 
 import { Icon } from "@/components/Icon";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { countReadout } from "./pager";
@@ -346,20 +352,32 @@ export function TableToolbar({
       </button>
 
       <div ref={exportRef} className="relative">
-        <button
-          ref={exportTrigger}
-          type="button"
-          data-testid="export-button"
-          aria-haspopup="menu"
-          aria-expanded={menu === "export"}
-          onClick={() => setMenu((value) => (value === "export" ? null : "export"))}
-          title="Download this screen as CSV, XLSX or JSON, or copy the API URL"
-          className={CONTROL}
-        >
-          <Icon name="download" />
-          Export
-          <Icon name="chevron-down" size={12} />
-        </button>
+        {/* The export trigger is tooltip-driven rather than title-driven: the
+            sentence is long, and the toolbar's other controls stay on `title`.
+            Radix composes the two refs (the menu's focus return still uses
+            `exportTrigger`). */}
+        <TooltipProvider delayDuration={250}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={exportTrigger}
+                type="button"
+                data-testid="export-button"
+                aria-haspopup="menu"
+                aria-expanded={menu === "export"}
+                onClick={() => setMenu((value) => (value === "export" ? null : "export"))}
+                className={CONTROL}
+              >
+                <Icon name="download" />
+                Export
+                <Icon name="chevron-down" size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Download this screen as CSV, XLSX or JSON, or copy the API URL
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {menu === "export" ? (
           <ul
             role="menu"

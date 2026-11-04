@@ -17,6 +17,12 @@
 import * as React from "react";
 
 import { Icon } from "@/components/Icon";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { PRESET_LIMIT, type UserPresetEntry } from "./userPresets";
@@ -106,17 +112,25 @@ export function PresetPanel({
             className="h-full min-w-0 flex-1 bg-transparent text-data text-fg placeholder:text-fg-subtle focus-visible:outline-none"
           />
         </label>
-        <button
-          type="button"
-          data-testid="save-current-screen"
-          onClick={save}
-          disabled={currentColumns.length === 0}
-          title="Save the columns on screen as a new screen you can come back to."
-          className="flex h-7 items-center justify-center gap-1.5 rounded-sm border border-line-control bg-surface-raised px-2 text-ui text-fg transition-colors hover:border-brand disabled:opacity-40"
-        >
-          <Icon name="bookmark" />
-          Save Current Screen
-        </button>
+        <TooltipProvider delayDuration={250}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-testid="save-current-screen"
+                onClick={save}
+                disabled={currentColumns.length === 0}
+                className="flex h-7 items-center justify-center gap-1.5 rounded-sm border border-line-control bg-surface-raised px-2 text-ui text-fg transition-colors hover:border-brand disabled:opacity-40"
+              >
+                <Icon name="bookmark" />
+                Save Current Screen
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Save the columns on screen as a new screen you can come back to
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {saved ? (
           <p role="status" aria-live="polite" className="text-data text-up">
             {saved}

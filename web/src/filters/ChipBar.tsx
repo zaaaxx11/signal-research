@@ -13,6 +13,7 @@
 import type { ActiveFilter } from "./types";
 import type { FilterRegistry } from "./registry";
 import { describeFilter } from "./state";
+import { swatchColor } from "@/grid/cellRenderers";
 
 export interface ChipBarProps {
   registry: FilterRegistry;
@@ -40,12 +41,32 @@ export function ChipBar({
       className="flex flex-wrap items-center gap-1 border-b border-line bg-surface-sunken px-2 py-1"
     >
       {filters.length > 0 ? (
-        <ul aria-label="Active filters" className="flex flex-wrap items-center gap-1">
+        <span
+          data-testid="chip-count"
+          className="nums rounded-sm border border-line px-1.5 py-0.5 font-mono text-label uppercase tracking-[0.08em] text-fg-muted"
+          title="Filters active on this screen"
+        >
+          {filters.length}
+        </span>
+      ) : null}
+
+      {filters.length > 0 ? (
+        <ul
+          aria-label={`Active filters: ${filters.length}`}
+          className="flex flex-wrap items-center gap-1"
+        >
           {filters.map((filter) => {
             const described = describeFilter(registry, filter);
             return (
               <li key={filter.id}>
-                <span className="inline-flex h-6 items-center gap-1 rounded-sm border border-line-strong bg-surface-raised pl-1.5 text-data text-fg">
+                <span
+                  // The chip's left edge carries the filter key's colour from
+                  // the (reused) title palette — hashed by key, so two filters
+                  // on one key read as one family. The words stay the truth;
+                  // the colour only makes scanning faster.
+                  className="inline-flex h-6 items-center gap-1 rounded-sm border border-line border-l-2 bg-surface-raised pl-1.5 text-data text-fg"
+                  style={{ borderLeftColor: swatchColor(filter.key) }}
+                >
                   <span className="text-fg-subtle">{described.label}</span>
                   <span className="nums text-fg-muted">{described.value}</span>
                   <button

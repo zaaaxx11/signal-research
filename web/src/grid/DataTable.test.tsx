@@ -240,7 +240,26 @@ describe("states", () => {
 
   it("renders a labelled empty state", () => {
     renderGrid({ rows: [], status: "empty", rowCount: 0 });
-    expect(screen.getByText("No rows in this view")).toBeTruthy();
+    // The empty screen names the cause (filters) and offers the way out.
+    expect(screen.getByText("No stocks match")).toBeTruthy();
+    expect(screen.getByText(/Try removing filters/)).toBeTruthy();
+    // Without a clear handler there is no button — words only, no dead control.
+    expect(screen.queryByTestId("grid-clear-filters")).toBeNull();
+  });
+
+  it("the empty state's CTA clears the filters when the panel can", async () => {
+    const user = userEvent.setup();
+    const onClearFilters = vi.fn();
+    renderGrid({ rows: [], status: "empty", rowCount: 0, onClearFilters });
+    await user.click(screen.getByTestId("grid-clear-filters"));
+    expect(onClearFilters).toHaveBeenCalledTimes(1);
+  });
+
+  it("a page that came back empty of a full screen is a page problem, not a filter problem", () => {
+    renderGrid({ rows: [], status: "ready", rowCount: 5_600 });
+    expect(screen.getByText("No rows on this page")).toBeTruthy();
+    expect(screen.queryByText("No stocks match")).toBeNull();
+    expect(screen.queryByTestId("grid-clear-filters")).toBeNull();
   });
 
   it("renders a skeleton while the first page loads", () => {

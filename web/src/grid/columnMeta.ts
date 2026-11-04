@@ -224,6 +224,10 @@ export const COLUMN_META: Record<string, Meta> = {
   company: { label: "Company", kind: "text", weight: 2.2, min: 120 },
   sector: { label: "Sector", kind: "text", weight: 1.5, min: 100 },
   industry: { label: "Industry", kind: "text", weight: 1.6, min: 110 },
+  // ETF-only catalogues publish the fund fee. `percent` at two decimals is
+  // what the ETF deck prints ("0.45%"); the colour tone is drawn by the cell
+  // renderer, not by a new token (see `expenseRatioTone` in cellRenderers).
+  expense_ratio: { label: "Expense Ratio", short: "Exp Ratio", ...PCT, min: 92 },
   security_type: { label: "Security Type", short: "Type", ...TEXT, min: 84 },
   country: { label: "Country", ...TEXT, min: 84 },
   exchange: { label: "Exchange", ...TEXT, min: 104, display: exchangeLabel },
