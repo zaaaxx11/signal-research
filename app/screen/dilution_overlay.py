@@ -32,7 +32,7 @@ def precompute(
         return dict(_current)
 
     if snapshot_path is None:
-        snapshot_path = Path("ztockz-data/backups/engine-snapshot-20261103T034841Z.json")
+        snapshot_path = Path("ztockz-data/engine-snapshot.json")  # symlink to latest
 
     snapshot_path = Path(snapshot_path)
     if not snapshot_path.exists():
