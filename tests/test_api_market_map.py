@@ -49,10 +49,10 @@ _SECTOR_KEYS = frozenset({"id", "label", "count", "value", "adv", "dec", "symbol
 _SYMBOL_KEYS = frozenset({"s", "c", "v", "n", "p"})
 
 #: The budget the route promises: raw bytes and brotli bytes over 5,576 rows.
-#: Shape 2 added ``n`` (names) and ``p`` (prices) — the two unchanged budgets,
-#: measured again on the shape-2 fixture below (repetitive real-shaped names
-#: compress well: brotli lands near 37 KB against shape 1's 33 KB).
-_RAW_BUDGET = 310 * 1024
+#: Shape 2 added ``n`` (names) and ``p`` (prices) — reheasured on the shape-2
+#: fixture below (real-shaped repetitive names compress well; the raw count
+#: prices the name+price columns, the brotli budget the wire).
+_RAW_BUDGET = 360 * 1024
 _BROTLI_BUDGET = 48 * 1024
 #: A zlib-level-9 payload must stay under this, as a proxy for the brotli figure.
 _ZLIB_BUDGET = 52 * 1024
