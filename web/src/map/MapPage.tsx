@@ -41,6 +41,12 @@ const TIMEFRAME_LABELS: Record<string, string> = {
   "1m": "1-Month performance",
 };
 
+const MAP_TYPES = [
+  { id: "us", label: "US Stocks" },
+  { id: "us_etf", label: "ETFs" },
+  { id: "global", label: "World" },
+] as const;
+
 export interface MapPageProps {
   /** Defaults to the US market, the only region the endpoint serves today. */
   readonly region?: string;
@@ -62,7 +68,8 @@ function Retry({ onRetry }: { readonly onRetry: () => void }) {
 
 export function MapPage({ region = "us", onOpenSymbol }: MapPageProps) {
   const [timeframe, setTimeframe] = React.useState("1d");
-  const view = useMapData({ region, timeframe });
+  const [mapType, setMapType] = React.useState(region);
+  const view = useMapData({ region: mapType, timeframe });
   const theme = React.useMemo(() => readTheme(), []);
   const [focus, setFocus] = React.useState<string | null>(null);
   const [stats, setStats] = React.useState<MapCanvasStats | null>(null);
@@ -116,6 +123,33 @@ export function MapPage({ region = "us", onOpenSymbol }: MapPageProps) {
     >
       <header className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-surface px-2">
         <h1 className="shrink-0 text-ui font-semibold text-fg">Maps</h1>
+        <div
+          data-testid="map-types"
+          role="group"
+          aria-label="Map type"
+          className="flex shrink-0 items-center gap-px"
+        >
+          {MAP_TYPES.map((option) => {
+            const active = option.id === mapType;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                data-testid={`map-type-${option.id}`}
+                aria-pressed={active}
+                onClick={() => setMapType(option.id)}
+                className={cn(
+                  "h-6 rounded-sm border px-2 font-mono text-label uppercase tracking-[0.08em] transition-colors",
+                  active
+                    ? "border-brand/60 bg-row-selected text-fg"
+                    : "border-transparent text-fg-muted hover:text-fg",
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
         <div
           data-testid="map-timeframes"
           role="group"
