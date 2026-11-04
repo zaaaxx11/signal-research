@@ -109,6 +109,29 @@ function PageSkeleton({ label }: { label: string }) {
 export function App() {
   const route = useRoute();
   const searchQuery = useSearch();
+
+  // Per-route <title> so the browser tab, history and bookmarks say where you are.
+  React.useEffect(() => {
+    const titles: Record<string, string> = {
+      home: "Ztockz",
+      screener: "Stock Screener — Ztockz",
+      map: "Maps — Ztockz",
+      charts: "Charts — Ztockz",
+      news: "News — Ztockz",
+      groups: "Groups — Ztockz",
+      insider: "Insider — Ztockz",
+      calendar: "Calendar — Ztockz",
+      futures: "Futures — Ztockz",
+      forex: "Forex — Ztockz",
+      crypto: "Crypto — Ztockz",
+      watchlist: "Watchlist — Ztockz",
+      portfolio: "Portfolio — Ztockz",
+      compare: "Compare — Ztockz",
+      stock: "Ztockz",
+      notfound: "Not Found — Ztockz",
+    };
+    document.title = titles[route.kind] ?? "Ztockz";
+  }, [route.kind]);
   const MapPage = React.useMemo(() => React.lazy(loadMapPage), []);
   const GroupsPage = React.useMemo(() => React.lazy(loadGroupsPage), []);
   const CalendarPage = React.useMemo(() => React.lazy(loadCalendarPage), []);

@@ -79,6 +79,13 @@ const GROUP_BY_TABS: readonly { key: GroupBy; label: string }[] = [
   { key: "capitalization", label: "Market Cap" },
 ];
 
+const PLURAL: Record<string, string> = {
+  Sector: "Sectors",
+  Industry: "Industries",
+  Country: "Countries",
+  "Market Cap": "Market Cap groups",
+};
+
 const SORT_OPTIONS: readonly { key: GroupsSort; label: string }[] = [
   { key: "avg_change", label: "Change %" },
   { key: "name", label: "Name" },
@@ -193,7 +200,7 @@ function Rows({
         className="w-full min-w-[960px] table-fixed border-collapse text-data"
       >
         <caption className="sr-only">
-          {groupLabel}s, sorted by average change, strongest first
+          {PLURAL[groupLabel] ?? `${groupLabel}s`}, sorted by average change, strongest first
         </caption>
         <colgroup>
           <col className="w-[18%]" />
