@@ -18,5 +18,5 @@ export {
   shownSymbols,
   todayUtc,
 } from "./calendar";
-export type { CalendarBucket, CalendarReport, CalendarSymbol } from "./calendar";
+export type { CalendarBucket, CalendarKind, CalendarReport, CalendarSymbol } from "./calendar";
 export { useCalendar } from "./useCalendar";

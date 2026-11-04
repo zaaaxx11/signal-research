@@ -11,10 +11,13 @@
  * endpoint's own count and says `shown of total` when the two disagree.
  */
 
+import * as React from "react";
+
 import { formatCount } from "@/breadth/format";
+import { formatMoney, formatNumber } from "@/grid/format";
 import { cn } from "@/lib/utils";
 
-import type { InsiderFiling } from "./filings";
+import type { InsiderFiling, InsiderField } from "./filings";
 import { useInsiderFilings } from "./useInsiderFilings";
 
 export const INSIDER_DETAIL_TITLE_ID = "insider-detail-title";
@@ -23,75 +26,109 @@ export const INSIDER_DETAIL_TITLE_ID = "insider-detail-title";
 export const INSIDER_DETAIL_NOTE =
   "Individual filings as reported to the SEC, each with its own filing and transaction date.";
 
-function Filing({ filing }: { readonly filing: InsiderFiling }) {
-  return (
-    <li
-      data-testid="insider-filing"
-      data-accession={filing.accession ?? undefined}
-      className="border-b border-line/60 px-2 py-1.5 last:border-b-0"
-    >
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-        <time
-          dateTime={filing.filed ?? undefined}
-          className="nums shrink-0 text-data text-fg-muted"
-        >
-          {filing.filed ?? "—"}
-        </time>
-        <span
-          className="min-w-0 truncate text-data font-medium text-fg"
-          title={filing.ownerName ?? "Owner not reported"}
-        >
-          {filing.ownerName ?? "Owner not reported"}
-        </span>
-        <span
-          className="min-w-0 truncate text-data text-fg-subtle"
-          title={filing.role ?? "Role not reported"}
-        >
-          {filing.role ?? "Role not reported"}
-        </span>
-      </div>
+/* ── Helpers ──────────────────────────────────────────────────────────── */
 
-      {filing.accession === null ? null : filing.url === null ? (
-        <span className="mt-0.5 block truncate font-mono text-label text-fg-subtle">
-          {filing.accession}
-        </span>
-      ) : (
-        <a
-          href={filing.url}
-          target="_blank"
-          rel="noreferrer noopener"
-          title={`Open Form 4 ${filing.accession} on SEC.gov`}
-          className="focus-ring mt-0.5 block truncate font-mono text-label text-accent-text hover:underline"
-        >
-          Form 4 · {filing.accession}
-        </a>
-      )}
-
-      {filing.fields.length === 0 ? null : (
-        <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
-          {filing.fields.map((field) => (
-            <div key={field.key} className="flex min-w-0 items-baseline justify-between gap-2">
-              <dt className="shrink-0 text-label uppercase tracking-[0.05em] text-fg-subtle">
-                {field.label}
-              </dt>
-              <dd
-                data-field={field.key}
-                title={field.text}
-                className={cn(
-                  "min-w-0 truncate text-data text-fg-muted",
-                  field.key === "price" && "nums text-fg",
-                  field.key === "code" && "font-mono",
-                )}
-              >
-                {field.text}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </li>
-  );
+function fieldText(fields: readonly InsiderField[], key: string): string | null {
+  const field = fields.find((f) => f.key === key);
+  return field?.text ?? null;
 }
+
+function fieldNumber(fields: readonly InsiderField[], key: string): number | null {
+  const text = fieldText(fields, key);
+  if (text === null) return null;
+  const cleaned = text.replace(/[,%$]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The transaction code letter: P, S, or null for other. */
+function codeLetter(fields: readonly InsiderField[]): string | null {
+  const code = fieldText(fields, "code");
+  if (code === null) return null;
+  const letter = code.trim().toUpperCase()[0];
+  return letter === "P" || letter === "S" ? letter : null;
+}
+
+type TypeFilter = "all" | "buy" | "sale";
+
+type SortKey = "ticker" | "owner" | "date" | "type" | "shares" | "value";
+type SortDir = "asc" | "desc";
+
+interface SortConfig {
+  key: SortKey;
+  dir: SortDir;
+}
+
+/* ── Sort helpers ─────────────────────────────────────────────────────── */
+
+function sortValue(filing: InsiderFiling, symbol: string, key: SortKey): string | number {
+  switch (key) {
+    case "ticker":
+      return symbol;
+    case "owner":
+      return filing.ownerName ?? "";
+    case "date":
+      return filing.filed ?? "";
+    case "type": {
+      const code = fieldText(filing.fields, "code");
+      return code ?? "";
+    }
+    case "shares":
+      return fieldNumber(filing.fields, "shares") ?? 0;
+    case "value": {
+      const s = fieldNumber(filing.fields, "shares");
+      const p = fieldNumber(filing.fields, "price");
+      return s !== null && p !== null ? s * p : 0;
+    }
+  }
+}
+
+function sortFilings(
+  items: readonly InsiderFiling[],
+  symbol: string,
+  config: SortConfig | null,
+): InsiderFiling[] {
+  if (config === null) return [...items];
+  const { key, dir } = config;
+  const multiplier = dir === "asc" ? 1 : -1;
+
+  return [...items].sort((a, b) => {
+    const va = sortValue(a, symbol, key);
+    const vb = sortValue(b, symbol, key);
+
+    if (typeof va === "string" && typeof vb === "string") {
+      return va.localeCompare(vb) * multiplier;
+    }
+    if (typeof va === "number" && typeof vb === "number") {
+      return (va - vb) * multiplier;
+    }
+    // Mixed types: string before number
+    if (typeof va === "string") return -1 * multiplier;
+    return 1 * multiplier;
+  });
+}
+
+/* ── Inline formatters ────────────────────────────────────────────────── */
+
+function formatSharesDisplay(value: number | null): string {
+  if (value === null) return "—";
+  return formatNumber(value, 0);
+}
+
+function formatValueDisplay(shares: number | null, price: number | null): string {
+  if (shares === null || price === null) return "—";
+  return formatMoney(shares * price, Math.abs(shares * price) >= 10_000);
+}
+
+function typeDisplay(fields: readonly InsiderField[]): { label: string; tone: "buy" | "sell" | "other" } {
+  const letter = codeLetter(fields);
+  if (letter === "P") return { label: "Buy", tone: "buy" };
+  if (letter === "S") return { label: "Sale", tone: "sell" };
+  const code = fieldText(fields, "code");
+  return { label: code ?? "—", tone: "other" };
+}
+
+/* ── Sub-components ──────────────────────────────────────────────────── */
 
 function Skeleton({ symbol }: { readonly symbol: string }) {
   return (
@@ -113,6 +150,146 @@ function Skeleton({ symbol }: { readonly symbol: string }) {
   );
 }
 
+/* ── Table header ────────────────────────────────────────────────────── */
+
+const COLUMNS: { key: SortKey; label: string; testId: string }[] = [
+  { key: "ticker", label: "Ticker", testId: "insider-sort-ticker" },
+  { key: "owner", label: "Owner", testId: "insider-sort-owner" },
+  { key: "date", label: "Date", testId: "insider-sort-date" },
+  { key: "type", label: "Type", testId: "insider-sort-type" },
+  { key: "shares", label: "Shares", testId: "insider-sort-shares" },
+  { key: "value", label: "Value", testId: "insider-sort-value" },
+];
+
+function SortHeader({
+  sortConfig,
+  onSort,
+}: {
+  sortConfig: SortConfig | null;
+  onSort: (config: SortConfig) => void;
+}) {
+  return (
+    <thead>
+      <tr className="border-b border-line text-label uppercase tracking-[0.06em] text-fg-subtle">
+        {COLUMNS.map((col) => {
+          const active = sortConfig?.key === col.key;
+          const nextDir: SortDir = active && sortConfig.dir === "desc" ? "asc" : "desc";
+          return (
+            <th
+              key={col.key}
+              scope="col"
+              className="cursor-pointer select-none py-1 pr-1 text-left font-medium hover:text-fg"
+              data-testid={col.testId}
+              onClick={() => onSort({ key: col.key, dir: nextDir })}
+              aria-sort={active ? (sortConfig.dir === "asc" ? "ascending" : "descending") : "none"}
+            >
+              <span className="inline-flex items-center gap-0.5">
+                {col.label}
+                {active ? (
+                  <span aria-hidden="true" className="text-[10px]">
+                    {sortConfig.dir === "asc" ? "▲" : "▼"}
+                  </span>
+                ) : null}
+              </span>
+            </th>
+          );
+        })}
+      </tr>
+    </thead>
+  );
+}
+
+/* ── Filing row ───────────────────────────────────────────────────────── */
+
+function FilingRow({
+  filing,
+  symbol,
+}: {
+  readonly filing: InsiderFiling;
+  readonly symbol: string;
+}) {
+  const shares = fieldNumber(filing.fields, "shares");
+  const price = fieldNumber(filing.fields, "price");
+  const type = typeDisplay(filing.fields);
+
+  return (
+    <tr
+      data-testid="insider-filing"
+      data-accession={filing.accession ?? undefined}
+      className="border-b border-line/60 last:border-b-0"
+    >
+      <td className="py-1 pr-1 font-mono text-data text-fg-muted">{symbol}</td>
+      <td className="truncate py-1 pr-1 text-data text-fg" title={filing.ownerName ?? undefined}>
+        {filing.ownerName ?? "Owner not reported"}
+      </td>
+      <td className="nums whitespace-nowrap py-1 pr-1 text-data text-fg-muted">
+        <time dateTime={filing.filed ?? undefined}>{filing.filed ?? "—"}</time>
+      </td>
+      <td
+        className={cn(
+          "whitespace-nowrap py-1 pr-1 text-data",
+          type.tone === "buy" && "text-positive",
+          type.tone === "sell" && "text-negative",
+          type.tone === "other" && "text-fg-muted",
+        )}
+      >
+        {type.label}
+      </td>
+      <td className="nums py-1 pr-1 text-right text-data text-fg-muted">
+        {formatSharesDisplay(shares)}
+      </td>
+      <td className="nums py-1 text-right text-data text-fg">
+        {formatValueDisplay(shares, price)}
+      </td>
+    </tr>
+  );
+}
+
+/* ── Type filter bar ─────────────────────────────────────────────────── */
+
+function TypeFilterBar({
+  filter,
+  onChange,
+  buyCount,
+  saleCount,
+}: {
+  filter: TypeFilter;
+  onChange: (f: TypeFilter) => void;
+  buyCount: number;
+  saleCount: number;
+}) {
+  const buttons: { value: TypeFilter; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "buy", label: "Buy" },
+    { value: "sale", label: "Sale" },
+  ];
+
+  return (
+    <div className="flex items-center gap-1.5 border-b border-line/60 px-2 py-1">
+      {buttons.map((btn) => (
+        <button
+          key={btn.value}
+          type="button"
+          onClick={() => onChange(btn.value)}
+          className={cn(
+            "rounded-sm border px-2 py-0.5 text-label transition-colors",
+            filter === btn.value
+              ? "border-accent bg-accent/10 text-accent-text"
+              : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
+          )}
+        >
+          {btn.label}
+        </button>
+      ))}
+      <span data-testid="insider-type-count" className="ml-auto text-label text-fg-subtle">
+        {buyCount} {buyCount === 1 ? "Buy" : "Buys"}, {saleCount} {saleCount === 1 ? "Sale" : "Sales"}
+      </span>
+    </div>
+  );
+}
+
+/* ── Panel ────────────────────────────────────────────────────────────── */
+
 export interface InsiderDetailProps {
   readonly symbol: string;
   readonly onClose: () => void;
@@ -120,8 +297,28 @@ export interface InsiderDetailProps {
 
 export function InsiderDetail({ symbol, onClose }: InsiderDetailProps) {
   const view = useInsiderFilings(symbol);
+  const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
+  const [sortConfig, setSortConfig] = React.useState<SortConfig | null>({ key: "date", dir: "desc" });
+
   const filings = view.status === "ready" ? view.filings : null;
-  const shown = filings?.items.length ?? 0;
+  const allItems = filings?.items ?? [];
+
+  // Count buys and sales
+  const buyCount = allItems.filter((f) => codeLetter(f.fields) === "P").length;
+  const saleCount = allItems.filter((f) => codeLetter(f.fields) === "S").length;
+
+  // Apply type filter
+  const filtered =
+    typeFilter === "all"
+      ? allItems
+      : typeFilter === "buy"
+        ? allItems.filter((f) => codeLetter(f.fields) === "P")
+        : allItems.filter((f) => codeLetter(f.fields) === "S");
+
+  // Apply sort
+  const sorted = sortFilings(filtered, symbol, sortConfig);
+
+  const shown = sorted.length;
   const total = filings?.count ?? null;
 
   return (
@@ -168,7 +365,7 @@ export function InsiderDetail({ symbol, onClose }: InsiderDetailProps) {
               Retry
             </button>
           </div>
-        ) : filings === null || filings.items.length === 0 ? (
+        ) : filings === null || allItems.length === 0 ? (
           <p data-testid="insider-detail-empty" className="px-2 py-2 text-data text-fg-muted">
             No Form 4 filings for {symbol}.
           </p>
@@ -190,11 +387,34 @@ export function InsiderDetail({ symbol, onClose }: InsiderDetailProps) {
               </p>
             )}
 
-            <ul data-testid="insider-filings">
-              {filings.items.map((filing) => (
-                <Filing key={filing.key} filing={filing} />
-              ))}
-            </ul>
+            <TypeFilterBar
+              filter={typeFilter}
+              onChange={setTypeFilter}
+              buyCount={buyCount}
+              saleCount={saleCount}
+            />
+
+            <div className="min-w-0 overflow-x-auto">
+              <table className="w-full table-fixed border-collapse text-data" data-testid="insider-filings">
+                <caption className="sr-only">
+                  Form 4 insider transactions for {symbol}
+                </caption>
+                <colgroup>
+                  <col style={{ width: "58px" }} />
+                  <col />
+                  <col style={{ width: "72px" }} />
+                  <col style={{ width: "52px" }} />
+                  <col style={{ width: "62px" }} />
+                  <col style={{ width: "70px" }} />
+                </colgroup>
+                <SortHeader sortConfig={sortConfig} onSort={setSortConfig} />
+                <tbody>
+                  {sorted.map((filing) => (
+                    <FilingRow key={filing.key} filing={filing} symbol={symbol} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </div>

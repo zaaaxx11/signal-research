@@ -1,26 +1,15 @@
 /**
- * Groups: one sector per row, with breadth.
+ * Groups: one group per row, with breadth and multi-timeframe performance.
  *
  * A table, because the question is comparative ("which sector is strongest, and
- * is it broad?") and a table is the only layout that keeps seven figures in a
+ * is it broad?") and a table is the only layout that keeps figures in a
  * column and lets the eye run down it. Density follows `SignalCard`: 12 px type,
- * 24 px rows, one hairline between rows, no card per sector.
+ * 24 px rows, one hairline between rows, no card per group.
  *
- * Four rules this page keeps:
- *
- * * **The change cell is the grid's own delta renderer** (`CellValue` with a
- *   `delta` spec): an arrow glyph, an explicit sign and an `sr-only` word, so a
- *   falling sector is still falling in greyscale, to a screen reader, and to a
- *   reader who cannot separate the two reds.
- * * **Colour never carries a datum alone.** `text-up` / `text-down` appear only
- *   inside that renderer and inside the breadth bar, and the bar is a labelled
- *   `role="img"` that speaks both counts.
- * * **The bar's width is the count ratio**, rounded to one decimal. Nothing is
- *   measured in pixels, so the drawing claims exactly the precision of the two
- *   integers it came from.
- * * **A row leads to the screener** with the label the server sent, encoded
- *   into `?sector=`. The label itself is a real `<a>` (keyboard, middle-click,
- *   copy-link); the rest of the row is a mouse convenience that defers to it.
+ * This page adds a **group-by tab bar** and a **sort selector** above the
+ * table, plus three **performance columns** (1W, 1M, 3M) between Change % and
+ * Names. The four tabs re-fetch with `?group_by=` and the sort selector
+ * re-fetches with `?sort=&direction=`.
  *
  * The page is one box in every state — skeleton, table, empty, error — so the
  * answer landing cannot move what is below it.
@@ -39,16 +28,13 @@ import {
   advanceShare,
   breadthLabel,
   screenerHref,
+  type GroupBy,
   type GroupRow,
   type GroupsReport,
+  type GroupsSort,
 } from "./groups";
 import { useGroups } from "./useGroups";
 
-/**
- * The delta cell's spec. A `delta` kind is what buys the arrow, the sign and
- * the spoken word from `CellValue`; the width fields are unused here (the table
- * owns its own columns) but a `ColumnSpec` requires them.
- */
 const CHANGE_SPEC: ColumnSpec = {
   key: "avg_change",
   label: "Change %",
@@ -58,17 +44,48 @@ const CHANGE_SPEC: ColumnSpec = {
   precision: 2,
 };
 
-/** Skeleton rows: enough to look like the table it will become. */
-export const GROUPS_SKELETON_ROWS = 12;
+const PERF_1W_SPEC: ColumnSpec = {
+  key: "perf_1w",
+  label: "1W",
+  kind: "delta",
+  weight: 1,
+  min: 54,
+  precision: 1,
+};
+const PERF_1M_SPEC: ColumnSpec = {
+  key: "perf_1m",
+  label: "1M",
+  kind: "delta",
+  weight: 1,
+  min: 54,
+  precision: 1,
+};
+const PERF_3M_SPEC: ColumnSpec = {
+  key: "perf_3m",
+  label: "3M",
+  kind: "delta",
+  weight: 1,
+  min: 54,
+  precision: 1,
+};
 
-/**
- * The box every state occupies, in px: a 26 px header row plus twelve 24 px
- * rows plus the frame's own border. The skeleton draws the same twelve rows, so
- * the table cannot land shorter or taller than the place reserved for it.
- */
+export const GROUPS_SKELETON_ROWS = 12;
 export const GROUPS_RESERVED_HEIGHT = 26 + GROUPS_SKELETON_ROWS * 24 + 2;
 
-/** An absent figure prints an em dash with a name, never a zero and never blank. */
+const GROUP_BY_TABS: readonly { key: GroupBy; label: string }[] = [
+  { key: "sector", label: "Sector" },
+  { key: "industry", label: "Industry" },
+  { key: "country", label: "Country" },
+  { key: "capitalization", label: "Market Cap" },
+];
+
+const SORT_OPTIONS: readonly { key: GroupsSort; label: string }[] = [
+  { key: "avg_change", label: "Change %" },
+  { key: "name", label: "Name" },
+  { key: "count", label: "Count" },
+  { key: "market_cap", label: "Market Cap" },
+];
+
 function Absent() {
   return (
     <span className="text-fg-subtle" title="Not available" aria-label="Not available">
@@ -87,14 +104,6 @@ function MarketCap({ value }: { readonly value: number | null }) {
   return <span className="nums text-fg-muted">{formatMoney(value, true)}</span>;
 }
 
-/**
- * Advancing against declining, as two segments of one track.
- *
- * The track is neutral; the segments are `--up` and `--down`, and both are
- * `aria-hidden` because the wrapping `role="img"` carries the whole sentence
- * ("Technology: 400 advancing, 300 declining"). When nothing moved there is no
- * direction to draw, so the track stays flat — a grey bar, not two empty ones.
- */
 function BreadthBar({ row }: { readonly row: GroupRow }) {
   const up = advanceShare(row.adv, row.dec);
   const down = Math.round((100 - up) * 10) / 10;
@@ -132,7 +141,7 @@ function BreadthBar({ row }: { readonly row: GroupRow }) {
 function Skeleton() {
   return (
     <div data-testid="groups-skeleton" aria-busy="true">
-      <span className="sr-only">Loading sector groups</span>
+      <span className="sr-only">Loading groups</span>
       <div aria-hidden="true" className="h-[26px] border-b border-line-strong" />
       {Array.from({ length: GROUPS_SKELETON_ROWS }, (_, index) => (
         <div
@@ -155,12 +164,18 @@ function Skeleton() {
   );
 }
 
-function Rows({ report }: { readonly report: GroupsReport }) {
-  /**
-   * A click anywhere in a row opens the screener, but a click that the label's
-   * own anchor has already claimed (or a modified click, which the browser must
-   * handle as "open elsewhere") is left alone.
-   */
+function PerfCell({ spec, value }: { readonly spec: ColumnSpec; readonly value: number | null }) {
+  if (value === null) return <Absent />;
+  return <CellValue spec={spec} value={value} />;
+}
+
+function Rows({
+  report,
+  groupBy,
+}: {
+  readonly report: GroupsReport;
+  readonly groupBy: GroupBy;
+}) {
   const onRowClick = (href: string) => (event: React.MouseEvent<HTMLTableRowElement>) => {
     if (event.defaultPrevented) return;
     if (event.button !== 0) return;
@@ -168,45 +183,62 @@ function Rows({ report }: { readonly report: GroupsReport }) {
     navigate(href);
   };
 
+  const groupLabel =
+    GROUP_BY_TABS.find((t) => t.key === groupBy)?.label ?? "Group";
+
   return (
     <div className="overflow-x-auto">
       <table
         data-testid="groups-table"
-        className="w-full min-w-[720px] table-fixed border-collapse text-data"
+        className="w-full min-w-[960px] table-fixed border-collapse text-data"
       >
-        <caption className="sr-only">Sectors, sorted by average change, strongest first</caption>
+        <caption className="sr-only">
+          {groupLabel}s, sorted by average change, strongest first
+        </caption>
         <colgroup>
-          <col className="w-[24%]" />
-          <col className="w-[11%]" />
+          <col className="w-[18%]" />
+          <col className="w-[8%]" />
+          <col className="w-[6%]" />
+          <col className="w-[6%]" />
+          <col className="w-[6%]" />
+          <col className="w-[6%]" />
+          <col className="w-[6%]" />
+          <col className="w-[8%]" />
+          <col className="w-[7%]" />
           <col className="w-[10%]" />
-          <col className="w-[10%]" />
           <col className="w-[11%]" />
-          <col className="w-[9%]" />
-          <col className="w-[13%]" />
-          <col className="w-[12%]" />
         </colgroup>
         <thead>
           <tr className="h-[26px] border-b border-line-strong text-label uppercase tracking-[0.05em] text-fg-subtle">
             <th scope="col" className="px-2 text-left font-medium">
-              Sector
+              {groupLabel}
             </th>
             <th scope="col" className="px-2 text-right font-medium">
               Change %
             </th>
             <th scope="col" className="px-2 text-right font-medium">
-              Advancing
+              1W
             </th>
             <th scope="col" className="px-2 text-right font-medium">
-              Declining
+              1M
             </th>
             <th scope="col" className="px-2 text-right font-medium">
-              Unchanged
+              3M
+            </th>
+            <th scope="col" className="px-2 text-right font-medium">
+              Adv
+            </th>
+            <th scope="col" className="px-2 text-right font-medium">
+              Dec
+            </th>
+            <th scope="col" className="px-2 text-right font-medium">
+              Unch
             </th>
             <th scope="col" className="px-2 text-right font-medium">
               Names
             </th>
             <th scope="col" className="px-2 text-right font-medium">
-              Market cap
+              Cap
             </th>
             <th scope="col" className="px-2 text-left font-medium">
               Breadth
@@ -235,6 +267,15 @@ function Rows({ report }: { readonly report: GroupsReport }) {
                 </td>
                 <td data-testid={`group-change-${row.id}`} className="px-2">
                   <CellValue spec={CHANGE_SPEC} value={row.avgChange} />
+                </td>
+                <td data-testid={`group-perf1w-${row.id}`} className="px-2 text-right">
+                  <PerfCell spec={PERF_1W_SPEC} value={row.perf1w} />
+                </td>
+                <td data-testid={`group-perf1m-${row.id}`} className="px-2 text-right">
+                  <PerfCell spec={PERF_1M_SPEC} value={row.perf1m} />
+                </td>
+                <td data-testid={`group-perf3m-${row.id}`} className="px-2 text-right">
+                  <PerfCell spec={PERF_3M_SPEC} value={row.perf3m} />
                 </td>
                 <td data-testid={`group-adv-${row.id}`} className="px-2 text-right text-fg-muted">
                   <Count value={row.adv} />
@@ -274,7 +315,23 @@ export interface GroupsPageProps {
 }
 
 export function GroupsPage({ region }: GroupsPageProps = {}) {
-  const groups = useGroups(region);
+  const [groupBy, setGroupBy] = React.useState<GroupBy>("sector");
+  const [sortBy, setSortBy] = React.useState<GroupsSort>("avg_change");
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
+
+  const groups = useGroups(region, groupBy, sortBy, sortDir);
+
+  const handleTab = (key: GroupBy) => {
+    setGroupBy(key);
+  };
+
+  const handleSort = (key: GroupsSort) => {
+    setSortBy(key);
+  };
+
+  const toggleDir = () => {
+    setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+  };
 
   return (
     <main
@@ -282,10 +339,66 @@ export function GroupsPage({ region }: GroupsPageProps = {}) {
       className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
     >
       <div className="mb-1.5 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <h1 className="text-ui font-medium text-fg">Sector performance</h1>
+        <h1 className="text-ui font-medium text-fg">Group performance</h1>
         <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-          Sorted by change
+          Sorted by {SORT_OPTIONS.find((o) => o.key === sortBy)?.label ?? "Change %"} {sortDir === "asc" ? "↑" : "↓"}
         </p>
+      </div>
+
+      {/* Group-by tab bar */}
+      <div
+        role="tablist"
+        aria-label="Group by"
+        data-testid="groups-tabbar"
+        className="mb-1.5 flex gap-1 px-0.5"
+      >
+        {GROUP_BY_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            role="tab"
+            aria-selected={groupBy === tab.key}
+            data-testid={`groups-tab-${tab.key}`}
+            type="button"
+            onClick={() => handleTab(tab.key)}
+            className={cn(
+              "focus-ring rounded-sm px-2 py-0.5 text-data transition-colors",
+              groupBy === tab.key
+                ? "bg-accent-text text-bg font-medium"
+                : "text-fg-muted hover:text-fg",
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Sort selector + direction toggle */}
+      <div className="mb-1.5 flex items-center gap-2 px-0.5">
+        <label htmlFor="groups-sort" className="text-label text-fg-subtle">
+          Sort by:
+        </label>
+        <select
+          id="groups-sort"
+          data-testid="groups-sort"
+          value={sortBy}
+          onChange={(e) => handleSort(e.target.value as GroupsSort)}
+          className="focus-ring rounded-sm border border-line bg-surface px-1.5 py-0.5 text-data text-fg"
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.key} value={opt.key}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          data-testid="groups-sort-dir"
+          aria-label={`Sort ${sortDir === "asc" ? "ascending" : "descending"}`}
+          onClick={toggleDir}
+          className="focus-ring rounded-sm border border-line px-1.5 py-0.5 text-data text-fg-muted hover:text-fg"
+        >
+          {sortDir === "asc" ? "↑" : "↓"}
+        </button>
       </div>
 
       <div
@@ -302,7 +415,7 @@ export function GroupsPage({ region }: GroupsPageProps = {}) {
             className="flex items-start justify-between gap-3 px-3 py-2"
           >
             <div className="min-w-0">
-              <p className="text-data text-fg">Sector performance did not load.</p>
+              <p className="text-data text-fg">Group performance did not load.</p>
               <p className="mt-0.5 text-data text-fg-muted">{groups.error}</p>
             </div>
             <button
@@ -315,10 +428,10 @@ export function GroupsPage({ region }: GroupsPageProps = {}) {
           </div>
         ) : groups.report === null || groups.report.rows.length === 0 ? (
           <p data-testid="groups-empty" className="px-3 py-2 text-data text-fg-muted">
-            No sector groups in this snapshot.
+            No groups in this snapshot.
           </p>
         ) : (
-          <Rows report={groups.report} />
+          <Rows report={groups.report} groupBy={groupBy} />
         )}
       </div>
     </main>

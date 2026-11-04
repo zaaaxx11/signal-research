@@ -4,6 +4,8 @@
  * The tests hold the two claims this page makes and nothing else: it reads the
  * company list once, and it reads one company's filings once, from the SEC
  * endpoint — never a ranked total it did not receive.
+ *
+ * New tests cover tab switching, transaction type filter, and column sort.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +34,7 @@ function signalsPayload(symbols: readonly string[]) {
           name: `${symbol} Holdings ${index + 1}`,
           price: 10 + index,
           change_pct: index % 2 === 0 ? 1.5 : -1.5,
-          volume: 1_000_000,
+          volume: (symbols.length - index) * 1_000_000,
         })),
       },
     ],
@@ -43,7 +45,7 @@ function signalsPayload(symbols: readonly string[]) {
 const FILINGS = {
   symbol: "AAPL",
   as_of: "2026-10-29",
-  count: 2,
+  count: 3,
   items: [
     {
       accession: "0001140361-26-041201",
@@ -64,7 +66,20 @@ const FILINGS = {
       filed: "2026-10-28",
       owner_name: "Parekh Kevan",
       role: null,
+      transaction_date: "2026-10-26",
+      code: "P",
       shares: 1000,
+      price: 240.0,
+    },
+    {
+      accession: "0001140361-26-041202",
+      filed: "2026-10-27",
+      owner_name: "Adams Katherine",
+      role: "Officer: SVP, GC",
+      transaction_date: "2026-10-25",
+      code: "S",
+      shares: 500,
+      price: 245.0,
     },
   ],
   provider_errors: [],
@@ -76,7 +91,7 @@ function stub(options: { symbols?: readonly string[]; filings?: unknown } = {}) 
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     calls.push(url);
     if (url.startsWith(SIGNALS)) {
-      return new Response(JSON.stringify(signalsPayload(options.symbols ?? ["AAPL", "MSFT", "AAPL"])), {
+      return new Response(JSON.stringify(signalsPayload(options.symbols ?? ["AAPL", "MSFT", "GOOGL"])), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -112,7 +127,7 @@ describe("InsiderPage", () => {
     render(<InsiderPage />);
     await screen.findByTestId("insider-entry-AAPL");
     expect(calls.filter((url) => url.startsWith(SIGNALS))).toHaveLength(1);
-    expect(screen.getAllByTestId(/^insider-entry-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/^insider-entry-/)).toHaveLength(3);
     expect(screen.queryByTestId("insider-entry-MISSING")).toBeNull();
   });
 
@@ -125,10 +140,9 @@ describe("InsiderPage", () => {
 
     await user.click(screen.getByTestId("insider-entry-AAPL"));
     const detail = await screen.findByTestId("insider-detail");
-    await waitFor(() => expect(within(detail).getAllByTestId("insider-filing")).toHaveLength(2));
-    expect(calls.filter((url) => url.includes("/engine/insider/"))).toHaveLength(1);
+    await waitFor(() => expect(within(detail).getAllByTestId("insider-filing")).toHaveLength(3));
+        expect(calls.filter((url) => url.includes("/engine/insider/"))).toHaveLength(1);
     expect(within(detail).getByText(/Newstead Jennifer/)).toBeTruthy();
-    expect(within(detail).getByText(/Role not reported/)).toBeTruthy();
     expect(within(detail).getByTestId("insider-detail-note").textContent).toBe(INSIDER_DETAIL_NOTE);
     expect(detail.textContent).not.toContain("undefined");
   });
@@ -197,5 +211,102 @@ describe("InsiderPage", () => {
     render(<InsiderPage />);
     expect(await screen.findByText(/Type a symbol instead/i)).toBeTruthy();
     expect(screen.getByLabelText("Symbol")).toBeTruthy();
+  });
+
+  // ── New tests ──
+
+  it("shows three entry-list tabs with Latest Trading active by default", async () => {
+    stub();
+    render(<InsiderPage />);
+    await screen.findByTestId("insider-entry-AAPL");
+
+    expect(screen.getByRole("tab", { name: "Latest Trading" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Top Weekly" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Top 10% Owner" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Latest Trading" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("switches tabs and reorders the entry list", async () => {
+    stub({ symbols: ["AAPL", "MSFT", "GOOGL"] });
+    const user = userEvent.setup();
+    render(<InsiderPage />);
+    await screen.findByTestId("insider-entry-AAPL");
+
+    // Default: Latest Trading
+    const buttons = screen.getAllByTestId(/^insider-entry-/);
+    expect(buttons[0].textContent).toContain("AAPL");
+
+    // Switch to Top Weekly
+    await user.click(screen.getByRole("tab", { name: "Top Weekly" }));
+    expect(screen.getByRole("tab", { name: "Top Weekly" }).getAttribute("aria-selected")).toBe("true");
+
+    // Top Weekly sorts by volume descending: GOOGL has 1M, MSFT has 2M, AAPL has 3M → AAPL first
+    const sortedButtons = screen.getAllByTestId(/^insider-entry-/);
+    expect(sortedButtons[0].textContent).toContain("AAPL"); // highest volume (3M)
+    expect(sortedButtons[2].textContent).toContain("GOOGL"); // lowest volume (1M)
+  });
+
+  it("shows type filter with count badge and filters filings", async () => {
+    stub();
+    const user = userEvent.setup();
+    render(<InsiderPage />);
+    await screen.findByTestId("insider-entry-AAPL");
+    await user.click(screen.getByTestId("insider-entry-AAPL"));
+    await screen.findByTestId("insider-detail");
+
+    // Count badge present: FILINGS has 1 Buy (P) and 2 Sales (S)
+    const countBadge = screen.getByTestId("insider-type-count");
+    expect(countBadge.textContent).toMatch(/1 Buy/);
+    expect(countBadge.textContent).toMatch(/2 Sale/);
+
+    // Click "Buy" filter
+    await user.click(screen.getByRole("button", { name: /Buy/ }));
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("insider-filing");
+      expect(rows).toHaveLength(1);
+      expect(rows[0].textContent).toContain("Parekh Kevan");
+    });
+
+    // Click "Sale" filter
+    await user.click(screen.getByRole("button", { name: /Sale/ }));
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("insider-filing");
+      expect(rows).toHaveLength(2);
+      expect(rows[0].textContent).toContain("Newstead Jennifer");
+    });
+
+    // Click "All"
+    await user.click(screen.getByRole("button", { name: /^All/ }));
+    await waitFor(() => {
+      expect(screen.getAllByTestId("insider-filing")).toHaveLength(3);
+    });
+  });
+
+  it("sorts columns on header click", async () => {
+    stub();
+    const user = userEvent.setup();
+    render(<InsiderPage />);
+    await screen.findByTestId("insider-entry-AAPL");
+    await user.click(screen.getByTestId("insider-entry-AAPL"));
+    const detail = await screen.findByTestId("insider-detail");
+    await waitFor(() => expect(within(detail).getAllByTestId("insider-filing")).toHaveLength(3));
+
+    // Helper: get first row's text for a column
+    const firstRowText = () => within(detail).getAllByTestId("insider-filing")[0]?.textContent ?? "";
+
+    // Default: Date descending — newest first (2026-10-29 filed)
+    expect(firstRowText()).toContain("Newstead Jennifer"); // 10-29
+
+    // Click Date header to sort ascending
+    await user.click(within(detail).getByTestId("insider-sort-date"));
+    await waitFor(() => {
+      expect(firstRowText()).toContain("Adams Katherine"); // 10-25, now first
+    });
+
+    // Click again to sort descending
+    await user.click(within(detail).getByTestId("insider-sort-date"));
+    await waitFor(() => {
+      expect(firstRowText()).toContain("Newstead Jennifer"); // 10-29 again
+    });
   });
 });

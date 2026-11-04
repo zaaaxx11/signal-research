@@ -100,6 +100,7 @@ __all__ = [
     "CAP_MINIMUM",
     "CachedDocument",
     "BodyMemo",
+    "GROUP_BY_COLUMNS",
     "MEMO_LIMIT",
     "SectorTally",
     "UNCLASSIFIED_ID",
@@ -238,6 +239,11 @@ class SectorTally:
     (cap, cap × change) the cap-weighted average needs. ``members`` is
     ``(cap_usd, change_pct, symbol)`` for the rows that carry **both** a cap and
     a metric — the only rows a treemap can place or a weighted average can weigh.
+
+    ``weighted_1w``/``weighted_1m``/``weighted_3m`` are the cap-weighted sums
+    for the performance-window fields (``ret_1w`` / ``ret_1m`` / ``ret_3m``),
+    accumulated over the same cap+metric rows as ``weighted`` so every average
+    shares the same denominator.
     """
 
     id: str
@@ -248,6 +254,12 @@ class SectorTally:
     cap_total: float = 0.0
     cap_sum: float = 0.0
     weighted: float = 0.0
+    weighted_1w: float = 0.0
+    weighted_1m: float = 0.0
+    weighted_3m: float = 0.0
+    cap_1w: float = 0.0
+    cap_1m: float = 0.0
+    cap_3m: float = 0.0
     members: list[tuple[float, float, str]] = field(default_factory=list)
 
     @property
@@ -261,23 +273,88 @@ class SectorTally:
 
         return (self.weighted / self.cap_sum) if self.cap_sum > 0 else None
 
+    @property
+    def perf_1w(self) -> float | None:
+        return (self.weighted_1w / self.cap_1w) if self.cap_1w > 0 else None
 
-def tally_sectors(rows: Iterable[Mapping[str, Any]]) -> dict[str, SectorTally]:
-    """One pass over the universe → one tally per sector, keyed by id.
+    @property
+    def perf_1m(self) -> float | None:
+        return (self.weighted_1m / self.cap_1m) if self.cap_1m > 0 else None
 
-    The metric is the row's ``change_pct`` — the cell a screen returns and the
-    depth store does not carry. A row without it stays in ``count`` (it is in the
-    sector and in the universe) but joins no average and no advance/decline
-    count: unknown is not flat. Two rows in one sector whose caps cannot be read
-    behave the same way, which is why the treemap's ``mapped`` is published
-    beside its ``universe_total`` rather than assumed equal to it.
+    @property
+    def perf_3m(self) -> float | None:
+        return (self.weighted_3m / self.cap_3m) if self.cap_3m > 0 else None
+
+
+#: Performance-window fields the tally accumulates: (row_field, weighted_attr,
+#: cap_attr).
+_PERF_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("ret_1w", "weighted_1w", "cap_1w"),
+    ("ret_1m", "weighted_1m", "cap_1m"),
+    ("ret_3m", "weighted_3m", "cap_3m"),
+)
+
+
+#: The survey columns a group-by can read. "capitalization" is computed from
+#: ``market_cap_usd`` rather than read from a single cell.
+GROUP_BY_COLUMNS: frozenset[str] = frozenset({"sector", "industry", "country"})
+
+#: Capitalisation brackets, lower bound (inclusive) → label. A cap of exactly
+#: ``10e9`` enters the "Large" bracket; a row with no cap enters the last one.
+_CAP_BRACKETS: tuple[tuple[float, str], ...] = (
+    (200e9, "Mega Cap ($200B+)"),
+    (10e9, "Large Cap ($10B-200B)"),
+    (2e9, "Mid Cap ($2B-10B)"),
+    (300e6, "Small Cap ($300M-2B)"),
+    (0, "Micro Cap (<$300M)"),
+)
+
+_GROUP_BY_DEFAULT = "sector"
+
+
+def _group_by_column(group_by: str, row: Mapping[str, Any]) -> str | None:
+    """The label for *one* row under ``group_by``.
+
+    "capitalization" buckets ``market_cap_usd`` into :data:`_CAP_BRACKETS`
+    and returns a stable label; every other column reads a cell verbatim.
+    """
+    if group_by in GROUP_BY_COLUMNS:
+        return text(row.get(group_by))
+    if group_by == "capitalization":
+        cap = number(row.get("market_cap_usd"))
+        if cap is None:
+            return "Unknown Cap"
+        for floor, label in _CAP_BRACKETS:
+            if cap >= floor:
+                return label
+        return "Unknown Cap"
+    return None
+
+
+def tally_sectors(
+    rows: Iterable[Mapping[str, Any]], *, group_by: str = _GROUP_BY_DEFAULT
+) -> dict[str, SectorTally]:
+    """One pass over the universe → one tally per group, keyed by id.
+
+    ``group_by`` names the column whose value defines the bucket: ``"sector"``
+    (the default), ``"industry"``, ``"country"``, or ``"capitalization"``
+    (which buckets ``market_cap_usd``).  The metric is the row's ``change_pct``
+    — the cell a screen returns and the depth store does not carry.  A row
+    without it stays in ``count`` (it is in the group and in the universe) but
+    joins no average and no advance/decline count: unknown is not flat.
+
+    When ``group_by`` is ``"capitalization"`` the brackets are stable labels
+    (:data:`_CAP_BRACKETS`), so they survive slug conversion and two calls over
+    the same rows produce identical ids.
     """
 
     materialised = list(rows)
-    ids = sector_ids(row.get("sector") for row in materialised)
+    ids = sector_ids(
+        _group_by_column(group_by, row) for row in materialised
+    )
     tallies: dict[str, SectorTally] = {}
     for row in materialised:
-        label = text(row.get("sector"))
+        label = _group_by_column(group_by, row)
         sector = ids[label]
         tally = tallies.get(sector)
         if tally is None:
@@ -301,6 +378,14 @@ def tally_sectors(rows: Iterable[Mapping[str, Any]]) -> dict[str, SectorTally]:
         # a market cap does not need a price change to be a fact. The weighted
         # average, below, needs both.
         tally.cap_total += cap
+        # Multi-timeframe performance windows: accumulated independently of
+        # ``change_pct`` — a row with no daily change can still carry a weekly
+        # return.  Each cap is tracked per-window so the denominator matches.
+        for field, w_attr, c_attr in _PERF_FIELDS:
+            val = number(row.get(field))
+            if val is not None:
+                setattr(tally, w_attr, getattr(tally, w_attr) + cap * val)
+                setattr(tally, c_attr, getattr(tally, c_attr) + cap)
         if change is None:
             continue
         tally.cap_sum += cap

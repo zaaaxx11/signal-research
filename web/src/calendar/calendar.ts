@@ -48,6 +48,10 @@ export interface CalendarReport {
   readonly to: string | null;
   /** Forward in time; past, empty and out-of-window days are already gone. */
   readonly buckets: readonly CalendarBucket[];
+  /** ``false`` when the server does not have a source for this calendar kind. */
+  readonly available: boolean;
+  /** The reason when ``available`` is false. */
+  readonly reason: string | null;
 }
 
 /** The payload is not a calendar document. Distinct from a transport failure. */
@@ -58,12 +62,21 @@ export class CalendarMalformed extends Error {
   }
 }
 
-/** The one GET: the region and the window, both named. */
+export type CalendarKind = "earnings" | "dividends" | "economic";
+
+export const CALENDAR_KINDS: readonly CalendarKind[] = [
+  "earnings",
+  "dividends",
+  "economic",
+];
+
+/** The one GET: the region, the window, and the kind, all named. */
 export function calendarPath(
   region: string = CALENDAR_REGION,
   days: number = CALENDAR_DAYS,
+  kind: CalendarKind = "earnings",
 ): string {
-  const params = new URLSearchParams({ region, days: String(days) });
+  const params = new URLSearchParams({ region, days: String(days), kind });
   return `/market/calendar?${params.toString()}`;
 }
 
@@ -183,7 +196,14 @@ export function readCalendar(body: unknown, options: CalendarReadOptions): Calen
 
   buckets.sort((left, right) => (left.date < right.date ? -1 : left.date > right.date ? 1 : 0));
 
-  return { region: text(body["region"]) ?? CALENDAR_REGION, from, to, buckets };
+  return {
+    region: text(body["region"]) ?? CALENDAR_REGION,
+    from,
+    to,
+    buckets,
+    available: typeof body["available"] === "boolean" ? body["available"] : true,
+    reason: text(body["reason"]),
+  };
 }
 
 /**

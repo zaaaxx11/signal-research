@@ -28,9 +28,10 @@ import pytest
 
 from tests import _market as M
 
-_DOCUMENT_KEYS = frozenset({"as_of", "region", "universe_total", "groups"})
+_DOCUMENT_KEYS = frozenset({"as_of", "region", "group_by", "universe_total", "groups"})
 _GROUP_KEYS = frozenset(
-    {"id", "label", "count", "avg_change", "adv", "dec", "unchanged", "market_cap"}
+    {"id", "label", "count", "avg_change", "adv", "dec", "unchanged", "market_cap",
+     "perf_1w", "perf_1m", "perf_3m"}
 )
 
 

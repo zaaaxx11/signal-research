@@ -444,3 +444,66 @@ async def test_a_store_with_no_dates_is_an_empty_calendar(
     assert body["buckets"] == []
     assert set(body) == _DOCUMENT_KEYS
     assert len(json.dumps(body)) < 400
+
+
+# ---------------------------------------------------------------------------
+# Kinds: dividends and economic
+# ---------------------------------------------------------------------------
+
+
+async def test_dividends_answers_dividend_ex_dates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``kind=dividends`` reads ``dividend_ex_date``, not ``earnings_date``."""
+
+    depth = {
+        "AAA": {**_row("AAA", "2026-11-05"), "dividend_ex_date": "2026-11-12"},
+        "BBB": {**_row("BBB", "2026-11-06"), "dividend_ex_date": "2026-11-13"},
+        "CCC": {**_row("CCC", "2026-11-07")},  # no dividend date
+    }
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth=depth) as harness:
+        _freeze(monkeypatch)
+        body = (await harness.get("/market/calendar", region="us", days="21", kind="dividends")).json()
+
+    assert body["from"] == "2026-10-31"
+    assert body["to"] == "2026-11-21"
+    assert [bucket["date"] for bucket in body["buckets"]] == ["2026-11-12", "2026-11-13"]
+    assert [s["s"] for s in body["buckets"][0]["symbols"]] == ["AAA"]
+    assert [s["s"] for s in body["buckets"][1]["symbols"]] == ["BBB"]
+
+
+async def test_dividends_and_earnings_share_no_memo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two kinds are separate documents, not the same cached body."""
+
+    depth = {
+        "AAA": {**_row("AAA", "2026-11-05"), "dividend_ex_date": "2026-11-05"},
+    }
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth=depth) as harness:
+        _freeze(monkeypatch)
+        earnings = (await harness.get("/market/calendar", region="us", days="21", kind="earnings")).json()
+        dividends = (await harness.get("/market/calendar", region="us", days="21", kind="dividends")).json()
+
+    assert [s["s"] for s in earnings["buckets"][0]["symbols"]] == ["AAA"]
+    assert [s["s"] for s in dividends["buckets"][0]["symbols"]] == ["AAA"]
+
+
+async def test_economic_is_honest_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``kind=economic`` answers ``available: false`` with a named reason, not an error."""
+
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth={}) as harness:
+        _freeze(monkeypatch)
+        response = await harness.get("/market/calendar", region="us", days="21", kind="economic")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["available"] is False
+    assert body["reason"] == "no economic calendar source"
+    assert body["from"] == "2026-10-31"
+    assert body["to"] == "2026-11-21"
+    assert body["buckets"] == []
+
+
+async def test_an_unknown_kind_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async with M.market_client(tmp_path, monkeypatch, rows=[], depth={}) as harness:
+        response = await harness.get("/market/calendar", region="us", kind="weather")
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "invalid_kind"

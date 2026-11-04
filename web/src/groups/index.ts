@@ -8,5 +8,5 @@
 export { GroupsPage, GROUPS_RESERVED_HEIGHT, GROUPS_SKELETON_ROWS } from "./GroupsPage";
 export type { GroupsPageProps } from "./GroupsPage";
 export { GROUPS_REGION, groupsPath, readGroups, screenerHref } from "./groups";
-export type { GroupRow, GroupsReport } from "./groups";
+export type { GroupBy, GroupRow, GroupsReport, GroupsSort } from "./groups";
 export { useGroups } from "./useGroups";

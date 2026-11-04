@@ -89,7 +89,9 @@ describe("GroupsPage", () => {
 
     expect(await screen.findByTestId("groups-table")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/groups?region=us");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/market/groups?region=us&group_by=sector&sort=avg_change&direction=desc",
+    );
 
     const rows = screen.getAllByTestId(/^group-row-/);
     expect(rows).toHaveLength(3);
@@ -242,7 +244,7 @@ describe("GroupsPage", () => {
     render(<GroupsPage />);
 
     const empty = await screen.findByTestId("groups-empty");
-    expect(empty.textContent).toMatch(/no sector groups/i);
+    expect(empty.textContent).toMatch(/no groups/i);
     expect(screen.queryByTestId("groups-table")).toBeNull();
     expect(screen.queryAllByTestId(/^group-row-/)).toHaveLength(0);
   });
@@ -267,6 +269,117 @@ describe("GroupsPage", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("renders the four group-by tabs with sector as default", async () => {
+    stub();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    expect(screen.getByTestId("groups-tab-sector").textContent).toBe("Sector");
+    expect(screen.getByTestId("groups-tab-industry").textContent).toBe("Industry");
+    expect(screen.getByTestId("groups-tab-country").textContent).toBe("Country");
+    expect(screen.getByTestId("groups-tab-capitalization").textContent).toBe("Market Cap");
+    expect(screen.getByTestId("groups-tab-sector").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("groups-tab-industry").getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("re-fetches with group_by=industry when the Industry tab is clicked", async () => {
+    const fetchMock = stub();
+    const user = userEvent.setup();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    await user.click(screen.getByTestId("groups-tab-industry"));
+    await screen.findByTestId("groups-table");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("group_by=industry");
+    expect(screen.getByTestId("groups-tab-industry").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("groups-tab-sector").getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("re-fetches with group_by=country when the Country tab is clicked", async () => {
+    const fetchMock = stub();
+    const user = userEvent.setup();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    await user.click(screen.getByTestId("groups-tab-country"));
+    await screen.findByTestId("groups-table");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("group_by=country");
+  });
+
+  it("re-fetches with group_by=capitalization when the Market Cap tab is clicked", async () => {
+    const fetchMock = stub();
+    const user = userEvent.setup();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    await user.click(screen.getByTestId("groups-tab-capitalization"));
+    await screen.findByTestId("groups-table");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("group_by=capitalization");
+  });
+
+  it("re-fetches with the selected sort key and direction", async () => {
+    const fetchMock = stub();
+    const user = userEvent.setup();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    const sortSelect = screen.getByTestId("groups-sort") as HTMLSelectElement;
+    await user.selectOptions(sortSelect, "count");
+    await screen.findByTestId("groups-table");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("sort=count");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("direction=desc");
+
+    await user.click(screen.getByTestId("groups-sort-dir"));
+    await screen.findByTestId("groups-table");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("direction=asc");
+  });
+
+  it("prints perf cells as an em dash when the server sent none", async () => {
+    stub();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    const technology = screen.getByTestId("group-row-technology");
+    expect(technology.querySelector('[data-testid="group-perf1w-technology"]')?.textContent).toBe("—");
+    expect(technology.querySelector('[data-testid="group-perf1m-technology"]')?.textContent).toBe("—");
+    expect(technology.querySelector('[data-testid="group-perf3m-technology"]')?.textContent).toBe("—");
+  });
+
+  it("prints perf cells when the server reports the windows", async () => {
+    stub(
+      groupsDocument({
+        groups: [
+          {
+            id: "technology",
+            label: "Technology",
+            count: 700,
+            avg_change: 1.42,
+            adv: 400,
+            dec: 300,
+            unchanged: 0,
+            market_cap: 15_200_000_000_000,
+            perf_1w: 2.5,
+            perf_1m: -1.1,
+            perf_3m: 12.0,
+          },
+        ],
+      }),
+    );
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    const row = screen.getByTestId("group-row-technology");
+    expect(row.querySelector('[data-testid="group-perf1w-technology"]')?.textContent).not.toBe("—");
+    expect(row.querySelector('[data-testid="group-perf1m-technology"]')?.textContent).not.toBe("—");
+    expect(row.querySelector('[data-testid="group-perf3m-technology"]')?.textContent).not.toBe("—");
+  });
+
   it("keeps the server's bookkeeping out of the copy", async () => {
     stub();
     render(<GroupsPage />);
@@ -276,6 +389,6 @@ describe("GroupsPage", () => {
     const text = page.textContent ?? "";
     expect(text).not.toMatch(/as_of|as of/i);
     expect(text).not.toContain("2026-11-02T14:30:00Z");
-    expect(text).not.toMatch(/\b(finviz|provider|source|region)\b/i);
+    expect(text).not.toMatch(/\b(finviz|provider|source)\b/i);
   });
 });

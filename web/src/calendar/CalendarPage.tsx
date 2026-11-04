@@ -21,17 +21,21 @@
  *   the answer landing cannot move the page.
  */
 
+import * as React from "react";
+
 import { formatCount } from "@/breadth/format";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
 
 import {
   CALENDAR_DAYS,
+  CALENDAR_KINDS,
   dayLabel,
   overflowCount,
   reportLabel,
   shownSymbols,
   type CalendarBucket,
+  type CalendarKind,
 } from "./calendar";
 import { useCalendar } from "./useCalendar";
 
@@ -180,11 +184,32 @@ export interface CalendarPageProps {
   readonly days?: number;
   /** Today, as `YYYY-MM-DD`. Omitted in the app; pinned by tests and previews. */
   readonly today?: string;
+  readonly kind?: CalendarKind;
 }
 
-export function CalendarPage({ region, days, today }: CalendarPageProps = {}) {
-  const calendar = useCalendar({ region, days, today });
-  const windowDays = days ?? CALENDAR_DAYS;
+const KIND_LABELS: Record<CalendarKind, string> = {
+  earnings: "Earnings",
+  dividends: "Dividends",
+  economic: "Economic",
+};
+
+function ComingSoon({ reason }: { readonly reason: string | null }) {
+  return (
+    <div
+      data-testid="calendar-unavailable"
+      className="flex flex-col items-center justify-center gap-2 px-3 py-6 text-center"
+    >
+      <p className="text-data text-fg-muted">
+        {reason ?? "This calendar is not available yet."}
+      </p>
+    </div>
+  );
+}
+
+export function CalendarPage(props: CalendarPageProps = {}) {
+  const [kind, setKind] = React.useState<CalendarKind>(props.kind ?? "earnings");
+  const calendar = useCalendar({ region: props.region, days: props.days, today: props.today, kind });
+  const windowDays = props.days ?? CALENDAR_DAYS;
 
   return (
     <main
@@ -192,7 +217,32 @@ export function CalendarPage({ region, days, today }: CalendarPageProps = {}) {
       className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
     >
       <div className="mb-1.5 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <h1 className="text-ui font-medium text-fg">Earnings calendar</h1>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h1 className="text-ui font-medium text-fg">Calendar</h1>
+          <nav
+            data-testid="calendar-tabs"
+            aria-label="Calendar type"
+            className="flex items-center gap-0.5"
+          >
+            {CALENDAR_KINDS.map((tabKind) => (
+              <button
+                key={tabKind}
+                type="button"
+                data-testid={`calendar-tab-${tabKind}`}
+                aria-pressed={kind === tabKind}
+                onClick={() => setKind(tabKind)}
+                className={[
+                  "focus-ring rounded-sm px-2 py-0.5 text-data font-medium transition-colors",
+                  kind === tabKind
+                    ? "text-fg"
+                    : "text-fg-subtle hover:text-fg-muted",
+                ].join(" ")}
+              >
+                {KIND_LABELS[tabKind]}
+              </button>
+            ))}
+          </nav>
+        </div>
         <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
           Next {windowDays} days
         </p>
@@ -216,7 +266,9 @@ export function CalendarPage({ region, days, today }: CalendarPageProps = {}) {
             className="flex items-start justify-between gap-3 px-3 py-2"
           >
             <div className="min-w-0">
-              <p className="text-data text-fg">The earnings calendar did not load.</p>
+              <p className="text-data text-fg">
+                The {KIND_LABELS[kind].toLowerCase()} calendar did not load.
+              </p>
               <p className="mt-0.5 text-data text-fg-muted">{calendar.error}</p>
             </div>
             <button
@@ -227,9 +279,11 @@ export function CalendarPage({ region, days, today }: CalendarPageProps = {}) {
               Retry
             </button>
           </div>
+        ) : calendar.status === "unavailable" ? (
+          <ComingSoon reason={calendar.report?.reason ?? null} />
         ) : calendar.report === null || calendar.report.buckets.length === 0 ? (
           <p data-testid="calendar-empty" className="px-3 py-2 text-data text-fg-muted">
-            No earnings in the next {windowDays} days.
+            No {KIND_LABELS[kind].toLowerCase()} events in the next {windowDays} days.
           </p>
         ) : (
           <Days buckets={calendar.report.buckets} />

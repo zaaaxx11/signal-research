@@ -71,10 +71,20 @@ function labels(rows: readonly GroupRow[]): string[] {
 }
 
 describe("groupsPath", () => {
-  it("asks for one region and nothing else", () => {
+  it("asks for one region and the default group-by/sort", () => {
     expect(GROUPS_REGION).toBe("us");
-    expect(groupsPath()).toBe("/market/groups?region=us");
-    expect(groupsPath("eu")).toBe("/market/groups?region=eu");
+    expect(groupsPath()).toBe(
+      "/market/groups?region=us&group_by=sector&sort=avg_change&direction=desc",
+    );
+  });
+
+  it("carries a custom group-by group and sort direction", () => {
+    expect(groupsPath("eu", "industry", "count", "asc")).toBe(
+      "/market/groups?region=eu&group_by=industry&sort=count&direction=asc",
+    );
+    expect(groupsPath("us", "capitalization", "market_cap", "desc")).toBe(
+      "/market/groups?region=us&group_by=capitalization&sort=market_cap&direction=desc",
+    );
   });
 });
 
@@ -93,6 +103,9 @@ describe("readGroups", () => {
       dec: 300,
       unchanged: 0,
       marketCap: 15_200_000_000_000,
+      perf1w: null,
+      perf1m: null,
+      perf3m: null,
     });
   });
 
@@ -199,6 +212,9 @@ describe("breadthLabel", () => {
       dec: 300,
       unchanged: 0,
       marketCap: null,
+      perf1w: null,
+      perf1m: null,
+      perf3m: null,
     };
     expect(breadthLabel(row)).toBe("Technology: 400 advancing, 300 declining");
   });
@@ -213,6 +229,9 @@ describe("breadthLabel", () => {
       dec: null,
       unchanged: null,
       marketCap: null,
+      perf1w: null,
+      perf1m: null,
+      perf3m: null,
     };
     expect(breadthLabel(row)).toMatch(/not reported/i);
   });

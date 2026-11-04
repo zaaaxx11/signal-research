@@ -24,24 +24,40 @@ kilobyte, so there is no reason to lose the dollars). The alternative, a plain
 mean of the percents, would let a USD 40 M microcap outvote a USD 3 T issuer in a
 number a reader compares across sectors of very different size.
 
+Group-by
+--------
+``group_by`` asks :func:`~app.api.sectors.tally_sectors` to read a different
+column: ``"sector"`` (the default, the provider's own twenty-one-name taxonomy),
+``"industry"`` (the parity scan's ``industry`` cell), ``"country"``, or
+``"capitalization"`` (which buckets ``market_cap_usd`` into five stable brackets).
+An unknown value is refused with a ``422``.
+
+Sort
+----
+``sort`` names the key and ``direction`` picks ``"asc"`` or ``"desc"``; the
+default (``avg_change desc``) is unchanged. Valid sort keys: ``name``, ``count``,
+``avg_change``, ``market_cap``. A group whose sort value is ``None`` sorts last
+(ascending) or first (descending), so an unmeasured number is never confused
+with a measured one.
+
+Multi-timeframe performance
+---------------------------
+Every group also carries ``perf_1w``, ``perf_1m`` and ``perf_3m`` — the
+cap-weighted mean of ``ret_1w`` / ``ret_1m`` / ``ret_3m`` from the parity scan.
+A group whose members carry no window value publishes ``null``.
+
 Counts that add up
 ------------------
-``count`` is every row in the sector, and ``adv + dec + unchanged == count`` by
+``count`` is every row in the group, and ``adv + dec + unchanged == count`` by
 construction: ``adv`` is a positive change, ``dec`` a negative one, and
 ``unchanged`` is everything else — exactly zero **or** no metric at all. A name
 with no change did not "advance", and calling it unchanged is the honest reading
 of "we have no move for it"; the map says the same thing by leaving it out of the
 tiles while keeping it in ``count``.
 
-Order
------
-``avg_change`` descending, then ``label`` ascending, with a sector that has no
-weighable member sorted last (``null`` is not a small number). Two calls diff
-cleanly and the table reads top-down as a leaderboard.
-
 Revalidation
 ------------
-``W/"grp-<sha256(v1;region=…;family=…;scan=<generation>;shape=1)>"``, decided from
+``W/"grp-<sha256(v1;region=…;family=…;scan=<generation>;shape=2)">``, decided from
 :func:`app.api.sectors.stamp_for` before any build, with ``Cache-Control:
 no-cache`` on both answers and ``HEAD`` as its own route. The body is small (a
 couple of kilobytes) but the work behind it is not — one 5,576-row pass — so the
@@ -53,7 +69,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 
 from app.api.discovery import _universe_family
@@ -69,52 +85,127 @@ from app.api.sectors import (
     tally_sectors,
     universe_for,
 )
+from app.auth import ApiError
 
 router = APIRouter(tags=["discovery"])
 
 #: The document's shape and meaning, folded into the tag (see ``MAP_SHAPE``).
-GROUPS_SHAPE = "1"
+#: Bumped to ``"2"`` because ``group_by``, ``sort``, ``direction`` and perf
+#: columns change the document's contract.
+GROUPS_SHAPE = "2"
+
+#: Values ``group_by`` accepts.  ``sector`` (the default) reads the provider's
+#: ``sector`` cell; ``industry`` reads the parity scan's ``industry``;
+#: ``country`` reads the scan's ``country``; ``capitalization`` buckets
+#: ``market_cap_usd`` into five brackets.
+GROUP_BY_VALUES: frozenset[str] = frozenset({"sector", "industry", "country", "capitalization"})
+GROUP_BY_DEFAULT = "sector"
+
+#: Sort keys the endpoint accepts.
+SORT_KEYS: frozenset[str] = frozenset({"name", "count", "avg_change", "market_cap"})
+SORT_DEFAULT = "avg_change"
+
+
+def _sort_key(sort: str, direction: str):
+    """A key function for a group dict, with ``None``-last semantics."""
+    reverse = direction == "desc"
+
+    def key(group: dict[str, Any]):
+        value = group.get(_SORT_FIELD_MAP.get(sort, sort))
+        if value is None:
+            # None sorts last ascending, first descending — unknown is not
+            # the smallest number.
+            return (0 if reverse else 1, 0)
+        return (1 if reverse else 0, -(value if isinstance(value, (int, float)) else 0) if reverse else value)
+
+    return key
+
+
+_SORT_FIELD_MAP: dict[str, str] = {
+    "name": "label",
+    "count": "count",
+    "avg_change": "avg_change",
+    "market_cap": "market_cap",
+}
+
+
+def _round4(value: float | None) -> float | None:
+    """``None`` passes through; a float rounds to four decimal places."""
+    return None if value is None else round(value, 4)
 
 
 def build_groups_document(
-    rows: Iterable[Mapping[str, Any]], *, region: str, as_of: str
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    region: str,
+    as_of: str,
+    group_by: str = GROUP_BY_DEFAULT,
+    sort: str = SORT_DEFAULT,
+    direction: str = "desc",
 ) -> dict[str, Any]:
-    """The sector table, from one pass over the universe. Pure."""
+    """The groups table, from one pass over the universe. Pure."""
 
-    tallies = tally_sectors(rows)
+    tallies = tally_sectors(rows, group_by=group_by)
     groups: list[dict[str, Any]] = []
     for tally in tallies.values():
-        average = tally.average
         groups.append(
             {
                 "id": tally.id,
                 "label": tally.label,
                 "count": tally.count,
-                "avg_change": None if average is None else round(average, 4),
+                "avg_change": _round4(tally.average),
                 "adv": tally.adv,
                 "dec": tally.dec,
                 "unchanged": tally.count - tally.adv - tally.dec,
                 "market_cap": int(round(tally.cap_total)),
+                "perf_1w": _round4(tally.perf_1w),
+                "perf_1m": _round4(tally.perf_1m),
+                "perf_3m": _round4(tally.perf_3m),
             }
         )
-    # `-(-inf)` sorts a sector with nothing to weigh to the end: an unknown move
-    # is not the smallest move. Ties break on the label, so the order is total.
+
+    # Default sort: avg_change descending, label ascending.
     groups.sort(
         key=lambda group: (
             -(group["avg_change"] if group["avg_change"] is not None else float("-inf")),
             group["label"],
         )
     )
+
+    # Apply requested sort if different from default.
+    if sort != SORT_DEFAULT or direction != "desc":
+        sort_atom = _SORT_FIELD_MAP.get(sort, sort)
+        if direction == "desc":
+            groups.sort(
+                key=lambda g: (
+                    -((g[sort_atom] if g.get(sort_atom) is not None else -1e308) if isinstance(g.get(sort_atom), (int, float)) else 0),
+                    g["label"],
+                )
+            )
+        else:
+            groups.sort(
+                key=lambda g: (
+                    (g[sort_atom] if g.get(sort_atom) is not None else 1e308) if isinstance(g.get(sort_atom), (int, float)) else 0,
+                    g["label"],
+                )
+            )
+
     return {
         "as_of": as_of,
         "region": region,
+        "group_by": group_by,
         "universe_total": sum(group["count"] for group in groups),
         "groups": groups,
     }
 
 
 def groups_revision(
-    *, region: str, family: str, generation: int, shape: str = GROUPS_SHAPE
+    *,
+    region: str,
+    family: str,
+    generation: int,
+    shape: str = GROUPS_SHAPE,
+    group_by: str = GROUP_BY_DEFAULT,
 ) -> str:
     """The answer's identity, from the inputs that decide it."""
 
@@ -124,6 +215,7 @@ def groups_revision(
         f";family={family}"
         f";scan={int(generation)}"
         f";shape={shape}"
+        f";group_by={group_by}"
     )
 
 
@@ -133,21 +225,41 @@ def _build(
     region: str,
     family: str,
     generation: int,
+    group_by: str = GROUP_BY_DEFAULT,
+    sort: str = SORT_DEFAULT,
+    direction: str = "desc",
 ) -> CachedDocument:
     """Build, encode and name one document (the memo miss path)."""
 
-    document = build_groups_document(rows, region=region, as_of=moment())
+    document = build_groups_document(
+        rows,
+        region=region,
+        as_of=moment(),
+        group_by=group_by,
+        sort=sort,
+        direction=direction,
+    )
     return CachedDocument(
         body=encode(document),
         etag=etag(
             "grp",
-            groups_revision(region=region, family=family, generation=generation),
+            groups_revision(
+                region=region, family=family, generation=generation, group_by=group_by
+            ),
         ),
         generation=int(generation),
     )
 
 
-async def _groups_answer(request: Request, *, region: str, head: bool) -> Response:
+async def _groups_answer(
+    request: Request,
+    *,
+    region: str,
+    head: bool,
+    group_by: str = GROUP_BY_DEFAULT,
+    sort: str = SORT_DEFAULT,
+    direction: str = "desc",
+) -> Response:
     """The document, its ``304``, or its ``HEAD`` — cheapest path first."""
 
     family = _universe_family(region, None)
@@ -155,12 +267,12 @@ async def _groups_answer(request: Request, *, region: str, head: bool) -> Respon
 
     stamp = stamp_for(request, region=region, family=family)
     if stamp is not None:
-        cached = memo.get((region, family, stamp))
+        cached = memo.get((region, family, group_by, stamp))
         if cached is not None:
             return serve(request, cached, scan="hit", head=head)
 
     page = await universe_for(request, region=region, family=family)
-    key = (region, family, page.generation)
+    key = (region, family, group_by, page.generation)
     cached = memo.get(key)
     if cached is None:
         cached = memo.put(
@@ -170,27 +282,96 @@ async def _groups_answer(request: Request, *, region: str, head: bool) -> Respon
                 region=region,
                 family=family,
                 generation=page.generation,
+                group_by=group_by,
+                sort=sort,
+                direction=direction,
             ),
         )
     return serve(request, cached, scan=page.scan, head=head)
 
 
 @router.get("/market/groups")
-async def market_groups(request: Request, region: str = "us") -> Response:
-    """Every sector with its counts, its weighted move and its size (GET)."""
+async def market_groups(
+    request: Request,
+    region: str = "us",
+    group_by: str = Query(GROUP_BY_DEFAULT),
+    sort: str = Query(SORT_DEFAULT),
+    direction: str = Query("desc"),
+) -> Response:
+    """Every group with its counts, its weighted move and its size (GET).
 
-    return await _groups_answer(request, region=region, head=False)
+    ``group_by``: ``"sector"`` (default), ``"industry"``, ``"country"``, or
+    ``"capitalization"``.  Unknown is a ``422``.
+
+    ``sort``: ``"avg_change"`` (default), ``"name"``, ``"count"``, or
+    ``"market_cap"``.  Unknown is a ``422``.
+
+    ``direction``: ``"asc"`` or ``"desc"`` (default).  Unknown is a ``422``.
+    """
+
+    if group_by not in GROUP_BY_VALUES:
+        raise ApiError(
+            status_code=422,
+            error="invalid_group_by",
+            message=(
+                f"group_by must be one of {', '.join(sorted(GROUP_BY_VALUES))};"
+                f" got {group_by!r}"
+            ),
+        )
+
+    if sort not in SORT_KEYS:
+        raise ApiError(
+            status_code=422,
+            error="invalid_sort",
+            message=(
+                f"sort must be one of {', '.join(sorted(SORT_KEYS))};"
+                f" got {sort!r}"
+            ),
+        )
+
+    if direction not in ("asc", "desc"):
+        raise ApiError(
+            status_code=422,
+            error="invalid_direction",
+            message=f"direction must be 'asc' or 'desc'; got {direction!r}",
+        )
+
+    return await _groups_answer(
+        request,
+        region=region,
+        head=False,
+        group_by=group_by,
+        sort=sort,
+        direction=direction,
+    )
 
 
 @router.head("/market/groups", include_in_schema=False)
-async def market_groups_head(request: Request, region: str = "us") -> Response:
+async def market_groups_head(
+    request: Request,
+    region: str = "us",
+    group_by: str = Query(GROUP_BY_DEFAULT),
+    sort: str = Query(SORT_DEFAULT),
+    direction: str = Query("desc"),
+) -> Response:
     """The same headers as GET, no body."""
 
-    return await _groups_answer(request, region=region, head=True)
+    return await _groups_answer(
+        request,
+        region=region,
+        head=True,
+        group_by=group_by,
+        sort=sort,
+        direction=direction,
+    )
 
 
 __all__ = [
     "GROUPS_SHAPE",
+    "GROUP_BY_DEFAULT",
+    "GROUP_BY_VALUES",
+    "SORT_DEFAULT",
+    "SORT_KEYS",
     "build_groups_document",
     "groups_revision",
     "market_groups",

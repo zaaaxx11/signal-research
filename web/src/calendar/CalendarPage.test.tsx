@@ -69,7 +69,7 @@ describe("CalendarPage", () => {
 
     await screen.findByTestId("calendar-daylist");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/calendar?region=us&days=21");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/calendar?region=us&days=21&kind=earnings");
   });
 
   it("draws days forward and never draws a past day or an empty one", async () => {
@@ -165,7 +165,7 @@ describe("CalendarPage", () => {
     render(<CalendarPage today={TODAY} />);
 
     const empty = await screen.findByTestId("calendar-empty");
-    expect(empty.textContent).toMatch(/no earnings in the next 21 days/i);
+    expect(empty.textContent).toMatch(/no earnings events in the next 21 days/i);
     expect(screen.queryByTestId("calendar-daylist")).toBeNull();
   });
 
@@ -181,7 +181,7 @@ describe("CalendarPage", () => {
     render(<CalendarPage today={TODAY} />);
 
     const empty = await screen.findByTestId("calendar-empty");
-    expect(empty.textContent).toMatch(/no earnings in the next 21 days/i);
+    expect(empty.textContent).toMatch(/no earnings events in the next 21 days/i);
   });
 
   it("reserves one box for loading and for the answer", async () => {

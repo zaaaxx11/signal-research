@@ -18,10 +18,11 @@ import {
   calendarPath,
   readCalendar,
   todayUtc,
+  type CalendarKind,
   type CalendarReport,
 } from "./calendar";
 
-export type CalendarStatus = "loading" | "ready" | "error";
+export type CalendarStatus = "loading" | "ready" | "unavailable" | "error";
 
 export interface CalendarView {
   readonly status: CalendarStatus;
@@ -35,13 +36,15 @@ export interface CalendarQuery {
   readonly days?: number;
   /** Today, as `YYYY-MM-DD`; omitted in the app, pinned by tests and previews. */
   readonly today?: string;
+  readonly kind?: CalendarKind;
 }
 
 export function useCalendar(query: CalendarQuery = {}): CalendarView {
   const region = query.region ?? CALENDAR_REGION;
   const days = query.days ?? CALENDAR_DAYS;
+  const kind = query.kind ?? "earnings";
   const today = query.today;
-  const path = React.useMemo(() => calendarPath(region, days), [region, days]);
+  const path = React.useMemo(() => calendarPath(region, days, kind), [region, days, kind]);
 
   const [state, setState] = React.useState<Omit<CalendarView, "retry">>({
     status: "loading",
@@ -58,9 +61,10 @@ export function useCalendar(query: CalendarQuery = {}): CalendarView {
     getJson(path, controller.signal)
       .then((body) => {
         if (!live) return;
+        const report = readCalendar(body, { today: today ?? todayUtc() });
         setState({
-          status: "ready",
-          report: readCalendar(body, { today: today ?? todayUtc() }),
+          status: report.available ? "ready" : "unavailable",
+          report,
           error: null,
         });
       })

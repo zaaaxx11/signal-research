@@ -31,6 +31,7 @@ import { InsiderDetail } from "./InsiderDetail";
 interface Entry {
   readonly symbol: string;
   readonly name: string | null;
+  readonly volume: number;
 }
 
 const SIGNALS_PATH = "/market/signals?region=us&per=20";
@@ -40,7 +41,11 @@ const ENTRY_GROUP = "most_active";
 interface SignalsShape {
   readonly groups?: readonly {
     readonly id?: unknown;
-    readonly rows?: readonly { readonly symbol?: unknown; readonly name?: unknown }[];
+    readonly rows?: readonly {
+      readonly symbol?: unknown;
+      readonly name?: unknown;
+      readonly volume?: unknown;
+    }[];
   }[];
 }
 
@@ -59,12 +64,35 @@ function readEntries(payload: unknown): Entry[] {
     const symbol = typeof row.symbol === "string" ? row.symbol.trim().toUpperCase() : "";
     if (!symbol || seen.has(symbol)) continue;
     seen.add(symbol);
-    entries.push({ symbol, name: typeof row.name === "string" ? row.name : null });
+    entries.push({
+      symbol,
+      name: typeof row.name === "string" ? row.name : null,
+      volume: typeof row.volume === "number" ? row.volume : 0,
+    });
   }
   return entries;
 }
 
 type EntriesStatus = "loading" | "ready" | "error";
+
+type EntryTab = "latest" | "top_weekly" | "top_10_owner";
+
+const TAB_LABELS: Record<EntryTab, string> = {
+  latest: "Latest Trading",
+  top_weekly: "Top Weekly",
+  top_10_owner: "Top 10% Owner",
+};
+
+const TAB_LIST: readonly EntryTab[] = ["latest", "top_weekly", "top_10_owner"];
+
+function sortEntries(entries: Entry[], tab: EntryTab): Entry[] {
+  if (tab === "latest") return entries;
+  if (tab === "top_weekly") {
+    return [...entries].sort((a, b) => b.volume - a.volume);
+  }
+  // top_10_owner: sort by volume desc as proxy (no ownership % in signals)
+  return [...entries].sort((a, b) => b.volume - a.volume);
+}
 
 export function InsiderPage() {
   const [entries, setEntries] = React.useState<Entry[]>([]);
@@ -73,6 +101,7 @@ export function InsiderPage() {
   const [typed, setTyped] = React.useState("");
   const [selected, setSelected] = React.useState<string | null>(null);
   const [attempt, setAttempt] = React.useState(0);
+  const [tab, setTab] = React.useState<EntryTab>("latest");
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
   React.useEffect(() => {
@@ -133,6 +162,8 @@ export function InsiderPage() {
     setTyped("");
   };
 
+  const sorted = React.useMemo(() => sortEntries(entries, tab), [entries, tab]);
+
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-surface px-3 py-2">
@@ -171,8 +202,28 @@ export function InsiderPage() {
             </form>
           </div>
 
+          {/* Tab bar */}
+          <div role="tablist" aria-label="Company list" className="shrink-0 flex border-b border-line">
+            {TAB_LIST.map((key) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => setTab(key)}
+                className={cn(
+                  "flex-1 px-2 py-1.5 text-center text-label uppercase tracking-[0.04em] transition-colors",
+                  tab === key
+                    ? "border-b-2 border-accent text-accent-text"
+                    : "text-fg-subtle hover:text-fg",
+                )}
+              >
+                {TAB_LABELS[key]}
+              </button>
+            ))}
+          </div>
+
           <h2 id="insider-entries" className="shrink-0 px-3 pt-2 text-label uppercase tracking-[0.08em] text-fg-subtle">
-            Most active
+            {TAB_LABELS[tab]}
           </h2>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
@@ -191,13 +242,13 @@ export function InsiderPage() {
                   Try again
                 </button>
               </div>
-            ) : entries.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <p className="px-1.5 py-2 text-data text-fg-subtle">
                 No companies to list. Type a symbol instead.
               </p>
             ) : (
               <ul>
-                {entries.map((entry) => (
+                {sorted.map((entry) => (
                   <li key={entry.symbol}>
                     <button
                       type="button"
@@ -223,9 +274,9 @@ export function InsiderPage() {
             )}
           </div>
 
-          {entries.length > 0 ? (
+          {sorted.length > 0 ? (
             <p className="shrink-0 border-t border-line px-3 py-1 text-label text-fg-subtle">
-              {formatCount(entries.length)} companies
+              {formatCount(sorted.length)} companies
             </p>
           ) : null}
         </section>

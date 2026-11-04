@@ -53,6 +53,7 @@ partition, so the two tabs describe one population between them.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Mapping
@@ -80,6 +81,10 @@ from app.screen.depth_source import current_depth, resolve_store_path
 logger = logging.getLogger("mee.calendar")
 
 router = APIRouter(tags=["discovery"])
+
+#: The calendar kinds the route answers. Earnings and dividends come from the
+#: depth store; economic is pending a source.
+_CALENDAR_KINDS: frozenset[str] = frozenset({"earnings", "dividends", "economic"})
 
 #: The default window, in days, and the clamp a caller's ``days`` is held to.
 #: Three weeks is one earnings season's visible edge; sixty is two months, past
@@ -201,6 +206,7 @@ def build_calendar_document(
     days: int,
     today: date,
     as_of: str,
+    kind: str = "earnings",
 ) -> dict[str, Any]:
     """The calendar document, from one pass over the depth rows. Pure.
 
@@ -208,14 +214,20 @@ def build_calendar_document(
     ``[today, today + days]`` are published. Inside a bucket, names sort by market
     cap descending then symbol, so the fifty that survive truncation are the
     fifty a reader is most likely to be looking for.
+
+    ``kind`` selects the date field: ``earnings_date`` for earnings,
+    ``dividend_ex_date`` for dividends.
     """
+
+    field_map = {"earnings": "earnings_date", "dividends": "dividend_ex_date"}
+    date_field = field_map.get(kind, "earnings_date")
 
     end = today + timedelta(days=days)
     buckets: dict[date, list[tuple[float, str, str | None]]] = {}
     for symbol, fields in symbols.items():
         if not isinstance(fields, Mapping) or not _in_region(fields, region):
             continue
-        when = parse_earnings_date(fields.get("earnings_date"), today=today)
+        when = parse_earnings_date(fields.get(date_field), today=today)
         if when is None or when < today or when > end:
             continue
         cap = number(fields.get("market_cap"))
@@ -246,7 +258,7 @@ def build_calendar_document(
 
 
 def calendar_revision(
-    *, region: str, days: int, start: date, depth: str, shape: str = CALENDAR_SHAPE
+    *, region: str, days: int, start: date, depth: str, kind: str = "earnings", shape: str = CALENDAR_SHAPE
 ) -> str:
     """The answer's identity: the window and the store version, nothing else."""
 
@@ -256,6 +268,7 @@ def calendar_revision(
         f";days={int(days)}"
         f";from={start.isoformat()}"
         f";depth={depth}"
+        f";kind={kind}"
         f";shape={shape}"
     )
 
@@ -283,7 +296,7 @@ def _depth_identity(request: Request) -> str:
 
 
 async def _calendar_answer(
-    request: Request, *, region: str, days: str, head: bool
+    request: Request, *, region: str, days: str, kind: str, head: bool
 ) -> Response:
     """The document, its ``304``, or its ``HEAD`` — the ``304`` before any parse."""
 
@@ -292,7 +305,7 @@ async def _calendar_answer(
     start = _today()
     store = _depth_identity(request)
     memo = memo_for(request, "calendar", limit=16)
-    key = (region, window, start.isoformat(), store)
+    key = (kind, region, window, start.isoformat(), store)
     cached = memo.get(key)
     if cached is None:
         # The store's own stamp is the honest `as_of` for earnings dates: they do
@@ -305,6 +318,7 @@ async def _calendar_answer(
             days=window,
             today=start,
             as_of=snapshot.as_of or moment(),
+            kind=kind,
         )
         cached = memo.put(
             key,
@@ -313,7 +327,7 @@ async def _calendar_answer(
                 etag=etag(
                     "cal",
                     calendar_revision(
-                        region=region, days=window, start=start, depth=store
+                        region=region, days=window, start=start, depth=store, kind=kind
                     ),
                 ),
                 generation=0,
@@ -322,22 +336,90 @@ async def _calendar_answer(
     return serve(request, cached, scan="depth", head=head)
 
 
+def _unavailable_document(*, region: str, days: str, reason: str) -> dict[str, Any]:
+    """The honest answer for a calendar whose source is not integrated yet.
+
+    ``available: false`` is a statement about the data, not a failure: the
+    window is still named, so a client can label the axis it would have drawn.
+    """
+
+    start = _today()
+    window = _days(days)
+    return {
+        "available": False,
+        "reason": reason,
+        "region": region,
+        "from": start.isoformat(),
+        "to": (start + timedelta(days=window)).isoformat(),
+        "buckets": [],
+    }
+
+
+def _kind(raw: str) -> str:
+    """The calendar kind, or ``422 invalid_kind``."""
+
+    kind = str(raw).strip().casefold()
+    if kind not in _CALENDAR_KINDS:
+        raise ApiError(
+            status_code=422,
+            error="invalid_kind",
+            message=f"kind must be earnings, dividends, or economic; got {kind!r}",
+        )
+    return kind
+
+
 @router.get("/market/calendar")
 async def market_calendar(
-    request: Request, region: str = "us", days: str = str(DAYS_DEFAULT)
+    request: Request,
+    region: str = "us",
+    days: str = str(DAYS_DEFAULT),
+    kind: str = "earnings",
 ) -> Response:
-    """Earnings dates inside the window, grouped by day (GET)."""
+    """Calendar dates inside the window, grouped by day (GET).
 
-    return await _calendar_answer(request, region=region, days=days, head=False)
+    ``kind`` selects the calendar: ``earnings`` reads ``earnings_date`` from the
+    depth store, ``dividends`` reads ``dividend_ex_date``, and ``economic``
+    answers ``available: false`` until a source is integrated.
+    """
+
+    resolved = _kind(kind)
+    if resolved == "economic":
+        document = _unavailable_document(
+            region=region, days=days, reason="no economic calendar source"
+        )
+        return Response(
+            content=encode(document),
+            media_type="application/json",
+        )
+
+    return await _calendar_answer(
+        request, region=region, days=days, kind=resolved, head=False
+    )
 
 
 @router.head("/market/calendar", include_in_schema=False)
 async def market_calendar_head(
-    request: Request, region: str = "us", days: str = str(DAYS_DEFAULT)
+    request: Request,
+    region: str = "us",
+    days: str = str(DAYS_DEFAULT),
+    kind: str = "earnings",
 ) -> Response:
     """The same headers as GET, no body."""
 
-    return await _calendar_answer(request, region=region, days=days, head=True)
+    resolved = _kind(kind)
+    if resolved == "economic":
+        document = _unavailable_document(
+            region=region, days=days, reason="no economic calendar source"
+        )
+        body = encode(document)
+        return Response(
+            status_code=200,
+            headers={"Content-Length": str(len(body))},
+        )
+
+    return await _calendar_answer(
+        request, region=region, days=days, kind=resolved, head=True
+    )
 
 
 __all__ = [

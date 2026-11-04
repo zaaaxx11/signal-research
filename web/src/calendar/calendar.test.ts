@@ -49,8 +49,8 @@ function document(overrides: Record<string, unknown> = {}) {
 describe("calendarPath", () => {
   it("names the region and the window in the one request", () => {
     expect(CALENDAR_DAYS).toBe(21);
-    expect(calendarPath()).toBe("/market/calendar?region=us&days=21");
-    expect(calendarPath("eu", 7)).toBe("/market/calendar?region=eu&days=7");
+    expect(calendarPath()).toBe("/market/calendar?region=us&days=21&kind=earnings");
+    expect(calendarPath("eu", 7)).toBe("/market/calendar?region=eu&days=7&kind=earnings");
   });
 });
 
