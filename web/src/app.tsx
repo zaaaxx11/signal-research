@@ -26,6 +26,9 @@ import { HomePage } from "@/home/HomePage";
 import { ScreenerScreen } from "@/screener/ScreenerScreen";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { NotFoundPage } from "@/shell/NotFoundPage";
+import { ToastCenter } from "@/components/ToastCenter";
+import { ConfirmDialogCanvas } from "@/components/ConfirmDialog";
+import { HoverBubble } from "@/components/HoverBubble";
 import { HeaderBar } from "@/shell/HeaderBar";
 import { StockPage } from "@/stock/StockPage";
 import type { SymbolHit } from "@/lib/api";
@@ -238,6 +241,10 @@ export function App() {
       ) : (
         <NotFoundPage path={route.path} />
       )}
+
+      <ToastCenter />
+      <ConfirmDialogCanvas />
+      <HoverBubble />
     </div>
   );
 }

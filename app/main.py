@@ -30,6 +30,7 @@ from starlette.types import Scope
 from app import __version__
 from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
 from app.api import alt as alt_api
+from app.api import enrich as enrich_api
 from app.api import market_news as market_news_api
 from app.api import calendar as calendar_api
 from app.api import insider as insider_api
@@ -859,6 +860,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: minute. ``GET /market/quotes``: the batch lookup a watchlist calls, reading
     #: equities from the scan and the rest through the same alt reader.
     mount_router(application, alt_api.router)
+    #: ``GET /market/crypto/meta`` + ``/market/crypto/global``: the crypto
+    #: catalogue's universe from keyless CoinGecko and DeFiLlama — cap, rank,
+    #: supply, logo, TVL — keyed by symbol so a client joins into ``/market/alt``.
+    mount_router(application, enrich_api.router)
     mount_router(application, market_news_api.router)
     #: ``GET /market/insider``: the insider index — net share change, ranked —
     #: from one join of the depth store and one pass over the selector's universe.

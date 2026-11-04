@@ -182,6 +182,20 @@
   --accent-fg: #1f0a14; /* ink on the fill: 5.43:1 */
   --accent-soft: #31262c; /* shadcn `accent` surface: menu hover, skeleton pulse */
 
+  /* ---- section title palette ------------------------------------------- */
+  /* Eight solid fills, one per distinct section, hue-separated from each other
+   * and from the data channels (up/down/alert/rose). Ink is one shared near-
+   * black: every fill here is light enough that #17121a clears AA. */
+  --title-1: #7c9cff; /* blue  — home */
+  --title-2: #56c8e8; /* cyan  — screener */
+  --title-3: #5fd0a5; /* mint  — etf / funds */
+  --title-4: #a98ef8; /* violet — maps */
+  --title-5: #ffa76b; /* orange — charts */
+  --title-6: #ffd166; /* yellow — news */
+  --title-7: #a3e06b; /* lime  — groups / insider */
+  --title-8: #e07af0; /* magenta — futures/forex/crypto */
+  --title-ink: #17121a; /* ink on every title fill */
+
   /* ---- density -------------------------------------------------------- */
   --row-pitch: 24px;
   --header-height: 24px;
@@ -296,6 +310,18 @@
   --accent-text: #a3144c; /* text on paper: 6.50 on --row-hover */
   --accent-fg: #ffffff; /* ink on the fill: 6.79:1 */
   --accent-soft: #f6e6ed; /* shadcn `accent` surface: menu hover, skeleton pulse */
+
+  /* ---- section title palette ------------------------------------------- */
+  /* The same eight hues at a darker weight, white ink. */
+  --title-1: #3b5bdb;
+  --title-2: #0e7490;
+  --title-3: #0f766e;
+  --title-4: #6d28d9;
+  --title-5: #c2410c;
+  --title-6: #a16207;
+  --title-7: #4d7c0f;
+  --title-8: #a21caf;
+  --title-ink: #ffffff;
 
   /* ---- shadcn semantic aliases ---------------------------------------- */
   /* Spelled out rather than aliased with var(): a value that resolves inside
