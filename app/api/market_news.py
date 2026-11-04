@@ -133,6 +133,44 @@ def news_service_of(request: Request) -> Any:
     return service
 
 
+async def warm_market_news(application: Any, limit: int = 60) -> bool:
+    """Populate the merged market-news document before a reader asks for it.
+
+    The first request for the market feed pays for every provider round trip —
+    a merge over the largest index funds and companies, which is seconds, not
+    milliseconds.  A background warm-up at startup moves that cost off the
+    reader's first paint: the document is already in the cache when the first
+    visitor arrives, and the cache's own 60-second bucket refreshes it.
+
+    Returns ``True`` when a document was built.  A failure is not an error:
+    the route still answers honestly, and a warm-up that cannot reach a
+    provider must not stop the process from serving.
+    """
+
+    from datetime import UTC, datetime
+
+    moment = datetime.now(UTC)
+    cache = getattr(application.state, "market_news_cache", None)
+    if cache is None:
+        cache = _MarketNewsCache()
+        application.state.market_news_cache = cache
+    if cache.get(limit, moment) is not None:
+        return False
+
+    try:
+        service = getattr(application.state, "news", None)
+        if service is None:
+            from app.news.service import build_news_service
+
+            service = build_news_service()
+            application.state.news = service
+        document = await _build(service, limit, moment)
+    except Exception:  # noqa: BLE001 - a warm-up must never break startup
+        return False
+    cache.put(limit, moment, document)
+    return True
+
+
 def _moment(value: object) -> datetime | None:
     """ISO-8601 → an aware datetime, or ``None``.
 

@@ -11,6 +11,7 @@ exactly that) never share a database or an export directory.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -661,9 +662,16 @@ async def _engine_lifespan(application: FastAPI):
     if settings is not None:
         hub = await _start_quote_hub(application, settings, dataset)
         depth = await _start_depth(application, settings, dataset)
+
+    # Warm the market-news document in the background so the first reader of
+    # /news does not pay for every provider round trip.  It is a task, not an
+    # await: the route answers honestly until the warm-up lands.
+    news_task = asyncio.create_task(_warm_news(application))
+
     try:
         yield
     finally:
+        news_task.cancel()
         if depth is not None:
             await depth.stop()
         if hub is not None:
@@ -672,6 +680,19 @@ async def _engine_lifespan(application: FastAPI):
             application.state.quote_hub = None
         if hasattr(application.state, "depth"):
             application.state.depth = None
+
+
+async def _warm_news(application: Any) -> None:
+    """Build the market-news document once, quietly."""
+
+    try:
+        from app.api.market_news import warm_market_news
+
+        await warm_market_news(application)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - a warm-up must never break startup
+        return
 
 
 _LOG_CONFIGURED = False
