@@ -268,4 +268,38 @@ describe("PortfolioPage", () => {
     expect(alert.textContent).toMatch(/already a holding/i);
     expect(screen.getAllByTestId("portfolio-row-AAPL")).toHaveLength(1);
   });
+
+  it("draws an allocation chart with donut and top-holdings bar when there are priced rows", async () => {
+    portfolioStore.write(FIXTURE);
+    stub(PRICES);
+
+    render(<PortfolioPage />);
+
+    const section = await screen.findByTestId("portfolio-allocation");
+    expect(section).toBeTruthy();
+    expect(section.textContent).toMatch(/allocation/i);
+    expect(section.textContent).toMatch(/total/i);
+
+    // Donut slices exist for both symbols
+    expect(screen.getByTestId("donut-slice-AAPL")).toBeTruthy();
+    expect(screen.getByTestId("donut-slice-MSFT")).toBeTruthy();
+
+    // Bar chart lists both
+    const bars = screen.getByTestId("allocation-bars");
+    expect(bars.textContent).toContain("AAPL");
+    expect(bars.textContent).toContain("MSFT");
+  });
+
+  it("does not draw an allocation chart when only one holding is priced", async () => {
+    portfolioStore.write([{ symbol: "AAPL", quantity: 10, cost: 100 }]);
+    stub(doc([quoteRow("AAPL", 110)]));
+
+    render(<PortfolioPage />);
+
+    // Wait for quote to arrive
+    await screen.findByTestId("portfolio-row-AAPL");
+
+    // Chart should not render with fewer than 2 priced holdings
+    expect(screen.queryByTestId("portfolio-allocation")).toBeNull();
+  });
 });

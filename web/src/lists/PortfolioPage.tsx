@@ -37,6 +37,7 @@ import {
   type QuoteCellState,
 } from "./cells";
 import { LocalNotice } from "./LocalNotice";
+import { AllocationChart } from "./PortfolioChart";
 import { priceHoldings, totalOf } from "./pnl";
 import { addHolding, portfolioStore, removeHolding, type HoldingInput } from "./storage";
 import { useLocalValue } from "./useLocalValue";
@@ -381,6 +382,10 @@ export function PortfolioPage() {
               {unpriced} holding{unpriced === 1 ? "" : "s"} without a quote{" "}
               {unpriced === 1 ? "is" : "are"} not in this total.
             </p>
+          ) : null}
+
+          {quotes.status === "ready" && total.covered > 0 ? (
+            <AllocationChart rows={rows} />
           ) : null}
         </>
       )}
