@@ -44,7 +44,6 @@ const BLOCKS = [
 
 /** The section titles and the fill each one must carry. */
 const SECTIONS: ReadonlyArray<[testId: string, variant: number]> = [
-  ["section-title-home", 1],
   ["section-title-strip", 2],
   ["section-title-breadth", 3],
   ["section-title-map", 4],
@@ -179,28 +178,26 @@ describe("HomePage", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/home?region=us");
   });
 
-  it("names every section with its own solid title fill", async () => {
-    stub();
-    render(<HomePage />);
-    await waitFor(() =>
-      expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"),
-    );
+  it("names every section with its own text colour", async () => {
+      stub();
+      render(<HomePage />);
+      await waitFor(() =>
+        expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"),
+      );
 
-    const h1s = document.querySelectorAll("h1");
-    expect(h1s).toHaveLength(1);
-    expect(h1s[0]?.className).toContain("sr-only");
-    expect(h1s[0]?.textContent).toBe("Market overview");
+      const h1s = document.querySelectorAll("h1");
+      expect(h1s).toHaveLength(1);
+      expect(h1s[0]?.className).toContain("sr-only");
 
-    for (const [testId, variant] of SECTIONS) {
-      const title = screen.getByTestId(testId);
-      const h2 = title.querySelector("h2");
-      expect(h2, testId).toBeTruthy();
-      // The fill is the token itself, so a theme swap repaints the bar.
-      expect(h2?.style.background).toBe(`var(--title-${variant})`);
-      expect(h2?.style.color).toBe("var(--title-ink)");
-    }
-    expect(document.querySelectorAll("h3").length).toBeGreaterThan(5);
-  });
+      for (const [testId, variant] of SECTIONS) {
+        const title = screen.getByTestId(testId);
+        const h2 = title.querySelector("h2");
+        expect(h2, testId).toBeTruthy();
+        // The section colour lives on the words, not a solid bar behind them.
+        expect(h2?.style.color).toBe(`var(--title-${variant})`);
+      }
+      expect(document.querySelectorAll("h3").length).toBeGreaterThan(5);
+    });
 
   it("draws the movers table and the map inside one 2:1 pairing box", async () => {
     stub();

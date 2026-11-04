@@ -240,8 +240,6 @@ export function HoverBubble({ testId = "hover-bubble" }: { testId?: string }) {
   }, []);
 
   const up = (info?.changePct ?? 0) >= 0;
-  const alpha = tintAlpha(info?.changePct);
-  const tint = `color-mix(in srgb, ${up ? "var(--up)" : "var(--down)"} ${(alpha * 100).toFixed(0)}%, var(--surface-raised))`;
   const formatPct = (value: number | null | undefined) =>
     value == null || !Number.isFinite(value) ? null : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 
@@ -253,7 +251,7 @@ export function HoverBubble({ testId = "hover-bubble" }: { testId?: string }) {
       role="tooltip"
       className="pointer-events-none fixed left-0 top-0 z-[70] w-40 rounded-[6px] p-2.5 shadow-xl ring-1 ring-[var(--border-strong)] transition-opacity duration-150"
       style={{
-        background: tint,
+        background: "var(--surface-raised)",
         opacity: info !== null ? 1 : 0,
         willChange: "transform",
       }}

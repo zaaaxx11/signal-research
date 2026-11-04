@@ -45,20 +45,14 @@ function toneClass(percent: number | null): string {
   return percent > 0 ? "text-up" : "text-down";
 }
 
-/** The automated tint rule, applied to box backgrounds: same curve as the bubble. */
+/**
+ * The automated rule — section and box background stay the page's own; the
+ * move's colour lives on the WORDS: up green / down red, and the bigger the
+ * move the stronger the colour comes through (exported for tests).
+ */
 export function tintAlpha(changePct: number | null | undefined): number {
   if (changePct == null || !Number.isFinite(changePct)) return 0.05;
   return Math.min(0.6, Math.max(0.05, Math.abs(changePct) / 4));
-}
-
-/** The automated tint rule, applied to box backgrounds: same curve as the bubble. */
-export function boxTintStyle(percent: number | null): React.CSSProperties {
-  const alpha = tintAlpha(percent);
-  if (percent === null) return {};
-  const key = percent >= 0 ? "var(--up)" : "var(--down)";
-  return {
-    background: `color-mix(in srgb, ${key} ${(alpha * 100).toFixed(0)}%, var(--surface))`,
-  };
 }
 
 function ChartCard({ index }: { readonly index: ChartIndex }) {
@@ -71,8 +65,7 @@ function ChartCard({ index }: { readonly index: ChartIndex }) {
     <article
       data-testid={`chart-card-${index.symbol}`}
       aria-label={`${index.name} chart`}
-      style={boxTintStyle(percent)}
-      className="flex min-w-0 flex-col overflow-hidden rounded-md border border-line transition-[background-color] duration-300"
+      className="flex min-w-0 flex-col overflow-hidden rounded-md border border-line bg-surface"
       {...quoteProps({
         symbol: index.symbol,
         name: index.name,
@@ -83,7 +76,6 @@ function ChartCard({ index }: { readonly index: ChartIndex }) {
     >
       <header
         className="flex min-w-0 items-baseline gap-1.5 border-b border-line px-2 py-1"
-        style={boxTintStyle(percent)}
       >
         <h3
           data-testid={`chart-card-name-${index.symbol}`}
@@ -270,8 +262,7 @@ export function ChartsPage({ initialSymbol }: ChartsPageProps) {
             </div>
             <article
               data-testid={`charts-single-card-${symbol}`}
-              style={boxTintStyle(singlePercent)}
-              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line transition-[background-color] duration-300"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-surface"
             >
               <Chart
                 symbol={symbol}

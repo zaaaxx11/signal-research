@@ -1,16 +1,13 @@
-import { type CSSProperties, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 /**
- * A solid-background section title — one distinct fill per section kind.
+ * A section title — the page's own background behind it, the section's own
+ * colour on the words. Every section headline carries one of the eight title
+ * tokens (`--title-1` … `--title-8`) as its TEXT colour, so sections are told
+ * apart by the words' colour alone; no chip of paint, no bar.
  *
- * Every boxed section on every page headlines itself with one of the eight
- * title tokens (`--title-1` … `--title-8`), so a reader can tell sections
- * apart by the heading's colour alone. The fill prints its own ink token
- * (`--title-ink`), restated per theme in tokens.css and measured there.
- *
- * `hint` renders a muted explainer after the label; `count` a right-aligned
- * quantity (40, "83 filters"), both inside the same solid block so the
- * heading stays one object.
+ * `hint` renders a muted explainer after the label; `count` a trailing
+ * quantity; `right` any right-aligned control outside the heading itself.
  */
 export function SectionTitle({
   variant,
@@ -29,19 +26,15 @@ export function SectionTitle({
   right?: ReactNode;
   testId?: string;
 }) {
-  const style: CSSProperties = {
-    background: `var(--title-${variant})`,
-    color: "var(--title-ink)",
-  };
   return (
     <div className="mb-2 flex items-center justify-between gap-2" data-testid={testId}>
       <h2
-        style={style}
-        className="inline-flex min-h-7 items-center gap-2 rounded-[6px] px-3 py-1 text-[13px] font-semibold tracking-wide"
+        style={{ color: `var(--title-${variant})` }}
+        className="inline-flex w-max items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide"
       >
         {children}
-        {hint ? <span className="text-[11px] font-normal opacity-75">{hint}</span> : null}
-        {count ? <span className="text-[11px] font-medium opacity-85">{count}</span> : null}
+        {hint ? <span className="text-[10px] font-normal opacity-70">{hint}</span> : null}
+        {count ? <span className="text-[10px] font-medium opacity-85">{count}</span> : null}
       </h2>
       {right}
     </div>

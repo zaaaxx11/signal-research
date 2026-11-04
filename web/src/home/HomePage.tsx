@@ -93,6 +93,7 @@ export function HomePage() {
 
   /** The pair's halves, as paired children: a headline list and the insider feed. */
   const newsCount = news === null ? null : `${news.length}`;
+  void asOf;
 
   return (
     <main data-testid="home" className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2">
@@ -123,12 +124,8 @@ export function HomePage() {
         aria-busy={status === "loading" ? "true" : undefined}
         className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-12"
       >
-        {/* The page's own bar — variant 1, the "home" fill. */}
-        <div className={SPAN.full}>
-          <SectionTitle variant={1} testId="section-title-home" hint={asOf === null ? undefined : `as of ${asOf}`}>
-            Market overview
-          </SectionTitle>
-        </div>
+        {/* The page's own bar — variant 1, the "home" fill. Removed per Raja:
+            the ticker + section titles already orient the page. */}
 
         {/* Indices rows — variant 2. One card, eight tiles, sideways scroll. */}
         <div className={SPAN.full}>

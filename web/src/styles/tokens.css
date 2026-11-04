@@ -134,7 +134,7 @@
   /* Hue 324–330°, chroma 0.008–0.019 OKLCH, channel spread ≤ 9/255: the page
    * is warm charcoal. --row-bg is #181215, six steps of red over green — the
    * tint is visible next to the pink chrome and invisible across 100 rows. */
-  --bg: #100c0e; /* page; the darkest plane */
+  --bg: #000000; /* page: the blackest plane — pink chrome pops on cold black */
   --surface: #181215; /* panels: top bar, table body, empty state */
   --surface-raised: #1f181c; /* menus, popovers, sticky header */
   --surface-sunken: #130e11; /* inset wells, code, footer strip */
@@ -265,7 +265,7 @@
   color-scheme: light;
 
   /* ---- surfaces ------------------------------------------------------- */
-  --bg: #fbf7f8; /* page: warm paper, the plane everything sits on */
+  --bg: #ffffff; /* page: true white; the paper everything sits on */
   --surface: #ffffff; /* panels: top bar, table body, empty state */
   --surface-raised: #f4ebee; /* menus, popovers, sticky header, hovered row */
   --surface-sunken: #f6f1f3; /* inset wells, the search field, code, footer */
@@ -328,7 +328,7 @@
    * this block cannot drift when a dark token moves. The parity test in
    * tokens.test.ts asserts --background === --bg here, the same relationship
    * the `var()` in `:root` expresses. */
-  --background: #fbf7f8;
+  --background: #ffffff;
   --foreground: #1a1215;
   --card: #ffffff;
   --card-foreground: #1a1215;
