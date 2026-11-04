@@ -37,13 +37,16 @@ export interface NewsTableProps {
   readonly state: BlockState;
   readonly news: readonly HomeNews[] | null;
   readonly className?: string;
+  /** Drop the card's own 26 px header: the SectionTitle bar names the section. */
+  readonly hideTitle?: boolean;
 }
 
-export function NewsTable({ state, news, className }: NewsTableProps) {
+export function NewsTable({ state, news, className, hideTitle = false }: NewsTableProps) {
   return (
     <HomeBlock
       id="news"
       title="Headlines"
+      hideTitle={hideTitle}
       className={className}
       state={state}
       minHeight={BLOCK_HEIGHT.headline}

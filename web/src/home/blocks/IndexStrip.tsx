@@ -104,6 +104,8 @@ export interface IndexStripProps {
   readonly sparksState: BlockState;
   readonly sparks: readonly HomeSpark[] | null;
   readonly className?: string;
+  /** Drop the card's own 26 px header: a SectionTitle bar names the section. */
+  readonly hideTitle?: boolean;
 }
 
 function IndexTile({ index }: { index: HomeIndex }) {
@@ -148,6 +150,7 @@ export function IndexStrip({
   sparksState,
   sparks,
   className,
+  hideTitle = false,
 }: IndexStripProps) {
   const loading = indicesState.kind === "loading" || sparksState.kind === "loading";
   const errored = indicesState.kind === "error" || sparksState.kind === "error";
@@ -156,6 +159,7 @@ export function IndexStrip({
     <Card
       id="strip"
       title="Market strip"
+      hideTitle={hideTitle}
       className={className}
       minHeight={BLOCK_HEIGHT.strip}
       actions={<span className="shrink-0 text-[10px] text-fg-subtle">Delayed</span>}

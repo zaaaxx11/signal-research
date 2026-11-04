@@ -64,9 +64,11 @@ export interface MoversBlockProps {
   readonly state: BlockState;
   readonly movers: HomeMovers | null;
   readonly className?: string;
+  /** Drop the card's own 26 px header: the SectionTitle bar names the section. */
+  readonly hideTitle?: boolean;
 }
 
-export function MoversBlock({ state, movers, className }: MoversBlockProps) {
+export function MoversBlock({ state, movers, className, hideTitle = false }: MoversBlockProps) {
   const rows = moverRows(movers);
   const count = movers?.total ?? 0;
 
@@ -74,6 +76,7 @@ export function MoversBlock({ state, movers, className }: MoversBlockProps) {
     <Card
       id="movers"
       title="Movers"
+      hideTitle={hideTitle}
       className={className}
       height={BLOCK_HEIGHT.movers}
       actions={

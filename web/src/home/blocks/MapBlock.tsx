@@ -35,6 +35,8 @@ export interface MapBlockProps {
   readonly state: BlockState;
   readonly map: HomeMap | null;
   readonly className?: string;
+  /** Drop the card's own header (whose text a SectionTitle hint carries). */
+  readonly hideTitle?: boolean;
 }
 
 function MapSkeleton() {
@@ -53,9 +55,9 @@ function MapSkeleton() {
   );
 }
 
-export function MapBlock({ state, map, className }: MapBlockProps) {
+export function MapBlock({ state, map, className, hideTitle = false }: MapBlockProps) {
   return (
-    <Card id="map" title="1-day performance" className={className} height={BLOCK_HEIGHT.map}>
+    <Card id="map" title="1-day performance" hideTitle={hideTitle} className={className} height={BLOCK_HEIGHT.map}>
       {state.kind === "loading" ? (
         <MapSkeleton />
       ) : state.kind !== "ready" ? (
@@ -72,8 +74,9 @@ export function MapBlock({ state, map, className }: MapBlockProps) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 min-w-0 flex-1">
             <MiniMap
-              // The canvas owns the card's whole body: 30 px is the title row.
-              height={BLOCK_HEIGHT.map - 30}
+              // The canvas owns the card's whole body: 30 px is the title row,
+              // 8 px the hairline the hidden header no longer draws.
+              height={hideTitle ? BLOCK_HEIGHT.map - 8 : BLOCK_HEIGHT.map - 30}
               sectors={map.sectors}
               onOpenSymbol={(symbol) => navigate(`/stock/${encodeURIComponent(symbol)}`)}
               ariaLabel="1-day performance by sector"
