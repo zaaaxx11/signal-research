@@ -1,27 +1,24 @@
 /**
- * `/charts`: the major indices as a gallery, and one symbol when the reader
- * asks for one.
+ * `/charts`: five index cards, and one symbol in a full instrument when asked.
  *
- * The nav promises "Charts", so the page opens with the five instruments a
- * market reader checks first — S&P 500, Nasdaq 100, Dow, Russell 2000 and VIX —
- * each in a compact card with its 1-day bar chart and the change against the
- * prior close. The field at the top swaps the gallery for a single full-sized
- * chart; clearing it restores the gallery. That is the whole navigation model:
- * no dropdown, no second route, no modal.
- *
- * Each card owns its own read (`useChartData` through `Chart`) rather than
- * sharing one payload, because the five are five independent symbols and one
- * failing (VIX is the usual one) must not blank the other four. A card header
- * reads the series through `onData`, so the picture and the number beside it
- * are always the same payload.
+ * The rework: the single-symbol view is a charting page, not one canvas —
+ * the six named timeframes (15M, 4H, D, W, M, KALENDER) are tabs above it, the
+ * box carries the product's automated colour rule (up green / down red, the
+ * move's size drives the tint), and every card header and card element is a
+ * HoverBubble target through `quoteProps`, so a ticker beside a chart costs
+ * nothing (data exists) and answers (one attribute).
  */
-
 import * as React from "react";
 
+import { SectionTitle } from "@/components/SectionTitle";
+import { quoteProps } from "@/lib/quoteAttrs";
+import { notify } from "@/lib/notify";
 import { formatChange, formatPrice } from "@/home/signals";
 import { cn } from "@/lib/utils";
 
 import { Chart } from "./Chart";
+import { CHART_TIMEFRAMES, isChartTimeframe } from "./timeframes";
+import type { ChartTimeframeId } from "./timeframes";
 import { seriesChange, type ChartSeries } from "./types";
 
 export interface ChartIndex {
@@ -48,18 +45,46 @@ function toneClass(percent: number | null): string {
   return percent > 0 ? "text-up" : "text-down";
 }
 
+/** The automated tint rule, applied to box backgrounds: same curve as the bubble. */
+export function tintAlpha(changePct: number | null | undefined): number {
+  if (changePct == null || !Number.isFinite(changePct)) return 0.05;
+  return Math.min(0.6, Math.max(0.05, Math.abs(changePct) / 4));
+}
+
+/** The automated tint rule, applied to box backgrounds: same curve as the bubble. */
+export function boxTintStyle(percent: number | null): React.CSSProperties {
+  const alpha = tintAlpha(percent);
+  if (percent === null) return {};
+  const key = percent >= 0 ? "var(--up)" : "var(--down)";
+  return {
+    background: `color-mix(in srgb, ${key} ${(alpha * 100).toFixed(0)}%, var(--surface))`,
+  };
+}
+
 function ChartCard({ index }: { readonly index: ChartIndex }) {
   const [series, setSeries] = React.useState<ChartSeries | null>(null);
   const onData = React.useCallback((next: ChartSeries | null) => setSeries(next), []);
   const change = series !== null ? seriesChange(series) : null;
+  const percent = change?.percent ?? null;
 
   return (
     <article
       data-testid={`chart-card-${index.symbol}`}
       aria-label={`${index.name} chart`}
-      className="flex min-w-0 flex-col overflow-hidden rounded-md border border-line bg-surface"
+      style={boxTintStyle(percent)}
+      className="flex min-w-0 flex-col overflow-hidden rounded-md border border-line transition-[background-color] duration-300"
+      {...quoteProps({
+        symbol: index.symbol,
+        name: index.name,
+        price: change?.last ?? null,
+        changePct: percent,
+        kind: "stock",
+      })}
     >
-      <header className="flex min-w-0 items-baseline gap-1.5 border-b border-line px-2 py-1">
+      <header
+        className="flex min-w-0 items-baseline gap-1.5 border-b border-line px-2 py-1"
+        style={boxTintStyle(percent)}
+      >
         <h3
           data-testid={`chart-card-name-${index.symbol}`}
           className="min-w-0 truncate text-data font-semibold text-fg"
@@ -75,9 +100,9 @@ function ChartCard({ index }: { readonly index: ChartIndex }) {
         </span>
         <span
           data-testid={`chart-card-change-${index.symbol}`}
-          className={cn("nums shrink-0 font-mono text-label", toneClass(change?.percent ?? null))}
+          className={cn("nums shrink-0 font-mono text-label", toneClass(percent))}
         >
-          {change !== null ? formatChange(change.percent) : "—"}
+          {change !== null ? formatChange(percent) : "—"}
         </span>
       </header>
 
@@ -93,7 +118,11 @@ export function ChartsPage({ initialSymbol }: ChartsPageProps) {
       : null,
   );
   const [draft, setDraft] = React.useState(symbol ?? "");
+  const [timeframe, setTimeframe] = React.useState<ChartTimeframeId>("1d");
+  const wasError = React.useRef(false);
   const inputId = React.useId();
+  const [singleSeries, setSingleSeries] = React.useState<ChartSeries | null>(null);
+  const [singleError, setSingleError] = React.useState<string | null>(null);
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -103,17 +132,38 @@ export function ChartsPage({ initialSymbol }: ChartsPageProps) {
     setDraft(next);
   };
 
+  // The single instrument reports through onData/error props; a failed read
+  // that stays failed is one toast, not one per render (parent's dedupe knob).
+  React.useEffect(() => {
+    if (symbol === null) {
+      wasError.current = false;
+      setSingleError(null);
+      return;
+    }
+    if (singleError !== null && !wasError.current) {
+      wasError.current = true;
+      notify.error(`Chart ${symbol} failed`, singleError);
+    }
+    if (singleError === null) {
+      wasError.current = false;
+    }
+  }, [symbol, singleError]);
+
+  const singleChange = singleSeries !== null ? seriesChange(singleSeries) : null;
+  const singlePercent = singleChange?.percent ?? null;
+
   return (
     <main
       data-testid="charts-page"
       data-view={symbol === null ? "gallery" : "single"}
+      data-timeframe={timeframe}
       className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg"
     >
-      <header className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-surface px-2">
-        <h1 className="shrink-0 text-ui font-semibold text-fg">Charts</h1>
-        <p className="min-w-0 truncate text-data text-fg-muted">
-          Index charts, and one symbol at a time
-        </p>
+      <header className="shrink-0">
+        <h1 className="sr-only">Charts</h1>
+        <SectionTitle variant={5} testId="charts-page-title">
+          Charts
+        </SectionTitle>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
@@ -177,17 +227,66 @@ export function ChartsPage({ initialSymbol }: ChartsPageProps) {
             aria-label={`Chart for ${symbol}`}
             className="flex min-h-0 flex-1 flex-col gap-1.5"
           >
-            <div className="flex items-baseline gap-2">
+            <div
+              className="flex items-baseline gap-2"
+              {...quoteProps({
+                symbol,
+                name: symbol,
+                price: singleChange?.last ?? null,
+                changePct: singlePercent,
+                kind: "stock",
+              })}
+            >
               <h2 className="font-mono text-title font-semibold text-fg">{symbol}</h2>
               <p className="text-label text-fg-subtle">Price chart</p>
             </div>
-            <Chart
-              symbol={symbol}
-              height={360}
-              renderer="bars"
-              showVolume
-              className="rounded-md border border-line"
-            />
+            <div
+              role="group"
+              aria-label="Timeframe"
+              data-testid="charts-timeframes"
+              className="flex shrink-0 items-center gap-px"
+            >
+              {CHART_TIMEFRAMES.map((spec) => {
+                const active = spec.id === timeframe;
+                return (
+                  <button
+                    key={spec.id}
+                    type="button"
+                    data-testid={`charts-tf-${spec.id}`}
+                    aria-pressed={active}
+                    aria-label={spec.name}
+                    onClick={() => setTimeframe(spec.id)}
+                    className={cn(
+                      "rounded-sm px-2 py-1 font-mono text-label uppercase tracking-[0.08em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus",
+                      active
+                        ? "bg-row-selected text-accent-text"
+                        : "text-fg-subtle hover:bg-row-hover hover:text-fg",
+                    )}
+                  >
+                    {spec.label}
+                  </button>
+                );
+              })}
+            </div>
+            <article
+              data-testid={`charts-single-card-${symbol}`}
+              style={boxTintStyle(singlePercent)}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line transition-[background-color] duration-300"
+            >
+              <Chart
+                symbol={symbol}
+                height={400}
+                timeframeId={isChartTimeframe(timeframe) ? timeframe : null}
+                renderer="bars"
+                showVolume
+                onData={(next) => {
+                  setSingleSeries(next);
+                  setSingleError(next === null ? singleError : null);
+                }}
+                onError={(message) => setSingleError(message)}
+                className="min-h-0 flex-1"
+              />
+            </article>
           </section>
         )}
       </div>

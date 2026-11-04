@@ -53,6 +53,8 @@ import { INDICATOR_IDS, INDICATOR_LABELS, type IndicatorId } from "./indicators"
 import { ChartBarsLazy } from "./lazy";
 import { paintChart, type ChartKind } from "./paint";
 import { mergeChartTheme, readChartTheme, type ChartTheme } from "./theme";
+import { CalendarChart } from "./CalendarChart";
+import { CHART_TIMEFRAMES, type ChartTimeframeId } from "./timeframes";
 import {
   CHART_RANGES,
   RANGE_LABELS,
@@ -92,6 +94,15 @@ export interface ChartProps {
   readonly theme?: ChartTheme;
   /** Called with the series when it lands, and null on loading/error. */
   readonly onData?: (series: ChartSeries | null) => void;
+  /**
+   * A named timeframe (15M / 4H / D / W / M / KALENDER) the page owns. It
+   * replaces the range row: the room above the plot belongs to the page's tab
+   * set, and the read becomes the timeframe's (range, interval) pair with its
+   * client-side aggregate — or the calendar body, when the tab is a calendar.
+   */
+  readonly timeframeId?: ChartTimeframeId | null;
+  /** The read's error sentence, when one exists (a page-level toast source). */
+  readonly onError?: (message: string | null) => void;
 }
 
 const POPUP_WIDTH = 184;
@@ -162,15 +173,27 @@ export function Chart({
   className,
   theme: baseTheme,
   onData,
+  onError,
+  timeframeId = null,
 }: ChartProps) {
   const [range, setRange] = React.useState<ChartRange>(initialRange);
+  const timeframe =
+    timeframeId !== null ? CHART_TIMEFRAMES.find((spec) => spec.id === timeframeId) ?? null : null;
   /**
    * The studies the reader has switched on. Local state on purpose: a study is
    * a view of this instrument, not a saved preference, so a reload opens on
    * `DEFAULT_STUDIES` like every other visit.
    */
   const [studies, setStudies] = React.useState<readonly IndicatorId[]>(DEFAULT_STUDIES);
-  const view = useChartData(symbol, range);
+  // One hook, one call site: the timeframe (when a page owns the tabs) supplies
+  // its own (range, interval, unit); otherwise the range row is the owner.
+  const view = useChartData(
+    symbol,
+    timeframe !== null ? timeframe.request.range : range,
+    timeframe !== null
+      ? { interval: timeframe.request.interval, aggregateUnit: timeframe.aggregate }
+      : {},
+  );
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [size, setSize] = React.useState({ w: 0, h: 0 });
@@ -326,6 +349,13 @@ export function Chart({
   // would otherwise re-report and could loop through the parent's state).
   const onDataRef = React.useRef(onData);
   onDataRef.current = onData;
+  // The error sentence, the same one-way channel: a page-level toast source
+  // without the page re-doing the read.
+  const onErrorRef = React.useRef(onError);
+  onErrorRef.current = onError;
+  React.useEffect(() => {
+    onErrorRef.current?.(view.status === "error" ? view.error : null);
+  }, [view.status, view.error]);
   React.useEffect(() => {
     onDataRef.current?.(view.status === "ready" ? view.series : null);
   }, [view.status, view.series]);
@@ -393,12 +423,13 @@ export function Chart({
           data-testid="chart-toolbar"
           className="flex h-7 shrink-0 items-center gap-2 border-b border-line px-1"
         >
-          <div
-            data-testid="chart-ranges"
-            role="group"
-            aria-label={`Chart range for ${symbol}`}
-            className="flex shrink-0 items-center gap-px"
-          >
+          {timeframe === null ? (
+            <div
+              data-testid="chart-ranges"
+              role="group"
+              aria-label={`Chart range for ${symbol}`}
+              className="flex shrink-0 items-center gap-px"
+            >
             {CHART_RANGES.map((value) => {
               const active = value === range;
               return (
@@ -419,7 +450,15 @@ export function Chart({
                 </button>
               );
             })}
-          </div>
+            </div>
+          ) : (
+            <span
+              data-testid="chart-timeframe-name"
+              className="shrink-0 font-mono text-label uppercase tracking-[0.08em] text-fg-muted"
+            >
+              {timeframe?.label}
+            </span>
+          )}
 
           {series !== null && change !== null && change.last !== null ? (
             <p className="ml-auto flex min-w-0 items-baseline gap-2 pr-1 font-mono text-data">
@@ -475,7 +514,13 @@ export function Chart({
       ) : null}
 
       <div ref={wrapRef} data-testid="chart-plot" className="relative min-h-0 w-full flex-1">
-        {showCanvas && renderer === "canvas" ? (
+        {timeframe !== null && timeframe.calendar ? (
+          <div className="absolute inset-0 overflow-y-auto p-2">
+            <CalendarChart bars={series?.bars ?? []} previousClose={series?.previousClose ?? null} />
+          </div>
+        ) : null}
+
+        {showCanvas && renderer === "canvas" && (timeframe === null || !timeframe.calendar) ? (
           <canvas
             ref={canvasRef}
             data-testid="chart-canvas"
@@ -526,7 +571,7 @@ export function Chart({
           />
         ) : null}
 
-        {showCanvas && renderer === "bars" ? (
+        {showCanvas && renderer === "bars" && (timeframe === null || !timeframe.calendar) ? (
           <ChartBarsLazy
             bars={barSeries}
             height={plotHeight}

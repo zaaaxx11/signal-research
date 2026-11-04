@@ -136,7 +136,9 @@ describe("ChartsPage — one symbol", () => {
     expect(screen.getByTestId("charts-page").getAttribute("data-view")).toBe("single");
 
     await waitFor(() => expect(mock).toHaveBeenCalledTimes(6));
-    expect(String(mock.mock.calls[5]?.[0])).toBe("/market/chart/AAPL?range=1d");
+    // The single chart opens on the D timeframe: one year of daily bars —
+    // the tab set's deliberately different default, not the gallery's 1d.
+    expect(String(mock.mock.calls[5]?.[0])).toBe("/market/chart/AAPL?range=1y&interval=1d");
     expect(await screen.findByTestId("chart-bars")).toBeTruthy();
   });
 

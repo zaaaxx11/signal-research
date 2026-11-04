@@ -237,8 +237,11 @@ class SectorTally:
     ``count`` is every row the sector holds; ``adv``/``dec`` are the rows whose
     metric is positive/negative; ``cap_sum`` and ``weighted`` are the exact sums
     (cap, cap × change) the cap-weighted average needs. ``members`` is
-    ``(cap_usd, change_pct, symbol)`` for the rows that carry **both** a cap and
-    a metric — the only rows a treemap can place or a weighted average can weigh.
+    ``(cap_usd, change_pct, symbol, name, price)`` for the rows that carry
+    **both** a cap and a metric — the only rows a treemap can place or a
+    weighted average can weigh. ``name`` may be ``None`` (an anonymous listing)
+    and ``price`` ``None`` (halted/unquoted name): the treemap labels what it
+    has and leaves the rest out of the wire, rather than inventing text.
 
     ``weighted_1w``/``weighted_1m``/``weighted_3m`` are the cap-weighted sums
     for the performance-window fields (``ret_1w`` / ``ret_1m`` / ``ret_3m``),
@@ -260,7 +263,9 @@ class SectorTally:
     cap_1w: float = 0.0
     cap_1m: float = 0.0
     cap_3m: float = 0.0
-    members: list[tuple[float, float, str]] = field(default_factory=list)
+    members: list[tuple[float, float, str, str | None, float | None]] = field(
+        default_factory=list
+    )
 
     @property
     def average(self) -> float | None:
@@ -331,6 +336,23 @@ def _group_by_column(group_by: str, row: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _tile_name(row: Mapping[str, Any]) -> str | None:
+    """The reader-facing name a tile's tooltip can quote, or ``None``.
+
+    The universe row calls it ``name``; the provider spelled it either way. An
+    absent name is not a blank string: ``None`` tells the map to leave the field
+    off the tile rather than send an empty ``""`` that a client would render as
+    a real (blank) name.
+    """
+
+    value = row.get("name")
+    if isinstance(value, str):
+        value = value.strip()
+        if value:
+            return value
+    return None
+
+
 def tally_sectors(
     rows: Iterable[Mapping[str, Any]], *, group_by: str = _GROUP_BY_DEFAULT
 ) -> dict[str, SectorTally]:
@@ -390,7 +412,15 @@ def tally_sectors(
             continue
         tally.cap_sum += cap
         tally.weighted += cap * change
-        tally.members.append((cap, change, str(row.get("symbol") or "")))
+        tally.members.append(
+            (
+                cap,
+                change,
+                str(row.get("symbol") or ""),
+                _tile_name(row),
+                number(row.get("price")),
+            )
+        )
     return tallies
 
 

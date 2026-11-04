@@ -22,12 +22,14 @@ import * as React from "react";
 
 import { ApiError, getJson } from "@/lib/api";
 
+import { aggregateBars } from "./aggregate";
 import {
   ChartMalformed,
   parseChart,
   type ChartRange,
   type ChartSeries,
 } from "./types";
+import type { AggregateUnit } from "./timeframes";
 
 export type ChartStatus = "loading" | "ready" | "error";
 
@@ -41,8 +43,9 @@ export interface ChartView {
 }
 
 /** The same-origin path. Root-absolute, mount-free, symbol encoded. */
-export function chartPath(symbol: string, range: ChartRange): string {
-  return `/market/chart/${encodeURIComponent(symbol.trim().toUpperCase())}?range=${range}`;
+export function chartPath(symbol: string, range: ChartRange, interval?: string): string {
+  const suffix = interval && interval.length > 0 ? `&interval=${interval}` : "";
+  return `/market/chart/${encodeURIComponent(symbol.trim().toUpperCase())}?range=${range}${suffix}`;
 }
 
 interface Snapshot {
@@ -54,8 +57,16 @@ interface Snapshot {
 
 const LOADING: Snapshot = { status: "loading", series: null, error: null, statusCode: null };
 
-export function useChartData(symbol: string, range: ChartRange): ChartView {
-  const path = chartPath(symbol, range);
+export function useChartData(
+  symbol: string,
+  range: ChartRange,
+  options: { interval?: string; aggregateUnit?: AggregateUnit | null } = {},
+): ChartView {
+  const { interval, aggregateUnit } = options;
+  const path = chartPath(symbol, range, interval);
+  // A unit is part of the input pair that keys the read: one (path, unit) is
+  // one instrument, so switching 4H→1M refetches even when both asked 1mo.
+  const unitKey = aggregateUnit ?? "";
 
   const [snapshot, setSnapshot] = React.useState<Snapshot>(LOADING);
   const [nonce, setNonce] = React.useState(0);
@@ -71,9 +82,13 @@ export function useChartData(symbol: string, range: ChartRange): ChartView {
       .then((body) => {
         if (controller.signal.aborted || mine !== sequence.current) return;
         const parsed = parseChart(body, { symbol, range });
+        const series = { ...parsed, receivedAt: performance.now() };
         setSnapshot({
           status: "ready",
-          series: { ...parsed, receivedAt: performance.now() },
+          series:
+            aggregateUnit != null && interval !== undefined
+              ? { ...series, bars: aggregateBars(aggregateUnit, series.bars), interval }
+              : series,
           error: null,
           statusCode: 200,
         });
@@ -96,7 +111,7 @@ export function useChartData(symbol: string, range: ChartRange): ChartView {
     return () => {
       controller.abort();
     };
-  }, [path, nonce, symbol, range]);
+  }, [path, nonce, symbol, range, unitKey, interval]);
 
   const reload = React.useCallback(() => setNonce((value) => value + 1), []);
 

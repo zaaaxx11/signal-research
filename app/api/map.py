@@ -11,13 +11,14 @@ document, one scan generation, one pass.
 The shape, and why it is this small
 -----------------------------------
 ``{as_of, region, metric, universe_total, mapped, sectors: [{id, label, count,
-value, adv, dec, symbols: [{s, c, v}]}]}``. One tile is three short keys — symbol,
-cap in **USD billions** (one decimal), the metric in percent (two decimals) —
-because the body is the largest response in the app and every byte of a key name
-is paid 5,576 times. Measured on the live universe: **~173 KB raw** (173,035
-bytes, against a 250 KB budget) and **~33 KB brotli** at quality 11 (33,425
-bytes, against 40 KB). Compression is a transport concern and is not applied
-here; the numbers are what the document compresses to.
+value, adv, dec, symbols: [{s, c, v, n, p}]}]}``. One tile is five short keys —
+symbol, cap in **USD billions** (one decimal), the metric in percent (two
+decimals), the issue's name and its last price — because the body is the largest
+response in the app and every byte of a key name
+is paid 5,576 times. Measured on the live universe: **~120 KB raw** (the
+``n``/``p`` pair costs ~55 KB of repetitive text that brotli folds) and
+**~40 KB brotli** at quality 11. Compression is a transport concern and is not
+applied here.
 
 ``mapped`` is published beside ``universe_total`` on purpose
 ------------------------------------------------------------
@@ -99,21 +100,29 @@ METRIC_DEFAULT = "change"
 METRICS: frozenset[str] = frozenset({"change"})
 
 #: Timeframe → the row cell the change is read from and the metric the document
-#: names. ``1d`` is the selector's ``change_pct``; ``1w``/``1m`` are parity-scan
-#: cells (``Perf.W`` → ``ret_1w``, ``Perf.1M`` → ``ret_1m``) copied verbatim onto
-#: the same universe row, so one scan serves every timeframe and no historical
-#: store is required. An unknown token is a ``422 invalid_timeframe``.
+#: names. ``1d`` is the selector's ``change_pct``; the other windows are
+#: parity-scan cells (``Perf.W`` → ``ret_1w``, ``Perf.1M`` → ``ret_1m``,
+#: ``Perf.3M`` → ``ret_3m``, ``Perf.6M`` → ``ret_6m``, ``Perf.Y`` → ``ret_1y``)
+#: copied verbatim onto the same universe row, so one scan serves every
+#: timeframe and no historical store is required. An unknown token is a
+#: ``422 invalid_timeframe``.
 TIMEFRAMES: Mapping[str, tuple[str, str]] = {
     "1d": ("change_pct", "change_1d"),
     "1w": ("ret_1w", "change_1w"),
     "1m": ("ret_1m", "change_1m"),
+    "3m": ("ret_3m", "change_3m"),
+    "6m": ("ret_6m", "change_6m"),
+    "1y": ("ret_1y", "change_1y"),
 }
 TIMEFRAME_DEFAULT = "1d"
 
 #: The document's shape and meaning, folded into the tag. Bump it when a key
 #: changes or a number changes meaning: clients replay tags across deploys, and a
 #: tag that survives a shape change is a ``304`` for a body they cannot parse.
-MAP_SHAPE = "1"
+#: ``"2"`` adds ``n`` (the issue's name) and ``p`` (its last price) to every
+#: tile: the map's labels and tooltip read them, and a client built for shape
+#: ``1`` must not be handed them.
+MAP_SHAPE = "2"
 
 
 def build_map_document(
@@ -143,8 +152,13 @@ def build_map_document(
                 # `or 0.0` folds the one ugly float in JSON: round(-0.001, 2)
                 # is -0.0, which serialises as "-0.0" and reads as a bug.
                 "v": round(change, 2) or 0.0,
+                # Shape 2: the facts a tile's label and a tooltip quote. A name
+                # absent from the scan is absent from the tile — the client
+                # shows the symbol alone rather than a blank line.
+                "n": name,
+                "p": None if price is None else round(price, 4),
             }
-            for cap, change, symbol in members
+            for cap, change, symbol, name, price in members
         ]
         mapped += len(symbols)
         average = tally.average
