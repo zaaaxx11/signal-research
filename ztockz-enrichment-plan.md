@@ -122,3 +122,21 @@ BATCH 7 — CRYPTO UNIVERSE 40 → 64  (done 2026-11-05)
   E. Fix: MEE_SAVED_SCREENS_PATH registered in config_guard allowlist
      (pre-existing guard gap surfaced by the suite).
   Verified live: alt=56 Yahoo rows / meta=64 / 8 supplements priced.
+
+────────────────────────────────────────────────
+BATCH 8 — CRYPTO TOP-100 (universe 64 → 122)  (done 2026-11-05)
+────────────────────────────────────────────────
+  A. Pinned the universe to Coingecko's live top-100 by market cap
+     (fetched /coins/markets?order=market_cap_desc&per_page=100), added the 58
+     coins it has that we lacked → CRYPTO + COINGECKO_IDS now 122 entries,
+     keys stay in sync (alt symbol set == COINGECKO_IDS).
+     Note: 1 candidate (figure-heloc) dropped — its symbol has an underscore
+     that the SYMBOL_PATTERN route guard rejects.
+  B. ALT_PER 70 → 130 (page now carries the whole 122 in one read; PER_MAX 200).
+  C. Perf: Home / Screener / Stock-detail were eagerly imported at the entry,
+     dragging lightweight-charts + lucide + cryptoEnrich into the initial chunk
+     (680 KB raw / 205 KB gzip — 25.8 KB over the 180 KB budget, a pre-existing
+     regression the coin work surfaced). Made all three lazy (lazyPages.ts).
+     Initial chunk now 337 KB raw / 104.7 KB gzip — back inside budget with room.
+  Verified live: alt=88 Yahoo rows / 122 universe, meta=122/122 (the 34
+     non-Yahoo coins price from the Coingecko supplement), home lazy route 200.
