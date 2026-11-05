@@ -105,3 +105,20 @@ BATCH 6 — CRYPTO PER-SYMBOL DETAIL  (done 2026-11-05)
 ────────────────────────────────────────────────
 STATUS: all 6 batches done. Per-symbol crypto detail live-verified:
   ETH-USD / SOL-USD return real name, website, categories, description.
+
+────────────────────────────────────────────────
+BATCH 7 — CRYPTO UNIVERSE 40 → 64  (done 2026-11-05)
+────────────────────────────────────────────────
+  A. +24 coins to CRYPTO (alt.py) + COINGECKO_IDS (enrich.py):
+     ZEC DAI UNI SUI TAO PEPE DASH APT PYTH CRV FET XTZ BONK GRT
+     RUNE EIGEN WIF IMX DYDX GALA BAND XAI DYM EOS
+  B. Price resilience: CoinGecko /coins/markets now ships current_price +
+     24h change into the meta map (per_page 50→250 so all 64 are covered).
+  C. The 8 coins Yahoo no longer quotes (UNI/SUI/TAO/PEPE/APT/GRT/IMX/XAI)
+     are surfaced from Coingecko in the list (AltPage supplement) and fall
+     back to meta.current_price on the detail page — so the full 64-render,
+     every one with a live number, not just the 56 Yahoo prices.
+  D. Frontend ALT_PER 50→70 (covers 64; futures/forex unaffected).
+  E. Fix: MEE_SAVED_SCREENS_PATH registered in config_guard allowlist
+     (pre-existing guard gap surfaced by the suite).
+  Verified live: alt=56 Yahoo rows / meta=64 / 8 supplements priced.
