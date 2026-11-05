@@ -12,6 +12,7 @@
 import * as React from "react";
 
 import { ApiError, getJson } from "@/lib/api";
+import { cacheGet, cacheSet } from "@/lib/queryCache";
 
 import {
   AltMalformed,
@@ -48,16 +49,23 @@ export function useAlt(marketClass: MarketClass, timeframe: Timeframe = DEFAULT_
   const [attempt, setAttempt] = React.useState(0);
 
   React.useEffect(() => {
+    // Stale-while-revalidate: paint the cached rows immediately, then fetch.
+    const cached = cacheGet(path);
+    if (cached !== null) {
+      try {
+        const stale = readAlt(cached, marketClass);
+        setState({ status: "ready", report: stale, error: null });
+      } catch { /* stale data unreadable — fall through to fetch */ }
+    }
+
     const controller = new AbortController();
     let live = true;
-    // The old table stays on screen while a retry is in flight, but the status
-    // says loading: the skeleton is the frame's state, and a reader who just
-    // pressed Retry must see that something is happening.
     setState((previous) => ({ ...previous, status: "loading", error: null }));
 
     getJson(path, controller.signal)
       .then((body) => {
         if (!live) return;
+        cacheSet(path, body);
         setState({ status: "ready", report: readAlt(body, marketClass), error: null });
       })
       .catch((cause: unknown) => {
