@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { json } from "./__fixtures__/canvas";
 import { SMALL_WIRE } from "./__fixtures__/payload";
-import { mapPath, useMapData } from "./useMapData";
+import { mapPath, useMapData, type Timeframe } from "./useMapData";
 
 /**
  * The read: one request, an abort on every change, and no stale answer.
@@ -27,14 +27,14 @@ describe("useMapData", () => {
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
     const [path] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(path).toBe("/market/map?region=us&timeframe=1d");
+    expect(path).toBe("/market/map?region=us&timeframe=1d&shape=2");
     expect(result.current.payload?.sectors).toHaveLength(3);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("builds the path from the query, encoded", () => {
-    expect(mapPath("us", "1d")).toBe("/market/map?region=us&timeframe=1d");
-    expect(mapPath("eu", "1w")).toBe("/market/map?region=eu&timeframe=1w");
+    expect(mapPath("us", "1d")).toBe("/market/map?region=us&timeframe=1d&shape=2");
+    expect(mapPath("eu", "1w")).toBe("/market/map?region=eu&timeframe=1w&shape=2");
   });
 
   it("aborts the first request when the timeframe changes", async () => {
@@ -48,7 +48,7 @@ describe("useMapData", () => {
     );
 
     const { rerender } = renderHook(
-      ({ timeframe }: { timeframe: string }) => useMapData({ timeframe }),
+      ({ timeframe }: { timeframe: Timeframe }) => useMapData({ timeframe }),
       { initialProps: { timeframe: "1d" } },
     );
     await waitFor(() => expect(signals).toHaveLength(1));
@@ -70,7 +70,7 @@ describe("useMapData", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { result, rerender } = renderHook(
-      ({ timeframe }: { timeframe: string }) => useMapData({ timeframe }),
+      ({ timeframe }: { timeframe: Timeframe }) => useMapData({ timeframe }),
       { initialProps: { timeframe: "1d" } },
     );
     rerender({ timeframe: "1w" });

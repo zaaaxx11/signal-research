@@ -50,6 +50,8 @@ export interface Tile extends Rect {
   readonly sectorId: string;
   readonly change: number;
   readonly cap: number;
+  readonly name: string | null;
+  readonly price: number | null;
 }
 
 export interface SectorLayout {
@@ -309,6 +311,8 @@ function layoutSector(
         sectorId: sector.id,
         change: stock.change,
         cap: stock.cap,
+        name: stock.name,
+        price: stock.price,
         x: cell.x,
         y: cell.y,
         w: cell.w,

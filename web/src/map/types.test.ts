@@ -43,7 +43,7 @@ describe("parseMap", () => {
     expect(payload.metric).toBe("change");
     expect(payload.sectors).toHaveLength(1);
     const sector = payload.sectors[0];
-    expect(sector?.stocks[0]).toEqual({ symbol: "AAPL", cap: 5034.7, change: 2.1 });
+    expect(sector?.stocks[0]).toEqual({ symbol: "AAPL", cap: 5034.7, change: 2.1, name: null, price: null });
     expect(sectorCap(sector!)).toBeCloseTo(8134.9, 5);
   });
 

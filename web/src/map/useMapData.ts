@@ -2,47 +2,49 @@ import * as React from "react";
 
 import { ApiError, getJson } from "@/lib/api";
 
-import { MapMalformed, parseMap, type MapPayload } from "./types";
-
-/**
- * One read of `GET /market/map`, with an explicit retry and a hard abort.
- *
- * The map is the largest document the UI asks for (~250 KB raw, 5,576 rows),
- * so a second request must not be allowed to race the first: two answers
- * arriving out of order would either draw the older map over the newer one or,
- * worse, paint twice for one state. `useScreens` solves the same problem with a
- * sequence number and an `AbortController`; this hook does the same, one level
- * smaller:
- *
- *   * every effect run owns a controller, and its cleanup aborts it;
- *   * every resolution checks `signal.aborted` and its own sequence number
- *     before touching state, so a straggler that resolved after the abort is
- *     dropped rather than merged;
- *   * `reload` bumps a nonce, which aborts and re-reads — the retry button is
- *     the only way a failed map asks again.
- *
- * The endpoint is cached server-side, so there is no poll: one read per mount,
- * like the breadth strip and unlike the screener's pages.
- */
+import { MapMalformed, parseMap, type MapPayload, type MarketGroup } from "./types";
 
 export type MapStatus = "loading" | "ready" | "error";
 
 export interface MapView {
   readonly status: MapStatus;
   readonly payload: MapPayload | null;
-  /** The API's own message (or our parser's), when there is one. */
   readonly error: string | null;
   readonly statusCode: number | null;
   readonly reload: () => void;
 }
 
-const DEFAULT_REGION = "us";
-const DEFAULT_TIMEFRAME = "1d";
+export const TIMEFRAMES = ["1d", "1w", "1m", "3m", "6m", "1y"] as const;
+export type Timeframe = (typeof TIMEFRAMES)[number];
 
-/** The same-origin path. Root-absolute, mount-free, never a client-side count. */
+export const TIMEFRAME_LABELS: Record<Timeframe, string> = {
+  "1d": "1D",
+  "1w": "1W",
+  "1m": "1M",
+  "3m": "3M",
+  "6m": "6M",
+  "1y": "1Y",
+};
+
+export const TIMEFRAME_METRIC_LABELS: Record<Timeframe, string> = {
+  "1d": "1-Day performance",
+  "1w": "1-Week performance",
+  "1m": "1-Month performance",
+  "3m": "3-Month performance",
+  "6m": "6-Month performance",
+  "1y": "1-Year performance",
+};
+
+const DEFAULT_REGION = "us";
+const DEFAULT_TIMEFRAME: Timeframe = "1d";
+
 export function mapPath(region: string, timeframe: string): string {
-  const params = new URLSearchParams({ region, timeframe });
+  const params = new URLSearchParams({ region, timeframe, shape: "2" });
   return `/market/map?${params.toString()}`;
+}
+
+export function groupsPath(): string {
+  return "/market/groups";
 }
 
 interface Snapshot {
@@ -56,7 +58,7 @@ const LOADING: Snapshot = { status: "loading", payload: null, error: null, statu
 
 export interface MapQuery {
   readonly region?: string;
-  readonly timeframe?: string;
+  readonly timeframe?: Timeframe;
 }
 
 export function useMapData(query: MapQuery = {}): MapView {
@@ -100,4 +102,42 @@ export function useMapData(query: MapQuery = {}): MapView {
   const reload = React.useCallback(() => setNonce((value) => value + 1), []);
 
   return { ...snapshot, reload };
+}
+
+export function useMarketGroups(): {
+  groups: MarketGroup[];
+  status: "loading" | "ready" | "error";
+} {
+  const [groups, setGroups] = React.useState<MarketGroup[]>([]);
+  const [status, setStatus] = React.useState<"loading" | "ready" | "error">("loading");
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    getJson(groupsPath(), controller.signal)
+      .then((body) => {
+        if (controller.signal.aborted) return;
+        const raw = Array.isArray(body) ? body : [];
+        setGroups(
+          raw.map((entry: unknown) => {
+            if (typeof entry === "object" && entry !== null) {
+              const e = entry as Record<string, unknown>;
+              return {
+                id: String(e.id ?? ""),
+                label: String(e.label ?? e.id ?? ""),
+                count: Number(e.count ?? 0),
+              };
+            }
+            return { id: "", label: "", count: 0 };
+          }).filter((g: MarketGroup) => g.id.length > 0),
+        );
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setStatus("error");
+      });
+    return () => controller.abort();
+  }, []);
+
+  return { groups, status };
 }

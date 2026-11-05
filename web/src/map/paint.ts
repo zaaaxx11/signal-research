@@ -58,6 +58,8 @@ const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helv
 const MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace';
 const LABEL_FONT = `600 10px ${SANS}`;
 const SYMBOL_FONT = `500 10px ${MONO}`;
+const NAME_FONT = `400 7px ${SANS}`;
+const PRICE_FONT = `400 8px ${MONO}`;
 
 /** Ramp quantization: 20 steps per percentage point, clamped at ±3. */
 const TONE_STEPS = 20;
@@ -245,9 +247,28 @@ export function paintMap(
     const fill = fills.get(key) ?? rampFill(tile.change, palette);
     if (fill.contrast < 4.5) continue;
 
+    // Tile big enough for symbol
     ctx.fillStyle = fill.ink;
     ctx.fillText(tile.symbol, box.x + 2, box.y + box.h / 2 + 0.5);
     symbols += 1;
+
+    // Name line (tall enough, wide enough)
+    if (tile.name && box.h >= 26 && box.w >= 40) {
+      const nameText = fitLabel(ctx, NAME_FONT, tile.name, box.w - 4);
+      if (nameText) {
+        ctx.font = NAME_FONT;
+        ctx.fillStyle = fill.ink;
+        ctx.fillText(nameText, box.x + 2, box.y + box.h / 2 + 0.5 + 10);
+      }
+    }
+
+    // Price line (even taller)
+    if (tile.price !== null && box.h >= 38 && box.w >= 40) {
+      const priceText = `$${tile.price.toFixed(2)}`;
+      ctx.font = PRICE_FONT;
+      ctx.fillStyle = fill.ink;
+      ctx.fillText(priceText, box.x + 2, box.y + box.h / 2 + 0.5 + 20);
+    }
   }
 
   let labels = 0;
