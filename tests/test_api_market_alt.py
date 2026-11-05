@@ -60,7 +60,7 @@ def test_the_catalogue_has_the_documented_size_and_no_duplicates() -> None:
     from app.api.alt import CLASSES, CRYPTO, FOREX, FUTURES
 
     assert CLASSES == ("crypto", "futures", "forex")
-    assert (len(CRYPTO), len(FUTURES), len(FOREX)) == (64, 25, 20)
+    assert (len(CRYPTO), len(FUTURES), len(FOREX)) == (122, 25, 20)
     for catalogue in (CRYPTO, FUTURES, FOREX):
         symbols = [instrument.symbol for instrument in catalogue]
         assert len(set(symbols)) == len(symbols)

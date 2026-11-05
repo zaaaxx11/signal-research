@@ -119,11 +119,16 @@ describe("bundle — the chart library stays behind a dynamic import", () => {
 
   it("walks a real graph from the entry", () => {
     expect(relative).toContain(path.join("src", "main.tsx"));
-    expect(relative).toContain(path.join("src", "home", "HomePage.tsx"));
-    // The strip is in the initial graph and does import the *loader*.
-    expect(relative).toContain(path.join("src", "home", "blocks", "IndexStrip.tsx"));
-    expect(relative).toContain(path.join("src", "charts", "lazy.tsx"));
-    expect(relative.length).toBeGreaterThan(30);
+    // Home, the stock detail and the screener are now their own lazy chunks, so
+    // the static graph is shallower by design: it stops at the shell chrome and
+    // the page loaders, and the pages themselves travel via import().
+    expect(relative).toContain(path.join("src", "shell", "HeaderBar.tsx"));
+    expect(relative).toContain(path.join("src", "components", "ToastCenter.tsx"));
+    expect(relative).toContain(path.join("src", "shell", "lazyPages.ts"));
+    // And the lazy leaves prove the split actually happened.
+    expect(relative).not.toContain(path.join("src", "home", "HomePage.tsx"));
+    expect(relative).not.toContain(path.join("src", "stock", "StockPage.tsx"));
+    expect(relative.length).toBeGreaterThan(20);
   });
 
   it("never reaches lightweight-charts statically", () => {

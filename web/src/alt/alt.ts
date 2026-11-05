@@ -56,7 +56,7 @@ export const DEFAULT_TIMEFRAME: Timeframe = "5m";
 /** The page size: one screen of rows, and the endpoint's own cap. 70 covers
     the full 64-coin crypto catalogue (futures/forex have fewer — they get
     every row they have, `min(available, per)`). */
-export const ALT_PER = 70;
+export const ALT_PER = 130;
 
 /** One priced row. `price` is a number here because unpriced rows never arrive. */
 export interface AltRow {

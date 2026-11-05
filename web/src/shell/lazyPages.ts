@@ -26,3 +26,11 @@ export const loadPortfolioPage = () =>
   import("@/lists").then((m) => ({ default: m.PortfolioPage }));
 export const loadNewsPage = () => import("@/news").then((m) => ({ default: m.NewsPage }));
 export const loadComparePage = () => import("@/compare").then((m) => ({ default: m.ComparePage }));
+// The three pages a reader lands on most are split too: their chart, crypto and
+// icon dependencies ride in their own chunk, not the initial one.
+export const loadHomePage = () =>
+  import("@/home/HomePage").then((m) => ({ default: m.HomePage }));
+export const loadScreenerScreen = () =>
+  import("@/screener/ScreenerScreen").then((m) => ({ default: m.ScreenerScreen }));
+export const loadStockPage = () =>
+  import("@/stock/StockPage").then((m) => ({ default: m.StockPage }));

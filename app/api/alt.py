@@ -14,9 +14,9 @@ a table wants.
 The catalogue is data
 ---------------------
 :data:`CRYPTO`, :data:`FUTURES` and :data:`FOREX` are curated tuples of
-:class:`Instrument` — 40 crypto majors, 25 front-month contracts, 20 pairs —
+:class:`Instrument` — 122 crypto coins, 25 front-month contracts, 20 pairs —
 rather than a list of whatever a scan happened to return. That is what makes
-``universe_total`` a fact about the product (40) instead of a fact about an
+``universe_total`` a fact about the product (122) instead of a fact about an
 outage (0), and it is why a symbol that fails is *missing from the rows* while
 still being counted: **adversarial (b)**, an empty ``timestamp`` array, and a
 fetch that never answered, are the same statement — no measurement — and never a
@@ -215,7 +215,7 @@ def _catalogue(*pairs: tuple[str, str]) -> tuple[Instrument, ...]:
     return tuple(Instrument(symbol=symbol, name=name) for symbol, name in pairs)
 
 
-#: 40 crypto majors, largest first. Curated, not derived: a coin that delists
+#: 122 crypto coins, largest first. Curated, not derived: a coin that delists
 #: leaves a hole in ``measured`` (visible) rather than a hole in the list.
 CRYPTO: tuple[Instrument, ...] = _catalogue(
     ("BTC-USD", "Bitcoin"),
@@ -282,6 +282,64 @@ CRYPTO: tuple[Instrument, ...] = _catalogue(
     ("XAI-USD", "Xai"),
     ("DYM-USD", "Dymension"),
     ("EOS-USD", "EOS"),
+    ("HYPE-USD", "Hyperliquid"),
+    ("USDS-USD", "USDS"),
+    ("WBT-USD", "WhiteBIT Coin"),
+    ("LEO-USD", "LEO Token"),
+    ("USDE-USD", "Ethena USDe"),
+    ("RAIN-USD", "Rain"),
+    ("CC-USD", "Canton"),
+    ("USD1-USD", "USD1"),
+    ("XAUT-USD", "Tether Gold"),
+    ("USDG-USD", "Global Dollar"),
+    ("QNT-USD", "Quant"),
+    ("PYUSD-USD", "PayPal USD"),
+    ("RLUSD-USD", "Ripple USD"),
+    ("CRO-USD", "Cronos"),
+    ("USDY-USD", "Ondo US Dollar Yield"),
+    ("OKB-USD", "OKB"),
+    ("USYC-USD", "Circle USYC"),
+    ("ENA-USD", "Ethena"),
+    ("BUIDL-USD", "BlackRock USD Institutional Digital Liquidity Fund"),
+    ("M-USD", "MemeCore"),
+    ("EURSAFO-USD", "Spiko Amundi Overnight Swap Fund (EUR)"),
+    ("PAXG-USD", "PAX Gold"),
+    ("USDF-USD", "Falcon USD"),
+    ("PUMP-USD", "Pump.fun"),
+    ("ASTER-USD", "Aster"),
+    ("BTW-USD", "Bitway"),
+    ("U-USD", "United Stables"),
+    ("SKY-USD", "Sky"),
+    ("USDD-USD", "USDD"),
+    ("MORPHO-USD", "Morpho"),
+    ("WLFI-USD", "World Liberty Financial"),
+    ("MNT-USD", "Mantle"),
+    ("HTX-USD", "HTX DAO"),
+    ("BFUSD-USD", "BFUSD"),
+    ("BGB-USD", "Bitget Token"),
+    ("USDGO-USD", "USDGO"),
+    ("JST-USD", "JUST"),
+    ("VVV-USD", "Venice Token"),
+    ("KCS-USD", "KuCoin"),
+    ("GT-USD", "Gate"),
+    ("POL-USD", "POL (ex-MATIC)"),
+    ("OUSD-USD", "Open USD"),
+    ("PI-USD", "Pi Network"),
+    ("LIT-USD", "Lighter"),
+    ("KAS-USD", "Kaspa"),
+    ("NEXO-USD", "NEXO"),
+    ("GHO-USD", "GHO"),
+    ("ZRO-USD", "LayerZero"),
+    ("STX-USD", "Stacks"),
+    ("NIGHT-USD", "Midnight"),
+    ("USTB-USD", "Invesco Short Duration US Government Securities Fund"),
+    ("CAKE-USD", "PancakeSwap"),
+    ("XDC-USD", "XDC Network"),
+    ("PEARL-USD", "Pearl"),
+    ("JAAA-USD", "Janus Henderson Anemoy AAA CLO Fund"),
+    ("BDX-USD", "Beldex"),
+    ("USD0-USD", "Usual USD"),
+    ("ETHFI-USD", "Ether.fi"),
 )
 
 #: 25 front-month contracts — the equity indices, energy, metals, grains, the

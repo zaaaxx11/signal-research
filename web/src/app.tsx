@@ -22,15 +22,12 @@
 
 import * as React from "react";
 
-import { HomePage } from "@/home/HomePage";
-import { ScreenerScreen } from "@/screener/ScreenerScreen";
 import { GRID_REGION_ID } from "@/shell/ids";
 import { NotFoundPage } from "@/shell/NotFoundPage";
 import { ToastCenter } from "@/components/ToastCenter";
 import { ConfirmDialogCanvas } from "@/components/ConfirmDialog";
 import { HoverBubble } from "@/components/HoverBubble";
 import { HeaderBar } from "@/shell/HeaderBar";
-import { StockPage } from "@/stock/StockPage";
 import type { SymbolHit } from "@/lib/api";
 import { navigate, useRoute, useSearch } from "@/shell/routes";
 import {
@@ -42,10 +39,13 @@ import {
   loadForexPage,
   loadFuturesPage,
   loadGroupsPage,
+  loadHomePage,
   loadInsiderPage,
   loadMapPage,
   loadNewsPage,
   loadPortfolioPage,
+  loadScreenerScreen,
+  loadStockPage,
   loadWatchlistPage,
 } from "@/shell/lazyPages";
 
@@ -154,6 +154,9 @@ export function App() {
   const PortfolioPage = React.useMemo(() => React.lazy(loadPortfolioPage), []);
   const NewsPage = React.useMemo(() => React.lazy(loadNewsPage), []);
   const ComparePage = React.useMemo(() => React.lazy(loadComparePage), []);
+  const HomePage = React.useMemo(() => React.lazy(loadHomePage), []);
+  const ScreenerScreen = React.useMemo(() => React.lazy(loadScreenerScreen), []);
+  const StockPage = React.useMemo(() => React.lazy(loadStockPage), []);
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // "/" focuses the one symbol search; the filter palette keeps ⌘K (it lives in
@@ -197,11 +200,19 @@ export function App() {
       />
 
       {route.kind === "home" ? (
-        <HomePage />
+        <React.Suspense fallback={<PageSkeleton label="Loading the home board" />}>
+          <HomePage />
+        </React.Suspense>
       ) : route.kind === "screener" ? (
-        <ScreenerScreen assetClass={route.assetClass} />
+        <React.Suspense fallback={<PageSkeleton label="Loading the screener" />}>
+          <ScreenerScreen assetClass={route.assetClass} />
+        </React.Suspense>
       ) : route.kind === "stock" ? (
-        <StockPage symbol={route.symbol} onClose={() => navigate("/")} />
+        <React.Suspense
+          fallback={<PageSkeleton label={`Loading ${route.symbol}`} />}
+        >
+          <StockPage symbol={route.symbol} onClose={() => navigate("/")} />
+        </React.Suspense>
       ) : route.kind === "compare" ? (
         <React.Suspense fallback={<PageSkeleton label="Lining up the comparison" />}>
           <ComparePage />
