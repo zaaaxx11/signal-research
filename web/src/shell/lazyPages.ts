@@ -16,6 +16,8 @@ export const loadChartsPage = () =>
 export const loadInsiderPage = () =>
   import("@/insider").then((module) => ({ default: module.InsiderPage }));
 export const loadCryptoPage = () => import("@/alt").then((m) => ({ default: m.CryptoPage }));
+export const loadCryptoDetailPage = () =>
+  import("@/crypto/CryptoDetailPage").then((m) => ({ default: m.CryptoDetailPage }));
 export const loadFuturesPage = () => import("@/alt").then((m) => ({ default: m.FuturesPage }));
 export const loadForexPage = () => import("@/alt").then((m) => ({ default: m.ForexPage }));
 export const loadWatchlistPage = () =>

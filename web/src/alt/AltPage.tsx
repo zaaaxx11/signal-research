@@ -316,7 +316,7 @@ function Row({
   readonly meta: CryptoMetaDoc | null;
   readonly sparklineCache: Map<string, import("./cryptoEnrich").SparklineSeries | null>;
 }) {
-  const href = stockHref(row.symbol);
+  const href = stockHref(row.symbol, marketClass);
   const name = row.name ?? row.symbol;
   // Formatted once: the title and the cell text are the same string, and a
   // 40-row table should not build 80 `Intl` results per render.

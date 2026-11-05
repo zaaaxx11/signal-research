@@ -327,14 +327,13 @@ describe("formatting", () => {
 });
 
 describe("stockHref", () => {
-  it("does not invent a detail page the API cannot answer", () => {
-    // `/engine/fundamentals/BTC-USD` answers 404 security_not_found on the
-    // running deployment, and the shell's route pattern refuses `=` outright,
-    // so these rows are text. When that changes, this expectation changes with
-    // it — `ALT_SYMBOLS_LINKABLE` is the one switch.
-    expect(stockHref("BTC-USD")).toBeNull();
-    expect(stockHref("ES=F")).toBeNull();
-    expect(stockHref("EURUSD=X")).toBeNull();
+  it("routes crypto to the detail page and keeps others unlinked", () => {
+    // Crypto now has a detail page at `/crypto/{symbol}`.
+    expect(stockHref("BTC-USD", "crypto")).toBe("/crypto/BTC-USD");
+    expect(stockHref("ETH-USD", "crypto")).toBe("/crypto/ETH-USD");
+    // Futures and forex still have no detail page.
+    expect(stockHref("ES=F", "futures")).toBeNull();
+    expect(stockHref("EURUSD=X", "forex")).toBeNull();
   });
 });
 

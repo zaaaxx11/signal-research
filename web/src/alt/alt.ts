@@ -805,8 +805,16 @@ export function classCopy(marketClass: MarketClass): ClassCopy {
  */
 export const ALT_SYMBOLS_LINKABLE = false;
 
-/** The detail page's URL for a row, or null while there is no page to open. */
-export function stockHref(symbol: string): string | null {
+/**
+ * The detail page's URL for a row, or null while there is no page to open.
+ *
+ * Crypto now has a detail page (`/crypto/{symbol}`, built in this wave), so a
+ * crypto row is an anchor even while the global flag stays false: futures and
+ * forex still have no page, and a link that lands on "not found" is worse than
+ * no link.
+ */
+export function stockHref(symbol: string, marketClass: MarketClass = "crypto"): string | null {
+  if (marketClass === "crypto") return `/crypto/${encodeURIComponent(symbol)}`;
   if (!ALT_SYMBOLS_LINKABLE) return null;
   return `/stock/${encodeURIComponent(symbol)}`;
 }

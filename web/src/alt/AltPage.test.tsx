@@ -218,17 +218,20 @@ describe("AltPage — the table", () => {
     expect(name.getAttribute("data-name-missing")).toBe("true");
   });
 
-  it("keeps the symbol as text, because no detail page exists for these classes", async () => {
+  it("links the crypto symbol to the detail page", async () => {
     stub(altDocument([wireRow(1, { symbol: "BTC-USD" })]));
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
     await toTable();
 
-    expect(screen.queryAllByRole("link")).toHaveLength(0);
-    // The cell is the monogram plus the ticker; the ticker is text, not an anchor.
+    const links = screen.queryAllByRole("link");
+    expect(links.length).toBeGreaterThan(0);
     const cell = screen.getByTestId("alt-symbol");
     expect(cell.textContent).toContain("BTC-USD");
-    expect(cell.querySelector("[data-logo='BTC-USD']")).toBeTruthy();
+    // The link href points to the crypto detail page
+    const link = cell.querySelector("a");
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute("href")).toBe("/app/crypto/BTC-USD");
   });
 
   it("renders a row whose price is null as absent, not as zero", async () => {

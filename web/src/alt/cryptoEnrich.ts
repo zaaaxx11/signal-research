@@ -22,6 +22,15 @@ export interface CryptoMetaRow {
   readonly image: string | null;
   readonly market_cap: number | null;
   readonly market_cap_rank: number | null;
+  readonly circulating_supply: number | null;
+  readonly max_supply: number | null;
+  readonly total_supply: number | null;
+  readonly fully_diluted_valuation: number | null;
+  readonly high_24h: number | null;
+  readonly low_24h: number | null;
+  readonly ath: number | null;
+  readonly ath_change_pct: number | null;
+  readonly pct_1h: number | null;
   readonly pct_7d: number | null;
   readonly pct_30d: number | null;
   readonly tvl: number | null;
@@ -128,6 +137,15 @@ export async function fetchCryptoMeta(signal?: AbortSignal): Promise<CryptoMetaD
         image: typeof row["image"] === "string" ? row["image"] : null,
         market_cap: safeNumber(row["market_cap"]),
         market_cap_rank: safeInt(row["market_cap_rank"]),
+        circulating_supply: safeNumber(row["circulating_supply"]),
+        max_supply: safeNumber(row["max_supply"]),
+        total_supply: safeNumber(row["total_supply"]),
+        fully_diluted_valuation: safeNumber(row["fully_diluted_valuation"]),
+        high_24h: safeNumber(row["high_24h"]),
+        low_24h: safeNumber(row["low_24h"]),
+        ath: safeNumber(row["ath"]),
+        ath_change_pct: safeNumber(row["ath_change_pct"]),
+        pct_1h: safeNumber(row["pct_1h"]),
         pct_7d: safeNumber(row["pct_7d"]),
         pct_30d: safeNumber(row["pct_30d"]),
         tvl: safeNumber(row["tvl"]),

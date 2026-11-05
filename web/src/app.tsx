@@ -37,6 +37,7 @@ import {
   loadCalendarPage,
   loadChartsPage,
   loadComparePage,
+  loadCryptoDetailPage,
   loadCryptoPage,
   loadForexPage,
   loadFuturesPage,
@@ -127,6 +128,7 @@ export function App() {
       futures: "Futures — Ztockz",
       forex: "Forex — Ztockz",
       crypto: "Crypto — Ztockz",
+      cryptoDetail: "Ztockz",
       watchlist: "Watchlist — Ztockz",
       portfolio: "Portfolio — Ztockz",
       compare: "Compare — Ztockz",
@@ -145,6 +147,7 @@ export function App() {
   const ChartsPage = React.useMemo(() => React.lazy(loadChartsPage), []);
   const InsiderPage = React.useMemo(() => React.lazy(loadInsiderPage), []);
   const CryptoPage = React.useMemo(() => React.lazy(loadCryptoPage), []);
+  const CryptoDetailPage = React.useMemo(() => React.lazy(loadCryptoDetailPage), []);
   const FuturesPage = React.useMemo(() => React.lazy(loadFuturesPage), []);
   const ForexPage = React.useMemo(() => React.lazy(loadForexPage), []);
   const WatchlistPage = React.useMemo(() => React.lazy(loadWatchlistPage), []);
@@ -174,6 +177,11 @@ export function App() {
 
   /** A search hit is a page, from anywhere: the ticker's own URL. */
   const onSearchSelect = (hit: SymbolHit) => {
+    // Crypto symbols have a dash (BTC-USD) — route to crypto detail
+    if (hit.symbol.includes("-USD") || hit.symbol.includes("-USDT")) {
+      navigate(`/crypto/${encodeURIComponent(hit.symbol)}`);
+      return;
+    }
     navigate(`/stock/${encodeURIComponent(hit.symbol)}`);
   };
 
@@ -221,6 +229,12 @@ export function App() {
       ) : route.kind === "crypto" ? (
         <React.Suspense fallback={<PageSkeleton label="Loading crypto" />}>
           <CryptoPage />
+        </React.Suspense>
+      ) : route.kind === "cryptoDetail" ? (
+        <React.Suspense
+          fallback={<PageSkeleton label={`Loading ${route.symbol}`} />}
+        >
+          <CryptoDetailPage symbol={route.symbol} />
         </React.Suspense>
       ) : route.kind === "futures" ? (
         <React.Suspense fallback={<PageSkeleton label="Loading futures" />}>
