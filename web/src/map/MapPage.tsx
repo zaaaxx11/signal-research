@@ -34,13 +34,16 @@ import {
   type Timeframe,
 } from "./useMapData";
 
-// ── fixed filter checkboxes ──
-const FIXED_FILTERS = [
-  { id: "sp500", label: "S&P 500" },
-  { id: "etf", label: "ETFs" },
-  { id: "crypto", label: "Crypto" },
-  { id: "futures", label: "Futures" },
+// ── map universe filter (select dropdown) ──
+const MAP_FILTER_OPTIONS = [
+  { value: "all", label: "All Stocks (5,576)" },
+  { value: "sp500", label: "S&P 500" },
+  { value: "etf", label: "ETFs" },
+  { value: "crypto", label: "Crypto (40 coins)" },
+  { value: "futures", label: "Futures (25 contracts)" },
 ] as const;
+
+type MapUniverse = (typeof MAP_FILTER_OPTIONS)[number]["value"];
 
 type ViewId = "treemap" | "matrix" | "bubble" | "grid";
 
@@ -103,7 +106,7 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
   const [view, setView] = React.useState<ViewId>("treemap");
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState("");
-  const [activeFilters, setActiveFilters] = React.useState<Set<string>>(new Set());
+  const [mapUniverse, setMapUniverse] = React.useState<MapUniverse>("all");
   const [sizeBy, setSizeBy] = React.useState<"cap" | "equal">("cap");
 
   const mapView = useMapData({ timeframe });
@@ -244,53 +247,49 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
             </div>
 
             {/* Map filter */}
-            <div className="min-h-0">
-              <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
-                Map filter
-              </p>
-              <div className="mt-1 max-h-[180px] space-y-0.5 overflow-y-auto">
-                {FIXED_FILTERS.map((f) => (
-                  <label
-                    key={f.id}
-                    data-testid={`map-filter-${f.id}`}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 text-data text-fg hover:bg-row-hover"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={activeFilters.has(f.id)}
-                      onChange={() =>
-                        setActiveFilters((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(f.id)) next.delete(f.id);
-                          else next.add(f.id);
-                          return next;
-                        })
-                      }
-                      className="size-3 accent-brand"
-                    />
-                    <span className="flex-1 truncate">{f.label}</span>
-                    <span className="font-mono text-label text-fg-subtle">—</span>
-                  </label>
-                ))}
-                {groups.map((g) => (
-                  <label
-                    key={g.id}
-                    data-testid={`map-filter-group-${g.id}`}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 text-data text-fg hover:bg-row-hover"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={activeFilters.has(g.id)}
-                      onChange={() =>
-                        setActiveFilters((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(g.id)) next.delete(g.id);
-                          else next.add(g.id);
-                          return next;
-                        })
-                      }
-                      className="size-3 accent-brand"
-                    />
+                        <div>
+                          <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
+                            Map filter
+                          </p>
+                          <select
+                            data-testid="map-universe-select"
+                            value={mapUniverse}
+                            onChange={(e) => setMapUniverse(e.target.value as MapUniverse)}
+                            className="mt-1 w-full rounded-sm border border-line bg-surface px-2 py-1 font-mono text-label text-fg"
+                          >
+                            {MAP_FILTER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {mapUniverse === "crypto" || mapUniverse === "futures" ? (
+                            <p className="mt-1 text-[10px] text-fg-subtle">
+                              {mapUniverse === "crypto"
+                                ? "Crypto treemap (market cap from CoinGecko)"
+                                : "Futures treemap (contract prices from Yahoo)"}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        {/* Sector filter */}
+                        <div className="min-h-0">
+                          <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
+                            Sector filter
+                          </p>
+                          <div className="mt-1 max-h-[180px] space-y-0.5 overflow-y-auto">
+                            {groups.map((g) => (
+                              <label
+                                key={g.id}
+                                data-testid={`map-filter-group-${g.id}`}
+                                className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 text-data text-fg hover:bg-row-hover"
+                              >
+                                <input
+                                  type="checkbox"
+                                  defaultChecked={g.id === "Technology"}
+                                  onChange={() => { /* sector filter — client-side only until backend supports per-sector map */ }}
+                                  className="size-3 accent-brand"
+                                />
                     <span className="flex-1 truncate">{g.label}</span>
                     <span className="font-mono text-label text-fg-subtle">
                       {formatCount(g.count)}

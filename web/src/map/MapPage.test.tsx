@@ -188,13 +188,15 @@ describe("MapPage — size by toggle", () => {
   });
 });
 
-describe("MapPage — map filter checkboxes", () => {
-  it("renders all fixed filter checkboxes including futures", async () => {
+describe("MapPage — map filter select", () => {
+  it("renders universe select with all options including crypto and futures", async () => {
     await renderReady();
-    expect(screen.getByTestId("map-filter-sp500")).toBeTruthy();
-    expect(screen.getByTestId("map-filter-etf")).toBeTruthy();
-    expect(screen.getByTestId("map-filter-crypto")).toBeTruthy();
-    expect(screen.getByTestId("map-filter-futures")).toBeTruthy();
+    const select = screen.getByTestId("map-universe-select") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    const options = Array.from(select.options).map((o) => o.textContent);
+    expect(options).toContain("All Stocks (5,576)");
+    expect(options).toContain("Crypto (40 coins)");
+    expect(options).toContain("Futures (25 contracts)");
   });
 });
 
