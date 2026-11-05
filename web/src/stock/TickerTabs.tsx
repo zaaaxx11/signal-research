@@ -21,13 +21,10 @@ export interface TickerTab {
 
 export const TICKER_TABS: readonly TickerTab[] = [
   { id: "overview", label: "Overview" },
-  { id: "statements", label: "Statements" },
-  { id: "ownership", label: "Ownership" },
+  { id: "statements", label: "Financials" },
+  { id: "peers", label: "Peers" },
   { id: "insider", label: "Insider" },
-  { id: "filings", label: "Filings" },
   { id: "news", label: "News" },
-  { id: "chart", label: "Chart" },
-  { id: "options", label: "Options" },
 ];
 
 export const DEFAULT_TAB: TickerTabId = "overview";

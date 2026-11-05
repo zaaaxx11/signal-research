@@ -305,6 +305,8 @@ export function peersPayload(symbol = "AAPL", count = 12): Record<string, unknow
       mic: index % 2 === 0 ? "XNAS" : "XNYS",
       industry: "Electronic Computers",
       country: "United States",
+      market_cap: 100_000_000_000 + index * 50_000_000_000,
+      change: index % 3 === 0 ? -1.5 : index % 3 === 1 ? 2.3 : 0.0,
     })),
   };
 }

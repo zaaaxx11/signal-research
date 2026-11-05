@@ -2,31 +2,23 @@
  * `/app/stock/{symbol}` — the ticker page.
  *
  * The band and the tab strip are the page's frame; the panel below is one of
- * seven sections, and the address bar names which (`?tab=statements`). The
+ * five sections, and the address bar names which (`?tab=statements`). The
  * strip is the only navigator: there is no local `useState` for the active tab,
  * so Back, a shared link and a reload all land on the same section.
  *
  * Each tab draws only what it needs. Overview is the composite (chart,
- * snapshot, peers, held-by, insider, news); Statements mounts the collector;
- * Ownership/Insider/News reuse the detail panel's own components so a value
- * cannot be formatted two ways on two surfaces; Filings lists the Form 4
- * documents the engine actually reads; Chart is the same instrument at a
- * taller height.
+ * snapshot, company profile, technicals); Statements mounts the collector;
+ * Peers/Insider/News each own their own read so a deep link never fetches data
+ * for a tab the reader is not looking at.
  */
 
 import * as React from "react";
 
-import { InsidersTab } from "@/detail/InsidersTab";
-import { NewsTab } from "@/detail/NewsTab";
-import { OwnershipTab } from "@/detail/OwnershipTab";
 import { cn } from "@/lib/utils";
 import { navigate, useSearch } from "@/shell/routes";
 
-import { FilingsTab } from "./FilingsTab";
 import { Overview } from "./Overview";
 import { TickerActions, type TickerNotice } from "./TickerActions";
-import { TickerChart } from "./TickerChart";
-import { OptionsTab } from "./OptionsTab";
 import { TickerHeader } from "./TickerHeader";
 import { TickerTabs, TICKER_PANEL_ID, tabFromSearch, tabHref, tabId } from "./TickerTabs";
 import type { SnapshotSources } from "./snapshot";
@@ -41,11 +33,9 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
   const active = tabFromSearch(search);
   const resources = useTicker(symbol, active);
   const header = headerView(resources, symbol);
-  // The band's one confirmation line: the action that wrote to a list says so
-  // here, once, rather than opening a dialog the reader has to dismiss.
   const [notice, setNotice] = React.useState<TickerNotice | null>(null);
   // The snapshot is its own read, and only Overview draws it: a deep link to
-  // Statements must not pay for 84 values nobody will see.
+  // Financials must not pay for 84 values nobody will see.
   const snapshot = useSnapshot(symbol, active === "overview");
 
   const sources = React.useMemo<SnapshotSources>(
@@ -67,38 +57,12 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
     switch (active) {
       case "statements":
         return <StatementsSection symbol={symbol} />;
-      case "ownership":
-        return (
-          <OwnershipTab
-            symbol={symbol}
-            state={resources.row}
-            onRetry={resources.row.retry}
-          />
-        );
+      case "peers":
+        return <PeersSection symbol={symbol} />;
       case "insider":
-        return (
-          <InsidersTab
-            symbol={symbol}
-            state={resources.insiders}
-            onRetry={resources.insiders.retry}
-          />
-        );
-      case "filings":
-        return <FilingsTab symbol={symbol} state={resources.insiders} />;
+        return <InsiderSection symbol={symbol} state={resources.insiders} />;
       case "news":
-        return (
-          <NewsTab symbol={symbol} state={resources.news} onRetry={resources.news.retry} />
-        );
-      case "options":
-        return (
-          <OptionsTab
-            symbol={symbol}
-            state={resources.options}
-          />
-        );
-
-      case "chart":
-        return <TickerChart symbol={symbol} height={360} />;
+        return <NewsSection symbol={symbol} state={resources.news} />;
       case "overview":
       default:
         return (
@@ -106,9 +70,6 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
             symbol={symbol}
             sources={sources}
             notice={snapshot.notice}
-            peers={resources.peers}
-            insiders={resources.insiders}
-            news={resources.news}
           />
         );
     }
@@ -159,10 +120,7 @@ export function TickerPage({ symbol }: TickerPageProps): React.ReactElement {
   );
 }
 
-/**
- * The statements chunk is split from the page for the same reason the chart
- * is: a reader who came for the quote should not download a collector UI.
- */
+/** The statements chunk is split from the page for code splitting. */
 const StatementsTab = React.lazy(() =>
   import("./StatementsTab").then((module) => ({ default: module.StatementsTab })),
 );
@@ -180,6 +138,57 @@ function StatementsSection({ symbol }: { symbol: string }): React.ReactElement {
     >
       <StatementsTab symbol={symbol} />
     </React.Suspense>
+  );
+}
+
+/** The peers tab is its own lazy chunk — the full table. */
+const PeersTab = React.lazy(() =>
+  import("./PeersTab").then((module) => ({ default: module.PeersTab })),
+);
+
+function PeersSection({ symbol }: { symbol: string }): React.ReactElement {
+  return (
+    <React.Suspense
+      fallback={
+        <div
+          aria-busy="true"
+          aria-label={`Loading peers for ${symbol}`}
+          className="h-40"
+        />
+      }
+    >
+      <PeersTab symbol={symbol} />
+    </React.Suspense>
+  );
+}
+
+/** The insider tab shows the Form 4 filings from the engine. */
+import type { InsiderData, Resource } from "@/detail/useDetail";
+import { FilingsTab } from "./FilingsTab";
+
+function InsiderSection({
+  symbol,
+  state,
+}: {
+  symbol: string;
+  state: Resource<InsiderData>;
+}): React.ReactElement {
+  return <FilingsTab symbol={symbol} state={state} />;
+}
+
+/** The news tab shows headlines from /news/{symbol}. */
+import type { NewsData } from "@/detail/useDetail";
+import { NewsTab } from "@/detail/NewsTab";
+
+function NewsSection({
+  symbol,
+  state,
+}: {
+  symbol: string;
+  state: Resource<NewsData>;
+}): React.ReactElement {
+  return (
+    <NewsTab symbol={symbol} state={state} onRetry={state.retry} />
   );
 }
 

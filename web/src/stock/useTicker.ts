@@ -57,12 +57,9 @@ import { parseOptions, type OptionsChain } from "./options";
 export type TickerTabId =
   | "overview"
   | "statements"
-  | "ownership"
+  | "peers"
   | "insider"
-  | "filings"
-  | "news"
-  | "chart"
-  | "options";
+  | "news";
 
 export interface Peer {
   readonly symbol: string;
@@ -70,6 +67,10 @@ export interface Peer {
   readonly exchange: string | null;
   readonly industry: string | null;
   readonly country: string | null;
+  /** Market cap from the peers endpoint, null when not reported. */
+  readonly marketCap: number | null;
+  /** Price change percent from the peers endpoint, null when not reported. */
+  readonly changePercent: number | null;
 }
 
 export interface PeersData {
@@ -177,6 +178,8 @@ export function parsePeer(raw: unknown): Peer | null {
     exchange: text(raw["exchange"]),
     industry: text(raw["industry"]),
     country: text(raw["country"]),
+    marketCap: num(raw["market_cap"]) ?? num(raw["marketCap"]),
+    changePercent: num(raw["change"]) ?? num(raw["change_pct"]) ?? num(raw["changePercent"]),
   };
 }
 
@@ -485,20 +488,19 @@ export function headerView(resources: TickerResources, symbol: string): HeaderVi
  * peer list nobody will see.
  */
 export function useTicker(symbol: string, active: TickerTabId = "overview"): TickerResources {
-  const overview = active === "overview";
   return {
     profile: useResource(symbol, loadProfile),
     security: useResource(symbol, loadSecurity),
     fundamentals: useResource(symbol, loadFundamentals),
     row: useResource(symbol, loadRow),
-    peers: useResource(symbol, loadPeers, overview),
+    peers: useResource(symbol, loadPeers, active === "overview" || active === "peers"),
     insiders: useResource(
       symbol,
       loadInsider,
-      overview || active === "insider" || active === "filings",
+      active === "overview" || active === "insider",
     ),
-    news: useResource(symbol, loadNews, overview || active === "news"),
-    options: useResource(symbol, loadOptions, active === "options"),
+    news: useResource(symbol, loadNews, active === "overview" || active === "news"),
+    options: useResource(symbol, loadOptions, false),
   };
 }
 

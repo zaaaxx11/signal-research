@@ -1,14 +1,14 @@
 /**
- * The ticker page: seven tabs, a deep link, a keyboard, and the composite
+ * The ticker page: five tabs, a deep link, a keyboard, and the composite
  * Overview.
  *
  * The reads are stubbed at the network seam, so what this file proves is the
  * page's own contract — the address selects the tab, ArrowRight moves it, the
- * Overview draws six columns of fourteen cells and ten-row lists, and a 404
- * from the statement collector becomes a sentence.
+ * Overview draws six columns of fourteen cells, and a 404 from the statement
+ * collector becomes a sentence.
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,14 +39,12 @@ afterEach(() => {
 });
 
 describe("TickerPage", () => {
-  it("opens on Overview with the band, the six-column snapshot and the lists", async () => {
+  it("opens on Overview with the band, the snapshot and the company profile", async () => {
     stubTickerApi();
     render(<TickerPage symbol="AAPL" />);
 
     await waitFor(() => expect(screen.getByTestId("header-price").textContent).toBe("$343.36"));
 
-    // The profile endpoint 404s (the backend has not landed it): the band falls
-    // back to the selection row rather than blanking the quote.
     expect(screen.getByTestId("header-company").textContent).toBe("Apple Inc.");
     expect(screen.getByTestId("header-change").textContent).toContain("+1.24%");
     expect(screen.getByTestId("header-market-cap").textContent).toBe("$5.18T");
@@ -54,8 +52,6 @@ describe("TickerPage", () => {
     const overview = screen.getByRole("tab", { name: "Overview" });
     expect(overview.getAttribute("aria-selected")).toBe("true");
 
-    // A tab that names a panel that names it back: the ARIA relationship is
-    // two-way, not a dangling `aria-controls`.
     const panel = screen.getByRole("tabpanel");
     expect(overview.getAttribute("aria-controls")).toBe(panel.id);
     expect(panel.getAttribute("aria-labelledby")).toBe(overview.id);
@@ -64,24 +60,9 @@ describe("TickerPage", () => {
     expect(grid.querySelectorAll("[data-snapshot-column]")).toHaveLength(6);
     expect(grid.querySelectorAll("[data-snapshot-cell]")).toHaveLength(84);
 
-    // The company endpoint 404s while it lands: one sentence, no empty heading.
     expect((await screen.findByTestId("company-empty")).textContent).toBe(
       "No company profile available.",
     );
-
-    await waitFor(() =>
-      expect(screen.getByTestId("peers-list").querySelectorAll("[data-peer]")).toHaveLength(10),
-    );
-    expect(screen.getByTestId("held-by-list").querySelectorAll("[data-fund]")).toHaveLength(3);
-
-    await waitFor(() =>
-      expect(
-        within(screen.getByTestId("insider-overview")).getAllByRole("row").length,
-      ).toBe(11),
-    );
-    expect(
-      within(screen.getByTestId("news-overview")).getAllByRole("listitem"),
-    ).toHaveLength(10);
   });
 
   it("deep-links ?tab=statements and draws the collected tables", async () => {
@@ -90,12 +71,11 @@ describe("TickerPage", () => {
 
     render(<TickerPage symbol="AAPL" />);
 
-    expect(screen.getByRole("tab", { name: "Statements" }).getAttribute("aria-selected")).toBe(
+    expect(screen.getByRole("tab", { name: "Financials" }).getAttribute("aria-selected")).toBe(
       "true",
     );
     const income = await screen.findByTestId("statements-income", undefined, { timeout: 4_000 });
     expect(income.querySelectorAll("tbody tr[data-statement-row]").length).toBe(3);
-    // The Overview is not mounted under the statements tab.
     expect(screen.queryByTestId("snapshot-grid")).toBeNull();
   });
 
@@ -119,9 +99,9 @@ describe("TickerPage", () => {
     overview.focus();
     await user.keyboard("{ArrowRight}");
 
-    const statements = screen.getByRole("tab", { name: "Statements" });
-    expect(statements.getAttribute("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(statements);
+    const financials = screen.getByRole("tab", { name: "Financials" });
+    expect(financials.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(financials);
     expect(window.location.search).toBe("?tab=statements");
     expect(screen.getByTestId("ticker-page").getAttribute("data-tab")).toBe("statements");
   });
@@ -154,7 +134,7 @@ describe("TickerPage", () => {
     await screen.findByTestId("company-description", undefined, { timeout: 4_000 });
     expect(screen.getByTestId("company-officers").querySelectorAll("li")).toHaveLength(5);
 
-    await user.click(screen.getByRole("tab", { name: "Statements" }));
+    await user.click(screen.getByRole("tab", { name: "Financials" }));
     await screen.findByTestId("statements-income", undefined, { timeout: 4_000 });
     expect(screen.queryByTestId("company-profile")).toBeNull();
   });
@@ -173,8 +153,6 @@ describe("TickerPage", () => {
     const fetchMock = stubTickerApi({ snapshot: () => json(snapshotPayload()) });
     render(<TickerPage symbol="AAPL" />);
 
-    // The grid is drawn before the read lands (84 honest em dashes), then
-    // every reported key is filled from the document.
     await waitFor(() => expect(snapshotCell("pe")?.textContent).toBe("34.12"), { timeout: 4_000 });
     expect(snapshotCell("forward_pe")?.textContent).toBe("29.40");
     expect(snapshotCell("market_cap")?.textContent).toBe("$5.18T");
@@ -194,10 +172,8 @@ describe("TickerPage", () => {
 
     const notice = await screen.findByTestId("snapshot-notice");
     expect(notice.textContent).toContain("snapshot_not_found: no snapshot for AAPL");
-    // One sentence, not a stack of paragraphs.
     expect(notice.querySelectorAll("br, p, div")).toHaveLength(0);
 
-    // The grid is still complete: the fundamentals and the scan row fill it.
     expect(screen.getByTestId("snapshot-grid").querySelectorAll("[data-snapshot-cell]")).toHaveLength(84);
     await waitFor(() => expect(snapshotCell("market_cap")?.textContent).toBe("$5.18T"));
   });
@@ -213,8 +189,6 @@ describe("TickerPage", () => {
       "technicals_unavailable: no daily close series for ZZZZ",
     );
 
-    // The frame and the other panels are untouched: the band still quotes the
-    // row, the snapshot is still complete, and the risk read still paints.
     expect(screen.getByTestId("header-price").textContent).toBe("$343.36");
     expect(screen.getByTestId("snapshot-grid").querySelectorAll("[data-snapshot-cell]")).toHaveLength(84);
     expect(
@@ -222,5 +196,18 @@ describe("TickerPage", () => {
         .getByTestId("technicals-block")
         .querySelector('[data-technical="alpha"]')?.textContent,
     ).toBe("+4.82%");
+  });
+
+  it("draws the five tabs in order", async () => {
+    stubTickerApi();
+    render(<TickerPage symbol="AAPL" />);
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(5);
+    expect(tabs[0]).toHaveTextContent("Overview");
+    expect(tabs[1]).toHaveTextContent("Financials");
+    expect(tabs[2]).toHaveTextContent("Peers");
+    expect(tabs[3]).toHaveTextContent("Insider");
+    expect(tabs[4]).toHaveTextContent("News");
   });
 });
