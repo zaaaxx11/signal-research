@@ -61,8 +61,39 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function _metaDoc(measured = 0) {
+  return { as_of: "2026-01-01T00:00:00Z", method: "coingecko_markets_v3_plus_defillama_tvl", universe_total: 40, measured, rows: {} };
+}
+
+function _globalDoc(available = false) {
+  if (!available) return { as_of: "2026-01-01T00:00:00Z", method: "coingecko_global_v3", available: false };
+  return {
+    as_of: "2026-01-01T00:00:00Z",
+    method: "coingecko_global_v3",
+    available: true,
+    total_market_cap_usd: 2.5e12,
+    market_cap_change_pct_24h: 1.4,
+    btc_dominance: 58.1,
+    eth_dominance: 12.2,
+    active_cryptocurrencies: 17221,
+  };
+}
+
+function _chartDoc() {
+  return { symbol: "BTC-USD", range: "5d", interval: "15m", bars: [], source: "yahoo_chart", truncated: false };
+}
+
+/** Route the request to the right stubbed response. */
+function routeToResponse(input: RequestInfo | URL, altBody: unknown): Response {
+  const url = String(input);
+  if (url.includes("/market/crypto/meta")) return json(_metaDoc());
+  if (url.includes("/market/crypto/global")) return json(_globalDoc());
+  if (url.includes("/market/chart/")) return json(_chartDoc());
+  return json(altBody);
+}
+
 function stub(body: unknown = altDocument(Array.from({ length: 40 }, (_, index) => wireRow(index)))) {
-  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => json(body));
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => routeToResponse(input, body));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -92,8 +123,11 @@ describe("AltPage — the request", () => {
     render(<AltPage marketClass="crypto" />);
 
     await screen.findByTestId("alt-table");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(urls(fetchMock)[0]).toBe("/market/alt?class=crypto&per=50");
+    // The page fetches alt data, crypto meta, crypto global, and per-row sparklines
+    const allUrls = urls(fetchMock);
+    expect(allUrls.filter((u) => u === "/market/alt?class=crypto&per=50")).toHaveLength(1);
+    expect(allUrls.filter((u) => u === "/market/crypto/meta")).toHaveLength(1);
+    expect(allUrls.filter((u) => u === "/market/crypto/global")).toHaveLength(1);
   });
 
   it("gives each class its own URL", async () => {
@@ -105,7 +139,8 @@ describe("AltPage — the request", () => {
       const fetchMock = stub(altDocument([wireRow(1)], { class: marketClass }));
       const view = render(<AltPage marketClass={marketClass} />);
       await screen.findByTestId("alt-table");
-      expect(urls(fetchMock)).toEqual([expected]);
+      // The alt URL must be present; crypto also fetches enrich data + sparklines
+      expect(urls(fetchMock).filter((u) => u === expected)).toHaveLength(1);
       view.unmount();
       vi.unstubAllGlobals();
     }
@@ -283,12 +318,16 @@ describe("AltPage — the filter", () => {
     await screen.findByTestId("alt-table");
     await toTable();
 
+    // Snapshot: no more fetches after the initial load + sparklines
+    const callsAfterLoad = fetchMock.mock.calls.length;
+
     const filter = screen.getByTestId("alt-filter");
     await user.click(filter);
     await user.type(filter, "SYM1");
 
     expect(rowSymbols()).toEqual(["SYM10-USD", "SYM11-USD", "SYM12-USD", "SYM13-USD", "SYM14-USD", "SYM15-USD", "SYM16-USD", "SYM17-USD", "SYM18-USD", "SYM19-USD"]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Filtering is local — no new fetches triggered
+    expect(fetchMock).toHaveBeenCalledTimes(callsAfterLoad);
     expect(document.activeElement).toBe(filter);
   });
 
@@ -313,6 +352,9 @@ describe("AltPage — the filter", () => {
     render(<AltPage marketClass="crypto" />);
     await screen.findByTestId("alt-table");
 
+    // Snapshot: no more fetches after the initial load + sparklines
+    const callsAfterLoad = fetchMock.mock.calls.length;
+
     await user.type(screen.getByTestId("alt-filter"), "zzzzz");
     const empty = screen.getByTestId("alt-filter-empty");
     expect(empty.textContent).toContain("zzzzz");
@@ -320,7 +362,8 @@ describe("AltPage — the filter", () => {
 
     await user.click(screen.getByTestId("alt-filter-clear"));
     expect(screen.getAllByTestId("alt-row")).toHaveLength(40);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // No new fetches — clear is local
+    expect(fetchMock).toHaveBeenCalledTimes(callsAfterLoad);
   });
 
   it("reports how many of the rows are shown", async () => {
@@ -454,12 +497,19 @@ describe("AltPage — the states", () => {
   });
 
   it("reports a failure with the reason, and retries into the table", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        json({ error: "provider_unavailable", errorMessage: "The quote provider is down" }, 503),
-      )
-      .mockResolvedValue(json(altDocument([wireRow(1)])));
+    let altCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/market/alt")) {
+        altCalls++;
+        if (altCalls === 1) return json({ error: "provider_unavailable", errorMessage: "The quote provider is down" }, 503);
+        return json(altDocument([wireRow(1)]));
+      }
+      if (url.includes("/market/crypto/meta")) return json(_metaDoc());
+      if (url.includes("/market/crypto/global")) return json(_globalDoc());
+      if (url.includes("/market/chart/")) return json(_chartDoc());
+      return json(altDocument([wireRow(1)]));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
@@ -471,7 +521,8 @@ describe("AltPage — the states", () => {
 
     await user.click(screen.getByTestId("alt-retry"));
     await screen.findByTestId("alt-table");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // One failed alt call, one successful retry
+    expect(altCalls).toBe(2);
     expect(screen.getAllByTestId("alt-row")).toHaveLength(1);
   });
 

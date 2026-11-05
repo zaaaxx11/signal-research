@@ -28,6 +28,7 @@ import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
 import { cn } from "@/lib/utils";
 import { quoteProps } from "@/lib/quoteAttrs";
+import { notify } from "@/lib/notify";
 
 import {
   CATEGORY_TABS,
@@ -53,6 +54,19 @@ import {
   type SortState,
 } from "./alt";
 import { useAlt } from "./useAlt";
+import {
+  useCryptoEnrich,
+  useSparkline,
+  useSparklineCache,
+} from "./useCryptoEnrich";
+import {
+  formatCount,
+  formatDominance,
+  formatMarketCap,
+  formatSignedPct,
+  type CryptoMetaRow,
+  type CryptoMetaDoc,
+} from "./cryptoEnrich";
 
 /** Skeleton rows: the first screen of a full page, not a fake table. */
 export const ALT_SKELETON_ROWS = 20;
@@ -195,14 +209,112 @@ function MiniSparkline({ direction }: { readonly direction: "up" | "down" | "fla
   );
 }
 
+/** A 16px logo from CoinGecko's image URL, with monogram fallback on error. */
+function CryptoLogo({ image, symbol }: { readonly image: string | null; readonly symbol: string }) {
+  const [failed, setFailed] = React.useState(false);
+
+  if (!image || failed) {
+    return (
+      <span
+        aria-hidden="true"
+        className="flex size-4 shrink-0 items-center justify-center rounded-[2px] border border-line bg-surface-raised"
+      >
+        <span className="font-mono text-[8px] leading-none text-fg-muted">
+          {symbol.slice(0, 1).toUpperCase()}
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={image}
+      alt=""
+      width={16}
+      height={16}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="size-4 shrink-0 rounded-[2px] object-contain"
+    />
+  );
+}
+
+/** A 36×14 SVG sparkline drawn from an array of closes. */
+function InlineSparkline({ closes, direction }: { readonly closes: readonly number[]; readonly direction: "up" | "down" | "flat" }) {
+  if (closes.length < 2) return null;
+
+  const stroke =
+    direction === "up" ? "var(--up, #22c55e)" : direction === "down" ? "var(--down, #ef4444)" : "var(--fg-muted, #6b7280)";
+
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const range = max - min || 1;
+  const w = 34;
+  const h = 12;
+  const pad = 1;
+
+  const points = closes.map((v, i) => {
+    const x = pad + (i / (closes.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  return (
+    <svg
+      width="36"
+      height="14"
+      viewBox="0 0 36 14"
+      aria-hidden="true"
+      className="inline-block align-middle"
+    >
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Sparkline cell: fetches lazily and renders when ready. */
+function SparklineCell({ symbol, cache }: { readonly symbol: string; readonly cache: Map<string, import("./cryptoEnrich").SparklineSeries | null> }) {
+  const series = useSparkline(cache, symbol);
+  const sparkDir = React.useMemo(() => {
+    if (!series) return null;
+    return series.direction;
+  }, [series]);
+
+  if (!series) {
+    // Still loading or failed — show static directional indicator
+    return (
+      <td data-testid="alt-sparkline" className="px-1 text-center" aria-hidden="true">
+        <span className="text-fg-subtle text-label">—</span>
+      </td>
+    );
+  }
+
+  return (
+    <td data-testid="alt-sparkline" className="px-1 text-center" aria-hidden="true">
+      <InlineSparkline closes={series.closes} direction={sparkDir ?? "flat"} />
+    </td>
+  );
+}
+
 function Row({
   row,
   hasAmount,
   marketClass,
+  meta,
+  sparklineCache,
 }: {
   readonly row: AltRow;
   readonly hasAmount: boolean;
   readonly marketClass: MarketClass;
+  readonly meta: CryptoMetaDoc | null;
+  readonly sparklineCache: Map<string, import("./cryptoEnrich").SparklineSeries | null>;
 }) {
   const href = stockHref(row.symbol);
   const name = row.name ?? row.symbol;
@@ -214,6 +326,8 @@ function Row({
   const volume = hasAmount ? formatVolume(row.volume) : null;
   const flag = marketClass === "forex" ? flagForPair(row.symbol) : null;
   const sparkDir = row.changePct === null ? null : row.changePct > 0 ? "up" : row.changePct < 0 ? "down" : "flat";
+  const isCrypto = marketClass === "crypto";
+  const metaRow: CryptoMetaRow | null = isCrypto && meta ? (meta.rows[row.symbol] ?? null) : null;
   const quoteAttr = quoteProps({
     symbol: row.symbol,
     name: row.name ?? undefined,
@@ -222,9 +336,13 @@ function Row({
     kind: marketClass,
   });
 
+  const cryptoLogo = isCrypto && metaRow ? (
+    <CryptoLogo image={metaRow.image} symbol={row.symbol} />
+  ) : null;
+
   const identity = (
     <>
-      <LogoMark symbol={row.symbol} size={16} />
+      {cryptoLogo ?? <LogoMark symbol={row.symbol} size={16} />}
       {flag ? <span className="text-[14px] leading-none" aria-hidden="true">{flag}</span> : null}
       <span className="min-w-0 truncate font-mono text-data font-medium text-fg">{row.symbol}</span>
     </>
@@ -260,6 +378,36 @@ function Row({
       >
         <span className="block truncate">{name}</span>
       </td>
+      {/* Enriched crypto columns */}
+      {isCrypto ? (
+        <td data-testid="alt-mcap" className="px-2 text-right nums text-fg-muted">
+          {formatMarketCap(metaRow?.market_cap ?? null) ?? <Absent />}
+        </td>
+      ) : null}
+      {isCrypto ? (
+        <td data-testid="alt-rank" className="px-2 text-center nums text-fg-muted">
+          {metaRow?.market_cap_rank != null ? `#${metaRow.market_cap_rank}` : <Absent />}
+        </td>
+      ) : null}
+      {isCrypto ? (
+        <td
+          data-testid="alt-7d"
+          className={cn(
+            "px-2 text-right nums",
+            metaRow?.pct_7d == null ? "text-fg-muted"
+            : metaRow.pct_7d > 0 ? "text-up"
+            : metaRow.pct_7d < 0 ? "text-down"
+            : "text-fg-muted",
+          )}
+        >
+          {formatSignedPct(metaRow?.pct_7d ?? null) ?? <Absent />}
+        </td>
+      ) : null}
+      {isCrypto ? (
+        <td data-testid="alt-tvl" className="px-2 text-right nums text-fg-muted">
+          {formatMarketCap(metaRow?.tvl ?? null) ?? <Absent />}
+        </td>
+      ) : null}
       <td data-testid="alt-last" className="px-2 text-right nums" title={price}>
         {price}
       </td>
@@ -279,13 +427,17 @@ function Row({
       >
         {row.currency ?? <Absent />}
       </td>
-      <td data-testid="alt-sparkline" className="px-1 text-center" aria-hidden="true">
-        {sparkDir !== null ? (
-          <MiniSparkline direction={sparkDir} />
-        ) : (
-          <Absent />
-        )}
-      </td>
+      {isCrypto ? (
+        <SparklineCell symbol={row.symbol} cache={sparklineCache} />
+      ) : (
+        <td data-testid="alt-sparkline" className="px-1 text-center" aria-hidden="true">
+          {sparkDir !== null ? (
+            <MiniSparkline direction={sparkDir} />
+          ) : (
+            <Absent />
+          )}
+        </td>
+      )}
       {marketClass === "forex" ? (
         <td
           data-testid="alt-strength"
@@ -313,6 +465,8 @@ function Table({
   amountLabel,
   hasAmount,
   marketClass,
+  meta,
+  sparklineCache,
   onSort,
 }: {
   readonly report: AltReport;
@@ -321,9 +475,12 @@ function Table({
   readonly amountLabel: string;
   readonly hasAmount: boolean;
   readonly marketClass: MarketClass;
+  readonly meta: CryptoMetaDoc | null;
+  readonly sparklineCache: Map<string, import("./cryptoEnrich").SparklineSeries | null>;
   readonly onSort: (key: SortKey) => void;
 }) {
   const isForex = marketClass === "forex";
+  const isCrypto = marketClass === "crypto";
   const order =
     sort === null
       ? "in the order the endpoint sent them"
@@ -333,14 +490,18 @@ function Table({
     <div className="overflow-x-auto">
       <table
         data-testid="alt-table"
-        className="w-full min-w-[720px] table-fixed border-collapse text-data"
+        className={cn("w-full min-w-[720px] table-fixed border-collapse text-data", isCrypto && "min-w-[900px]")}
       >
         <caption className="sr-only">
           {report.class} quotes, {rows.length} rows, {order}
         </caption>
         <colgroup>
           <col className="w-[14%]" />
-          <col className="w-[30%]" />
+          <col className="w-[22%]" />
+          {isCrypto ? <col className="w-[8%]" /> : null}
+          {isCrypto ? <col className="w-[5%]" /> : null}
+          {isCrypto ? <col className="w-[6%]" /> : null}
+          {isCrypto ? <col className="w-[6%]" /> : null}
           <col className="w-[11%]" />
           <col className="w-[9%]" />
           <col className="w-[11%]" />
@@ -353,6 +514,26 @@ function Table({
             {COLUMNS.map((column) => (
               <HeadCell key={column.key} column={column} sort={sort} onSort={onSort} />
             ))}
+            {isCrypto ? (
+              <th scope="col" data-testid="alt-th-mcap" className="px-2 text-right font-medium">
+                Cap
+              </th>
+            ) : null}
+            {isCrypto ? (
+              <th scope="col" data-testid="alt-th-rank" className="px-2 text-center font-medium">
+                #
+              </th>
+            ) : null}
+            {isCrypto ? (
+              <th scope="col" data-testid="alt-th-week" className="px-2 text-right font-medium">
+                7D
+              </th>
+            ) : null}
+            {isCrypto ? (
+              <th scope="col" data-testid="alt-th-tvl" className="px-2 text-right font-medium">
+                TVL
+              </th>
+            ) : null}
             <th
               scope="col"
               data-testid="alt-th-volume"
@@ -375,7 +556,7 @@ function Table({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <Row key={row.symbol} row={row} hasAmount={hasAmount} marketClass={marketClass} />
+            <Row key={row.symbol} row={row} hasAmount={hasAmount} marketClass={marketClass} meta={meta} sparklineCache={sparklineCache} />
           ))}
         </tbody>
       </table>
@@ -528,10 +709,12 @@ function CardRow({
   row,
   hasAmount,
   marketClass,
+  meta,
 }: {
   readonly row: AltRow;
   readonly hasAmount: boolean;
   readonly marketClass: MarketClass;
+  readonly meta: CryptoMetaDoc | null;
 }) {
   const name = row.name ?? row.symbol;
   const priceText = formatPrice(row.price);
@@ -546,6 +729,8 @@ function CardRow({
   const volume = hasAmount && row.volume !== null ? formatVolume(row.volume) : null;
   const flag = marketClass === "forex" ? flagForPair(row.symbol) : null;
   const sparkDir = row.changePct === null ? null : row.changePct > 0 ? "up" : row.changePct < 0 ? "down" : "flat";
+  const isCrypto = marketClass === "crypto";
+  const metaRow: CryptoMetaRow | null = isCrypto && meta ? (meta.rows[row.symbol] ?? null) : null;
   const quoteAttr = quoteProps({
     symbol: row.symbol,
     name: row.name ?? undefined,
@@ -554,15 +739,22 @@ function CardRow({
     kind: marketClass,
   });
 
+  const cryptoLogo = isCrypto && metaRow ? (
+    <CryptoLogo image={metaRow.image} symbol={row.symbol} />
+  ) : null;
+
   const inner = (
     <>
       {/* Header: logo + flag + symbol */}
       <div className="mb-1.5 flex items-center gap-1.5 min-w-0">
-        <LogoMark symbol={row.symbol} size={16} />
+        {cryptoLogo ?? <LogoMark symbol={row.symbol} size={16} />}
         {flag ? <span className="text-[14px] leading-none" aria-hidden="true">{flag}</span> : null}
         <span className="truncate font-mono text-label font-medium text-fg">
           {row.symbol}
         </span>
+        {metaRow?.market_cap_rank != null ? (
+          <span className="ml-auto shrink-0 text-label text-fg-subtle">#{metaRow.market_cap_rank}</span>
+        ) : null}
       </div>
 
       {/* Name */}
@@ -594,6 +786,28 @@ function CardRow({
       >
         {changeLabel}
       </p>
+
+      {/* Enriched stats: cap + 7d + TVL */}
+      {isCrypto ? (
+        <div className="mt-1 grid grid-cols-2 gap-x-1 gap-y-0.5 text-label">
+          <span className="text-fg-subtle">Cap</span>
+          <span className="text-right nums text-fg-muted">{formatMarketCap(metaRow?.market_cap ?? null) ?? "—"}</span>
+          <span className="text-fg-subtle">7D</span>
+          <span className={cn(
+            "text-right nums",
+            metaRow?.pct_7d == null ? "text-fg-muted"
+            : metaRow.pct_7d > 0 ? "text-up"
+            : metaRow.pct_7d < 0 ? "text-down"
+            : "text-fg-muted",
+          )}>{formatSignedPct(metaRow?.pct_7d ?? null) ?? "—"}</span>
+          {metaRow?.tvl != null ? (
+            <>
+              <span className="text-fg-subtle">TVL</span>
+              <span className="text-right nums text-fg-muted">{formatMarketCap(metaRow.tvl)}</span>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Detail row: volume, currency */}
       <div className="mt-1.5 flex justify-between text-label text-fg-subtle">
@@ -649,12 +863,14 @@ function CardView({
   rows,
   hasAmount,
   marketClass,
+  meta,
   sort,
   onSort,
 }: {
   readonly rows: readonly AltRow[];
   readonly hasAmount: boolean;
   readonly marketClass: MarketClass;
+  readonly meta: CryptoMetaDoc | null;
   readonly sort: SortState | null;
   readonly onSort: (key: SortKey) => void;
 }) {
@@ -700,7 +916,7 @@ function CardView({
 
       <CardGrid>
         {rows.map((row) => (
-          <CardRow key={row.symbol} row={row} hasAmount={hasAmount} marketClass={marketClass} />
+          <CardRow key={row.symbol} row={row} hasAmount={hasAmount} marketClass={marketClass} meta={meta} />
         ))}
       </CardGrid>
     </div>
@@ -741,8 +957,49 @@ function ViewToggle({
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Global pulse strip — crypto only
+ * ------------------------------------------------------------------------ */
+
+function GlobalPulseStrip({ global }: { readonly global: import("./cryptoEnrich").CryptoGlobalDoc | null }) {
+  if (!global || !global.available) {
+    return (
+      <div
+        data-testid="alt-global-pulse"
+        className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-line bg-surface px-3 py-1.5 text-label"
+      >
+        <span className="text-fg-subtle">Market data unavailable</span>
+      </div>
+    );
+  }
+
+  const items: { label: string; value: string | null; testId: string }[] = [
+    { label: "Total MCap", value: formatMarketCap(global.total_market_cap_usd), testId: "alt-pulse-cap" },
+    { label: "BTC Dom", value: formatDominance(global.btc_dominance), testId: "alt-pulse-btc" },
+    { label: "24h Δ", value: formatSignedPct(global.market_cap_change_pct_24h), testId: "alt-pulse-24h" },
+    { label: "Coins", value: formatCount(global.active_cryptocurrencies), testId: "alt-pulse-coins" },
+  ];
+
+  return (
+    <div
+      data-testid="alt-global-pulse"
+      className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-line bg-surface px-3 py-1.5 text-label"
+    >
+      {items.map((item) => (
+        <span key={item.testId} data-testid={item.testId} className="flex items-center gap-1">
+          <span className="text-fg-muted">{item.label}</span>
+          <span className="nums font-medium text-fg">{item.value ?? "—"}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function AltPage({ marketClass }: AltPageProps) {
+  const isCrypto = marketClass === "crypto";
   const alt = useAlt(marketClass);
+  const enrich = useCryptoEnrich(!isCrypto);
+  const sparklineCache = useSparklineCache();
   const copy = classCopy(marketClass);
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState<SortState | null>(null);
@@ -773,6 +1030,16 @@ export function AltPage({ marketClass }: AltPageProps) {
     setSort((current) => nextSort(current, key));
   }, []);
 
+  const meta = enrich.data?.meta ?? null;
+  const globalDoc = enrich.data?.global ?? null;
+
+  // Notify on enrichment failure — once, not on every render
+  React.useEffect(() => {
+    if (enrich.status === "error" && isCrypto) {
+      notify.error("Crypto market data unavailable", "Showing price-only table from Yahoo");
+    }
+  }, [enrich.status, isCrypto]);
+
   const stamp = report === null ? null : formatReadAt(report.asOf);
   const universe = report?.universeTotal ?? null;
   const measured = report?.measured ?? null;
@@ -784,7 +1051,11 @@ export function AltPage({ marketClass }: AltPageProps) {
       className="min-h-0 flex-1 overflow-y-auto bg-black px-2 py-2"
     >
       <div className="mb-1 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <SectionTitle variant={8} testId="alt-page-title">
+        <SectionTitle
+          variant={8}
+          testId="alt-page-title"
+          count={isCrypto && meta ? `${meta.measured === meta.universe_total ? meta.universe_total : `${meta.measured}/${meta.universe_total}`} coins` : undefined}
+        >
           {copy.title}
         </SectionTitle>
         <div className="flex items-center gap-2">
@@ -796,6 +1067,9 @@ export function AltPage({ marketClass }: AltPageProps) {
       </div>
 
       <p className="mb-1.5 max-w-[78ch] px-0.5 text-data text-fg-muted">{copy.blurb}</p>
+
+      {/* Global pulse strip — crypto only */}
+      {isCrypto ? <GlobalPulseStrip global={globalDoc} /> : null}
 
       {/* The filter lives outside the state box on purpose: a box that sits
           inside the branch would be unmounted when the Table/Cards become empty,
@@ -885,7 +1159,7 @@ export function AltPage({ marketClass }: AltPageProps) {
           </div>
         ) : viewMode === "cards" ? (
           <div className={cn(marketClass === "forex" ? "p-2" : "p-0")}>
-            <CardView rows={rows} hasAmount={copy.hasAmount} marketClass={marketClass} sort={sort} onSort={onSort} />
+            <CardView rows={rows} hasAmount={copy.hasAmount} marketClass={marketClass} meta={meta} sort={sort} onSort={onSort} />
           </div>
         ) : (
           <Table
@@ -895,6 +1169,8 @@ export function AltPage({ marketClass }: AltPageProps) {
             amountLabel={copy.amountLabel}
             hasAmount={copy.hasAmount}
             marketClass={marketClass}
+            meta={meta}
+            sparklineCache={sparklineCache}
             onSort={onSort}
           />
         )}
