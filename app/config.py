@@ -228,6 +228,15 @@ class Settings(BaseSettings):
     news_limit: int = Field(default=8, ge=1, le=50)
     news_timeout_s: float = Field(default=10.0, gt=0)
     news_gdelt_enabled: bool = True
+    #: Finnhub company news (P12). Requires ``FINNHUB_API_KEY``; without it the
+    #: provider returns empty.  Default off: the key is optional infra.
+    news_finnhub_enabled: bool = False
+    #: CoinGecko crypto headlines (P12).  Keyless; the feed is general, not
+    #: per-coin, so it enriches the panel without a per-symbol filter.
+    news_coingecko_enabled: bool = False
+    #: MarketWatch RSS top stories (P12).  Keyless; adds a general-market pulse
+    #: without a per-symbol query.
+    news_marketwatch_enabled: bool = False
     #: Egress ladder for Yahoo fundamentals (P11E). A path to zcrapers'
     #: ``pool_ranked.json`` (or a plain text proxy list); empty = direct only.
     #: ``proxy_attempts`` is the free-rung fan-out per symbol, not a retry count

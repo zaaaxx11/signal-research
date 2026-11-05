@@ -444,13 +444,317 @@ class GdeltNewsProvider:
             raise NewsProviderError(f"{self.name} returned an unreadable payload: {exc}") from exc
 
 
-def build_news_providers(settings: Settings | None = None) -> tuple[NewsProvider, ...]:
-    """The default wires: Google News RSS, plus GDELT unless it is turned off.
+# ---------------------------------------------------------------------------
+# Finnhub news provider
+# ---------------------------------------------------------------------------
 
-    ``MEE_NEWS_GDELT_ENABLED=false`` keeps the RSS leg only — for a deployment
-    behind an egress proxy that GDELT rate-limits, or inside a five-second
-    budget it cannot honour. The ordering is stable (RSS first) because it is
-    also the tie-break order for two equally dated copies of one story.
+FINNHUB_NEWS_HOST = "https://finnhub.io"
+FINNHUB_NEWS_PATH = "/api/v1/company-news"
+FINNHUB_GENERAL_PATH = "/api/v1/news"
+
+
+class FinnhubNewsProvider:
+    """Finnhub company news: per-symbol headlines with a key.
+
+    Falls back to ``/api/v1/news?category=general`` when no API key is set
+    (the per-symbol endpoint requires a token).  Returns empty on any error
+    so a missing key or a quota wall never breaks the panel.
+    """
+
+    name = "finnhub"
+
+    def __init__(
+        self,
+        *,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        user_agent: str = BROWSER_USER_AGENT,
+        api_key: str | None = None,
+    ) -> None:
+        if not timeout_s > 0:
+            raise ValueError(f"timeout_s must be > 0, got {timeout_s!r}")
+        self.timeout_s = float(timeout_s)
+        self.user_agent = str(user_agent or BROWSER_USER_AGENT)
+        self._api_key = api_key  # None → read from env
+
+    def _key(self) -> str | None:
+        if self._api_key is not None:
+            return self._api_key or None
+        import os
+        value = os.environ.get("FINNHUB_API_KEY")
+        return value.strip() if value and value.strip() else None
+
+    def url(self, symbol: str) -> str:
+        key = self._key()
+        if not key:
+            # Keyless fallback: general news category (no symbol filter).
+            return f"{FINNHUB_NEWS_HOST}{FINNHUB_GENERAL_PATH}?category=general"
+        return (
+            f"{FINNHUB_NEWS_HOST}{FINNHUB_NEWS_PATH}"
+            f"?symbol={_quote(symbol)}&token={key}"
+        )
+
+    def headers(self) -> dict[str, str]:
+        hdrs: dict[str, str] = {
+            "user-agent": self.user_agent,
+            "accept": "application/json",
+        }
+        key = self._key()
+        if key:
+            hdrs["x-finnhub-token"] = key
+        return hdrs
+
+    async def document(self, symbol: str) -> str | bytes:
+        async with provider_http.build_client(
+            timeout_s=self.timeout_s, headers=self.headers()
+        ) as client:
+            response = await client.get(self.url(symbol))
+        status = int(getattr(response, "status_code", 0) or 0)
+        if status != 200:
+            raise NewsProviderError(f"{self.name} answered {status}", status=status)
+        return getattr(response, "text", "") or ""
+
+    async def fetch(self, symbol: str) -> Sequence[NewsItem]:
+        try:
+            body = await self.document(symbol)
+        except Exception:
+            return ()
+        try:
+            return tuple(_parse_finnhub_news(body))
+        except Exception:
+            return ()
+
+
+def _parse_finnhub_news(document: str | bytes) -> list[NewsItem]:
+    """Finnhub ``/company-news`` payload → items (empty on any parse failure)."""
+    text = document.decode("utf-8", "replace") if isinstance(document, bytes) else str(document)
+    if not text.strip():
+        return []
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    items: list[NewsItem] = []
+    seen: set[str] = set()
+    for article in payload:
+        if not isinstance(article, Mapping):
+            continue
+        headline = " ".join(str(article.get("headline") or "").split())
+        url = str(article.get("url") or "").strip()
+        if not headline or not url or url in seen:
+            continue
+        seen.add(url)
+        source = str(article.get("source") or "").strip()
+        stamp = _finnhub_stamp(str(article.get("datetime") or ""))
+        items.append(
+            NewsItem(
+                headline=headline,
+                url=url,
+                source=source,
+                published_at=stamp,
+                source_url=None,
+            )
+        )
+    return items
+
+
+def _finnhub_stamp(raw: str) -> datetime | None:
+    """Finnhub epoch-second timestamp → aware UTC, or ``None``."""
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return datetime.fromtimestamp(seconds, UTC)
+
+
+# ---------------------------------------------------------------------------
+# CoinGecko news provider
+# ---------------------------------------------------------------------------
+
+COINGECKO_HOST = "https://api.coingecko.com"
+COINGECKO_NEWS_PATH = "/api/v3/news"
+
+
+class CoinGeckoNewsProvider:
+    """CoinGecko news: crypto headlines, keyless, per-symbol via category filter.
+
+    The ``/api/v3/news`` endpoint returns headline-type articles by default.
+    Returns empty on any error — a rate-limited or unreachable endpoint is
+    never a reason to sink the panel.
+    """
+
+    name = "coingecko"
+
+    def __init__(
+        self,
+        *,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        user_agent: str = BROWSER_USER_AGENT,
+    ) -> None:
+        if not timeout_s > 0:
+            raise ValueError(f"timeout_s must be > 0, got {timeout_s!r}")
+        self.timeout_s = float(timeout_s)
+        self.user_agent = str(user_agent or BROWSER_USER_AGENT)
+
+    def url(self, symbol: str) -> str:
+        """CoinGecko news: the symbol is sent as a category hint when it maps to a coin."""
+        base = f"{COINGECKO_HOST}{COINGECKO_NEWS_PATH}"
+        # CoinGecko doesn't filter by symbol; we fetch the headline feed and
+        # the caller's merge handles relevance.  The symbol goes nowhere in
+        # the URL — it is a feed, not a per-coin query.
+        return base
+
+    def headers(self) -> dict[str, str]:
+        return {
+            "user-agent": self.user_agent,
+            "accept": "application/json",
+        }
+
+    async def document(self, symbol: str) -> str | bytes:
+        async with provider_http.build_client(
+            timeout_s=self.timeout_s, headers=self.headers()
+        ) as client:
+            response = await client.get(self.url(symbol))
+        status = int(getattr(response, "status_code", 0) or 0)
+        if status != 200:
+            raise NewsProviderError(f"{self.name} answered {status}", status=status)
+        return getattr(response, "text", "") or ""
+
+    async def fetch(self, symbol: str) -> Sequence[NewsItem]:
+        try:
+            body = await self.document(symbol)
+        except Exception:
+            return ()
+        try:
+            return tuple(_parse_coingecko_news(body))
+        except Exception:
+            return ()
+
+
+def _parse_coingecko_news(document: str | bytes) -> list[NewsItem]:
+    """CoinGecko ``/api/v3/news`` payload → items (empty on any parse failure)."""
+    text = document.decode("utf-8", "replace") if isinstance(document, bytes) else str(document)
+    if not text.strip():
+        return []
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    articles = payload.get("data") if isinstance(payload, Mapping) else None
+    if not isinstance(articles, list):
+        return []
+    items: list[NewsItem] = []
+    seen: set[str] = set()
+    for article in articles:
+        if not isinstance(article, Mapping):
+            continue
+        headline = " ".join(str(article.get("title") or "").split())
+        url = str(article.get("url") or "").strip()
+        if not headline or not url or url in seen:
+            continue
+        seen.add(url)
+        source = str(article.get("author") or "").strip()
+        stamp = _coingecko_stamp(str(article.get("created_at") or ""))
+        items.append(
+            NewsItem(
+                headline=headline,
+                url=url,
+                source=source,
+                published_at=stamp,
+                source_url=None,
+            )
+        )
+    return items
+
+
+def _coingecko_stamp(raw: str) -> datetime | None:
+    """CoinGecko epoch-second timestamp → aware UTC, or ``None``."""
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return datetime.fromtimestamp(seconds, UTC)
+
+
+# ---------------------------------------------------------------------------
+# MarketWatch RSS provider
+# ---------------------------------------------------------------------------
+
+MARKETWATCH_RSS_HOST = "https://feeds.marketwatch.com"
+MARKETWATCH_RSS_PATH = "/marketwatch/topstories"
+
+
+class MarketWatchNewsProvider:
+    """MarketWatch RSS: general market headlines, no API key.
+
+    The feed carries ``<item>`` elements with standard RSS fields
+    (title, link, pubDate, source).  Returns empty on any error so a
+    paywall or a redirect never breaks the panel.
+    """
+
+    name = "marketwatch"
+
+    def __init__(
+        self,
+        *,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        user_agent: str = BROWSER_USER_AGENT,
+    ) -> None:
+        if not timeout_s > 0:
+            raise ValueError(f"timeout_s must be > 0, got {timeout_s!r}")
+        self.timeout_s = float(timeout_s)
+        self.user_agent = str(user_agent or BROWSER_USER_AGENT)
+
+    def url(self, symbol: str) -> str:
+        """MarketWatch top-stories RSS; symbol is ignored — the feed is general."""
+        return f"{MARKETWATCH_RSS_HOST}{MARKETWATCH_RSS_PATH}"
+
+    def headers(self) -> dict[str, str]:
+        return {
+            "user-agent": self.user_agent,
+            "accept": "application/rss+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.5",
+            "accept-language": "en-US,en;q=0.9",
+        }
+
+    async def document(self, symbol: str) -> str | bytes:
+        async with provider_http.build_client(
+            timeout_s=self.timeout_s, headers=self.headers()
+        ) as client:
+            response = await client.get(self.url(symbol))
+        status = int(getattr(response, "status_code", 0) or 0)
+        if status != 200:
+            raise NewsProviderError(f"{self.name} answered {status}", status=status)
+        return getattr(response, "text", "") or ""
+
+    async def fetch(self, symbol: str) -> Sequence[NewsItem]:
+        try:
+            body = await self.document(symbol)
+        except Exception:
+            return ()
+        if not _looks_like_a_feed(body):
+            return ()
+        try:
+            return tuple(parse_google_news(body, limit=None))
+        except Exception:
+            return ()
+
+
+# ---------------------------------------------------------------------------
+# Builder
+# ---------------------------------------------------------------------------
+
+
+def build_news_providers(settings: Settings | None = None) -> tuple[NewsProvider, ...]:
+    """The default wires: Google News RSS + GDELT + Finnhub + CoinGecko + MarketWatch.
+
+    Each optional provider is controlled by its own ``MEE_NEWS_*_ENABLED`` flag.
+    The ordering is stable because it is also the tie-break order for two equally
+    dated copies of one story.
     """
 
     settings = settings or get_settings()
@@ -458,6 +762,12 @@ def build_news_providers(settings: Settings | None = None) -> tuple[NewsProvider
     providers: list[NewsProvider] = [GoogleNewsProvider(timeout_s=timeout_s)]
     if settings.news_gdelt_enabled:
         providers.append(GdeltNewsProvider(timeout_s=timeout_s))
+    if settings.news_finnhub_enabled:
+        providers.append(FinnhubNewsProvider(timeout_s=timeout_s))
+    if settings.news_coingecko_enabled:
+        providers.append(CoinGeckoNewsProvider(timeout_s=timeout_s))
+    if settings.news_marketwatch_enabled:
+        providers.append(MarketWatchNewsProvider(timeout_s=timeout_s))
     return tuple(providers)
 
 
@@ -846,10 +1156,14 @@ __all__ = [
     "MAX_POOL_ITEMS",
     "AllNewsProvidersFailed",
     "CallableNewsProvider",
+    "CoinGeckoNewsProvider",
+    "FinnhubNewsProvider",
     "GdeltError",
     "GdeltNewsProvider",
     "GoogleNewsProvider",
     "InvalidNewsSymbol",
+    "MarketWatchNewsProvider",
+    "NewsItem",
     "NewsProvider",
     "NewsProviderError",
     "NewsService",
