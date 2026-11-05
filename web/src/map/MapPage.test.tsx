@@ -188,15 +188,23 @@ describe("MapPage — size by toggle", () => {
   });
 });
 
-describe("MapPage — map filter select", () => {
-  it("renders universe select with all options including crypto and futures", async () => {
+describe("MapPage — map filter", () => {
+  it("renders filter toggle buttons for Stocks, Futures, Forex, Crypto", async () => {
     await renderReady();
-    const select = screen.getByTestId("map-universe-select") as HTMLSelectElement;
+    expect(screen.getByTestId("map-filter-stocks")).toBeTruthy();
+    expect(screen.getByTestId("map-filter-futures")).toBeTruthy();
+    expect(screen.getByTestId("map-filter-forex")).toBeTruthy();
+    expect(screen.getByTestId("map-filter-crypto")).toBeTruthy();
+  });
+
+  it("renders filter maps select with sector options", async () => {
+    await renderReady();
+    const select = screen.getByTestId("filter-maps-select") as HTMLSelectElement;
     expect(select).toBeTruthy();
     const options = Array.from(select.options).map((o) => o.textContent);
-    expect(options).toContain("All Stocks (5,576)");
-    expect(options).toContain("Crypto (40 coins)");
-    expect(options).toContain("Futures (25 contracts)");
+    expect(options).toContain("Technology");
+    expect(options).toContain("Healthcare");
+    expect(options).toContain("All Sectors");
   });
 });
 

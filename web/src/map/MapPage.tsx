@@ -34,16 +34,29 @@ import {
   type Timeframe,
 } from "./useMapData";
 
-// ── map universe filter (select dropdown) ──
-const MAP_FILTER_OPTIONS = [
-  { value: "all", label: "All Stocks (5,576)" },
-  { value: "sp500", label: "S&P 500" },
-  { value: "etf", label: "ETFs" },
-  { value: "crypto", label: "Crypto (40 coins)" },
-  { value: "futures", label: "Futures (25 contracts)" },
+// ── map filter checkboxes ──
+const MAP_FILTERS = [
+  { value: "stocks", label: "Stocks" },
+  { value: "futures", label: "Futures" },
+  { value: "forex", label: "Forex" },
+  { value: "crypto", label: "Crypto" },
 ] as const;
 
-type MapUniverse = (typeof MAP_FILTER_OPTIONS)[number]["value"];
+// ── filter maps select options ──
+const FILTER_MAPS_OPTIONS = [
+  { value: "all", label: "All Sectors" },
+  { value: "Technology", label: "Technology" },
+  { value: "Financial", label: "Financial" },
+  { value: "Healthcare", label: "Healthcare" },
+  { value: "Consumer Cyclical", label: "Consumer Cyclical" },
+  { value: "Industrials", label: "Industrials" },
+  { value: "Energy", label: "Energy" },
+  { value: "Utilities", label: "Utilities" },
+  { value: "Real Estate", label: "Real Estate" },
+  { value: "Basic Materials", label: "Basic Materials" },
+  { value: "Communication", label: "Communication Services" },
+  { value: "Consumer Defensive", label: "Consumer Defensive" },
+] as const;
 
 type ViewId = "treemap" | "matrix" | "bubble" | "grid";
 
@@ -106,7 +119,8 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
   const [view, setView] = React.useState<ViewId>("treemap");
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState("");
-  const [mapUniverse, setMapUniverse] = React.useState<MapUniverse>("all");
+  const [activeFilters, setActiveFilters] = React.useState<Set<string>>(new Set(["stocks"]));
+  const [filterMap, setFilterMap] = React.useState("all");
   const [sizeBy, setSizeBy] = React.useState<"cap" | "equal">("cap");
 
   const mapView = useMapData({ timeframe });
@@ -247,30 +261,57 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
             </div>
 
             {/* Map filter */}
-                        <div>
-                          <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
-                            Map filter
-                          </p>
-                          <select
-                            data-testid="map-universe-select"
-                            value={mapUniverse}
-                            onChange={(e) => setMapUniverse(e.target.value as MapUniverse)}
-                            className="mt-1 w-full rounded-sm border border-line bg-surface px-2 py-1 font-mono text-label text-fg"
-                          >
-                            {MAP_FILTER_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                          {mapUniverse === "crypto" || mapUniverse === "futures" ? (
-                            <p className="mt-1 text-[10px] text-fg-subtle">
-                              {mapUniverse === "crypto"
-                                ? "Crypto treemap (market cap from CoinGecko)"
-                                : "Futures treemap (contract prices from Yahoo)"}
-                            </p>
-                          ) : null}
-                        </div>
+            <div>
+              <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
+                Map filter
+              </p>
+              <div className="mt-1 flex gap-px rounded-sm border border-line p-0.5">
+                {MAP_FILTERS.map((f) => {
+                  const on = activeFilters.has(f.value);
+                  return (
+                    <button
+                      key={f.value}
+                      type="button"
+                      data-testid={`map-filter-${f.value}`}
+                      aria-pressed={on}
+                      onClick={() =>
+                        setActiveFilters((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.value)) next.delete(f.value);
+                          else next.add(f.value);
+                          return next;
+                        })
+                      }
+                      className={cn(
+                        "flex-1 rounded-sm px-2 py-0.5 font-mono text-label uppercase tracking-[0.06em] transition-colors",
+                        on ? "bg-row-selected text-fg" : "text-fg-subtle hover:text-fg",
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Filter maps — sector/industry select */}
+            <div>
+              <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
+                Filter maps
+              </p>
+              <select
+                data-testid="filter-maps-select"
+                value={filterMap}
+                onChange={(e) => setFilterMap(e.target.value)}
+                className="mt-1 w-full rounded-sm border border-line bg-surface px-2 py-1 font-mono text-label text-fg"
+              >
+                {FILTER_MAPS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
                         {/* Sector filter */}
                         <div className="min-h-0">
