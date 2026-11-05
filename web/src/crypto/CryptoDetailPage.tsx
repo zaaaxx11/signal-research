@@ -27,9 +27,11 @@ import { getJson } from "@/lib/api";
 import { formatChange, formatPrice, formatVolume } from "@/home/signals";
 
 import {
+  fetchCoinDetail,
   fetchCryptoMeta,
   formatMarketCap,
   formatSignedPct,
+  type CoinDetailDoc,
   type CryptoMetaDoc,
   type CryptoMetaRow,
 } from "@/alt/cryptoEnrich";
@@ -193,6 +195,63 @@ function useCryptoMetaRow(symbol: string): {
 /* ---------------------------------------------------------------------------
  * Formatters
  * ------------------------------------------------------------------------ */
+
+/** Fetch one coin's full CoinGecko record (About / Links / Community). */
+function useCoinDetail(symbol: string): {
+  status: "loading" | "ready" | "error";
+  data: CoinDetailDoc | null;
+  reload: () => void;
+} {
+  const [attempt, setAttempt] = React.useState(0);
+  const [state, setState] = React.useState<{
+    status: "loading" | "ready" | "error";
+    data: CoinDetailDoc | null;
+    reload: () => void;
+  }>({
+    status: "loading",
+    data: null,
+    reload: () => setAttempt((v) => v + 1),
+  });
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    setState((prev) => ({ ...prev, status: "loading" }));
+
+    fetchCoinDetail(symbol, controller.signal)
+      .then((data) => {
+        if (!live) return;
+        setState({
+          status: "ready",
+          data,
+          reload: () => setAttempt((v) => v + 1),
+        });
+      })
+      .catch(() => {
+        if (!live) return;
+        setState({
+          status: "error",
+          data: null,
+          reload: () => setAttempt((v) => v + 1),
+        });
+      });
+
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [symbol, attempt]);
+
+  return state;
+}
+
+function formatBigNumber(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
 
 function formatSupply(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
@@ -387,7 +446,9 @@ export function CryptoDetailPage({
 }: CryptoDetailPageProps): React.ReactElement {
   const price = useCryptoPrice(symbol);
   const meta = useCryptoMetaRow(symbol);
+  const detail = useCoinDetail(symbol);
   const metaRow = meta.row;
+  const coin = detail.data;
 
   // Notify on errors
   React.useEffect(() => {
@@ -458,19 +519,102 @@ export function CryptoDetailPage({
           />
         </section>
 
-        {/* Description */}
-        {metaRow?.name ? (
-          <section data-testid="crypto-detail-description" className="mb-4">
-            <SectionTitle variant={2} testId="crypto-detail-desc-title">
-              About
+        {/* About — the real CoinGecko description when available */}
+        <section data-testid="crypto-detail-description" className="mb-4">
+          <SectionTitle variant={2} testId="crypto-detail-desc-title">
+            About
+          </SectionTitle>
+          <div className="rounded-md border border-line bg-surface px-3 py-2.5 text-data text-fg-muted leading-relaxed">
+            {coin?.available && coin.description ? (
+              <p>{coin.description}</p>
+            ) : metaRow?.name ? (
+              <p>
+                {metaRow.name}
+                {metaRow.id ? ` · Tracked as "${metaRow.id}" on CoinGecko.` : ""}
+              </p>
+            ) : null}
+            {coin?.available && coin.categories.length > 0 ? (
+              <div
+                data-testid="crypto-detail-categories"
+                className="mt-2.5 flex flex-wrap gap-1.5"
+              >
+                {coin.categories.map((cat) => (
+                  <span
+                    key={cat}
+                    className="rounded-sm border border-line px-1.5 py-0.5 text-label text-fg-muted"
+                  >
+                    {cat}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        {/* Links + Community — social proof and where to follow */}
+        {coin?.available &&
+        (coin.website ||
+          coin.twitter ||
+          coin.twitter_followers != null ||
+          coin.telegram_members != null ||
+          coin.reddit_subscribers != null ||
+          coin.sentiment_up_pct != null) ? (
+          <section data-testid="crypto-detail-community" className="mb-4">
+            <SectionTitle variant={4} testId="crypto-detail-community-title">
+              Links &amp; Community
             </SectionTitle>
-            <p className="rounded-md border border-line bg-surface px-3 py-2.5 text-data text-fg-muted leading-relaxed">
-              {metaRow.name}
-              {metaRow.id ? `. Tracked as "${metaRow.id}" on CoinGecko.` : ""}
-              {metaRow.sources.length > 0
-                ? ` Data from ${metaRow.sources.join(", ")}.`
-                : ""}
-            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {coin.website ? (
+                <a
+                  data-testid="crypto-detail-website"
+                  href={coin.website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-line bg-surface px-3 py-2 text-data text-fg-muted hover:border-brand hover:text-brand"
+                >
+                  🌐 Website
+                </a>
+              ) : (
+                <div className="rounded-md border border-line bg-surface px-3 py-2 text-data text-fg-subtle">
+                  Website
+                </div>
+              )}
+              {coin.twitter ? (
+                <a
+                  data-testid="crypto-detail-twitter"
+                  href={`https://x.com/${coin.twitter}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-line bg-surface px-3 py-2 text-data text-fg-muted hover:border-brand hover:text-brand"
+                >
+                  𝕏 @{coin.twitter}
+                </a>
+              ) : (
+                <div className="rounded-md border border-line bg-surface px-3 py-2 text-data text-fg-subtle">
+                  Twitter
+                </div>
+              )}
+              <StatCard
+                label="Twitter Followers"
+                value={formatBigNumber(coin.twitter_followers)}
+                testId="crypto-stat-twitter-followers"
+              />
+              {coin.sentiment_up_pct != null ? (
+                <StatCard
+                  label="Sentiment"
+                  value={`${coin.sentiment_up_pct.toFixed(1)}% bullish`}
+                  sub={coin.telegram_members != null || coin.reddit_subscribers != null ? undefined : "votes"}
+                  testId="crypto-stat-sentiment"
+                />
+              ) : (
+                <StatCard
+                  label="Reddit"
+                  value={coin.reddit_subscribers != null ? formatBigNumber(coin.reddit_subscribers) : "—"}
+                  sub={coin.telegram_members != null ? `TG ${formatBigNumber(coin.telegram_members)}` : undefined}
+                  testId="crypto-stat-reddit"
+                />
+              )}
+            </div>
           </section>
         ) : null}
 

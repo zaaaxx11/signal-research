@@ -67,14 +67,17 @@ class CountingTransport:
         refuse_markets: bool = False,
         global_data: dict[str, Any] | None = None,
         tvls: dict[str, float | None] | None = None,
+        coins: dict[str, dict[str, Any] | None] | None = None,
     ) -> None:
         self._markets = markets
         self._refuse_markets = refuse_markets
         self._global_data = global_data
         self._tvls = tvls or {}
+        self._coins = coins or {}
         self.markets_calls = 0
         self.global_calls = 0
         self.tvl_calls: list[str] = []
+        self.coin_detail_calls: list[str] = []
 
     def _default_markets(self) -> list[dict[str, Any]]:
         return [
@@ -111,6 +114,10 @@ class CountingTransport:
         if symbol not in enrich_api.LLAMA_SLUGS:
             return symbol, None
         return symbol, self._tvls.get(symbol)
+
+    async def coin_detail(self, coin_id: str) -> dict[str, Any] | None:
+        self.coin_detail_calls.append(coin_id)
+        return self._coins.get(coin_id)
 
 
 def _client(transport: CountingTransport) -> TestClient:
@@ -220,3 +227,55 @@ def test_global_refused_is_available_false() -> None:
     response = client.get("/market/crypto/global")
     assert response.status_code == 200
     assert response.json()["available"] is False
+
+
+def test_coin_detail_publishes_the_gecko_record() -> None:
+    record = {
+        "id": "ethereum",
+        "name": "Ethereum",
+        "symbol": "eth",
+        "image": {"large": "https://img/eth.png", "thumb": "https://img/eth-t.png"},
+        "description": {"en": "Ethereum is a smart contract platform."},
+        "links": {"homepage": ["https://ethereum.org/", "junk"], "twitter_screen_name": "ethereum"},
+        "community_data": {"twitter_followers": 3_200_000},
+        "categories": ["Layer 1 (L1)", "Smart Contract Platform"],
+        "sentiment_votes_up_percentage": 85.9,
+        "market_data": {"atl": {"usd": 0.43}},
+    }
+    transport = CountingTransport(coins={"ethereum": record})
+    client = _client(transport)
+    doc = client.get("/market/crypto/coin/ETH-USD").json()
+    assert doc["available"] is True
+    assert doc["name"] == "Ethereum"
+    assert doc["website"] == "https://ethereum.org/"
+    assert doc["twitter"] == "ethereum"
+    assert doc["twitter_followers"] == 3_200_000.0
+    assert doc["categories"] == ["Layer 1 (L1)", "Smart Contract Platform"]
+    assert doc["atl"] == 0.43
+    assert transport.coin_detail_calls == ["ethereum"]
+
+
+def test_coin_detail_unknown_symbol_is_refused() -> None:
+    transport = CountingTransport()
+    client = _client(transport)
+    doc = client.get("/market/crypto/coin/NOPE-USD").json()
+    assert doc["available"] is False
+    assert transport.coin_detail_calls == []  # no id, no read attempted
+
+
+def test_coin_detail_caches_once_per_ttl() -> None:
+    transport = CountingTransport(coins={"bitcoin": {"name": "Bitcoin", "id": "bitcoin"}})
+    client = _client(transport)
+    first = client.get("/market/crypto/coin/BTC-USD")
+    assert first.headers["X-Enrich-Cache"] == "miss"
+    again = client.get("/market/crypto/coin/BTC-USD")
+    assert again.headers["X-Enrich-Cache"] == "hit"
+    assert transport.coin_detail_calls == ["bitcoin"]  # the cache answered
+
+
+def test_coin_detail_refused_read_is_available_false() -> None:
+    transport = CountingTransport(coins={"bitcoin": None})
+    client = _client(transport)
+    doc = client.get("/market/crypto/coin/BTC-USD").json()
+    assert doc["available"] is False
+    assert doc["id"] == "bitcoin"

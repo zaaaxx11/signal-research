@@ -81,18 +81,43 @@ function stubFetch(routes: {
   alt?: (url: string) => Response | Promise<Response>;
   meta?: (url: string) => Response | Promise<Response>;
   chart?: (url: string) => Response | Promise<Response>;
+  coin?: (url: string) => Response | Promise<Response>;
   fallback?: (url: string) => Response | Promise<Response>;
 }) {
   const mock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/market/alt") && routes.alt) return Promise.resolve(routes.alt(url));
     if (url.includes("/market/crypto/meta") && routes.meta) return Promise.resolve(routes.meta(url));
+    if (url.includes("/market/crypto/coin/") && routes.coin) return Promise.resolve(routes.coin(url));
     if (url.includes("/market/chart/") && routes.chart) return Promise.resolve(routes.chart(url));
     if (routes.fallback) return Promise.resolve(routes.fallback(url));
     return Promise.resolve(new Response("null", { status: 404 }));
   });
   vi.stubGlobal("fetch", mock);
   return mock;
+}
+
+function coinResponse(available = true) {
+  return {
+    as_of: "2026-11-05T14:00:00Z",
+    method: "coingecko_coin_v3",
+    symbol: "BTC-USD",
+    id: "bitcoin",
+    available,
+    name: "Bitcoin",
+    base_currency: "btc",
+    image: "https://img.local/btc-l.png",
+    description:
+      "Bitcoin is the first successful decentralized cryptocurrency.",
+    categories: ["Cryptocurrency", "Layer 1 (L1)", "PoW"],
+    website: "https://bitcoin.org/",
+    twitter: "bitcoin",
+    twitter_followers: 7_800_000,
+    telegram_members: 0,
+    reddit_subscribers: 950_000,
+    sentiment_up_pct: 61.5,
+    atl: 0.00009,
+  };
 }
 
 beforeEach(() => {
@@ -367,5 +392,58 @@ describe("CryptoDetailPage", () => {
     expect(screen.getByTestId("crypto-stat-pct-1h").textContent).toContain("+0.1%");
     expect(screen.getByTestId("crypto-stat-pct-7d").textContent).toContain("-2.4%");
     expect(screen.getByTestId("crypto-stat-pct-30d").textContent).toContain("+8.9%");
+  });
+
+  it("renders the About description and category chips from the coin record", async () => {
+    stubFetch({
+      alt: () => json(altResponse()),
+      meta: () => json(metaResponse()),
+      coin: () => json(coinResponse()),
+      chart: () => json({ bars: [], symbol: "BTC-USD", range: "1d" }),
+    });
+
+    render(<CryptoDetailPage symbol="BTC-USD" />);
+
+    const about = await screen.findByTestId("crypto-detail-description", undefined, {
+      timeout: 4_000,
+    });
+    expect(about.textContent).toContain(
+      "Bitcoin is the first successful decentralized cryptocurrency",
+    );
+    const chips = screen.getAllByTestId("crypto-detail-categories");
+    expect(chips.length).toBe(1);
+    expect(chips[0].textContent).toContain("Layer 1 (L1)");
+  });
+
+  it("renders the Links & Community section when the coin record is available", async () => {
+    stubFetch({
+      alt: () => json(altResponse()),
+      meta: () => json(metaResponse()),
+      coin: () => json(coinResponse()),
+      chart: () => json({ bars: [], symbol: "BTC-USD", range: "1d" }),
+    });
+
+    render(<CryptoDetailPage symbol="BTC-USD" />);
+
+    const section = await screen.findByTestId("crypto-detail-community", undefined, {
+      timeout: 4_000,
+    });
+    expect(screen.getByTestId("crypto-detail-website").textContent).toContain("Website");
+    expect(screen.getByTestId("crypto-stat-sentiment").textContent).toContain("bullish");
+    expect(section).toBeTruthy();
+  });
+
+  it("hides the community section when the coin record is unavailable", async () => {
+    stubFetch({
+      alt: () => json(altResponse()),
+      meta: () => json(metaResponse()),
+      coin: () => json(coinResponse(false)),
+      chart: () => json({ bars: [], symbol: "BTC-USD", range: "1d" }),
+    });
+
+    render(<CryptoDetailPage symbol="BTC-USD" />);
+
+    await screen.findByTestId("crypto-detail-description", undefined, { timeout: 4_000 });
+    expect(screen.queryByTestId("crypto-detail-community")).toBeNull();
   });
 });

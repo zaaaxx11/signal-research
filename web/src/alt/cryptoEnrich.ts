@@ -63,6 +63,27 @@ export interface EnrichData {
   readonly global: CryptoGlobalDoc | null;
 }
 
+/** One coin's full CoinGecko record — the per-symbol detail page's About block. */
+export interface CoinDetailDoc {
+  readonly as_of: string;
+  readonly method: string;
+  readonly available: boolean;
+  readonly symbol: string;
+  readonly id: string;
+  readonly name: string | null;
+  readonly base_currency: string | null;
+  readonly image: string | null;
+  readonly description: string | null;
+  readonly categories: readonly string[];
+  readonly website: string | null;
+  readonly twitter: string | null;
+  readonly twitter_followers: number | null;
+  readonly telegram_members: number | null;
+  readonly reddit_subscribers: number | null;
+  readonly sentiment_up_pct: number | null;
+  readonly atl: number | null;
+}
+
 /* -----------------------------------------------------------------------
  * Sparkline
  * --------------------------------------------------------------------- */
@@ -116,6 +137,7 @@ export function formatCount(value: number | null): string | null {
 const META_PATH = "/market/crypto/meta";
 const GLOBAL_PATH = "/market/crypto/global";
 const CHART_PATH_PREFIX = "/market/chart/";
+const COIN_DETAIL_PATH_PREFIX = "/market/crypto/coin/";
 
 /** Read the meta map and validate it into the shapes the page uses. */
 export async function fetchCryptoMeta(signal?: AbortSignal): Promise<CryptoMetaDoc | null> {
@@ -194,6 +216,42 @@ export async function fetchCryptoGlobal(signal?: AbortSignal): Promise<CryptoGlo
       btc_dominance: safeNumber(doc["btc_dominance"]),
       eth_dominance: safeNumber(doc["eth_dominance"]),
       active_cryptocurrencies: safeInt(doc["active_cryptocurrencies"]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Read one coin's full CoinGecko record (description/links/categories). */
+export async function fetchCoinDetail(
+  symbol: string,
+  signal?: AbortSignal,
+): Promise<CoinDetailDoc | null> {
+  try {
+    const body = await getJson(`${COIN_DETAIL_PATH_PREFIX}${encodeURIComponent(symbol)}`, signal);
+    if (typeof body !== "object" || body === null) return null;
+    const doc = body as Record<string, unknown>;
+    const str = (key: string): string | null =>
+      typeof doc[key] === "string" ? (doc[key] as string) : null;
+    const cats = Array.isArray(doc["categories"]) ? (doc["categories"] as string[]) : [];
+    return {
+      as_of: str("as_of") ?? "",
+      method: str("method") ?? "",
+      available: doc["available"] === true,
+      symbol: str("symbol") ?? symbol,
+      id: str("id") ?? "",
+      name: str("name"),
+      base_currency: str("base_currency"),
+      image: str("image"),
+      description: str("description"),
+      categories: cats,
+      website: str("website"),
+      twitter: str("twitter"),
+      twitter_followers: safeNumber(doc["twitter_followers"]),
+      telegram_members: safeNumber(doc["telegram_members"]),
+      reddit_subscribers: safeNumber(doc["reddit_subscribers"]),
+      sentiment_up_pct: safeNumber(doc["sentiment_up_pct"]),
+      atl: safeNumber(doc["atl"]),
     };
   } catch {
     return null;

@@ -67,6 +67,12 @@ GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
 #: Per-protocol TVL: one number per slug.
 LLAMA_BASE_URL = "https://api.llama.fi/tvl"
 LLAMA_TTL_S = 600.0
+#: One coin's full record from CoinGecko's ``/coins/{id}`` — description, links,
+#: categories and community counts. These change rarely, so a one-hour window
+#: keeps the per-symbol detail page light while staying inside the public
+#: ~30 req/min budget.
+COIN_DETAIL_URL = "https://api.coingecko.com/api/v3/coins"
+COIN_DETAIL_TTL_S = 3600.0
 
 #: Transport budget and concurrency: one CoinGecko call, a handful of llama
 #: calls — never more than six at a time, timeout still the alt reader's 8 s.
@@ -265,6 +271,22 @@ class SourceTransport:
         data = body.get("data") if isinstance(body, Mapping) else None
         return data if isinstance(data, Mapping) else None
 
+    async def coin_detail(self, coin_id: str) -> Mapping[str, Any] | None:
+        """CoinGecko's ``/coins/{id}`` record (description/links/categories).
+
+        A single coin's full document, kept lean with the query flags — no
+        localizations, no tickers, no developer data. A refused or renamed id
+        is a ``None``, never a fabricated record.
+        """
+
+        url = (
+            f"{COIN_DETAIL_URL}/{coin_id}"
+            "?localization=false&tickers=false&market_data=true"
+            "&community_data=true&developer_data=false&sparkline=false"
+        )
+        body = await self._get(url)
+        return body if isinstance(body, Mapping) else None
+
     async def tvl(self, symbol: str) -> tuple[str, float | None]:
         """``(symbol, tvl)``: DeFiLlama's number for the symbol's slug, or None."""
 
@@ -289,13 +311,14 @@ class Timed:
 class EnrichState:
     """The cached snapshots and the transport, owned by the application."""
 
-    __slots__ = ("clock", "global_cache", "llama_cache", "markets_cache", "transport")
+    __slots__ = ("clock", "coin_detail_cache", "global_cache", "llama_cache", "markets_cache", "transport")
 
     def __init__(self, *, clock: Any = time.time, transport: Any = None) -> None:
         self.clock = clock
         self.markets_cache: dict[str, Timed] = {}
         self.global_cache: dict[str, Timed] = {}
         self.llama_cache: dict[str, Timed] = {}
+        self.coin_detail_cache: dict[str, Timed] = {}
         self.transport = transport if transport is not None else SourceTransport()
 
     def get(self, cache: dict[str, Timed], key: str, ttl: float) -> Timed | None:
@@ -421,6 +444,82 @@ def build_global_document(data: Mapping[str, Any], *, as_of: str) -> dict[str, A
     }
 
 
+def build_coin_detail_document(
+    symbol: str,
+    coin_id: str,
+    body: Mapping[str, Any] | None,
+    *,
+    as_of: str,
+) -> dict[str, Any]:
+    """One coin's CoinGecko record, as the detail page reads it.
+
+    ``body`` may be ``None`` (a refused or renamed read): then every field is
+    published as ``null`` and ``available`` is ``False`` — the page renders
+    what it has and degrades to the name, never an invented block.
+    """
+
+    rec = body if isinstance(body, Mapping) else {}
+
+    image = rec.get("image")
+    image_url = None
+    if isinstance(image, Mapping):
+        for key in ("large", "small", "thumb"):
+            value = image.get(key)
+            if isinstance(value, str) and value:
+                image_url = value
+                break
+    elif isinstance(image, str) and image:
+        image_url = image
+
+    description = rec.get("description")
+    description_en = None
+    if isinstance(description, Mapping):
+        text = description.get("en")
+        description_en = text if isinstance(text, str) and text else None
+
+    links = rec.get("links")
+    links_map = links if isinstance(links, Mapping) else {}
+    homepage: str | None = None
+    homepage_list = links_map.get("homepage")
+    if isinstance(homepage_list, list):
+        for entry in homepage_list:
+            if isinstance(entry, str) and entry.startswith(("http://", "https://")):
+                homepage = entry
+                break
+    twitter = links_map.get("twitter_screen_name")
+
+    community = rec.get("community_data")
+    community_map = community if isinstance(community, Mapping) else {}
+
+    categories = rec.get("categories")
+    categories_list = [c for c in categories if isinstance(c, str)] if isinstance(categories, list) else []
+
+    market = rec.get("market_data")
+    market_map = market if isinstance(market, Mapping) else {}
+    atl = market_map.get("atl")
+    atl_usd = _num(atl.get("usd")) if isinstance(atl, Mapping) else None
+
+    return {
+        "as_of": as_of,
+        "method": "coingecko_coin_v3",
+        "symbol": symbol,
+        "id": coin_id,
+        "available": body is not None,
+        "name": rec.get("name") if isinstance(rec.get("name"), str) else None,
+        "base_currency": rec.get("symbol") if isinstance(rec.get("symbol"), str) else None,
+        "image": image_url,
+        "description": description_en,
+        "categories": categories_list,
+        "website": homepage,
+        "twitter": twitter if isinstance(twitter, str) and twitter else None,
+        "twitter_followers": _num(community_map.get("twitter_followers")),
+        "telegram_members": _num(community_map.get("telegram_channel_members")),
+        "reddit_subscribers": _num(community_map.get("reddit_subscribers")),
+        "sentiment_up_pct": _num(rec.get("sentiment_votes_up_percentage")),
+        "atl": atl_usd,
+    }
+
+
 # ---------------------------------------------------------------------------
 # The answers
 # ---------------------------------------------------------------------------
@@ -539,7 +638,63 @@ async def crypto_global(request: Request) -> Response:
     return await _global_answer(request, head=False)
 
 
+async def _coin_detail_answer(request: Request, *, head: bool) -> Response:
+    symbol = request.path_params.get("symbol", "")
+    state = enrich_state(request)
+    coin_id = COINGECKO_IDS.get(symbol)
+    if coin_id is None:
+        body = encode_crypto_map(
+            build_coin_detail_document(
+                symbol, "", None, as_of=_iso(state.clock())
+            )
+        )
+        headers = {"X-Enrich-Cache": "refused", "Cache-Control": "no-cache"}
+        if head:
+            return Response(headers={**headers, "Content-Length": str(len(body))})
+        return Response(content=body, media_type="application/json", headers=headers)
+
+    cached = state.get(state.coin_detail_cache, coin_id, COIN_DETAIL_TTL_S)
+    if cached is not None:
+        body = encode_crypto_map(
+            build_coin_detail_document(
+                symbol, coin_id, cached.payload, as_of=_iso(cached.stored_at)
+            )
+        )
+        headers = {"X-Enrich-Cache": "hit", "Cache-Control": "no-cache"}
+        if head:
+            return Response(headers={**headers, "Content-Length": str(len(body))})
+        return Response(content=body, media_type="application/json", headers=headers)
+
+    record = await state.transport.coin_detail(coin_id)
+    if record is None:
+        # Refused read: publish the null shape, cache nothing — ask again next.
+        body = encode_crypto_map(
+            build_coin_detail_document(symbol, coin_id, None, as_of=_iso(state.clock()))
+        )
+        headers = {"X-Enrich-Cache": "miss", "Cache-Control": "no-cache"}
+        if head:
+            return Response(headers={**headers, "Content-Length": str(len(body))})
+        return Response(content=body, media_type="application/json", headers=headers)
+
+    snapshot = state.put(state.coin_detail_cache, coin_id, record)
+    body = encode_crypto_map(
+        build_coin_detail_document(symbol, coin_id, record, as_of=_iso(snapshot.stored_at))
+    )
+    headers = {"X-Enrich-Cache": "miss", "Cache-Control": "no-cache"}
+    if head:
+        return Response(headers={**headers, "Content-Length": str(len(body))})
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
+@router.get("/market/crypto/coin/{symbol}")
+async def crypto_coin_detail(request: Request) -> Response:
+    """One coin's full CoinGecko record: description, links, categories (GET)."""
+
+    return await _coin_detail_answer(request, head=False)
+
+
 __all__ = [
+    "COIN_DETAIL_TTL_S",
     "COINGECKO_IDS",
     "COINGECKO_TTL_S",
     "CoinMeta",
@@ -549,8 +704,10 @@ __all__ = [
     "LLAMA_TTL_S",
     "METHOD",
     "SourceTransport",
+    "build_coin_detail_document",
     "build_global_document",
     "build_meta_map",
+    "crypto_coin_detail",
     "crypto_global",
     "crypto_meta",
     "enrich_state",
