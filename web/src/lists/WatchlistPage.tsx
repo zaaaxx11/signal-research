@@ -24,7 +24,6 @@
 import * as React from "react";
 
 import { SectionTitle } from "@/components/SectionTitle";
-import { ErrorState } from "@/components/ErrorState";
 import { quoteProps } from "@/lib/quoteAttrs";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
