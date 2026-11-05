@@ -25,7 +25,16 @@ export const GROUPS_REGION = "us";
 export type GroupBy = "sector" | "industry" | "country" | "capitalization";
 
 /** Valid sort keys the server accepts. */
-export type GroupsSort = "avg_change" | "name" | "count" | "market_cap";
+export type GroupsSort =
+  | "avg_change"
+  | "name"
+  | "count"
+  | "market_cap"
+  | "perf_1d"
+  | "perf_1w"
+  | "perf_1m"
+  | "perf_3m"
+  | "perf_6m";
 
 /** One row: a group, its aggregate change and its breadth. */
 export interface GroupRow {
@@ -41,9 +50,13 @@ export interface GroupRow {
   /** Summed market capitalisation, in USD. */
   readonly marketCap: number | null;
   /** Multi-timeframe cap-weighted performance; null when no member carried the window. */
+  readonly perf1d: number | null;
   readonly perf1w: number | null;
   readonly perf1m: number | null;
   readonly perf3m: number | null;
+  readonly perf6m: number | null;
+  /** Optional tradeable symbol for this group's HoverBubble. */
+  readonly symbol?: string;
 }
 
 export interface GroupsReport {
@@ -131,9 +144,12 @@ function readRow(value: unknown): GroupRow | null {
     dec: amount(value["dec"]),
     unchanged: amount(value["unchanged"]),
     marketCap: amount(value["market_cap"]),
+    perf1d: signed(value["perf_1d"]),
     perf1w: signed(value["perf_1w"]),
     perf1m: signed(value["perf_1m"]),
     perf3m: signed(value["perf_3m"]),
+    perf6m: signed(value["perf_6m"]),
+    symbol: text(value["symbol"]) ?? undefined,
   };
 }
 

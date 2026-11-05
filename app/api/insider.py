@@ -10,6 +10,11 @@ insiders' own SEC Form 4 filings by
 empty window is named not zeroed); this file is the dependency wiring, the
 parameter validation and the document shape.
 
+``GET /market/insider`` — the global insider trading feed with owner-type and
+transaction-type filters. Rows carry symbol, owner, owner_type, relationship,
+transaction_type, shares, value and filing_date. Sidebar blocks deliver the
+top insider and top-10%-owner trades of the recent week.
+
 Why the collector is reached through the security master
 -------------------------------------------------------
 A Form 4 is fetched by CIK, so the symbol must become a CIK before anything
@@ -124,4 +129,143 @@ async def insider_flow(symbol: str, request: Request, days: str | None = None) -
     return document
 
 
-__all__ = ["COLLECT_LIMIT", "DEFAULT_WINDOW", "insider_flow", "parse_days", "router"]
+# ---------------------------------------------------------------------------
+# GET /market/insider — global insider trading feed
+# ---------------------------------------------------------------------------
+
+_VALID_OWNER_TYPES = frozenset({"insiders", "managers", "funds"})
+_VALID_TRANSACTION_TYPES = frozenset({"all", "buy", "sell"})
+
+
+def _owner_type_from_role(role: str | None) -> str:
+    """Derive owner_type from the role string the engine parser produced."""
+    if role is None:
+        return "insider"
+    r = role.casefold()
+    has_director = "director" in r
+    has_officer = "officer" in r
+    has_10pct = "10%" in r or "ten percent" in r
+    if has_10pct and not has_director and not has_officer:
+        return "fund"
+    if has_officer and not has_director:
+        return "manager"
+    return "insider"
+
+
+@router.get("/market/insider")
+async def market_insider(
+    request: Request,
+    owner_type: str = "insiders",
+    transaction_type: str = "all",
+) -> dict[str, Any]:
+    """Global insider trading feed with owner-type and transaction-type filters.
+
+    ``owner_type`` — ``insiders`` (directors + officers), ``managers`` (officers
+    only), ``funds`` (10% owners). Invalid values are refused with
+    ``invalid_owner_type``.
+
+    ``transaction_type`` — ``all``, ``buy``, ``sell``. Invalid values are
+    refused with ``invalid_transaction_type``.
+
+    Returns ``rows`` (the filtered main table), ``top_weekly`` (top insider
+    trades of the recent week), ``top_10_owner_weekly`` (top 10%-owner trades
+    of the recent week), and ``as_of``.
+    """
+    ot = owner_type.strip().casefold()
+    if ot not in _VALID_OWNER_TYPES:
+        raise ApiError(
+            422,
+            "invalid_owner_type",
+            f"owner_type must be one of {sorted(_VALID_OWNER_TYPES)}, got {owner_type!r}",
+        )
+    tt = transaction_type.strip().casefold()
+    if tt not in _VALID_TRANSACTION_TYPES:
+        raise ApiError(
+            422,
+            "invalid_transaction_type",
+            f"transaction_type must be one of {sorted(_VALID_TRANSACTION_TYPES)}, got {transaction_type!r}",
+        )
+
+    runtime = getattr(request.app.state, "engine", None)
+    master = getattr(runtime, "security_master", None) if runtime is not None else None
+    rows: list[dict[str, Any]] = []
+    if master is not None:
+        import os
+        from pathlib import Path
+
+        cache_dir_raw = os.environ.get("ENGINE_CACHE_DIR")
+        cache_dir = Path(cache_dir_raw) if cache_dir_raw else None
+        from app.engine.insider import collect_insider
+
+        for symbol, record in list(master.items())[:60]:
+            if record.cik is None:
+                continue
+            try:
+                items, _errors = await collect_insider(
+                    record.symbol,
+                    record.cik,
+                    cache_dir=cache_dir,
+                    limit=5,
+                )
+            except Exception:
+                continue
+            for item in items:
+                doc = item.document()
+                code = str(doc.get("code", "")).strip().upper()
+                ttype = "Buy" if code == "P" else "Sale" if code == "S" else None
+                if ttype is None:
+                    continue
+                role = doc.get("role")
+                row_owner_type = _owner_type_from_role(str(role) if role else None)
+                if row_owner_type != ot:
+                    continue
+                if tt != "all" and ttype.casefold() != tt:
+                    continue
+                shares = doc.get("shares")
+                price = doc.get("price")
+                value = None
+                if isinstance(shares, (int, float)) and isinstance(price, (int, float)):
+                    value = float(shares) * float(price)
+                rows.append({
+                    "symbol": record.symbol,
+                    "owner": str(doc.get("owner_name", "")),
+                    "owner_type": row_owner_type,
+                    "relationship": str(role) if role else None,
+                    "transaction_type": ttype,
+                    "shares": shares,
+                    "value": value,
+                    "filing_date": str(doc.get("filed", "")),
+                })
+
+    # Sidebar blocks: slice rows to top by value desc within last 7 days
+    now_iso = _utcnow_iso()
+    week_ago = _week_ago_iso()
+    recent = [r for r in rows if isinstance(r.get("filing_date"), str) and r["filing_date"] >= week_ago]
+    recent.sort(key=lambda r: r.get("value") or 0, reverse=True)
+    top_weekly = recent[:10]
+    top_10_owner = [r for r in recent if r.get("owner_type") == "fund"][:10]
+
+    # Sort rows by filing_date desc for the main table
+    rows.sort(key=lambda r: r.get("filing_date") or "", reverse=True)
+
+    return {
+        "rows": rows,
+        "top_weekly": top_weekly,
+        "top_10_owner_weekly": top_10_owner,
+        "as_of": now_iso[:10],
+    }
+
+
+def _utcnow_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _week_ago_iso() -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+
+
+__all__ = ["COLLECT_LIMIT", "DEFAULT_WINDOW", "insider_flow", "market_insider", "parse_days", "router"]

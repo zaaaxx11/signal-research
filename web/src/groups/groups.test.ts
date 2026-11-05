@@ -103,9 +103,12 @@ describe("readGroups", () => {
       dec: 300,
       unchanged: 0,
       marketCap: 15_200_000_000_000,
+      perf1d: null,
       perf1w: null,
       perf1m: null,
       perf3m: null,
+      perf6m: null,
+      symbol: undefined,
     });
   });
 
@@ -212,9 +215,11 @@ describe("breadthLabel", () => {
       dec: 300,
       unchanged: 0,
       marketCap: null,
+      perf1d: null,
       perf1w: null,
       perf1m: null,
       perf3m: null,
+      perf6m: null,
     };
     expect(breadthLabel(row)).toBe("Technology: 400 advancing, 300 declining");
   });
@@ -229,9 +234,11 @@ describe("breadthLabel", () => {
       dec: null,
       unchanged: null,
       marketCap: null,
+      perf1d: null,
       perf1w: null,
       perf1m: null,
       perf3m: null,
+      perf6m: null,
     };
     expect(breadthLabel(row)).toMatch(/not reported/i);
   });

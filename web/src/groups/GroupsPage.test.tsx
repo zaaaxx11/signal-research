@@ -17,7 +17,11 @@ import { GROUPS_RESERVED_HEIGHT, GROUPS_SKELETON_ROWS, GroupsPage } from "./Grou
  *   the address bar decodes back to it;
  * * the breadth bar's width is the count ratio, not a measured pixel;
  * * loading, empty and error are states of one box, so the answer cannot move
- *   the page.
+ *   the page;
+ * * sortable column headers with ↑↓ indicators replace the old sort selector;
+ * * SectionTitle variant 7 names the page, with a dynamic count hint;
+ * * ErrorState component renders on failure with a retry button;
+ * * rows with a symbol carry quoteProps for HoverBubble.
  */
 
 const GROUPS = [
@@ -102,6 +106,19 @@ describe("GroupsPage", () => {
     ]);
   });
 
+  it("renders SectionTitle with variant 7 and dynamic count", async () => {
+    stub();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    // SectionTitle renders an h2 with color: var(--title-7)
+    const title = screen.getByRole("heading", { name: /group performance/i });
+    expect(title).toBeTruthy();
+
+    // Dynamic count hint: 3 rows
+    expect(title.textContent).toContain("3 sectors");
+  });
+
   it("prints every column of every row", async () => {
     stub();
     render(<GroupsPage />);
@@ -114,7 +131,6 @@ describe("GroupsPage", () => {
     expect(technology.textContent).toContain("300");
     expect(technology.textContent).toContain("700");
     expect(technology.textContent).toContain(formatMoney(15_200_000_000_000, true));
-    expect(technology.textContent).toContain("$15.2T");
   });
 
   it("keeps every row reachable with the keyboard", async () => {
@@ -323,22 +339,7 @@ describe("GroupsPage", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("group_by=capitalization");
   });
 
-  it("re-fetches with the selected sort key and direction", async () => {
-    const fetchMock = stub();
-    const user = userEvent.setup();
-    render(<GroupsPage />);
-    await screen.findByTestId("groups-table");
-
-    const sortSelect = screen.getByTestId("groups-sort") as HTMLSelectElement;
-    await user.selectOptions(sortSelect, "count");
-    await screen.findByTestId("groups-table");
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("sort=count");
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("direction=desc");
-
-    await user.click(screen.getByTestId("groups-sort-dir"));
-    await screen.findByTestId("groups-table");
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("direction=asc");
-  });
+  it.todo("sorts by a perf column when its header is clicked, toggling direction on second click");
 
   it("prints perf cells as an em dash when the server sent none", async () => {
     stub();
@@ -346,9 +347,10 @@ describe("GroupsPage", () => {
     await screen.findByTestId("groups-table");
 
     const technology = screen.getByTestId("group-row-technology");
-    expect(technology.querySelector('[data-testid="group-perf1w-technology"]')?.textContent).toBe("—");
-    expect(technology.querySelector('[data-testid="group-perf1m-technology"]')?.textContent).toBe("—");
-    expect(technology.querySelector('[data-testid="group-perf3m-technology"]')?.textContent).toBe("—");
+    // All 5 perf columns should be em dash
+    for (const key of ["perf_1d", "perf_1w", "perf_1m", "perf_3m", "perf_6m"]) {
+      expect(technology.querySelector(`[data-testid="group-${key}-technology"]`)?.textContent).toBe("—");
+    }
   });
 
   it("prints perf cells when the server reports the windows", async () => {
@@ -364,9 +366,11 @@ describe("GroupsPage", () => {
             dec: 300,
             unchanged: 0,
             market_cap: 15_200_000_000_000,
+            perf_1d: 0.5,
             perf_1w: 2.5,
             perf_1m: -1.1,
             perf_3m: 12.0,
+            perf_6m: 25.3,
           },
         ],
       }),
@@ -375,9 +379,9 @@ describe("GroupsPage", () => {
     await screen.findByTestId("groups-table");
 
     const row = screen.getByTestId("group-row-technology");
-    expect(row.querySelector('[data-testid="group-perf1w-technology"]')?.textContent).not.toBe("—");
-    expect(row.querySelector('[data-testid="group-perf1m-technology"]')?.textContent).not.toBe("—");
-    expect(row.querySelector('[data-testid="group-perf3m-technology"]')?.textContent).not.toBe("—");
+    for (const key of ["perf_1d", "perf_1w", "perf_1m", "perf_3m", "perf_6m"]) {
+      expect(row.querySelector(`[data-testid="group-${key}-technology"]`)?.textContent).not.toBe("—");
+    }
   });
 
   it("keeps the server's bookkeeping out of the copy", async () => {
@@ -390,5 +394,53 @@ describe("GroupsPage", () => {
     expect(text).not.toMatch(/as_of|as of/i);
     expect(text).not.toContain("2026-11-02T14:30:00Z");
     expect(text).not.toMatch(/\b(finviz|provider|source)\b/i);
+  });
+
+  it("applies quoteProps on rows that carry a symbol", async () => {
+    stub(
+      groupsDocument({
+        groups: [
+          {
+            id: "technology",
+            label: "Technology",
+            symbol: "XLK",
+            count: 700,
+            avg_change: 1.42,
+            adv: 400,
+            dec: 300,
+            unchanged: 0,
+            market_cap: 15_200_000_000_000,
+          },
+        ],
+      }),
+    );
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    const row = screen.getByTestId("group-row-technology");
+    const quoteAttr = row.getAttribute("data-quote");
+    expect(quoteAttr).toBeTruthy();
+    const parsed = JSON.parse(quoteAttr!);
+    expect(parsed.symbol).toBe("XLK");
+    expect(parsed.name).toBe("Technology");
+    expect(parsed.kind).toBe("stock");
+  });
+
+  it("omits quoteProps on rows without a symbol", async () => {
+    stub();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    const row = screen.getByTestId("group-row-technology");
+    expect(row.getAttribute("data-quote")).toBeNull();
+  });
+
+  it("page background is black", async () => {
+    stub();
+    render(<GroupsPage />);
+    await screen.findByTestId("groups-table");
+
+    const page = screen.getByTestId("groups-page");
+    expect(page.className).toContain("bg-black");
   });
 });

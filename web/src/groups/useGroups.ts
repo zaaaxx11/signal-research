@@ -9,11 +9,15 @@
  *
  * Nothing is cached across mounts: a page left and re-entered shows what the
  * market is doing now, not what it was doing when the tab was opened.
+ *
+ * A failed read raises a notify.error toast; a successful retry after a failure
+ * raises a notify.success toast so the user sees the recovery.
  */
 
 import * as React from "react";
 
 import { ApiError, getJson } from "@/lib/api";
+import { notify } from "@/lib/notify";
 
 import {
   GROUPS_REGION,
@@ -50,6 +54,7 @@ export function useGroups(
     error: null,
   });
   const [attempt, setAttempt] = React.useState(0);
+  const wasFailed = React.useRef(false);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -59,30 +64,34 @@ export function useGroups(
     getJson(path, controller.signal)
       .then((body) => {
         if (!live) return;
-        setState({ status: "ready", report: readGroups(body), error: null });
+        const report = readGroups(body);
+        setState({ status: "ready", report, error: null });
+        if (wasFailed.current) {
+          wasFailed.current = false;
+          notify.success("Groups loaded", `${report.rows.length} ${groupBy}s shown`);
+        }
       })
       .catch((cause: unknown) => {
         if (!live || controller.signal.aborted) return;
+        wasFailed.current = true;
         const status = cause instanceof ApiError ? cause.status : 0;
-        setState({
-          status: "error",
-          report: null,
-          error:
-            cause instanceof GroupsMalformed
-              ? "The group figures could not be read."
-              : status === 404
-                ? "This deployment does not serve groups yet."
-                : cause instanceof Error
-                  ? cause.message
-                  : "Request failed",
-        });
+        const message =
+          cause instanceof GroupsMalformed
+            ? "The group figures could not be read."
+            : status === 404
+              ? "This deployment does not serve groups yet."
+              : cause instanceof Error
+                ? cause.message
+                : "Request failed";
+        notify.error("Groups did not load", message);
+        setState({ status: "error", report: null, error: message });
       });
 
     return () => {
       live = false;
       controller.abort();
     };
-  }, [path, attempt]);
+  }, [path, attempt, groupBy]);
 
   const retry = React.useCallback(() => setAttempt((value) => value + 1), []);
   return { ...state, retry };

@@ -1,295 +1,386 @@
 /**
- * Insider: real Form 4 filings, one company at a time.
+ * Insider Trading — Finviz-style page with owner-type tabs, transaction
+ * filter, main table and two sidebar blocks.
  *
- * This page used to rank companies by a vendor field called `insider_trans`.
- * That field cannot be read as a flow: TSLA 76.0, META 45.9, GME 8.7 — a
- * mixture of ownership levels, stale snapshots and outright junk, with no unit
- * that survives contact with a second company. A table headed "net insider
- * buying" built on it would publish an interpretation the data does not
- * support, so the ranking is gone.
- *
- * What is left is the evidence: SEC Form 4 filings, which name the owner, the
- * date, the transaction and the amount. They are read per company (the EDGAR
- * path is one company at a time), so this page offers two ways in — the most
- * active companies, and a symbol field for anything else — and then shows that
- * company's filings.
- *
- * The page never prints a total it did not receive. The filings panel reports
- * the endpoint's own count and marks `shown of total` when the two disagree.
+ * Fetches ``GET /market/insider?owner_type=…&transaction_type=…``. The page
+ * is a single feed: tabs and filter change the query, not a local slice.
  */
 
 import * as React from "react";
 
-import { formatCount } from "@/breadth/format";
-import { LogoMark } from "@/grid/LogoMark";
+import { ErrorState } from "@/components/ErrorState";
+import { SectionTitle } from "@/components/SectionTitle";
 import { getJson, ApiError } from "@/lib/api";
+import { notify } from "@/lib/notify";
+import { quoteProps } from "@/lib/quoteAttrs";
 import { cn } from "@/lib/utils";
 
-import { InsiderDetail } from "./InsiderDetail";
+import {
+  type InsiderRow,
+  type OwnerType,
+  type TransactionFilter,
+  insiderFeedPath,
+  OWNER_TYPES,
+  OWNER_TYPE_LABELS,
+  TRANSACTION_FILTERS,
+  TRANSACTION_FILTER_LABELS,
+  readInsiderFeed,
+} from "./insider";
 
-/** One row of the way in: a company a reader can open. */
-interface Entry {
-  readonly symbol: string;
-  readonly name: string | null;
-  readonly volume: number;
+/* ── Helpers ──────────────────────────────────────────────────────────── */
+
+function formatShares(value: number | null): string {
+  if (value === null) return "—";
+  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
-const SIGNALS_PATH = "/market/signals?region=us&per=20";
-/** The one group used as an entry list. */
-const ENTRY_GROUP = "most_active";
-
-interface SignalsShape {
-  readonly groups?: readonly {
-    readonly id?: unknown;
-    readonly rows?: readonly {
-      readonly symbol?: unknown;
-      readonly name?: unknown;
-      readonly volume?: unknown;
-    }[];
-  }[];
+function formatValue(value: number | null): string {
+  if (value === null) return "—";
+  if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+  if (Math.abs(value) >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-/**
- * The most active companies, read from the one endpoint the home page already
- * uses. A missing group is an empty list, not an error: the symbol field is
- * still a complete way in.
- */
-function readEntries(payload: unknown): Entry[] {
-  const shape = payload as SignalsShape | null;
-  const group = shape?.groups?.find((candidate) => candidate.id === ENTRY_GROUP);
-  if (!group?.rows) return [];
-  const seen = new Set<string>();
-  const entries: Entry[] = [];
-  for (const row of group.rows) {
-    const symbol = typeof row.symbol === "string" ? row.symbol.trim().toUpperCase() : "";
-    if (!symbol || seen.has(symbol)) continue;
-    seen.add(symbol);
-    entries.push({
-      symbol,
-      name: typeof row.name === "string" ? row.name : null,
-      volume: typeof row.volume === "number" ? row.volume : 0,
-    });
+function formatDate(raw: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(raw + "T00:00:00");
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    }
   }
-  return entries;
+  return raw || "—";
 }
 
-type EntriesStatus = "loading" | "ready" | "error";
+/* ── Skeleton ─────────────────────────────────────────────────────────── */
 
-type EntryTab = "latest" | "top_weekly" | "top_10_owner";
+function TableSkeleton({ rows }: { readonly rows: number }) {
+  return (
+    <div data-testid="insider-skeleton" role="status" aria-busy="true" className="animate-pulse">
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 border-b border-white/5 px-3 py-2"
+        >
+          <span className="h-3 w-10 rounded-sm bg-white/10" />
+          <span className="h-3 w-24 rounded-sm bg-white/10" />
+          <span className="h-3 w-16 rounded-sm bg-white/10" />
+          <span className="h-3 w-10 rounded-sm bg-white/10" />
+          <span className="h-3 w-12 rounded-sm bg-white/10" />
+          <span className="h-3 w-14 rounded-sm bg-white/10" />
+          <span className="h-3 w-12 rounded-sm bg-white/10" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
-const TAB_LABELS: Record<EntryTab, string> = {
-  latest: "Latest Trading",
-  top_weekly: "Top Weekly",
-  top_10_owner: "Top 10% Owner",
-};
+function SidebarSkeleton() {
+  return (
+    <div data-testid="insider-sidebar-skeleton" className="animate-pulse space-y-3">
+      {[1, 2].map((block) => (
+        <div key={block} className="rounded-md border border-white/10 p-3">
+          <span className="block h-3 w-28 rounded-sm bg-white/10" />
+          <div className="mt-2 space-y-1.5">
+            {Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="flex justify-between">
+                <span className="h-2.5 w-16 rounded-sm bg-white/10" />
+                <span className="h-2.5 w-12 rounded-sm bg-white/10" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-const TAB_LIST: readonly EntryTab[] = ["latest", "top_weekly", "top_10_owner"];
+/* ── Sidebar blocks ──────────────────────────────────────────────────── */
 
-function sortEntries(entries: Entry[], tab: EntryTab): Entry[] {
-  if (tab === "latest") return entries;
-  if (tab === "top_weekly") {
-    return [...entries].sort((a, b) => b.volume - a.volume);
+function SidebarBlock({
+  title,
+  rows,
+  testId,
+}: {
+  readonly title: string;
+  readonly rows: readonly InsiderRow[];
+  readonly testId: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div data-testid={testId} className="rounded-md border border-white/10 p-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-white/60">
+          {title}
+        </h3>
+        <p className="mt-2 text-[11px] text-white/30">No trades this week</p>
+      </div>
+    );
   }
-  // top_10_owner: sort by volume desc as proxy (no ownership % in signals)
-  return [...entries].sort((a, b) => b.volume - a.volume);
+  return (
+    <div data-testid={testId} className="rounded-md border border-white/10 p-3">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-white/60">
+        {title}
+      </h3>
+      <div className="mt-2 space-y-1">
+        {rows.map((row, i) => (
+          <div
+            key={`${row.symbol}-${row.owner}-${i}`}
+            {...quoteProps({ symbol: row.symbol })}
+            className="flex items-center justify-between text-[11px]"
+          >
+            <span className="truncate">
+              <span className="font-mono text-white/80">{row.symbol}</span>{" "}
+              <span className="text-white/40">{row.owner}</span>
+            </span>
+            <span
+              className={cn(
+                "ml-2 shrink-0 tabular-nums",
+                row.transaction_type === "Buy" ? "text-green-400" : "text-red-400",
+              )}
+            >
+              {row.transaction_type === "Buy" ? "+" : "-"}
+              {formatValue(row.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
+
+/* ── Transaction badge ────────────────────────────────────────────────── */
+
+function TransactionBadge({ type }: { readonly type: "Buy" | "Sale" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded px-1.5 py-px text-[11px] font-medium",
+        type === "Buy" ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400",
+      )}
+    >
+      {type}
+    </span>
+  );
+}
+
+/* ── Main table ──────────────────────────────────────────────────────── */
+
+function InsiderTable({ rows }: { readonly rows: readonly InsiderRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <p data-testid="insider-empty" className="px-3 py-4 text-[12px] text-white/30">
+        No transactions match the current filters.
+      </p>
+    );
+  }
+
+  return (
+    <div className="min-w-0 overflow-x-auto">
+      <table
+        data-testid="insider-table"
+        className="w-full border-collapse text-[12px]"
+      >
+        <thead>
+          <tr className="border-b border-white/10 text-left text-[11px] font-medium uppercase tracking-wide text-white/40">
+            <th scope="col" className="px-3 py-2 w-[70px]">Symbol</th>
+            <th scope="col" className="px-3 py-2">Owner</th>
+            <th scope="col" className="px-3 py-2 hidden md:table-cell">Relationship</th>
+            <th scope="col" className="px-3 py-2 w-[72px]">Transaction</th>
+            <th scope="col" className="px-3 py-2 w-[80px] text-right">Shares</th>
+            <th scope="col" className="px-3 py-2 w-[90px] text-right">Value</th>
+            <th scope="col" className="px-3 py-2 w-[100px]">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr
+              key={`${row.symbol}-${row.owner}-${row.filing_date}-${i}`}
+              data-testid="insider-row"
+              {...quoteProps({ symbol: row.symbol })}
+              className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
+            >
+              <td className="px-3 py-2 font-mono text-white/80">{row.symbol}</td>
+              <td className="truncate px-3 py-2 text-white/70 max-w-[180px]" title={row.owner}>
+                {row.owner}
+              </td>
+              <td className="hidden px-3 py-2 text-white/40 md:table-cell max-w-[200px] truncate" title={row.relationship ?? undefined}>
+                {row.relationship ?? "—"}
+              </td>
+              <td className="px-3 py-2">
+                <TransactionBadge type={row.transaction_type} />
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums text-white/60">
+                {formatShares(row.shares)}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums text-white/80">
+                {formatValue(row.value)}
+              </td>
+              <td className="px-3 py-2 text-white/40 tabular-nums">
+                {formatDate(row.filing_date)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ── Page ────────���────────────────────────────────────────────────────── */
+
+type PageStatus = "loading" | "ready" | "error";
 
 export function InsiderPage() {
-  const [entries, setEntries] = React.useState<Entry[]>([]);
-  const [status, setStatus] = React.useState<EntriesStatus>("loading");
+  const [ownerType, setOwnerType] = React.useState<OwnerType>("insiders");
+  const [txFilter, setTxFilter] = React.useState<TransactionFilter>("all");
+  const [rows, setRows] = React.useState<readonly InsiderRow[]>([]);
+  const [topWeekly, setTopWeekly] = React.useState<readonly InsiderRow[]>([]);
+  const [top10Owner, setTop10Owner] = React.useState<readonly InsiderRow[]>([]);
+  const [asOf, setAsOf] = React.useState<string | null>(null);
+  const [status, setStatus] = React.useState<PageStatus>("loading");
   const [error, setError] = React.useState<string | null>(null);
-  const [typed, setTyped] = React.useState("");
-  const [selected, setSelected] = React.useState<string | null>(null);
   const [attempt, setAttempt] = React.useState(0);
-  const [tab, setTab] = React.useState<EntryTab>("latest");
-  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
-  React.useEffect(() => {
+  const fetchData = React.useCallback(() => {
     const controller = new AbortController();
     let live = true;
     setStatus("loading");
     setError(null);
-    getJson(SIGNALS_PATH, controller.signal)
-      .then((payload) => {
+
+    getJson(insiderFeedPath(ownerType, txFilter), controller.signal)
+      .then((body) => {
         if (!live) return;
-        setEntries(readEntries(payload));
+        const feed = readInsiderFeed(body);
+        setRows(feed.rows);
+        setTopWeekly(feed.top_weekly);
+        setTop10Owner(feed.top_10_owner_weekly);
+        setAsOf(feed.as_of);
         setStatus("ready");
       })
       .catch((cause: unknown) => {
         if (!live) return;
         if (controller.signal.aborted) return;
         if (cause instanceof ApiError && cause.name === "AbortError") return;
-        setError("The company list could not be loaded.");
+        const msg = cause instanceof Error ? cause.message : "Request failed";
+        setError(msg);
         setStatus("error");
+        notify.error("Insider data failed to load", msg);
       });
+
     return () => {
       live = false;
       controller.abort();
     };
-  }, [attempt]);
+  }, [ownerType, txFilter, attempt]);
 
-  const open = React.useCallback((symbol: string, trigger?: HTMLButtonElement | null) => {
-    triggerRef.current = trigger ?? null;
-    setSelected(symbol);
-  }, []);
-
-  const close = React.useCallback(() => {
-    setSelected(null);
-    // Focus goes back to the row that opened the panel; a reader who opened it
-    // with the keyboard must not be dropped at the top of the document.
-    triggerRef.current?.focus();
-  }, []);
-
-  // Escape closes the filings panel and puts focus back on the row that opened
-  // it. It is a window listener rather than a handler on the panel because the
-  // reader's focus may be anywhere in the page when they change their mind.
   React.useEffect(() => {
-    if (selected === null) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      close();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selected, close]);
+    const cleanup = fetchData();
+    return cleanup;
+  }, [fetchData]);
 
-  const pick = (event: React.FormEvent) => {
-    event.preventDefault();
-    const symbol = typed.trim().toUpperCase();
-    if (!symbol) return;
-    open(symbol, null);
-    setTyped("");
-  };
+  const handleRetry = React.useCallback(() => {
+    setAttempt((v) => v + 1);
+  }, []);
 
-  const sorted = React.useMemo(() => sortEntries(entries, tab), [entries, tab]);
+  const isLoading = status === "loading";
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-line bg-surface px-3 py-2">
-        <h1 className="text-ui font-semibold text-fg">Insider filings</h1>
-        <p className="mt-0.5 text-data text-fg-muted">
-          Every row below is a Form 4 filing as reported to the SEC — who traded,
-          when, and how much. Filings are read one company at a time.
-        </p>
+    <main className="min-h-screen bg-black text-white">
+      <header className="border-b border-white/10 px-4 py-3">
+        <SectionTitle variant={7} count={asOf ? `as of ${asOf}` : undefined}>
+          Insider Trading
+        </SectionTitle>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
-        <section
-          aria-labelledby="insider-entries"
-          className="flex min-h-0 w-full shrink-0 flex-col border-b border-line xl:w-[340px] xl:border-b-0 xl:border-r"
-        >
-          <div className="shrink-0 border-b border-line px-3 py-2">
-            <form onSubmit={pick} className="flex items-center gap-2">
-              <label htmlFor="insider-symbol" className="sr-only">
-                Symbol
-              </label>
-              <input
-                id="insider-symbol"
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                placeholder="Symbol, e.g. AAPL"
-                autoComplete="off"
-                spellCheck={false}
-                className="h-7 w-full min-w-0 rounded-[3px] border border-line bg-bg px-2 text-data text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="h-7 shrink-0 rounded-[3px] border border-line px-2 text-data text-fg-muted hover:text-fg"
-              >
-                Open
-              </button>
-            </form>
-          </div>
-
-          {/* Tab bar */}
-          <div role="tablist" aria-label="Company list" className="shrink-0 flex border-b border-line">
-            {TAB_LIST.map((key) => (
-              <button
-                key={key}
-                role="tab"
-                aria-selected={tab === key}
-                onClick={() => setTab(key)}
-                className={cn(
-                  "flex-1 px-2 py-1.5 text-center text-label uppercase tracking-[0.04em] transition-colors",
-                  tab === key
-                    ? "border-b-2 border-accent text-accent-text"
-                    : "text-fg-subtle hover:text-fg",
-                )}
-              >
-                {TAB_LABELS[key]}
-              </button>
-            ))}
-          </div>
-
-          <h2 id="insider-entries" className="shrink-0 px-3 pt-2 text-label uppercase tracking-[0.08em] text-fg-subtle">
-            {TAB_LABELS[tab]}
-          </h2>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-            {status === "loading" ? (
-              <p role="status" className="px-1.5 py-2 text-data text-fg-subtle">
-                Loading companies…
-              </p>
-            ) : status === "error" ? (
-              <div className="px-1.5 py-2">
-                <p className="text-data text-fg-muted">{error}</p>
-                <button
-                  type="button"
-                  onClick={() => setAttempt((value) => value + 1)}
-                  className="mt-1 text-data text-accent-text hover:text-fg"
-                >
-                  Try again
-                </button>
-              </div>
-            ) : sorted.length === 0 ? (
-              <p className="px-1.5 py-2 text-data text-fg-subtle">
-                No companies to list. Type a symbol instead.
-              </p>
-            ) : (
-              <ul>
-                {sorted.map((entry) => (
-                  <li key={entry.symbol}>
-                    <button
-                      type="button"
-                      data-testid={`insider-entry-${entry.symbol}`}
-                      aria-current={selected === entry.symbol ? "true" : undefined}
-                      onClick={(event) => open(entry.symbol, event.currentTarget)}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-[2px] px-1.5 py-1 text-left hover:bg-surface-raised",
-                        selected === entry.symbol && "bg-surface-raised",
-                      )}
-                    >
-                      <LogoMark symbol={entry.symbol} size={14} />
-                      <span className="w-[52px] shrink-0 font-mono text-data font-semibold text-fg">
-                        {entry.symbol}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-data text-fg-muted" title={entry.name ?? undefined}>
-                        {entry.name ?? "—"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+      {/* Tabs: Insiders / Managers / Funds */}
+      <div role="tablist" aria-label="Owner type" className="flex border-b border-white/10">
+        {OWNER_TYPES.map((ot) => (
+          <button
+            key={ot}
+            role="tab"
+            aria-selected={ownerType === ot}
+            data-testid={`insider-tab-${ot}`}
+            onClick={() => setOwnerType(ot)}
+            className={cn(
+              "px-4 py-2 text-[12px] font-medium uppercase tracking-wide transition-colors",
+              ownerType === ot
+                ? "border-b-2 border-white text-white"
+                : "text-white/40 hover:text-white/70",
             )}
-          </div>
+          >
+            {OWNER_TYPE_LABELS[ot]}
+          </button>
+        ))}
+      </div>
 
-          {sorted.length > 0 ? (
-            <p className="shrink-0 border-t border-line px-3 py-1 text-label text-fg-subtle">
-              {formatCount(sorted.length)} companies
-            </p>
-          ) : null}
-        </section>
+      {/* Transaction filter bar */}
+      <div
+        role="radiogroup"
+        aria-label="Transaction type"
+        className="flex items-center gap-2 border-b border-white/10 px-4 py-1.5"
+      >
+        {TRANSACTION_FILTERS.map((filter) => (
+          <button
+            key={filter}
+            role="radio"
+            aria-checked={txFilter === filter}
+            data-testid={`insider-filter-${filter}`}
+            onClick={() => setTxFilter(filter)}
+            className={cn(
+              "rounded border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              txFilter === filter
+                ? "border-white/30 bg-white/10 text-white"
+                : "border-white/10 text-white/40 hover:border-white/20 hover:text-white/60",
+            )}
+          >
+            {TRANSACTION_FILTER_LABELS[filter]}
+          </button>
+        ))}
+        {!isLoading && status !== "error" ? (
+          <span data-testid="insider-row-count" className="ml-auto text-[11px] text-white/30">
+            {rows.length} {rows.length === 1 ? "transaction" : "transactions"}
+          </span>
+        ) : null}
+      </div>
 
-        <section aria-label="Filings" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {selected === null ? (
-            <p className="p-3 text-data text-fg-subtle">
-              Choose a company to read its filings.
-            </p>
+      {/* Main area */}
+      <div className="flex flex-col gap-0 lg:flex-row">
+        {/* Table */}
+        <div className="min-w-0 flex-1">
+          {status === "error" ? (
+            <div className="p-4">
+              <ErrorState
+                title="Insider data could not be loaded"
+                error={error ?? "Unknown error"}
+                onRetry={handleRetry}
+                testId="insider-error"
+              />
+            </div>
+          ) : isLoading ? (
+            <TableSkeleton rows={10} />
           ) : (
-            <InsiderDetail symbol={selected} onClose={close} />
+            <InsiderTable rows={rows} />
           )}
-        </section>
+        </div>
+
+        {/* Sidebar */}
+        <aside className="shrink-0 border-t border-white/10 p-4 lg:w-[280px] lg:border-l lg:border-t-0">
+          {isLoading ? (
+            <SidebarSkeleton />
+          ) : (
+            <div className="space-y-4">
+              <SidebarBlock
+                title="Top Insider Trading — Recent Week"
+                rows={topWeekly}
+                testId="insider-top-weekly"
+              />
+              <SidebarBlock
+                title="Top 10% Owner Trading — Recent Week"
+                rows={top10Owner}
+                testId="insider-top-10-owner"
+              />
+            </div>
+          )}
+        </aside>
       </div>
     </main>
   );

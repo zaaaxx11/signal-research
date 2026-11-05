@@ -6,13 +6,15 @@
  * column and lets the eye run down it. Density follows `SignalCard`: 12 px type,
  * 24 px rows, one hairline between rows, no card per group.
  *
- * This page adds a **group-by tab bar** and a **sort selector** above the
- * table, plus three **performance columns** (1W, 1M, 3M) between Change % and
- * Names. The four tabs re-fetch with `?group_by=` and the sort selector
- * re-fetches with `?sort=&direction=`.
+ * This page adds a **group-by tab bar** above the table, five **sortable
+ * performance columns** (1D, 1W, 1M, 3M, 6M) with ↑↓ indicators, a
+ * **breadth bar** per row, a dynamic **group count label**, and optional
+ * **quoteProps** on rows for the global HoverBubble.
  *
  * The page is one box in every state — skeleton, table, empty, error — so the
  * answer landing cannot move what is below it.
+ *
+ * Section title: variant 7 (lime). Background: black (polos).
  */
 
 import * as React from "react";
@@ -21,7 +23,10 @@ import { formatCount } from "@/breadth/format";
 import { CellValue } from "@/grid/cellRenderers";
 import { formatMoney } from "@/grid/format";
 import type { ColumnSpec } from "@/grid/columnMeta";
+import { ErrorState } from "@/components/ErrorState";
+import { SectionTitle } from "@/components/SectionTitle";
 import { cn } from "@/lib/utils";
+import { quoteProps } from "@/lib/quoteAttrs";
 import { Link, navigate } from "@/shell/routes";
 
 import {
@@ -35,6 +40,10 @@ import {
 } from "./groups";
 import { useGroups } from "./useGroups";
 
+/* ---------------------------------------------------------------------------
+ * Column specs
+ * ------------------------------------------------------------------------ */
+
 const CHANGE_SPEC: ColumnSpec = {
   key: "avg_change",
   label: "Change %",
@@ -44,32 +53,24 @@ const CHANGE_SPEC: ColumnSpec = {
   precision: 2,
 };
 
-const PERF_1W_SPEC: ColumnSpec = {
-  key: "perf_1w",
-  label: "1W",
-  kind: "delta",
-  weight: 1,
-  min: 54,
-  precision: 1,
-};
-const PERF_1M_SPEC: ColumnSpec = {
-  key: "perf_1m",
-  label: "1M",
-  kind: "delta",
-  weight: 1,
-  min: 54,
-  precision: 1,
-};
-const PERF_3M_SPEC: ColumnSpec = {
-  key: "perf_3m",
-  label: "3M",
-  kind: "delta",
-  weight: 1,
-  min: 54,
-  precision: 1,
-};
+function perfSpec(key: string, label: string, precision = 1): ColumnSpec {
+  return { key, label, kind: "delta", weight: 1, min: 54, precision };
+}
+
+const PERF_COLUMNS: readonly { spec: ColumnSpec; sortKey: GroupsSort }[] = [
+  { spec: perfSpec("perf_1d", "1D"), sortKey: "perf_1d" },
+  { spec: perfSpec("perf_1w", "1W"), sortKey: "perf_1w" },
+  { spec: perfSpec("perf_1m", "1M"), sortKey: "perf_1m" },
+  { spec: perfSpec("perf_3m", "3M"), sortKey: "perf_3m" },
+  { spec: perfSpec("perf_6m", "6M"), sortKey: "perf_6m" },
+];
+
+/* ---------------------------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------------------------ */
 
 export const GROUPS_SKELETON_ROWS = 12;
+/** 26 px header + 12 rows × 24 px + 2 px border. */
 export const GROUPS_RESERVED_HEIGHT = 26 + GROUPS_SKELETON_ROWS * 24 + 2;
 
 const GROUP_BY_TABS: readonly { key: GroupBy; label: string }[] = [
@@ -80,18 +81,15 @@ const GROUP_BY_TABS: readonly { key: GroupBy; label: string }[] = [
 ];
 
 const PLURAL: Record<string, string> = {
-  Sector: "Sectors",
-  Industry: "Industries",
-  Country: "Countries",
+  Sector: "sectors",
+  Industry: "industries",
+  Country: "countries",
   "Market Cap": "Market Cap groups",
 };
 
-const SORT_OPTIONS: readonly { key: GroupsSort; label: string }[] = [
-  { key: "avg_change", label: "Change %" },
-  { key: "name", label: "Name" },
-  { key: "count", label: "Count" },
-  { key: "market_cap", label: "Market Cap" },
-];
+/* ---------------------------------------------------------------------------
+ * Helpers
+ * ------------------------------------------------------------------------ */
 
 function Absent() {
   return (
@@ -145,6 +143,48 @@ function BreadthBar({ row }: { readonly row: GroupRow }) {
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Sortable header
+ * ------------------------------------------------------------------------ */
+
+function SortableTh({
+  sortKey,
+  active,
+  direction,
+  onSort,
+  children,
+  className,
+}: {
+  readonly sortKey: GroupsSort;
+  readonly active: boolean;
+  readonly direction: "asc" | "desc";
+  readonly onSort: (key: GroupsSort) => void;
+  readonly children: React.ReactNode;
+  readonly className?: string;
+}) {
+  return (
+    <th scope="col" className={cn("px-2 text-right font-medium", className)}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-0.5 text-label uppercase tracking-[0.05em] transition-colors",
+          active ? "text-accent-text" : "text-fg-subtle hover:text-fg",
+        )}
+      >
+        {children}
+        <span aria-hidden="true" className="text-[10px] w-[10px] text-center">
+          {active ? (direction === "asc" ? "↑" : "↓") : " "}
+        </span>
+      </button>
+    </th>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Skeleton
+ * ------------------------------------------------------------------------ */
+
 function Skeleton() {
   return (
     <div data-testid="groups-skeleton" aria-busy="true">
@@ -160,28 +200,42 @@ function Skeleton() {
           <span
             className={cn(
               "block h-[9px] rounded-[1px] bg-surface-raised",
-              index % 3 === 0 ? "w-[16%]" : index % 3 === 1 ? "w-[21%]" : "w-[13%]",
+              index % 3 === 0 ? "w-[12%]" : index % 3 === 1 ? "w-[16%]" : "w-[10%]",
             )}
           />
           <span className="block h-[9px] flex-1 rounded-[1px] bg-surface-raised" />
-          <span className="block h-[9px] w-[9%] rounded-[1px] bg-surface-raised" />
+          <span className="block h-[9px] w-[7%] rounded-[1px] bg-surface-raised" />
         </div>
       ))}
     </div>
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Perf cell
+ * ------------------------------------------------------------------------ */
+
 function PerfCell({ spec, value }: { readonly spec: ColumnSpec; readonly value: number | null }) {
   if (value === null) return <Absent />;
   return <CellValue spec={spec} value={value} />;
 }
 
+/* ---------------------------------------------------------------------------
+ * Rows
+ * ------------------------------------------------------------------------ */
+
 function Rows({
   report,
   groupBy,
+  sortBy,
+  sortDir,
+  onSort,
 }: {
   readonly report: GroupsReport;
   readonly groupBy: GroupBy;
+  readonly sortBy: GroupsSort;
+  readonly sortDir: "asc" | "desc";
+  readonly onSort: (key: GroupsSort) => void;
 }) {
   const onRowClick = (href: string) => (event: React.MouseEvent<HTMLTableRowElement>) => {
     if (event.defaultPrevented) return;
@@ -197,57 +251,88 @@ function Rows({
     <div className="overflow-x-auto">
       <table
         data-testid="groups-table"
-        className="w-full min-w-[960px] table-fixed border-collapse text-data"
+        className="w-full min-w-[1160px] table-fixed border-collapse text-data"
       >
         <caption className="sr-only">
-          {PLURAL[groupLabel] ?? `${groupLabel}s`}, sorted by average change, strongest first
+          {PLURAL[groupLabel] ?? `${groupLabel}s`}, sorted by{" "}
+          {PERF_COLUMNS.find((c) => c.sortKey === sortBy)?.spec.label ??
+            sortBy === "avg_change" ? "Change %" :
+            sortBy === "name" ? "Name" :
+            sortBy === "count" ? "Count" :
+            sortBy === "market_cap" ? "Market Cap" : sortBy},{" "}
+          {sortDir === "asc" ? "weakest" : "strongest"} first
         </caption>
         <colgroup>
-          <col className="w-[18%]" />
-          <col className="w-[8%]" />
-          <col className="w-[6%]" />
-          <col className="w-[6%]" />
-          <col className="w-[6%]" />
-          <col className="w-[6%]" />
-          <col className="w-[6%]" />
-          <col className="w-[8%]" />
+          <col className="w-[15%]" />
           <col className="w-[7%]" />
-          <col className="w-[10%]" />
-          <col className="w-[11%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[5%]" />
+          <col className="w-[6%]" />
+          <col className="w-[8%]" />
+          <col className="w-[9%]" />
         </colgroup>
         <thead>
-          <tr className="h-[26px] border-b border-line-strong text-label uppercase tracking-[0.05em] text-fg-subtle">
-            <th scope="col" className="px-2 text-left font-medium">
+          <tr className="h-[26px] border-b border-line-strong">
+            <SortableTh
+              sortKey="name"
+              active={sortBy === "name"}
+              direction={sortDir}
+              onSort={onSort}
+              className="px-2 text-left"
+            >
               {groupLabel}
-            </th>
-            <th scope="col" className="px-2 text-right font-medium">
-              Change %
-            </th>
-            <th scope="col" className="px-2 text-right font-medium">
-              1W
-            </th>
-            <th scope="col" className="px-2 text-right font-medium">
-              1M
-            </th>
-            <th scope="col" className="px-2 text-right font-medium">
-              3M
-            </th>
-            <th scope="col" className="px-2 text-right font-medium">
+            </SortableTh>
+            <SortableTh
+              sortKey="avg_change"
+              active={sortBy === "avg_change"}
+              direction={sortDir}
+              onSort={onSort}
+            >
+              Chg%
+            </SortableTh>
+            {PERF_COLUMNS.map(({ spec, sortKey }) => (
+              <SortableTh
+                key={sortKey}
+                sortKey={sortKey}
+                active={sortBy === sortKey}
+                direction={sortDir}
+                onSort={onSort}
+              >
+                {spec.label}
+              </SortableTh>
+            ))}
+            <th scope="col" className="px-2 text-right font-medium text-label uppercase tracking-[0.05em] text-fg-subtle">
               Adv
             </th>
-            <th scope="col" className="px-2 text-right font-medium">
+            <th scope="col" className="px-2 text-right font-medium text-label uppercase tracking-[0.05em] text-fg-subtle">
               Dec
             </th>
-            <th scope="col" className="px-2 text-right font-medium">
+            <th scope="col" className="px-2 text-right font-medium text-label uppercase tracking-[0.05em] text-fg-subtle">
               Unch
             </th>
-            <th scope="col" className="px-2 text-right font-medium">
+            <SortableTh
+              sortKey="count"
+              active={sortBy === "count"}
+              direction={sortDir}
+              onSort={onSort}
+            >
               Names
-            </th>
-            <th scope="col" className="px-2 text-right font-medium">
+            </SortableTh>
+            <SortableTh
+              sortKey="market_cap"
+              active={sortBy === "market_cap"}
+              direction={sortDir}
+              onSort={onSort}
+            >
               Cap
-            </th>
-            <th scope="col" className="px-2 text-left font-medium">
+            </SortableTh>
+            <th scope="col" className="px-2 text-left font-medium text-label uppercase tracking-[0.05em] text-fg-subtle">
               Breadth
             </th>
           </tr>
@@ -255,6 +340,13 @@ function Rows({
         <tbody>
           {report.rows.map((row) => {
             const href = screenerHref(row.label);
+            const perfs: Record<string, number | null> = {
+              perf_1d: row.perf1d,
+              perf_1w: row.perf1w,
+              perf_1m: row.perf1m,
+              perf_3m: row.perf3m,
+              perf_6m: row.perf6m,
+            };
             return (
               <tr
                 key={row.id}
@@ -262,6 +354,13 @@ function Rows({
                 data-sector-row={row.label}
                 onClick={onRowClick(href)}
                 className="h-6 cursor-pointer border-b border-line/60 odd:bg-row-alt hover:bg-row-hover"
+                {...(row.symbol
+                  ? quoteProps({
+                      symbol: row.symbol,
+                      name: row.label,
+                      kind: "stock",
+                    })
+                  : {})}
               >
                 <td className="min-w-0 px-2">
                   <Link
@@ -275,15 +374,15 @@ function Rows({
                 <td data-testid={`group-change-${row.id}`} className="px-2">
                   <CellValue spec={CHANGE_SPEC} value={row.avgChange} />
                 </td>
-                <td data-testid={`group-perf1w-${row.id}`} className="px-2 text-right">
-                  <PerfCell spec={PERF_1W_SPEC} value={row.perf1w} />
-                </td>
-                <td data-testid={`group-perf1m-${row.id}`} className="px-2 text-right">
-                  <PerfCell spec={PERF_1M_SPEC} value={row.perf1m} />
-                </td>
-                <td data-testid={`group-perf3m-${row.id}`} className="px-2 text-right">
-                  <PerfCell spec={PERF_3M_SPEC} value={row.perf3m} />
-                </td>
+                {PERF_COLUMNS.map(({ spec, sortKey }) => (
+                  <td
+                    key={sortKey}
+                    data-testid={`group-${sortKey}-${row.id}`}
+                    className="px-2 text-right"
+                  >
+                    <PerfCell spec={spec} value={perfs[sortKey] ?? null} />
+                  </td>
+                ))}
                 <td data-testid={`group-adv-${row.id}`} className="px-2 text-right text-fg-muted">
                   <Count value={row.adv} />
                 </td>
@@ -317,6 +416,10 @@ function Rows({
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Page
+ * ------------------------------------------------------------------------ */
+
 export interface GroupsPageProps {
   readonly region?: string;
 }
@@ -330,34 +433,51 @@ export function GroupsPage({ region }: GroupsPageProps = {}) {
 
   const handleTab = (key: GroupBy) => {
     setGroupBy(key);
+    // Reset sort to default when changing group-by.
+    setSortBy("avg_change");
+    setSortDir("desc");
   };
 
   const handleSort = (key: GroupsSort) => {
-    setSortBy(key);
+    if (sortBy === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortBy(key);
+      setSortDir("desc");
+    }
   };
 
-  const toggleDir = () => {
-    setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-  };
+  const groupLabel =
+    GROUP_BY_TABS.find((t) => t.key === groupBy)?.label ?? "Group";
+  const rowCount = groups.report?.rows.length ?? 0;
+  const countLabel =
+    groups.status === "ready" && rowCount > 0
+      ? `${rowCount} ${PLURAL[groupLabel] ?? groupLabel.toLowerCase()}`
+      : undefined;
 
   return (
     <main
       data-testid="groups-page"
-      className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
+      className="min-h-0 flex-1 overflow-y-auto bg-black px-2 py-2"
     >
-      <div className="mb-1.5 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <h1 className="text-ui font-medium text-fg">Group performance</h1>
-        <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
-          Sorted by {SORT_OPTIONS.find((o) => o.key === sortBy)?.label ?? "Change %"} {sortDir === "asc" ? "↑" : "↓"}
-        </p>
-      </div>
+      <SectionTitle
+        variant={7}
+        hint={countLabel}
+        right={
+          <span className="shrink-0 text-[10px] text-fg-subtle">
+            {groups.status === "loading" ? "Loading…" : ""}
+          </span>
+        }
+      >
+        Group performance
+      </SectionTitle>
 
       {/* Group-by tab bar */}
       <div
         role="tablist"
         aria-label="Group by"
         data-testid="groups-tabbar"
-        className="mb-1.5 flex gap-1 px-0.5"
+        className="mb-1.5 flex gap-1"
       >
         {GROUP_BY_TABS.map((tab) => (
           <button
@@ -379,35 +499,6 @@ export function GroupsPage({ region }: GroupsPageProps = {}) {
         ))}
       </div>
 
-      {/* Sort selector + direction toggle */}
-      <div className="mb-1.5 flex items-center gap-2 px-0.5">
-        <label htmlFor="groups-sort" className="text-label text-fg-subtle">
-          Sort by:
-        </label>
-        <select
-          id="groups-sort"
-          data-testid="groups-sort"
-          value={sortBy}
-          onChange={(e) => handleSort(e.target.value as GroupsSort)}
-          className="focus-ring rounded-sm border border-line bg-surface px-1.5 py-0.5 text-data text-fg"
-        >
-          {SORT_OPTIONS.map((opt) => (
-            <option key={opt.key} value={opt.key}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          data-testid="groups-sort-dir"
-          aria-label={`Sort ${sortDir === "asc" ? "ascending" : "descending"}`}
-          onClick={toggleDir}
-          className="focus-ring rounded-sm border border-line px-1.5 py-0.5 text-data text-fg-muted hover:text-fg"
-        >
-          {sortDir === "asc" ? "↑" : "↓"}
-        </button>
-      </div>
-
       <div
         data-testid="groups-frame"
         style={{ minHeight: GROUPS_RESERVED_HEIGHT }}
@@ -416,29 +507,24 @@ export function GroupsPage({ region }: GroupsPageProps = {}) {
         {groups.status === "loading" ? (
           <Skeleton />
         ) : groups.status === "error" ? (
-          <div
-            data-testid="groups-error"
-            role="alert"
-            className="flex items-start justify-between gap-3 px-3 py-2"
-          >
-            <div className="min-w-0">
-              <p className="text-data text-fg">Group performance did not load.</p>
-              <p className="mt-0.5 text-data text-fg-muted">{groups.error}</p>
-            </div>
-            <button
-              type="button"
-              onClick={groups.retry}
-              className="focus-ring shrink-0 rounded-sm border border-line px-2 py-0.5 text-data text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
-            >
-              Retry
-            </button>
-          </div>
+          <ErrorState
+            testId="groups-error"
+            title="Group performance did not load"
+            error={groups.error ?? "Request failed"}
+            onRetry={groups.retry}
+          />
         ) : groups.report === null || groups.report.rows.length === 0 ? (
           <p data-testid="groups-empty" className="px-3 py-2 text-data text-fg-muted">
             No groups in this snapshot.
           </p>
         ) : (
-          <Rows report={groups.report} groupBy={groupBy} />
+          <Rows
+            report={groups.report}
+            groupBy={groupBy}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={handleSort}
+          />
         )}
       </div>
     </main>
