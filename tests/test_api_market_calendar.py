@@ -33,7 +33,7 @@ from tests import _market as M
 
 _DOCUMENT_KEYS = frozenset({"as_of", "region", "from", "to", "buckets"})
 _BUCKET_KEYS = frozenset({"date", "count", "symbols"})
-_SYMBOL_KEYS = frozenset({"s", "n"})
+_SYMBOL_KEYS = frozenset({"s", "n", "c"})
 
 #: A fixed "today" so the expectations do not depend on when the suite runs.
 TODAY = date(2026, 10, 31)
@@ -278,7 +278,7 @@ async def test_a_name_travels_with_its_symbol(
         _freeze(monkeypatch)
         body = (await harness.get("/market/calendar", region="us", days="21")).json()
 
-    assert body["buckets"][0]["symbols"] == [{"s": "AAA", "n": "Acme Holdings"}]
+    assert body["buckets"][0]["symbols"] == [{"s": "AAA", "n": "Acme Holdings", "c": 1e9}]
 
 
 # ---------------------------------------------------------------------------

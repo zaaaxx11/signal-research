@@ -33,6 +33,8 @@ export const CALENDAR_CAP = 50;
 export interface CalendarSymbol {
   readonly s: string;
   readonly n: string;
+  /** Market cap in USD, or null when the store carries no cap for this symbol. */
+  readonly c: number | null;
 }
 
 export interface CalendarBucket {
@@ -153,7 +155,9 @@ function readSymbols(value: unknown): CalendarSymbol[] {
     const symbol = typeof raw === "string" ? raw.trim() : "";
     if (symbol.length === 0) continue;
     const name = typeof entry["n"] === "string" ? entry["n"].trim() : "";
-    symbols.push({ s: symbol, n: name });
+    const capRaw = entry["c"];
+    const cap = typeof capRaw === "number" && Number.isFinite(capRaw) && capRaw > 0 ? capRaw : null;
+    symbols.push({ s: symbol, n: name, c: cap });
   }
   return symbols;
 }

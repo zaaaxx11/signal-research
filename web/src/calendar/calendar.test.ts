@@ -25,7 +25,7 @@ import {
  */
 
 function sym(index: number) {
-  return { s: `SYM${index}`, n: `Company ${index}` };
+  return { s: `SYM${index}`, n: `Company ${index}`, c: 1_000_000_000 + index * 500_000_000 };
 }
 
 function symbols(count: number) {

@@ -243,8 +243,8 @@ def build_calendar_document(
                 "date": when.isoformat(),
                 "count": len(members),
                 "symbols": [
-                    {"s": symbol, "n": name}
-                    for _, symbol, name in members[:BUCKET_LIMIT]
+                    {"s": symbol, "n": name, "c": cap if cap != float("-inf") else None}
+                    for cap, symbol, name in members[:BUCKET_LIMIT]
                 ],
             }
         )

@@ -39,6 +39,7 @@ const FIXED_FILTERS = [
   { id: "sp500", label: "S&P 500" },
   { id: "etf", label: "ETFs" },
   { id: "crypto", label: "Crypto" },
+  { id: "futures", label: "Futures" },
 ] as const;
 
 type ViewId = "treemap" | "matrix" | "bubble" | "grid";

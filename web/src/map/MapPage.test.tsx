@@ -188,6 +188,16 @@ describe("MapPage — size by toggle", () => {
   });
 });
 
+describe("MapPage — map filter checkboxes", () => {
+  it("renders all fixed filter checkboxes including futures", async () => {
+    await renderReady();
+    expect(screen.getByTestId("map-filter-sp500")).toBeTruthy();
+    expect(screen.getByTestId("map-filter-etf")).toBeTruthy();
+    expect(screen.getByTestId("map-filter-crypto")).toBeTruthy();
+    expect(screen.getByTestId("map-filter-futures")).toBeTruthy();
+  });
+});
+
 describe("MapPage — search filters ticker list", () => {
   it("shows a ticker list when searching", async () => {
     await renderReady();

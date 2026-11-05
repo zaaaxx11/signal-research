@@ -38,6 +38,7 @@ import {
   shownSymbols,
   type CalendarBucket,
   type CalendarKind,
+  type CalendarSymbol,
 } from "./calendar";
 import { useCalendar } from "./useCalendar";
 
@@ -77,8 +78,27 @@ function Skeleton() {
   );
 }
 
-function SymbolRow({ symbol }: { readonly symbol: { s: string; n: string } }) {
+function capTier(cap: number | null): string | null {
+  if (cap === null) return null;
+  if (cap >= 200_000_000_000) return "Mega";
+  if (cap >= 10_000_000_000) return "Large";
+  if (cap >= 2_000_000_000) return "Mid";
+  return "Small";
+}
+
+function capBadgeStyle(tier: string): string {
+  const colors: Record<string, string> = {
+    Mega: "bg-amber-500/15 text-amber-400",
+    Large: "bg-sky-500/15 text-sky-400",
+    Mid: "bg-emerald-500/15 text-emerald-400",
+    Small: "bg-slate-500/15 text-slate-400",
+  };
+  return colors[tier] ?? "bg-slate-500/15 text-slate-400";
+}
+
+function SymbolRow({ symbol }: { readonly symbol: CalendarSymbol }) {
   const title = symbol.n.length > 0 ? `${symbol.s} — ${symbol.n}` : symbol.s;
+  const tier = capTier(symbol.c);
 
   return (
     <li
@@ -97,6 +117,14 @@ function SymbolRow({ symbol }: { readonly symbol: { s: string; n: string } }) {
       <span className="min-w-0 truncate text-data text-fg-muted" title={title}>
         {symbol.n}
       </span>
+      {tier !== null ? (
+        <span
+          data-testid="calendar-cap-badge"
+          className={`ml-auto shrink-0 rounded-[2px] px-1 py-px text-[10px] font-medium leading-none ${capBadgeStyle(tier)}`}
+        >
+          {tier}
+        </span>
+      ) : null}
     </li>
   );
 }

@@ -19,10 +19,11 @@ import { CALENDAR_RESERVED_HEIGHT, CALENDAR_SKELETON_ROWS, CalendarPage } from "
 
 const TODAY = "2026-11-02";
 
-function symbols(count: number) {
+function symbols(count: number, cap: number | null = null) {
   return Array.from({ length: count }, (_, index) => ({
     s: `SYM${index}`,
     n: `Company ${index}`,
+    c: cap ?? (1_000_000_000 + index * 500_000_000),
   }));
 }
 
@@ -128,6 +129,17 @@ describe("CalendarPage", () => {
 
     const link = within(monday).getByRole("link", { name: /SYM0/ });
     expect(link.getAttribute("href")).toBe("/app/stock/SYM0");
+  });
+
+  it("shows a market-cap badge when the symbol carries a cap value", async () => {
+    stub();
+    render(<CalendarPage today={TODAY} />);
+    await screen.findByTestId("calendar-daylist");
+
+    const badges = screen.getAllByTestId("calendar-cap-badge");
+    expect(badges.length).toBeGreaterThan(0);
+    // SYM0 has cap 1B → Small
+    expect(badges[0]?.textContent).toBe("Small");
   });
 
   it("gives the rail one anchor per drawn day, pointing at that day", async () => {
