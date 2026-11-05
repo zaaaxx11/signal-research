@@ -141,6 +141,30 @@ COINGECKO_IDS: dict[str, str] = {
     "WLD-USD": "worldcoin-wld",
     "JUP-USD": "jupiter-exchange-solana",
     "ONDO-USD": "ondo-finance",
+    "ZEC-USD": "zcash",
+    "DAI-USD": "dai",
+    "UNI-USD": "uniswap",
+    "SUI-USD": "sui",
+    "TAO-USD": "bittensor",
+    "PEPE-USD": "pepe",
+    "DASH-USD": "dash",
+    "APT-USD": "aptos",
+    "PYTH-USD": "pyth-network",
+    "CRV-USD": "curve-dao-token",
+    "FET-USD": "fetch-ai",
+    "XTZ-USD": "tezos",
+    "BONK-USD": "bonk",
+    "GRT-USD": "the-graph",
+    "RUNE-USD": "thorchain",
+    "EIGEN-USD": "eigenlayer",
+    "WIF-USD": "dogwifcoin",
+    "IMX-USD": "immutable-x",
+    "DYDX-USD": "dydx-chain",
+    "GALA-USD": "gala",
+    "BAND-USD": "band-protocol",
+    "XAI-USD": "xai-blockchain",
+    "DYM-USD": "dymension",
+    "EOS-USD": "eos",
 }
 
 
@@ -182,7 +206,9 @@ class CoinMeta:
     low_24h: float | None
     ath: float | None
     ath_change_pct: float | None
+    current_price: float | None
     pct_1h: float | None
+    pct_24h: float | None
     pct_7d: float | None
     pct_30d: float | None
     tvl: float | None = None
@@ -206,7 +232,9 @@ class CoinMeta:
             "low_24h": self.low_24h,
             "ath": self.ath,
             "ath_change_pct": self.ath_change_pct,
+            "current_price": self.current_price,
             "pct_1h": self.pct_1h,
+            "pct_24h": self.pct_24h,
             "pct_7d": self.pct_7d,
             "pct_30d": self.pct_30d,
             "tvl": self.tvl,
@@ -260,7 +288,7 @@ class SourceTransport:
         """The CoinGecko markets snapshot for every catalogue id, or ``None``."""
 
         url = f"{COINGECKO_URL}?vs_currency=usd&ids={ids_query()}"
-        url += "&price_change_percentage=1h%2C7d%2C30d&per_page=50&page=1"
+        url += "&price_change_percentage=1h%2C24h%2C7d%2C30d&per_page=250&page=1"
         body = await self._get(url)
         return body if isinstance(body, list) else None
 
@@ -391,7 +419,9 @@ def build_meta_map(
                 low_24h=_num(entry.get("low_24h")),
                 ath=_num(entry.get("ath")),
                 ath_change_pct=_num(entry.get("ath_change_percentage")),
+                current_price=_num(entry.get("current_price")),
                 pct_1h=_num(entry.get("price_change_percentage_1h_in_currency")),
+                pct_24h=_num(entry.get("price_change_percentage_24h_in_currency")),
                 pct_7d=_num(entry.get("price_change_percentage_7d_in_currency")),
                 pct_30d=_num(entry.get("price_change_percentage_30d_in_currency")),
                 tvl=tvls.get(symbol),

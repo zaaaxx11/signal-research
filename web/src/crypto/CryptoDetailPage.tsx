@@ -447,15 +447,15 @@ export function CryptoDetailPage({
   const price = useCryptoPrice(symbol);
   const meta = useCryptoMetaRow(symbol);
   const detail = useCoinDetail(symbol);
-  const metaRow = meta.row;
   const coin = detail.data;
 
-  // Notify on errors
+  // Notify on errors — but a price miss is silent when the CoinGecko meta
+  // carries a fallback price (the supplement coins Yahoo no longer quotes).
   React.useEffect(() => {
-    if (price.status === "error" && price.error) {
+    if (price.status === "error" && price.error && meta.row?.current_price == null) {
       notify.error("Price read failed", price.error);
     }
-  }, [price.status, price.error]);
+  }, [price.status, price.error, meta.row?.current_price]);
 
   React.useEffect(() => {
     if (meta.status === "error" && meta.error) {
@@ -463,14 +463,25 @@ export function CryptoDetailPage({
     }
   }, [meta.status, meta.error]);
 
-  // Show skeleton while either read is loading
+  // The effective price: Yahoo's live quote when it has the coin, otherwise the
+  // CoinGecko meta's current_price (the list + detail surface every catalogue
+  // symbol, even the ones Yahoo dropped).
+  const metaRow = meta.row;
+  const effPrice = price.data?.price ?? metaRow?.current_price ?? null;
+  const effChange = price.data?.changePct ?? metaRow?.pct_24h ?? null;
+
+  // A price miss is only fatal when the meta carries no fallback price either.
+  const priceFallback = metaRow?.current_price ?? null;
+
+  // Show skeleton while the primary reads are loading.
   if (price.status === "loading" || meta.status === "loading") {
     return <Skeleton />;
   }
 
-  // Show error if both reads failed
+  // Show error only if the price read failed AND the meta has no fallback.
   if (
     price.status === "error" &&
+    priceFallback === null &&
     meta.status === "error"
   ) {
     return (
@@ -492,13 +503,20 @@ export function CryptoDetailPage({
     );
   }
 
+  const headerPrice: PriceData = {
+    price: effPrice,
+    changePct: effChange,
+    volume: price.data?.volume ?? null,
+    name: price.data?.name ?? metaRow?.name ?? symbol,
+  };
+
   return (
     <main
       data-testid="crypto-detail-page"
       data-symbol={symbol}
       className="flex min-w-0 flex-1 flex-col bg-bg"
     >
-      <Header symbol={symbol} metaRow={metaRow} priceData={price.data} />
+      <Header symbol={symbol} metaRow={metaRow} priceData={headerPrice} />
 
       <div className="flex-1 overflow-y-auto p-4">
         {/* Chart */}

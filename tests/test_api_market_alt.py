@@ -60,7 +60,7 @@ def test_the_catalogue_has_the_documented_size_and_no_duplicates() -> None:
     from app.api.alt import CLASSES, CRYPTO, FOREX, FUTURES
 
     assert CLASSES == ("crypto", "futures", "forex")
-    assert (len(CRYPTO), len(FUTURES), len(FOREX)) == (40, 25, 20)
+    assert (len(CRYPTO), len(FUTURES), len(FOREX)) == (64, 25, 20)
     for catalogue in (CRYPTO, FUTURES, FOREX):
         symbols = [instrument.symbol for instrument in catalogue]
         assert len(set(symbols)) == len(symbols)
@@ -84,13 +84,13 @@ async def test_each_class_publishes_a_row_per_symbol_with_a_price_and_a_move(
     catalogue = _catalogue(name)
     transport = A.FakeTransport(bodies=A.priced(catalogue))
     async with A.alt_client(tmp_path, monkeypatch, transport=transport) as harness:
-        response = await harness.get("/market/alt", **{"class": name})
+        response = await harness.get("/market/alt", **{"class": name, "per": "200"})
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == _DOCUMENT_KEYS, sorted(body)
     assert body["class"] == name
-    assert body["per"] == 50
+    assert body["per"] == 200
     assert body["universe_total"] == len(catalogue)
     assert body["measured"] == len(catalogue)
     assert len(body["rows"]) == len(catalogue)
@@ -175,7 +175,9 @@ async def test_a_failing_symbol_is_missing_but_still_counted(
     async with A.alt_client(
         tmp_path, monkeypatch, transport=A.FakeTransport(bodies=bodies)
     ) as harness:
-        body = (await harness.get("/market/alt", **{"class": "crypto"})).json()
+        body = (
+            await harness.get("/market/alt", **{"class": "crypto", "per": "200"})
+        ).json()
 
     symbols = [row["symbol"] for row in body["rows"]]
     assert "ETH-USD" not in symbols and "SOL-USD" not in symbols
@@ -231,7 +233,9 @@ async def test_an_empty_answer_is_asked_once_more_and_the_symbol_survives(
 
     transport = Flaky(bodies=bodies)
     async with A.alt_client(tmp_path, monkeypatch, transport=transport) as harness:
-        body = (await harness.get("/market/alt", **{"class": "crypto"})).json()
+        body = (
+            await harness.get("/market/alt", **{"class": "crypto", "per": "200"})
+        ).json()
 
     assert body["measured"] == len(CRYPTO)
     assert flaky in [row["symbol"] for row in body["rows"]]
@@ -250,7 +254,9 @@ async def test_a_refused_symbol_is_not_asked_twice(
     bodies["USDC-USD"] = None
     transport = A.FakeTransport(bodies=bodies)
     async with A.alt_client(tmp_path, monkeypatch, transport=transport) as harness:
-        body = (await harness.get("/market/alt", **{"class": "crypto"})).json()
+        body = (
+            await harness.get("/market/alt", **{"class": "crypto", "per": "200"})
+        ).json()
 
     assert body["measured"] == len(CRYPTO) - 1
     assert len(transport.batches) == 1
@@ -360,9 +366,11 @@ async def test_the_class_cache_does_not_leak_between_classes(
     bodies = {**A.priced(CRYPTO, base=100.0), **A.priced(FUTURES, base=5_000.0)}
     transport = A.FakeTransport(bodies=bodies)
     async with A.alt_client(tmp_path, monkeypatch, transport=transport) as harness:
-        crypto = (await harness.get("/market/alt", **{"class": "crypto"})).json()
+        crypto = (
+            await harness.get("/market/alt", **{"class": "crypto", "per": "200"})
+        ).json()
         futures = (await harness.get("/market/alt", **{"class": "futures"})).json()
-        again = (await harness.get("/market/alt", **{"class": "crypto"}))
+        again = (await harness.get("/market/alt", **{"class": "crypto", "per": "200"}))
 
     assert {row["symbol"] for row in crypto["rows"]} == {i.symbol for i in CRYPTO}
     assert {row["symbol"] for row in futures["rows"]} == {i.symbol for i in FUTURES}
@@ -386,10 +394,10 @@ async def test_two_classes_requested_concurrently_do_not_share_one_slot(
     transport = A.FakeTransport(bodies=bodies, delay_s=0.01)
     async with A.alt_client(tmp_path, monkeypatch, transport=transport) as harness:
         crypto, forex = await asyncio.gather(
-            harness.get("/market/alt", **{"class": "crypto"}),
+            harness.get("/market/alt", **{"class": "crypto", "per": "200"}),
             harness.get("/market/alt", **{"class": "forex"}),
         )
-        crypto_again = await harness.get("/market/alt", **{"class": "crypto"})
+        crypto_again = await harness.get("/market/alt", **{"class": "crypto", "per": "200"})
         forex_again = await harness.get("/market/alt", **{"class": "forex"})
 
     crypto_body, forex_body = crypto.json(), forex.json()

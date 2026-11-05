@@ -64,9 +64,9 @@ function document_(rows: unknown[], overrides: Record<string, unknown> = {}) {
 
 describe("altPath", () => {
   it("names the class and the page size, and nothing else", () => {
-    expect(altPath("crypto")).toBe("/market/alt?class=crypto&per=50");
-    expect(altPath("futures")).toBe("/market/alt?class=futures&per=50");
-    expect(altPath("forex")).toBe("/market/alt?class=forex&per=50");
+    expect(altPath("crypto")).toBe(`/market/alt?class=crypto&per=${ALT_PER}`);
+    expect(altPath("futures")).toBe(`/market/alt?class=futures&per=${ALT_PER}`);
+    expect(altPath("forex")).toBe(`/market/alt?class=forex&per=${ALT_PER}`);
   });
 });
 

@@ -1007,20 +1007,44 @@ export function AltPage({ marketClass }: AltPageProps) {
   const [viewMode, setViewMode] = React.useState<ViewMode>("cards");
 
   const report = alt.report;
-  const total = report?.rows.length ?? 0;
+
+  // Crypto: Yahoo prices the established coins; the rest are surfaced from the
+  // CoinGecko meta (live current_price + 24h change) so the full catalogue —
+  // not just the Yahoo-priced subset — renders with a number.
+  const baseRows: readonly import("./alt").AltRow[] = React.useMemo(() => {
+    if (report === null) return [] as import("./alt").AltRow[];
+    if (marketClass !== "crypto") return report.rows;
+    const meta = enrich.data?.meta ?? null;
+    if (!meta) return report.rows;
+    const have = new Set(report.rows.map((r) => r.symbol));
+    const supplement = Object.values(meta.rows)
+      .filter((m) => !have.has(m.symbol))
+      .filter((m) => m.current_price != null)
+      .map((m) => ({
+        symbol: m.symbol,
+        name: m.name,
+        price: m.current_price as number,
+        changePct: m.pct_24h,
+        volume: null,
+        currency: "USD",
+      }));
+    return [...report.rows, ...supplement];
+  }, [report, marketClass, enrich.data]);
+
+  const total = baseRows.length;
   const rows = React.useMemo(
     () =>
       report === null
         ? []
         : viewMode === "cards" || category !== "all"
-          ? categoryRows(report.rows, marketClass, category, query, sort)
-          : visibleRows(report.rows, query, sort),
-    [report, query, sort, category, marketClass, viewMode],
+          ? categoryRows(baseRows, marketClass, category, query, sort)
+          : visibleRows(baseRows, query, sort),
+    [report, baseRows, query, sort, category, marketClass, viewMode],
   );
 
   const tabCounts = React.useMemo(
-    () => (report === null ? { counts: {} as Record<string, number>, uncategorised: 0, total: 0 } : categoryCounts(report.rows, marketClass)),
-    [report, marketClass],
+    () => (report === null ? { counts: {} as Record<string, number>, uncategorised: 0, total: 0 } : categoryCounts(baseRows, marketClass)),
+    [report, baseRows, marketClass],
   );
 
   const tabs = CATEGORY_TABS[marketClass];

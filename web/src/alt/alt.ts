@@ -53,8 +53,10 @@ export const TIMEFRAME_TABS: readonly { id: Timeframe; label: string }[] = [
 
 export const DEFAULT_TIMEFRAME: Timeframe = "5m";
 
-/** The page size: one screen of rows, and the endpoint's own cap. */
-export const ALT_PER = 50;
+/** The page size: one screen of rows, and the endpoint's own cap. 70 covers
+    the full 64-coin crypto catalogue (futures/forex have fewer — they get
+    every row they have, `min(available, per)`). */
+export const ALT_PER = 70;
 
 /** One priced row. `price` is a number here because unpriced rows never arrive. */
 export interface AltRow {

@@ -30,7 +30,10 @@ export interface CryptoMetaRow {
   readonly low_24h: number | null;
   readonly ath: number | null;
   readonly ath_change_pct: number | null;
+  /** Live price from CoinGecko — the fallback when the Yahoo row is absent. */
+  readonly current_price: number | null;
   readonly pct_1h: number | null;
+  readonly pct_24h: number | null;
   readonly pct_7d: number | null;
   readonly pct_30d: number | null;
   readonly tvl: number | null;
@@ -167,7 +170,9 @@ export async function fetchCryptoMeta(signal?: AbortSignal): Promise<CryptoMetaD
         low_24h: safeNumber(row["low_24h"]),
         ath: safeNumber(row["ath"]),
         ath_change_pct: safeNumber(row["ath_change_pct"]),
+        current_price: safeNumber(row["current_price"]),
         pct_1h: safeNumber(row["pct_1h"]),
+        pct_24h: safeNumber(row["pct_24h"]),
         pct_7d: safeNumber(row["pct_7d"]),
         pct_30d: safeNumber(row["pct_30d"]),
         tvl: safeNumber(row["tvl"]),

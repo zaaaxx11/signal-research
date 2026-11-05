@@ -125,16 +125,16 @@ describe("AltPage — the request", () => {
     await screen.findByTestId("alt-table");
     // The page fetches alt data, crypto meta, crypto global, and per-row sparklines
     const allUrls = urls(fetchMock);
-    expect(allUrls.filter((u) => u === "/market/alt?class=crypto&per=50")).toHaveLength(1);
+    expect(allUrls.filter((u) => u === `/market/alt?class=crypto&per=${ALT_PER}`)).toHaveLength(1);
     expect(allUrls.filter((u) => u === "/market/crypto/meta")).toHaveLength(1);
     expect(allUrls.filter((u) => u === "/market/crypto/global")).toHaveLength(1);
   });
 
   it("gives each class its own URL", async () => {
     for (const [marketClass, expected] of [
-      ["crypto", "/market/alt?class=crypto&per=50"],
-      ["futures", "/market/alt?class=futures&per=50"],
-      ["forex", "/market/alt?class=forex&per=50"],
+      ["crypto", `/market/alt?class=crypto&per=${ALT_PER}`],
+      ["futures", `/market/alt?class=futures&per=${ALT_PER}`],
+      ["forex", `/market/alt?class=forex&per=${ALT_PER}`],
     ] as const) {
       const fetchMock = stub(altDocument([wireRow(1)], { class: marketClass }));
       const view = render(<AltPage marketClass={marketClass} />);
@@ -699,5 +699,82 @@ describe("AltPage — forex chart", () => {
     expect(chart.textContent).toContain("GBP");
     // EURGBP is a cross, not USD-quoted, so it should not appear
     expect(chart.textContent).not.toContain("EURGBP");
+  });
+});
+
+describe("AltPage — crypto CoinGecko supplement", () => {
+  it("surfaces a meta coin Yahoo does not quote, with its Coingecko price", async () => {
+    const altRows = altDocument([wireRow(1), wireRow(2)]); // SYM01, SYM02 only
+    const meta = {
+      as_of: "2026-01-01T00:00:00Z",
+      method: "coingecko",
+      universe_total: 3,
+      measured: 3,
+      rows: {
+        "SUI-USD": {
+          symbol: "SUI-USD",
+          id: "sui",
+          name: "Sui",
+          image: null,
+          market_cap: 4e9,
+          market_cap_rank: 30,
+          current_price: 0.85,
+          pct_24h: 1.2,
+          tvl: null,
+          sources: ["coingecko"],
+        },
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/market/crypto/meta")) return json(meta);
+      if (url.includes("/market/crypto/global")) return json(_globalDoc(false));
+      if (url.includes("/market/chart/")) return json(_chartDoc());
+      return json(altRows);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AltPage marketClass="crypto" />);
+
+    const syms = await screen.findAllByTestId("alt-row").then(rowSymbols);
+    expect(syms).toContain("SUI-USD"); // supplemented from Coingecko
+    expect(syms).toContain("SYM01-USD"); // still the Yahoo row
+  });
+
+  it("does not duplicate a coin Yahoo already quotes", async () => {
+    const altRows = altDocument([wireRow(1, { symbol: "BTC-USD", name: "Bitcoin" })]);
+    const meta = {
+      as_of: "2026-01-01T00:00:00Z",
+      method: "coingecko",
+      universe_total: 1,
+      measured: 1,
+      rows: {
+        "BTC-USD": {
+          symbol: "BTC-USD",
+          id: "bitcoin",
+          name: "Bitcoin",
+          image: null,
+          market_cap: 1.5e12,
+          market_cap_rank: 1,
+          current_price: 95_000,
+          pct_24h: 0.5,
+          tvl: null,
+          sources: ["coingecko"],
+        },
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/market/crypto/meta")) return json(meta);
+      if (url.includes("/market/crypto/global")) return json(_globalDoc(false));
+      if (url.includes("/market/chart/")) return json(_chartDoc());
+      return json(altRows);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AltPage marketClass="crypto" />);
+
+    const syms = await screen.findAllByTestId("alt-row").then(rowSymbols);
+    expect(syms.filter((s) => s === "BTC-USD")).toHaveLength(1);
   });
 });

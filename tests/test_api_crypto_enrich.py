@@ -48,7 +48,9 @@ _ROW_KEYS = frozenset(
         "low_24h",
         "ath",
         "ath_change_pct",
+        "current_price",
         "pct_1h",
+        "pct_24h",
         "pct_7d",
         "pct_30d",
         "tvl",
@@ -140,8 +142,8 @@ def test_meta_maps_every_answered_symbol_onto_yahoo_keys() -> None:
         transport_markets(transport), {"AAVE-USD": 15.5e9}, as_of="now"
     )))
 
-    assert document["universe_total"] == 40
-    assert document["measured"] == 40
+    assert document["universe_total"] == len(enrich_api.COINGECKO_IDS)
+    assert document["measured"] == len(enrich_api.COINGECKO_IDS)
     assert set(document["rows"]) == set(enrich_api.COINGECKO_IDS)
     btc = document["rows"]["BTC-USD"]
     assert set(btc) == _ROW_KEYS
@@ -169,7 +171,7 @@ def test_meta_satisfies_the_transport_once_per_ttl() -> None:
     first = client.get("/market/crypto/meta")
     assert first.status_code == 200
     document = first.json()
-    assert document["measured"] == 40
+    assert document["measured"] == len(enrich_api.COINGECKO_IDS)
     assert first.headers["X-Enrich-Cache"] == "miss"
     assert transport.markets_calls == 1
     # One TVL read per curated slug, and none for the symbols without one.
@@ -188,7 +190,7 @@ def test_a_refused_markets_read_is_measured_zero_and_not_cached() -> None:
     assert first.status_code == 200
     document = first.json()
     assert document["rows"] == {} and document["measured"] == 0
-    assert document["universe_total"] == 40
+    assert document["universe_total"] == len(enrich_api.COINGECKO_IDS)
 
     # The refused answer is not cached: the second call asks again.
     client.get("/market/crypto/meta")

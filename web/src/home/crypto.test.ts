@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ALT_PER } from "@/alt/alt";
 import {
   cryptoAltPath,
   cryptoGlobalPath,
@@ -24,7 +25,7 @@ import { readAlt } from "@/alt/alt";
  */
 describe("crypto paths", () => {
   it("names the three endpoints one class explicit", () => {
-    expect(cryptoAltPath()).toBe("/market/alt?class=crypto&per=50");
+    expect(cryptoAltPath()).toBe(`/market/alt?class=crypto&per=${ALT_PER}`);
     expect(cryptoMetaPath()).toBe("/market/crypto/meta");
     expect(cryptoGlobalPath()).toBe("/market/crypto/global");
   });
