@@ -23,6 +23,9 @@
 
 import * as React from "react";
 
+import { SectionTitle } from "@/components/SectionTitle";
+import { ErrorState } from "@/components/ErrorState";
+import { quoteProps } from "@/lib/quoteAttrs";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
 
@@ -90,7 +93,7 @@ export function WatchlistPage() {
   return (
     <main data-testid="watchlist-page" className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2">
       <div className="flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <h1 className="text-ui font-medium text-fg">Watchlist</h1>
+        <SectionTitle variant={2}>Watchlist</SectionTitle>
         <p
           data-testid="watchlist-count"
           className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
@@ -205,6 +208,7 @@ export function WatchlistPage() {
                       data-symbol={symbol}
                       data-missing={state === "missing" ? "true" : "false"}
                       className="h-6 border-b border-line/60 odd:bg-row-alt hover:bg-row-hover"
+                      {...quoteProps({ symbol, name: quote?.name ?? undefined, price: quote?.price ?? null, changePct: quote?.changePct ?? null, kind: "stock" })}
                     >
                       <td className="nums px-2 text-fg-subtle">{index + 1}</td>
                       <td className="min-w-0 px-2">

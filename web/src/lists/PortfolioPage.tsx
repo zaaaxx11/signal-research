@@ -23,6 +23,8 @@
 
 import * as React from "react";
 
+import { SectionTitle } from "@/components/SectionTitle";
+import { quoteProps } from "@/lib/quoteAttrs";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
 
@@ -154,7 +156,7 @@ export function PortfolioPage() {
   return (
     <main data-testid="portfolio-page" className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2">
       <div className="flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <h1 className="text-ui font-medium text-fg">Portfolio</h1>
+        <SectionTitle variant={2}>Portfolio</SectionTitle>
         <p
           data-testid="portfolio-count"
           className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle"
@@ -299,6 +301,7 @@ export function PortfolioPage() {
                       data-symbol={symbol}
                       data-missing={state === "missing" ? "true" : "false"}
                       className="h-6 border-b border-line/60 odd:bg-row-alt hover:bg-row-hover"
+                      {...quoteProps({ symbol, name: row.quote?.name ?? undefined, price: row.quote?.price ?? null, changePct: row.quote?.changePct ?? null, kind: "stock" })}
                     >
                       <td className="min-w-0 px-2">
                         <span className="flex min-w-0 items-center gap-1.5">

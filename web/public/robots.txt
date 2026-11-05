@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://ztockz.customin.biz.id/sitemap.xml
