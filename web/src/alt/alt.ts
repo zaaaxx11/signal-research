@@ -31,6 +31,28 @@ export const MARKET_CLASSES = ["crypto", "futures", "forex"] as const;
 
 export type MarketClass = (typeof MARKET_CLASSES)[number];
 
+/** Which change window the table shows. */
+export type Timeframe = "5m" | "1h" | "1d" | "1w" | "1mo";
+
+/** The Yahoo range and interval for each timeframe tab. */
+export const TIMEFRAME_SPECS: Readonly<Record<Timeframe, { range: string; interval: string }>> = {
+  "5m": { range: "1d", interval: "5m" },
+  "1h": { range: "5d", interval: "1h" },
+  "1d": { range: "1mo", interval: "1d" },
+  "1w": { range: "6mo", interval: "1d" },
+  "1mo": { range: "1y", interval: "1d" },
+};
+
+export const TIMEFRAME_TABS: readonly { id: Timeframe; label: string }[] = [
+  { id: "5m", label: "5M" },
+  { id: "1h", label: "H" },
+  { id: "1d", label: "D" },
+  { id: "1w", label: "W" },
+  { id: "1mo", label: "M" },
+];
+
+export const DEFAULT_TIMEFRAME: Timeframe = "5m";
+
 /** The page size: one screen of rows, and the endpoint's own cap. */
 export const ALT_PER = 50;
 
@@ -64,9 +86,13 @@ export class AltMalformed extends Error {
   }
 }
 
-/** The one URL this surface reads. Same-origin, root-absolute, class explicit. */
-export function altPath(marketClass: MarketClass): string {
-  return `/market/alt?class=${marketClass}&per=${ALT_PER}`;
+/** The one URL this surface reads. Same-origin, root-absolute, class explicit.
+ * Range and interval are omitted when they match the provider's defaults (1d/5m). */
+export function altPath(marketClass: MarketClass, range?: string, interval?: string): string {
+  let url = `/market/alt?class=${marketClass}&per=${ALT_PER}`;
+  if (range && range !== "1d") url += `&range=${encodeURIComponent(range)}`;
+  if (interval && interval !== "5m") url += `&interval=${encodeURIComponent(interval)}`;
+  return url;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -278,7 +304,7 @@ const FUTURES_TABS: readonly CategoryTab[] = [
   { id: "energy", label: "Energy" },
   { id: "metals", label: "Metals" },
   { id: "grains", label: "Grains" },
-  { id: "softs", label: "Softs" },
+  { id: "softs-meats", label: "Softs & Meats" },
   { id: "currencies", label: "Currencies" },
 ];
 
@@ -365,14 +391,14 @@ const FUTURES_ROOTS: Readonly<Record<string, string>> = {
   ZM: "grains",
   ZR: "grains",
   ZO: "grains",
-  // Softs
-  SB: "softs",
-  KC: "softs",
-  CT: "softs",
-  CC: "softs",
-  LE: "softs",
-  OJ: "softs",
-  LBS: "softs",
+  // Softs & Meats
+  SB: "softs-meats",
+  KC: "softs-meats",
+  CT: "softs-meats",
+  CC: "softs-meats",
+  LE: "softs-meats",
+  OJ: "softs-meats",
+  LBS: "softs-meats",
   // Currency futures
   "6E": "currencies",
   "6J": "currencies",
@@ -496,6 +522,62 @@ export function categoryCounts(
   }
 
   return { counts, uncategorised, total: rows.length };
+}
+
+/* ---------------------------------------------------------------------------
+ * Flags and strength labels
+ * ------------------------------------------------------------------------ */
+
+/** Country flag emoji per currency code — the row carries both base and quote. */
+export const CURRENCY_FLAG: Readonly<Record<string, string>> = {
+  EUR: "🇪🇺",
+  GBP: "🇬🇧",
+  JPY: "🇯🇵",
+  USD: "🇺🇸",
+  CHF: "🇨🇭",
+  AUD: "🇦🇺",
+  CAD: "🇨🇦",
+  NZD: "🇳🇿",
+  MXN: "🇲🇽",
+  SEK: "🇸🇪",
+  NOK: "🇳🇴",
+  DKK: "🇩🇰",
+  SGD: "🇸🇬",
+  HKD: "🇭🇰",
+  KRW: "🇰🇷",
+  INR: "🇮🇳",
+  CNY: "🇨🇳",
+  BRL: "🇧🇷",
+  ZAR: "🇿🇦",
+  TRY: "🇹🇷",
+  RUB: "🇷🇺",
+  PLN: "🇵🇱",
+  CZK: "🇨🇿",
+  HUF: "🇭🇺",
+  ILS: "🇮🇱",
+  THB: "🇹🇭",
+  IDR: "🇮🇩",
+  MYR: "🇲🇾",
+  PHP: "🇵🇭",
+  TWD: "🇹🇼",
+};
+
+/** `EURUSD=X` → `🇪🇺🇺🇸`; returns null when neither leg maps to a flag. */
+export function flagForPair(symbol: string): string | null {
+  const pair = symbol.replace(/=X$/i, "").toUpperCase();
+  if (pair.length < 6) return null;
+  const base = pair.slice(0, 3);
+  const quote = pair.slice(3, 6);
+  const baseFlag = CURRENCY_FLAG[base];
+  const quoteFlag = CURRENCY_FLAG[quote];
+  if (baseFlag && quoteFlag) return `${baseFlag}${quoteFlag}`;
+  return baseFlag ?? quoteFlag ?? null;
+}
+
+/** The strength label a forex row or chart bar prints beside its move. */
+export function forexStrengthLabel(changePct: number | null): string {
+  if (changePct === null) return "—";
+  return changePct >= 0 ? "Stronger vs USD →" : "← Weaker vs USD";
 }
 
 /* ---------------------------------------------------------------------------

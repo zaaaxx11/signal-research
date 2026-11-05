@@ -14,7 +14,10 @@ export type { AltPageProps } from "./AltPage";
 export {
   ALT_PER,
   ALT_SYMBOLS_LINKABLE,
+  DEFAULT_TIMEFRAME,
   MARKET_CLASSES,
+  TIMEFRAME_SPECS,
+  TIMEFRAME_TABS,
   altPath,
   classCopy,
   filterRows,
@@ -28,7 +31,7 @@ export {
   stockHref,
   visibleRows,
 } from "./alt";
-export type { AltReport, AltRow, ClassCopy, MarketClass, SortDir, SortKey, SortState } from "./alt";
+export type { AltReport, AltRow, ClassCopy, MarketClass, SortDir, SortKey, SortState, Timeframe } from "./alt";
 export { useAlt } from "./useAlt";
 export type { AltStatus, AltView } from "./useAlt";
 

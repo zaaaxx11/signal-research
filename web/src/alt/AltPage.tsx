@@ -22,10 +22,12 @@
 import * as React from "react";
 
 import { CardGrid, CardGridCard } from "@/components/CardGrid";
+import { SectionTitle } from "@/components/SectionTitle";
 import { CellValue } from "@/grid/cellRenderers";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
 import { cn } from "@/lib/utils";
+import { quoteProps } from "@/lib/quoteAttrs";
 
 import {
   CATEGORY_TABS,
@@ -33,10 +35,12 @@ import {
   categoryCounts,
   categoryRows,
   classCopy,
+  flagForPair,
+  forexStrength,
+  forexStrengthLabel,
   formatPrice,
   formatReadAt,
   formatVolume,
-  forexStrength,
   nextSort,
   stockHref,
   strengthScale,
@@ -161,7 +165,45 @@ function HeadCell({
   );
 }
 
-function Row({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount: boolean }) {
+/** A 36×14 SVG directional indicator for the mini sparkline column. */
+function MiniSparkline({ direction }: { readonly direction: "up" | "down" | "flat" }) {
+  const stroke =
+    direction === "up" ? "var(--up, #22c55e)" : direction === "down" ? "var(--down, #ef4444)" : "var(--fg-muted, #6b7280)";
+  const d =
+    direction === "up"
+      ? "M2,12 L9,6 L16,7 L23,4 L30,8 L34,2"
+      : direction === "down"
+        ? "M2,2 L9,8 L16,7 L23,10 L30,6 L34,12"
+        : "M2,7 L9,7 L16,7 L23,7 L30,7 L34,7";
+  return (
+    <svg
+      width="36"
+      height="14"
+      viewBox="0 0 36 14"
+      aria-hidden="true"
+      className="inline-block align-middle"
+    >
+      <path
+        d={d}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function Row({
+  row,
+  hasAmount,
+  marketClass,
+}: {
+  readonly row: AltRow;
+  readonly hasAmount: boolean;
+  readonly marketClass: MarketClass;
+}) {
   const href = stockHref(row.symbol);
   const name = row.name ?? row.symbol;
   // Formatted once: the title and the cell text are the same string, and a
@@ -170,10 +212,20 @@ function Row({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount: boo
   // A class that does not report an amount shows "—", never the sentinel zero
   // the quote stack puts in `volume` when it has nothing to count.
   const volume = hasAmount ? formatVolume(row.volume) : null;
+  const flag = marketClass === "forex" ? flagForPair(row.symbol) : null;
+  const sparkDir = row.changePct === null ? null : row.changePct > 0 ? "up" : row.changePct < 0 ? "down" : "flat";
+  const quoteAttr = quoteProps({
+    symbol: row.symbol,
+    name: row.name ?? undefined,
+    price: row.price,
+    changePct: row.changePct,
+    kind: marketClass,
+  });
 
   const identity = (
     <>
       <LogoMark symbol={row.symbol} size={16} />
+      {flag ? <span className="text-[14px] leading-none" aria-hidden="true">{flag}</span> : null}
       <span className="min-w-0 truncate font-mono text-data font-medium text-fg">{row.symbol}</span>
     </>
   );
@@ -182,6 +234,7 @@ function Row({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount: boo
     <tr
       data-testid="alt-row"
       data-symbol={row.symbol}
+      {...quoteAttr}
       className="h-6 border-b border-line/60 odd:bg-row-alt hover:bg-row-hover"
     >
       <td data-testid="alt-symbol" className="min-w-0 px-2">
@@ -226,6 +279,29 @@ function Row({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount: boo
       >
         {row.currency ?? <Absent />}
       </td>
+      <td data-testid="alt-sparkline" className="px-1 text-center" aria-hidden="true">
+        {sparkDir !== null ? (
+          <MiniSparkline direction={sparkDir} />
+        ) : (
+          <Absent />
+        )}
+      </td>
+      {marketClass === "forex" ? (
+        <td
+          data-testid="alt-strength"
+          title={forexStrengthLabel(row.changePct)}
+          className={cn(
+            "px-2 text-right text-label whitespace-nowrap",
+            row.changePct === null
+              ? "text-fg-subtle"
+              : row.changePct >= 0
+                ? "text-up"
+                : "text-down",
+          )}
+        >
+          {forexStrengthLabel(row.changePct)}
+        </td>
+      ) : null}
     </tr>
   );
 }
@@ -236,6 +312,7 @@ function Table({
   sort,
   amountLabel,
   hasAmount,
+  marketClass,
   onSort,
 }: {
   readonly report: AltReport;
@@ -243,8 +320,10 @@ function Table({
   readonly sort: SortState | null;
   readonly amountLabel: string;
   readonly hasAmount: boolean;
+  readonly marketClass: MarketClass;
   readonly onSort: (key: SortKey) => void;
 }) {
+  const isForex = marketClass === "forex";
   const order =
     sort === null
       ? "in the order the endpoint sent them"
@@ -260,12 +339,14 @@ function Table({
           {report.class} quotes, {rows.length} rows, {order}
         </caption>
         <colgroup>
-          <col className="w-[17%]" />
-          <col className="w-[35%]" />
           <col className="w-[14%]" />
+          <col className="w-[30%]" />
           <col className="w-[11%]" />
-          <col className="w-[14%]" />
           <col className="w-[9%]" />
+          <col className="w-[11%]" />
+          <col className="w-[7%]" />
+          <col className="w-[5%]" />
+          {isForex ? <col className="w-[13%]" /> : null}
         </colgroup>
         <thead>
           <tr className="h-[26px] border-b border-line-strong text-label uppercase tracking-[0.05em] text-fg-subtle">
@@ -282,11 +363,19 @@ function Table({
             <th scope="col" data-testid="alt-th-currency" className="px-2 text-left font-medium">
               Currency
             </th>
+            <th scope="col" data-testid="alt-th-sparkline" className="px-1 text-center font-medium" aria-label="Trend">
+              <span aria-hidden="true" className="text-[0.7em]">━</span>
+            </th>
+            {isForex ? (
+              <th scope="col" data-testid="alt-th-strength" className="px-2 text-right font-medium">
+                Strength
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <Row key={row.symbol} row={row} hasAmount={hasAmount} />
+            <Row key={row.symbol} row={row} hasAmount={hasAmount} marketClass={marketClass} />
           ))}
         </tbody>
       </table>
@@ -392,6 +481,14 @@ function ForexChart({ rows }: { readonly rows: readonly AltRow[] }) {
                 <span className="w-10 shrink-0 text-right font-mono text-label text-fg">
                   {entry.code}
                 </span>
+                <span
+                  className={cn(
+                    "w-[120px] shrink-0 text-right text-label whitespace-nowrap",
+                    pct >= 0 ? "text-up" : "text-down",
+                  )}
+                >
+                  {pct >= 0 ? "Stronger vs USD →" : "← Weaker vs USD"}
+                </span>
                 <div className="flex-1">
                   <div className="h-[14px] relative bg-line/30 rounded-[2px] overflow-hidden">
                     {/* Axis at 50% */}
@@ -427,7 +524,15 @@ function ForexChart({ rows }: { readonly rows: readonly AltRow[] }) {
  * Card grid view
  * ------------------------------------------------------------------------ */
 
-function CardRow({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount: boolean }) {
+function CardRow({
+  row,
+  hasAmount,
+  marketClass,
+}: {
+  readonly row: AltRow;
+  readonly hasAmount: boolean;
+  readonly marketClass: MarketClass;
+}) {
   const name = row.name ?? row.symbol;
   const priceText = formatPrice(row.price);
   const changePct = row.changePct;
@@ -439,12 +544,22 @@ function CardRow({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount:
       ? "—"
       : `${changeSign}${changePct.toFixed(2)}%`;
   const volume = hasAmount && row.volume !== null ? formatVolume(row.volume) : null;
+  const flag = marketClass === "forex" ? flagForPair(row.symbol) : null;
+  const sparkDir = row.changePct === null ? null : row.changePct > 0 ? "up" : row.changePct < 0 ? "down" : "flat";
+  const quoteAttr = quoteProps({
+    symbol: row.symbol,
+    name: row.name ?? undefined,
+    price: row.price,
+    changePct: row.changePct,
+    kind: marketClass,
+  });
 
   const inner = (
     <>
-      {/* Header: logo + symbol */}
+      {/* Header: logo + flag + symbol */}
       <div className="mb-1.5 flex items-center gap-1.5 min-w-0">
         <LogoMark symbol={row.symbol} size={16} />
+        {flag ? <span className="text-[14px] leading-none" aria-hidden="true">{flag}</span> : null}
         <span className="truncate font-mono text-label font-medium text-fg">
           {row.symbol}
         </span>
@@ -495,12 +610,35 @@ function CardRow({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount:
           </span>
         ) : null}
       </div>
+
+      {/* Mini sparkline */}
+      <div className="mt-1 flex items-center justify-between">
+        {sparkDir !== null ? (
+          <MiniSparkline direction={sparkDir} />
+        ) : (
+          <span className="text-fg-subtle text-label">—</span>
+        )}
+        {marketClass === "forex" ? (
+          <span
+            className={cn(
+              "text-label whitespace-nowrap",
+              row.changePct === null
+                ? "text-fg-subtle"
+                : row.changePct >= 0
+                  ? "text-up"
+                  : "text-down",
+            )}
+          >
+            {forexStrengthLabel(row.changePct)}
+          </span>
+        ) : null}
+      </div>
     </>
   );
 
   return (
     <CardGridCard className="cursor-default">
-      <div data-testid="alt-row" data-symbol={row.symbol}>
+      <div data-testid="alt-row" data-symbol={row.symbol} {...quoteAttr}>
         {inner}
       </div>
     </CardGridCard>
@@ -510,11 +648,13 @@ function CardRow({ row, hasAmount }: { readonly row: AltRow; readonly hasAmount:
 function CardView({
   rows,
   hasAmount,
+  marketClass,
   sort,
   onSort,
 }: {
   readonly rows: readonly AltRow[];
   readonly hasAmount: boolean;
+  readonly marketClass: MarketClass;
   readonly sort: SortState | null;
   readonly onSort: (key: SortKey) => void;
 }) {
@@ -560,7 +700,7 @@ function CardView({
 
       <CardGrid>
         {rows.map((row) => (
-          <CardRow key={row.symbol} row={row} hasAmount={hasAmount} />
+          <CardRow key={row.symbol} row={row} hasAmount={hasAmount} marketClass={marketClass} />
         ))}
       </CardGrid>
     </div>
@@ -641,10 +781,12 @@ export function AltPage({ marketClass }: AltPageProps) {
     <main
       data-testid="alt-page"
       data-class={marketClass}
-      className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
+      className="min-h-0 flex-1 overflow-y-auto bg-black px-2 py-2"
     >
       <div className="mb-1 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
-        <h1 className="text-ui font-medium text-fg">{copy.title}</h1>
+        <SectionTitle variant={8} testId="alt-page-title">
+          {copy.title}
+        </SectionTitle>
         <div className="flex items-center gap-2">
           <p className="font-mono text-label uppercase tracking-[0.08em] text-fg-subtle">
             {universe === null ? `${total} symbols` : `${universe} symbols in this class`}
@@ -743,7 +885,7 @@ export function AltPage({ marketClass }: AltPageProps) {
           </div>
         ) : viewMode === "cards" ? (
           <div className={cn(marketClass === "forex" ? "p-2" : "p-0")}>
-            <CardView rows={rows} hasAmount={copy.hasAmount} sort={sort} onSort={onSort} />
+            <CardView rows={rows} hasAmount={copy.hasAmount} marketClass={marketClass} sort={sort} onSort={onSort} />
           </div>
         ) : (
           <Table
@@ -752,6 +894,7 @@ export function AltPage({ marketClass }: AltPageProps) {
             sort={sort}
             amountLabel={copy.amountLabel}
             hasAmount={copy.hasAmount}
+            marketClass={marketClass}
             onSort={onSort}
           />
         )}
@@ -759,7 +902,7 @@ export function AltPage({ marketClass }: AltPageProps) {
 
       <footer data-testid="alt-footer" className="mt-1 flex flex-wrap gap-x-3 px-0.5 text-label text-fg-subtle">
         <span>
-          {stamp === null ? "Read time unavailable" : `Read ${stamp}`}
+          {stamp === null ? "Read time unavailable" : `As of ${stamp}`}
         </span>
         <span aria-hidden="true">·</span>
         <span>A closed market shows its last session's price.</span>

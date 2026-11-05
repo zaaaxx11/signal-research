@@ -17,8 +17,11 @@ import {
   AltMalformed,
   altPath,
   readAlt,
+  DEFAULT_TIMEFRAME,
+  TIMEFRAME_SPECS,
   type AltReport,
   type MarketClass,
+  type Timeframe,
 } from "./alt";
 
 export type AltStatus = "loading" | "ready" | "error";
@@ -30,8 +33,12 @@ export interface AltView {
   readonly retry: () => void;
 }
 
-export function useAlt(marketClass: MarketClass): AltView {
-  const path = React.useMemo(() => altPath(marketClass), [marketClass]);
+export function useAlt(marketClass: MarketClass, timeframe: Timeframe = DEFAULT_TIMEFRAME): AltView {
+  const spec = TIMEFRAME_SPECS[timeframe];
+  const path = React.useMemo(
+    () => altPath(marketClass, spec.range, spec.interval),
+    [marketClass, spec.range, spec.interval],
+  );
 
   const [state, setState] = React.useState<Omit<AltView, "retry">>({
     status: "loading",
