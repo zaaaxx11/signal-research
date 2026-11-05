@@ -24,8 +24,10 @@
 import * as React from "react";
 
 import { formatCount } from "@/breadth/format";
+import { SectionTitle } from "@/components/SectionTitle";
 import { LogoMark } from "@/grid/LogoMark";
 import { Link } from "@/shell/routes";
+import { quoteProps } from "@/lib/quoteAttrs";
 
 import {
   CALENDAR_DAYS,
@@ -82,6 +84,7 @@ function SymbolRow({ symbol }: { readonly symbol: { s: string; n: string } }) {
     <li
       data-testid="calendar-symbol-row"
       className="flex h-6 min-w-0 items-center gap-1.5 px-0.5"
+      {...quoteProps({ symbol: symbol.s, name: symbol.n, kind: "stock" })}
     >
       <Link
         to={`/stock/${encodeURIComponent(symbol.s)}`}
@@ -216,9 +219,9 @@ export function CalendarPage(props: CalendarPageProps = {}) {
       data-testid="calendar-page"
       className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
     >
+      <SectionTitle variant={7}>Calendar</SectionTitle>
       <div className="mb-1.5 flex min-w-0 items-baseline justify-between gap-3 px-0.5">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h1 className="text-ui font-medium text-fg">Calendar</h1>
           <nav
             data-testid="calendar-tabs"
             aria-label="Calendar type"
