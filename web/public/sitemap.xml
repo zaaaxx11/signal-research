@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://ztockz.customin.biz.id/app/</loc><priority>1.0</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/screener</loc><priority>0.9</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/screener/etf</loc><priority>0.8</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/map</loc><priority>0.9</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/charts</loc><priority>0.9</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/news</loc><priority>0.8</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/groups</loc><priority>0.8</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/insider</loc><priority>0.8</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/futures</loc><priority>0.7</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/forex</loc><priority>0.7</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/crypto</loc><priority>0.7</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/calendar</loc><priority>0.7</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/watchlist</loc><priority>0.5</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/portfolio</loc><priority>0.5</priority></url>
+  <url><loc>https://ztockz.customin.biz.id/app/compare</loc><priority>0.6</priority></url>
+</urlset>

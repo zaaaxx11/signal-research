@@ -134,6 +134,10 @@ export function App() {
       notfound: "Not Found — Ztockz",
     };
     document.title = titles[route.kind] ?? "Ztockz";
+    const og = document.head.querySelector("meta[property='og:title']") as HTMLMetaElement|null;
+    if (og) { og.content = document.title; }
+    const desc = document.head.querySelector("meta[property='og:description']") as HTMLMetaElement|null;
+    if (desc) { desc.content = "Free stock screener, maps, charts, crypto, futures & forex — 5,576 US stocks, 83 filters."; }
   }, [route.kind]);
   const MapPage = React.useMemo(() => React.lazy(loadMapPage), []);
   const GroupsPage = React.useMemo(() => React.lazy(loadGroupsPage), []);
