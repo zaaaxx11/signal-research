@@ -270,3 +270,137 @@ describe("newsPath", () => {
     expect(newsPath(20)).toBe("/market/news?limit=20");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/*  New functions: category, time, source colour, crypto, relativeTime */
+/* ------------------------------------------------------------------ */
+
+import {
+  filterByCategory,
+  filterByTime,
+  isIndexFundSymbol,
+  sourceColor,
+} from "./news";
+import { relativeTime } from "./format";
+
+describe("isIndexFundSymbol", () => {
+  it("recognises SPY, QQQ, DIA, IWM case-insensitively", () => {
+    expect(isIndexFundSymbol("SPY")).toBe(true);
+    expect(isIndexFundSymbol("spy")).toBe(true);
+    expect(isIndexFundSymbol("QQQ")).toBe(true);
+    expect(isIndexFundSymbol("DIA")).toBe(true);
+    expect(isIndexFundSymbol("IWM")).toBe(true);
+    expect(isIndexFundSymbol("AAPL")).toBe(false);
+    expect(isIndexFundSymbol("BTC-USD")).toBe(false);
+  });
+});
+
+describe("filterByCategory", () => {
+  const stockOnly = item({ symbols: ["AAPL"] });
+  const etfOnly = item({ symbols: ["SPY"] });
+  const both = item({ symbols: ["AAPL", "SPY"] });
+  const none = item({ symbols: [] });
+
+  it("market-news returns everything", () => {
+    expect(filterByCategory([stockOnly, etfOnly, both, none], "market-news")).toHaveLength(4);
+  });
+
+  it("stocks filters to items with at least one non-index-fund symbol", () => {
+    const result = filterByCategory([stockOnly, etfOnly, both, none], "stocks");
+    expect(result.map((r) => r.headline)).toEqual(["A headline", "A headline"]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("etf filters to items with at least one index-fund symbol", () => {
+    const result = filterByCategory([stockOnly, etfOnly, both, none], "etf");
+    expect(result.map((r) => r.headline)).toEqual(["A headline", "A headline"]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("market-pulse and crypto return empty", () => {
+    expect(filterByCategory([stockOnly], "market-pulse")).toHaveLength(0);
+    expect(filterByCategory([stockOnly], "crypto")).toHaveLength(0);
+  });
+});
+
+describe("filterByTime", () => {
+  const recent = item({
+    headline: "recent",
+    publishedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+  });
+  const old = item({
+    headline: "old",
+    publishedAt: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+  });
+  const undated = item({ headline: "undated", publishedAt: null });
+
+  it("all keeps everything", () => {
+    expect(filterByTime([recent, old, undated], "all")).toHaveLength(3);
+  });
+
+  it("1h keeps only the last hour", () => {
+    const result = filterByTime([recent, old, undated], "1h");
+    expect(result.map((r) => r.headline)).toEqual(["recent"]);
+  });
+
+  it("undated items are excluded by any time filter", () => {
+    const result = filterByTime([undated], "24h");
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe("sourceColor", () => {
+  it("assigns the same colour to the same source", () => {
+    expect(sourceColor("Reuters")).toEqual(sourceColor("Reuters"));
+  });
+
+  it("assigns different colours to different sources (probably)", () => {
+    const c1 = sourceColor("Reuters");
+    const c2 = sourceColor("Bloomberg");
+    expect(typeof c1.bg).toBe("string");
+    expect(typeof c2.bg).toBe("string");
+    // They are deterministic, but may collide — that's acceptable.
+  });
+});
+
+describe("relativeTime", () => {
+  it("returns null for null or empty", () => {
+    expect(relativeTime(null)).toBeNull();
+    expect(relativeTime("")).toBeNull();
+    expect(relativeTime("not-a-date")).toBeNull();
+  });
+
+  it("returns 'just now' for very recent timestamps", () => {
+    const now = Date.now();
+    const result = relativeTime(new Date(now - 10_000).toISOString(), now);
+    expect(result?.relative).toBe("just now");
+  });
+
+  it("returns N minutes ago", () => {
+    const now = Date.now();
+    const result = relativeTime(new Date(now - 5 * 60_000).toISOString(), now);
+    expect(result?.relative).toBe("5 minutes ago");
+  });
+
+  it("returns N hours ago", () => {
+    const now = Date.now();
+    const result = relativeTime(new Date(now - 3 * 3_600_000).toISOString(), now);
+    expect(result?.relative).toBe("3 hours ago");
+  });
+
+  it("returns N days ago", () => {
+    const now = Date.now();
+    const result = relativeTime(new Date(now - 2 * 86_400_000).toISOString(), now);
+    expect(result?.relative).toBe("2 days ago");
+  });
+
+  it("returns the date label for items older than 7 days", () => {
+    const result = relativeTime("2026-10-24T12:00:00Z", Date.UTC(2026, 10, 5));
+    expect(result?.relative).toBe("24 Oct 2026");
+  });
+
+  it("carries an absolute tooltip", () => {
+    const result = relativeTime("2026-11-01T09:21:00Z", Date.UTC(2026, 10, 1, 11, 0));
+    expect(result?.absolute).toBe("1 Nov 2026, 09:21 UTC");
+  });
+});

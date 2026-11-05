@@ -151,3 +151,35 @@ export function matchesQuery(item: FilterableItem, rawQuery: string): boolean {
   if (item.headline.toLowerCase().includes(query)) return true;
   return item.symbols.some((symbol) => symbol.toLowerCase().includes(query));
 }
+
+/**
+ * Human relative time: "2 hours ago", absolute instant in the title.
+ * Returns null for undated items — no relative claim can be made.
+ */
+export function relativeTime(
+  iso: string | null,
+  now: number = Date.now(),
+): { relative: string; absolute: string } | null {
+  if (iso === null || iso.trim().length === 0) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const ms = now - parsed.getTime();
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  let relative: string;
+  if (seconds < 60) relative = "just now";
+  else if (minutes < 60) relative = `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
+  else if (hours < 24) relative = `${hours} hour${hours !== 1 ? "s" : ""} ago`;
+  else if (days < 7) relative = `${days} day${days !== 1 ? "s" : ""} ago`;
+  else relative = formatDayLabel(dayKeyOf(iso) ?? "");
+
+  const key = dayKeyOf(iso);
+  const clock = iso.slice(11, 16);
+  const absolute = key ? `${formatDayLabel(key)}, ${clock} UTC` : `${iso}`;
+
+  return { relative, absolute };
+}

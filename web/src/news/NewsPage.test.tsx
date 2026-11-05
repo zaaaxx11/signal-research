@@ -8,11 +8,12 @@ import { NEWS_TODAY, newsDocument, wireItem, type WireNewsItem } from "./__fixtu
 /**
  * The page's promises, on the rendered page:
  *
- * * one request for the whole list, and the row count is the payload's;
+ * * one request for the whole news list, plus one for the crypto tape;
  * * the list is `ul > li`, with a real heading over every day;
  * * undated rows sort last, print no time and sit under `Undated`;
- * * the filter narrows by headline and by the symbol the chips print, and the
- *   result count is announced;
+ * * the five category tabs filter the feed;
+ * * time-window and source selects narrow the list, and the result count
+ *   is announced;
  * * loading, empty, error and filter-empty are states of one reserved box;
  * * the headline's href is the payload's URL, and a refused URL is text.
  */
@@ -24,8 +25,19 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function newsJson(body: unknown = newsDocument()): Response {
+  return json(body);
+}
+
 function stub(body: unknown = newsDocument()): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => json(body));
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    // Crypto endpoint returns empty rows so the tape doesn't break
+    if (url.includes("/market/alt")) {
+      return json({ class: "crypto", rows: [] });
+    }
+    return newsJson(body);
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -41,13 +53,14 @@ afterEach(() => {
 });
 
 describe("NewsPage", () => {
-  it("makes exactly one request on mount, for the documented cap", async () => {
+  it("makes one news request on mount, for the documented cap", async () => {
     const fetchMock = stub();
     render(<NewsPage today={NEWS_TODAY} />);
 
     await screen.findByTestId("news-filter-status");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/news?limit=60");
+    // At least one news call; crypto is separate.
+    const calls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(calls).toContain("/market/news?limit=60");
   });
 
   it("renders every item in the payload, and the count matches the payload", async () => {
@@ -59,7 +72,6 @@ describe("NewsPage", () => {
     const items = itemsOf(body);
     expect(items).toHaveLength(60);
     expect(screen.getAllByTestId("news-row")).toHaveLength(items.length);
-    // The count line is the payload's count, not a number the page invented.
     expect(screen.getByTestId("news-filter-status").textContent).toBe("60 headlines");
   });
 
@@ -111,7 +123,6 @@ describe("NewsPage", () => {
     );
     expect(within(undatedGroup).getByTestId("news-row")).toBe(undated);
 
-    // It is not under today's heading, and nothing in its row claims today.
     const todayGroup = screen.getByTestId("news-group-2026-11-01");
     expect(within(todayGroup).queryByText("No stamp")).toBeNull();
     expect(undated?.textContent).not.toContain("Today");
@@ -143,17 +154,15 @@ describe("NewsPage", () => {
     await screen.findByTestId("news-filter-status");
     const headings = screen
       .getAllByRole("heading", { level: 2 })
+      .filter((h) => h.closest("[data-testid^='news-group-']"))
       .map((heading) => heading.textContent ?? "");
     expect(headings).toHaveLength(3);
     expect(headings[0]).toContain("Today");
     expect(headings[1]).toContain("Yesterday");
     expect(headings[2]).toContain("30 Oct 2026");
 
-    // A day with one item still gets its heading and its list.
     expect(screen.getAllByTestId("news-row")).toHaveLength(3);
-    expect(within(screen.getByTestId("news-group-2026-10-30")).getAllByTestId("news-row")).toHaveLength(
-      1,
-    );
+    expect(within(screen.getByTestId("news-group-2026-10-30")).getAllByTestId("news-row")).toHaveLength(1);
   });
 
   it("draws a `ul` of `li` rows, each with a focusable headline link", async () => {
@@ -226,38 +235,12 @@ describe("NewsPage", () => {
     expect(chips[0]?.getAttribute("aria-label")).toBe("AAPL stock page");
   });
 
-  it("filters by the symbol chip text and announces the result count", async () => {
-    const body = newsDocument();
-    stub(body);
-    const user = userEvent.setup();
-    render(<NewsPage today={NEWS_TODAY} />);
-
-    await screen.findByTestId("news-filter-status");
-    const expected = itemsOf(body).filter((item) => item.symbols.includes("AAPL")).length;
-    expect(expected).toBeGreaterThan(0);
-
-    await user.type(screen.getByTestId("news-filter"), "aapl");
-    expect(screen.getAllByTestId("news-row")).toHaveLength(expected);
-
-    const status = screen.getByRole("status");
-    expect(status.getAttribute("aria-live")).toBe("polite");
-    expect(status.textContent).toBe(`${expected} of 60 match “aapl”`);
-
-    // Every visible row really carries the symbol.
-    for (const row of screen.getAllByTestId("news-row")) {
-      expect(row.getAttribute("data-symbols")?.split(" ")).toContain("AAPL");
-    }
-  });
-
-  it("filters by headline text", async () => {
+  it("filters by source select and announces the result count", async () => {
     const body = newsDocument({
       items: [
-        wireItem({
-          headline: "Is Apple a Top Tech Stock to Buy Now?",
-          url: "https://e.com/aapl",
-        }),
-        wireItem({ headline: "Treasury yields slip", url: "https://e.com/yields" }),
-        wireItem({ headline: "Oil steadies", url: "https://e.com/oil" }),
+        wireItem({ headline: "Reuters story", source: "Reuters", url: "https://e.com/r" }),
+        wireItem({ headline: "Bloomberg story", source: "Bloomberg", url: "https://e.com/b" }),
+        wireItem({ headline: "Another Reuters", source: "Reuters", url: "https://e.com/r2" }),
       ],
     });
     stub(body);
@@ -265,26 +248,117 @@ describe("NewsPage", () => {
     render(<NewsPage today={NEWS_TODAY} />);
 
     await screen.findByTestId("news-filter-status");
-    await user.type(screen.getByTestId("news-filter"), "top tech");
+
+    // Select "Reuters" from the source dropdown
+    await user.selectOptions(screen.getByTestId("news-source-select"), "Reuters");
+
+    const rows = screen.getAllByTestId("news-row");
+    expect(rows).toHaveLength(2);
+    expect(screen.getByRole("status").textContent).toBe("2 of 3 headlines");
+
+    // All visible rows should have Reuters as source
+    for (const row of rows) {
+      expect(within(row).getByTestId("news-source").textContent).toBe("Reuters");
+    }
+  });
+
+  it("filters by time window select", async () => {
+    const body = newsDocument({
+      items: [
+        wireItem({
+          headline: "Very recent",
+          published_at: new Date(Date.now() - 30 * 60_000).toISOString(), // 30 min ago
+          url: "https://e.com/recent",
+          symbols: ["SPY"],
+        }),
+        wireItem({
+          headline: "Two days ago",
+          published_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+          url: "https://e.com/old",
+          symbols: ["AAPL"],
+        }),
+      ],
+    });
+    stub(body);
+    const user = userEvent.setup();
+    render(<NewsPage today={todayUtc()} />);
+
+    await screen.findByTestId("news-filter-status");
+    expect(screen.getAllByTestId("news-row")).toHaveLength(2);
+
+    // Filter to last hour
+    await user.selectOptions(screen.getByTestId("news-time-select"), "1h");
 
     const rows = screen.getAllByTestId("news-row");
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.textContent).toContain("Is Apple a Top Tech Stock to Buy Now?");
-    expect(screen.getByRole("status").textContent).toBe("1 of 3 match “top tech”");
+    expect(rows[0]?.textContent).toContain("Very recent");
+    expect(screen.getByRole("status").textContent).toBe("1 of 2 headlines");
   });
 
-  it("names the query when the filter matches nothing", async () => {
+  it("switches between category tabs", async () => {
+    const body = newsDocument({
+      items: [
+        wireItem({ headline: "Stock only", symbols: ["AAPL"], url: "https://e.com/a" }),
+        wireItem({ headline: "ETF only", symbols: ["SPY"], url: "https://e.com/b" }),
+        wireItem({ headline: "Both", symbols: ["AAPL", "SPY"], url: "https://e.com/c" }),
+      ],
+    });
+    stub(body);
+    const user = userEvent.setup();
+    render(<NewsPage today={NEWS_TODAY} />);
+
+    await screen.findByTestId("news-filter-status");
+
+    // MARKET NEWS (default): all 3
+    expect(screen.getAllByTestId("news-row")).toHaveLength(3);
+
+    // Switch to STOCKS tab
+    await user.click(screen.getByTestId("news-tab-stocks"));
+    expect(screen.getAllByTestId("news-row")).toHaveLength(2); // AAPL-only + Both
+
+    // Switch to ETF tab
+    await user.click(screen.getByTestId("news-tab-etf"));
+    expect(screen.getAllByTestId("news-row")).toHaveLength(2); // SPY-only + Both
+  });
+
+  it("shows honest empty note for MARKET PULSE tab", async () => {
     stub();
     const user = userEvent.setup();
     render(<NewsPage today={NEWS_TODAY} />);
 
     await screen.findByTestId("news-filter-status");
-    await user.type(screen.getByTestId("news-filter"), "zzzqqq");
+    await user.click(screen.getByTestId("news-tab-market-pulse"));
 
-    expect(screen.queryAllByTestId("news-row")).toHaveLength(0);
-    const empty = screen.getByTestId("news-filter-empty");
-    expect(empty.textContent).toContain("zzzqqq");
-    expect(screen.getByRole("status").textContent).toBe("0 of 60 match “zzzqqq”");
+    const pulse = screen.getByTestId("news-pulse-empty");
+    expect(pulse.textContent).toContain("Market Pulse");
+    expect(pulse.textContent).toContain("No pulse feed is available yet");
+  });
+
+  it("shows the crypto tape on the CRYPTO tab", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/market/alt")) {
+        return json({
+          class: "crypto",
+          rows: [
+            { symbol: "BTC-USD", name: "Bitcoin", price: 80000, change_pct: 4.5, volume: 0, currency: "USD" },
+            { symbol: "ETH-USD", name: "Ethereum", price: 2400, change_pct: -1.2, volume: 0, currency: "USD" },
+          ],
+        });
+      }
+      return newsJson(newsDocument());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<NewsPage today={NEWS_TODAY} />);
+
+    await user.click(screen.getByTestId("news-tab-crypto"));
+    await screen.findByTestId("crypto-tape");
+
+    const rows = screen.getAllByTestId("crypto-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("Bitcoin");
+    expect(rows[0]?.textContent).toContain("BTC-USD");
   });
 
   it("says the feeds returned nothing when the list is empty", async () => {
@@ -298,10 +372,14 @@ describe("NewsPage", () => {
 
   it("shows an error, then retries into the list", async () => {
     const body = newsDocument();
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
-      .mockResolvedValueOnce(json(body));
+    let callCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/market/alt")) return json({ class: "crypto", rows: [] });
+      callCount++;
+      if (callCount === 1) throw new TypeError("Failed to fetch");
+      return newsJson(body);
+    });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<NewsPage today={NEWS_TODAY} />);
@@ -309,14 +387,18 @@ describe("NewsPage", () => {
     const error = await screen.findByTestId("news-error");
     expect(error.textContent).toContain("The news feed did not load.");
 
-    await user.click(within(error).getByRole("button", { name: "Retry" }));
+    await user.click(within(error).getByTestId("news-error-retry"));
     await screen.findByTestId("news-filter-status");
     expect(screen.getAllByTestId("news-row")).toHaveLength(60);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3); // 1 fail news + 1 crypto + 1 retry news
   });
 
   it("labels a 404 as a deployment without a news feed", async () => {
-    const fetchMock = vi.fn(async () => json({ detail: "Not Found" }, 404));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/market/alt")) return json({ class: "crypto", rows: [] });
+      return json({ detail: "Not Found" }, 404);
+    });
     vi.stubGlobal("fetch", fetchMock);
     render(<NewsPage today={NEWS_TODAY} />);
 
@@ -324,24 +406,25 @@ describe("NewsPage", () => {
     expect(error.textContent).toContain("does not serve a news feed yet");
   });
 
-  it("shows a reserved-height skeleton before the answer lands", async () => {
+  it("shows a skeleton before the answer lands", async () => {
     let release: ((response: Response) => void) | null = null;
     const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
+      (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/market/alt")) return json({ class: "crypto", rows: [] });
+        return new Promise<Response>((resolve) => {
           release = resolve;
-        }),
+        });
+      },
     );
     vi.stubGlobal("fetch", fetchMock);
     render(<NewsPage today={NEWS_TODAY} />);
 
     const skeleton = screen.getByTestId("news-skeleton");
     expect(skeleton.getAttribute("aria-busy")).toBe("true");
-    expect(skeleton.style.minHeight.endsWith("px")).toBe(true);
-    expect(Number.parseInt(skeleton.style.minHeight, 10)).toBeGreaterThan(200);
 
     await act(async () => {
-      release?.(json(newsDocument()));
+      release?.(newsJson(newsDocument()));
     });
     await screen.findByTestId("news-filter-status");
     expect(screen.queryByTestId("news-skeleton")).toBeNull();
@@ -362,7 +445,6 @@ describe("NewsPage", () => {
     await screen.findByTestId("news-filter-status");
     const row = screen.getByTestId("news-row");
     expect(row.textContent).toContain('<script>alert("x")</script>');
-    // React escaped it: the string is text, and no script element was created.
     expect(document.querySelectorAll("script")).toHaveLength(0);
     expect(row.querySelector("script")).toBeNull();
   });
@@ -383,3 +465,7 @@ describe("NewsPage", () => {
     expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
   });
 });
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}

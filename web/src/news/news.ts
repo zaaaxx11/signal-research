@@ -213,3 +213,156 @@ export function filterItems(items: readonly NewsItem[], query: string): NewsItem
   if (query.trim().length === 0) return [...items];
   return items.filter((item) => matchesQuery(item, query));
 }
+
+/* ------------------------------------------------------------------ */
+/*  Category tabs, time windows, source colours                       */
+/* ------------------------------------------------------------------ */
+
+/** Which tab is active on the news page. */
+export type CategoryTab = "market-news" | "market-pulse" | "stocks" | "etf" | "crypto";
+
+/** The time window a `<select>` can filter by. */
+export type TimeWindow = "all" | "1h" | "24h" | "3d" | "7d";
+
+/** Index fund tickers — items carrying ONLY these are the ETF tab. */
+export const INDEX_FUNDS = new Set(["SPY", "QQQ", "DIA", "IWM"]);
+
+export function isIndexFundSymbol(symbol: string): boolean {
+  return INDEX_FUNDS.has(symbol.toUpperCase());
+}
+
+/** Category filter: the full feed, only stocks, or only ETFs. */
+export function filterByCategory(
+  items: readonly NewsItem[],
+  category: CategoryTab,
+): NewsItem[] {
+  switch (category) {
+    case "market-news":
+      return [...items];
+    case "stocks":
+      return items.filter((item) =>
+        item.symbols.some((s) => !isIndexFundSymbol(s)),
+      );
+    case "etf":
+      return items.filter((item) =>
+        item.symbols.some((s) => isIndexFundSymbol(s)),
+      );
+    default:
+      return [];
+  }
+}
+
+/** Time window filter: keeps only items whose timestamp is within the window. */
+export function filterByTime(
+  items: readonly NewsItem[],
+  window: TimeWindow,
+): NewsItem[] {
+  if (window === "all") return [...items];
+  const now = Date.now();
+  const offsets: Record<Exclude<TimeWindow, "all">, number> = {
+    "1h": 3_600_000,
+    "24h": 86_400_000,
+    "3d": 3 * 86_400_000,
+    "7d": 7 * 86_400_000,
+  };
+  const cutoff = now - offsets[window];
+  return items.filter((item) => {
+    if (item.publishedAt === null) return false;
+    const ts = Date.parse(item.publishedAt);
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+}
+
+/** A palette that assigns each source a consistent colour pair. */
+const SOURCE_PALETTE: { bg: string; text: string }[] = [
+  { bg: "#1e3050", text: "#7eb8da" },
+  { bg: "#3d2b1f", text: "#d4a574" },
+  { bg: "#1f3d2b", text: "#7ec89a" },
+  { bg: "#3d1f2b", text: "#d47e9a" },
+  { bg: "#2b1f3d", text: "#a57ed4" },
+  { bg: "#1f2b3d", text: "#7ea5d4" },
+  { bg: "#3d3d1f", text: "#d4d47e" },
+  { bg: "#2b3d1f", text: "#a5d47e" },
+];
+
+const sourceLut = new Map<string, { bg: string; text: string }>();
+
+function hashString(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash << 5) - hash + s.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+export function sourceColor(source: string): { bg: string; text: string } {
+  const cached = sourceLut.get(source);
+  if (cached) return cached;
+  const idx = hashString(source) % SOURCE_PALETTE.length;
+  const pair = SOURCE_PALETTE[idx] ?? SOURCE_PALETTE[0];
+  sourceLut.set(source, pair);
+  return pair;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Crypto tape (GET /market/alt?class=crypto)                        */
+/* ------------------------------------------------------------------ */
+
+export interface CryptoRow {
+  readonly symbol: string;
+  readonly name: string;
+  readonly price: number;
+  readonly changePct: number | null;
+  readonly volume: number;
+  readonly currency: string;
+}
+
+export class CryptoMalformed extends Error {
+  constructor(message = "The crypto payload was not the expected document") {
+    super(message);
+    this.name = "CryptoMalformed";
+  }
+}
+
+export function cryptoPath(): string {
+  return "/market/alt?class=crypto";
+}
+
+export function readCrypto(value: unknown): CryptoRow[] {
+  if (typeof value !== "object" || value === null) {
+    throw new CryptoMalformed("The crypto payload was not an object");
+  }
+  const record = value as Record<string, unknown>;
+  const rawRows = record["rows"];
+  if (!Array.isArray(rawRows)) {
+    throw new CryptoMalformed("The crypto payload had no rows array");
+  }
+
+  const rows: CryptoRow[] = [];
+  for (const entry of rawRows) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const row = entry as Record<string, unknown>;
+    const symbol = typeof row["symbol"] === "string" ? row["symbol"].trim() : "";
+    const name = typeof row["name"] === "string" ? row["name"].trim() : "";
+    if (symbol.length === 0) continue;
+
+    const price = typeof row["price"] === "number" && Number.isFinite(row["price"])
+      ? row["price"]
+      : 0;
+    const changePct =
+      typeof row["change_pct"] === "number" && Number.isFinite(row["change_pct"])
+        ? row["change_pct"]
+        : null;
+    const volume =
+      typeof row["volume"] === "number" && Number.isFinite(row["volume"])
+        ? row["volume"]
+        : 0;
+    const currency =
+      typeof row["currency"] === "string" ? row["currency"].trim() : "USD";
+
+    rows.push({ symbol, name, price, changePct, volume, currency });
+  }
+
+  return rows;
+}

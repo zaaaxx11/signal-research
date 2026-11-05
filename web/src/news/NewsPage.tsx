@@ -1,82 +1,97 @@
 /**
- * News: one chronological list of market headlines, attributed and quiet.
+ * News: four category tabs over one feed, plus a crypto tape.
  *
  * The document is `GET /market/news?limit=60` — the largest index funds and
- * companies, newest first, deduped by the server. This page adds nothing to
- * that list and removes nothing from it: every readable row is painted, so the
- * count it prints is the count the payload carried.
+ * companies, newest first, deduped by the server. This page:
  *
- * Five rules the page keeps:
- *
- * * **A day is a heading, not a separator.** `Today`, `Yesterday`, then the
- *   date; a day with one story still gets its heading.
- * * **No timestamp is not today.** An undated headline sorts last, prints no
- *   clock, and sits under `Undated` — the feeds never said it happened today.
- * * **The headline is the only outbound link.** It opens in a new tab with
- *   `rel="noopener noreferrer"`, and a URL the guard refuses renders as text
- *   rather than as an inert-looking anchor. There is no reader view and no
- *   modal: the story belongs to the publisher.
- * * **The row carries its own context.** Source name and symbol chips are in
- *   the row, and the anchor's accessible name repeats them, so a reader
- *   tabbing between sixty links hears which company and which outlet each one
- *   belongs to.
- * * **Every state occupies one reserved box**, so the answer landing cannot
- *   move the page under the pointer.
+ * * **Tabs** split the feed into MARKET NEWS (whole), MARKET PULSE (empty
+ *   note — no feed yet), STOCKS (items whose symbols contain a non-index-fund
+ *   ticker), ETF (items w/ index fund symbols SPY/QQQ/DIA/IWM), and CRYPTO
+ *   (fetched from `GET /market/alt?class=crypto` as a tape).
+ * * **Time window** filters rows by timestamp.
+ * * **Source filter** narrows to one outlet.
+ * * **Source chips** are colour-coded per outlet.
+ * * **Times** are relative ("2 hours ago") with absolute UTC tooltip.
+ * * **Filter count** reads "N of M headlines".
+ * * **Symbol chips** carry `quoteProps` so the global HoverBubble fires.
  */
 
 import * as React from "react";
 
 import { formatCount } from "@/breadth/format";
+import { ErrorState } from "@/components/ErrorState";
+import { SectionTitle } from "@/components/SectionTitle";
 import { Link } from "@/shell/routes";
+import { quoteProps } from "@/lib/quoteAttrs";
+import { notify } from "@/lib/notify";
 
-import { itemClock, safeExternalHref, todayUtc } from "./format";
+import { relativeTime, safeExternalHref, todayUtc } from "./format";
 import {
-  filterItems,
+  filterByCategory,
+  filterByTime,
   groupByDay,
+  isIndexFundSymbol,
+  sourceColor,
+  type CategoryTab,
+  type CryptoRow,
   type NewsGroup,
   type NewsItem,
+  type TimeWindow,
 } from "./news";
-import { useNews } from "./useNews";
+import { useCrypto, useNews, type CryptoView, type NewsView } from "./useNews";
 
-/** Skeleton rows: enough to draw the shape, never a fake set of headlines. */
-export const NEWS_SKELETON_ROWS = 10;
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
 
-/** A resolved row's height, in px: headline line plus the source/chip line. */
-const NEWS_ROW_HEIGHT = 30;
+const CATEGORIES: { key: CategoryTab; label: string }[] = [
+  { key: "market-news", label: "MARKET NEWS" },
+  { key: "market-pulse", label: "MARKET PULSE" },
+  { key: "stocks", label: "STOCKS" },
+  { key: "etf", label: "ETF" },
+  { key: "crypto", label: "CRYPTO" },
+];
 
-/**
- * The box every state occupies, in px: ten rows plus the frame's padding and
- * border. The resolved list is taller; the floor is what stops the headings and
- * the filter box from starting lower down the page than the placeholder did.
- */
-export const NEWS_RESERVED_HEIGHT = NEWS_SKELETON_ROWS * NEWS_ROW_HEIGHT + 18;
+const TIME_WINDOWS: { key: TimeWindow; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "1h", label: "Last hour" },
+  { key: "24h", label: "24 hours" },
+  { key: "3d", label: "3 days" },
+  { key: "7d", label: "7 days" },
+];
+
+export const NEWS_SKELETON_ROWS = 8;
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
 
 function Skeleton() {
   return (
     <div
       data-testid="news-skeleton"
       aria-busy="true"
-      style={{ minHeight: NEWS_RESERVED_HEIGHT }}
-      className="px-1 py-1.5"
+      className="flex flex-col gap-0 px-1"
     >
       <span className="sr-only">Loading the news feed</span>
-      {Array.from({ length: NEWS_SKELETON_ROWS }, (_, index) => (
+      {Array.from({ length: NEWS_SKELETON_ROWS }, (_, i) => (
         <div
-          key={index}
+          key={i}
           aria-hidden="true"
-          data-testid="news-skeleton-row"
-          className="grid h-[30px] grid-cols-[42px_minmax(0,1fr)] items-center gap-x-2 border-b border-line/60 last:border-b-0"
+          className="grid grid-cols-[48px_minmax(0,1fr)] items-center gap-x-2 border-b border-line/60 py-2 last:border-b-0"
         >
-          <span className="block h-[9px] w-[30px] rounded-[1px] bg-surface-raised" />
-          <span className="flex min-w-0 flex-col gap-1">
+          <span className="block h-[10px] w-[36px] rounded-[1px] bg-surface-raised" />
+          <span className="flex min-w-0 flex-col gap-1.5">
             <span
               className={
-                index % 2 === 0
-                  ? "block h-[9px] w-[72%] rounded-[1px] bg-surface-raised"
-                  : "block h-[9px] w-[54%] rounded-[1px] bg-surface-raised"
+                i % 3 === 0
+                  ? "block h-[10px] w-[78%] rounded-[1px] bg-surface-raised"
+                  : i % 3 === 1
+                    ? "block h-[10px] w-[62%] rounded-[1px] bg-surface-raised"
+                    : "block h-[10px] w-[46%] rounded-[1px] bg-surface-raised"
               }
             />
-            <span className="block h-[7px] w-[26%] rounded-[1px] bg-surface-raised" />
+            <span className="block h-[8px] w-[22%] rounded-[1px] bg-surface-raised" />
           </span>
         </div>
       ))}
@@ -84,39 +99,42 @@ function Skeleton() {
   );
 }
 
-function Row({ item }: { readonly item: NewsItem }) {
-  const clock = itemClock(item.publishedAt);
+/* ------------------------------------------------------------------ */
+/*  News Row                                                           */
+/* ------------------------------------------------------------------ */
+
+function NewsRow({ item }: { readonly item: NewsItem }) {
+  const rel = relativeTime(item.publishedAt);
   const href = safeExternalHref(item.url);
 
-  // The context a sighted reader gets from the row's second line, said once for
-  // a screen reader inside the link. `sr-only` keeps it out of the visual text;
-  // it is part of the anchor's accessible name, not a separate announcement.
   const context = [
     item.source.length > 0 ? `Source: ${item.source}.` : "",
     item.symbols.length > 0 ? `Symbols: ${item.symbols.join(", ")}.` : "",
   ]
-    .filter((part) => part.length > 0)
+    .filter(Boolean)
     .join(" ");
 
   return (
     <li
       data-testid="news-row"
       data-symbols={item.symbols.join(" ")}
-      className="grid grid-cols-[42px_minmax(0,1fr)] items-start gap-x-2 border-b border-line/60 py-1.5 last:border-b-0"
+      className="grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 border-b border-line/60 py-2 last:border-b-0"
     >
-      {clock ? (
+      {rel ? (
         <time
           data-testid="news-time"
           dateTime={item.publishedAt ?? undefined}
-          title={clock.instant}
-          className="nums pt-[2px] text-data text-fg-subtle"
+          title={rel.absolute}
+          className="nums pt-[2px] text-[11px] leading-tight text-fg-subtle"
         >
-          {clock.clock}
+          {rel.relative}
         </time>
       ) : (
-        // No `<time>` at all: there is no instant to mark up, and a dash in a
-        // time element would announce a date that does not exist.
-        <span aria-hidden="true" data-testid="news-no-time" className="pt-[2px] text-data text-fg-subtle">
+        <span
+          aria-hidden="true"
+          data-testid="news-no-time"
+          className="pt-[2px] text-[11px] text-fg-subtle"
+        >
           —
         </span>
       )}
@@ -128,60 +146,86 @@ function Row({ item }: { readonly item: NewsItem }) {
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="break-words text-ui leading-snug text-fg underline-offset-2 hover:text-accent-text hover:underline focus-visible:text-accent-text"
+            className="break-words text-[12px] leading-snug text-fg underline-offset-2 hover:text-accent-text hover:underline focus-visible:text-accent-text"
           >
             {item.headline}
-            {context.length > 0 ? <span className="sr-only">. {context}</span> : null}
+            {context.length > 0 ? (
+              <span className="sr-only">. {context}</span>
+            ) : null}
           </a>
         ) : (
           <span
             data-testid="news-plain"
-            className="break-words text-ui leading-snug text-fg"
+            className="break-words text-[12px] leading-snug text-fg"
           >
             {item.headline}
-            {context.length > 0 ? <span className="sr-only">. {context}</span> : null}
+            {context.length > 0 ? (
+              <span className="sr-only">. {context}</span>
+            ) : null}
           </span>
         )}
 
-        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           {item.source.length > 0 ? (
-            <span
-              data-testid="news-source"
-              className="text-label uppercase tracking-[0.04em] text-fg-subtle"
-            >
-              {item.source}
-            </span>
+            <SourceChip source={item.source} />
           ) : null}
-          {item.symbols.map((symbol) => (
-            <Link
-              key={symbol}
-              to={`/stock/${encodeURIComponent(symbol)}`}
-              data-testid="news-chip"
-              aria-label={`${symbol} stock page`}
-              className="focus-ring rounded-[2px] border border-line bg-surface-raised px-1 py-px font-mono text-label leading-none text-fg-muted no-underline hover:border-line-strong hover:text-fg"
-            >
-              {symbol}
-            </Link>
-          ))}
+          {item.symbols.map((symbol) => {
+            const fund = isIndexFundSymbol(symbol);
+            return (
+              <Link
+                key={symbol}
+                to={`/stock/${encodeURIComponent(symbol)}`}
+                data-testid="news-chip"
+                aria-label={`${symbol} stock page`}
+                {...quoteProps({
+                  symbol,
+                  kind: fund ? "etf" : "stock",
+                })}
+                className="focus-ring rounded-[2px] border border-line bg-surface-raised px-1 py-px font-mono text-[10px] leading-none text-fg-muted no-underline hover:border-line-strong hover:text-fg"
+              >
+                {symbol}
+              </Link>
+            );
+          })}
         </div>
       </div>
     </li>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Source Chip                                                        */
+/* ------------------------------------------------------------------ */
+
+function SourceChip({ source }: { readonly source: string }) {
+  const color = sourceColor(source);
+  return (
+    <span
+      data-testid="news-source"
+      className="inline-flex items-center rounded-[2px] px-1.5 py-px text-[10px] font-medium uppercase tracking-[0.03em]"
+      style={{ background: color.bg, color: color.text }}
+    >
+      {source}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Day Group                                                          */
+/* ------------------------------------------------------------------ */
+
 function Day({ group }: { readonly group: NewsGroup }) {
   const headingId = `news-day-${group.key ?? "undated"}`;
-
   return (
     <section
       data-testid={`news-group-${group.key ?? "undated"}`}
       data-day={group.key ?? undefined}
       aria-labelledby={headingId}
-      className="mb-1.5 last:mb-0"
+      className="mb-1 last:mb-0"
     >
       <h2
         id={headingId}
-        className="flex min-w-0 items-baseline gap-1.5 px-1 py-1 text-data font-medium text-fg"
+        className="flex min-w-0 items-baseline gap-1.5 px-1 py-1 text-[11px] font-medium text-fg"
       >
         {group.key === null ? (
           <span>{group.label}</span>
@@ -191,147 +235,473 @@ function Day({ group }: { readonly group: NewsGroup }) {
         <span aria-hidden="true" className="text-fg-subtle">
           ·
         </span>
-        <span className="nums text-label text-fg-subtle">
+        <span className="nums text-[10px] text-fg-subtle">
           {formatCount(group.items.length)}
         </span>
       </h2>
       <ul data-testid="news-list" className="flex flex-col">
         {group.items.map((item, index) => (
-          <Row key={`${group.key ?? "undated"}:${index}:${item.url}`} item={item} />
+          <NewsRow
+            key={`${group.key ?? "undated"}:${index}:${item.url}`}
+            item={item}
+          />
         ))}
       </ul>
     </section>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Category Tabs                                                      */
+/* ------------------------------------------------------------------ */
+
+function CategoryTabs({
+  active,
+  onSelect,
+}: {
+  readonly active: CategoryTab;
+  readonly onSelect: (tab: CategoryTab) => void;
+}) {
+  return (
+    <nav
+      data-testid="news-tabs"
+      aria-label="News categories"
+      className="mb-2 flex gap-0"
+    >
+      {CATEGORIES.map((cat) => (
+        <button
+          key={cat.key}
+          type="button"
+          data-testid={`news-tab-${cat.key}`}
+          data-active={active === cat.key ? "true" : "false"}
+          onClick={() => onSelect(cat.key)}
+          className="border-b-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] transition-colors"
+          style={{
+            color:
+              active === cat.key
+                ? "var(--fg)"
+                : "var(--fg-muted)",
+            borderColor:
+              active === cat.key
+                ? "var(--accent-text)"
+                : "transparent",
+          }}
+        >
+          {cat.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Filters: time + source + count                                     */
+/* ------------------------------------------------------------------ */
+
+function Filters({
+  timeWindow,
+  onTimeWindow,
+  sourceFilter,
+  onSourceFilter,
+  sources,
+  visibleCount,
+  totalCount,
+}: {
+  readonly timeWindow: TimeWindow;
+  readonly onTimeWindow: (w: TimeWindow) => void;
+  readonly sourceFilter: string;
+  readonly onSourceFilter: (s: string) => void;
+  readonly sources: readonly string[];
+  readonly visibleCount: number;
+  readonly totalCount: number;
+}) {
+  const filtered = sourceFilter !== "" || timeWindow !== "all";
+  return (
+    <div
+      data-testid="news-filters"
+      className="mb-2 flex flex-wrap items-center gap-2"
+    >
+      <label htmlFor="news-time-filter" className="sr-only">
+        View by time
+      </label>
+      <select
+        id="news-time-filter"
+        data-testid="news-time-select"
+        value={timeWindow}
+        onChange={(e) => onTimeWindow(e.target.value as TimeWindow)}
+        className="focus-ring h-6 rounded-sm border border-line bg-surface px-2 text-[11px] text-fg"
+      >
+        {TIME_WINDOWS.map((w) => (
+          <option key={w.key} value={w.key}>
+            {w.label}
+          </option>
+        ))}
+      </select>
+
+      <label htmlFor="news-source-filter" className="sr-only">
+        View by source
+      </label>
+      <select
+        id="news-source-filter"
+        data-testid="news-source-select"
+        value={sourceFilter}
+        onChange={(e) => onSourceFilter(e.target.value)}
+        className="focus-ring h-6 rounded-sm border border-line bg-surface px-2 text-[11px] text-fg"
+      >
+        <option value="">All sources</option>
+        {sources.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+
+      <p
+        data-testid="news-filter-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="min-w-0 text-[11px] text-fg-subtle"
+      >
+        {filtered
+          ? `${formatCount(visibleCount)} of ${formatCount(totalCount)} headlines`
+          : `${formatCount(totalCount)} headlines`}
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Feed List (Market News / Stocks / ETF)                             */
+/* ------------------------------------------------------------------ */
+
+function FeedList({
+  view,
+  category,
+  timeWindow,
+  sourceFilter,
+  today,
+}: {
+  readonly view: NewsView;
+  readonly category: CategoryTab;
+  readonly timeWindow: TimeWindow;
+  readonly sourceFilter: string;
+  readonly today: string;
+}) {
+  const items = React.useMemo(() => view.report?.items ?? [], [view.report]);
+
+  // 1. Category filter
+  const byCategory = React.useMemo(
+    () => filterByCategory(items, category),
+    [items, category],
+  );
+
+  // 2. Time filter
+  const byTime = React.useMemo(
+    () => filterByTime(byCategory, timeWindow),
+    [byCategory, timeWindow],
+  );
+
+  // 3. Source filter
+  const visible = React.useMemo(() => {
+    if (sourceFilter === "") return byTime;
+    return byTime.filter((item) => item.source === sourceFilter);
+  }, [byTime, sourceFilter]);
+
+  const groups = React.useMemo(
+    () => groupByDay(visible, today),
+    [visible, today],
+  );
+
+  if (view.status === "loading") return <Skeleton />;
+
+  if (view.status === "error") {
+    return (
+      <ErrorState
+        title="The news feed did not load."
+        error={view.error ?? "Unknown error"}
+        onRetry={view.retry}
+        testId="news-error"
+      />
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div data-testid="news-empty" className="px-3 py-2">
+        <p className="text-[12px] text-fg">The feeds returned no headlines.</p>
+        <p className="mt-0.5 text-[11px] text-fg-muted">
+          Nothing arrived from the index or company feeds on this refresh.
+        </p>
+      </div>
+    );
+  }
+
+  if (visible.length === 0) {
+    return (
+      <div data-testid="news-filter-empty" className="px-3 py-2">
+        <p className="text-[12px] text-fg">No headlines match the current filters.</p>
+        <p className="mt-0.5 text-[11px] text-fg-muted">
+          Try a different time window or source.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div data-testid="news-groups" className="px-1 py-0.5">
+        {groups.map((group) => (
+          <Day key={group.key ?? "undated"} group={group} />
+        ))}
+        {view.report && view.report.providerErrors.length > 0 ? (
+          <p
+            data-testid="news-provider-errors"
+            className="px-1 py-1 text-[10px] text-fg-subtle"
+          >
+            {formatCount(view.report.providerErrors.length)}{" "}
+            {view.report.providerErrors.length === 1 ? "feed" : "feeds"} did not
+            answer; this list may be missing headlines.
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Market Pulse (empty note — no feed yet)                            */
+/* ------------------------------------------------------------------ */
+
+function MarketPulsePanel() {
+  return (
+    <div
+      data-testid="news-pulse-empty"
+      className="flex flex-col items-center justify-center gap-2 px-3 py-12"
+    >
+      <p className="text-[13px] font-medium text-fg">Market Pulse</p>
+      <p className="max-w-sm text-center text-[12px] leading-snug text-fg-muted">
+        No pulse feed is available yet. Market Pulse will deliver real-time
+        sentiment, breadth, and unusual activity when the data pipeline is
+        complete.
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Crypto Tape                                                        */
+/* ------------------------------------------------------------------ */
+
+function CryptoRowView({ row }: { readonly row: CryptoRow }) {
+  const up = (row.changePct ?? 0) >= 0;
+  const pct =
+    row.changePct != null && Number.isFinite(row.changePct)
+      ? `${row.changePct > 0 ? "+" : ""}${row.changePct.toFixed(2)}%`
+      : "—";
+
+  return (
+    <tr
+      data-testid="crypto-row"
+      data-crypto-symbol={row.symbol}
+      {...quoteProps({
+        symbol: row.symbol,
+        name: row.name,
+        price: row.price,
+        changePct: row.changePct,
+        kind: "crypto",
+      })}
+      className="border-b border-line/60 transition-colors hover:bg-row-hover"
+    >
+      <td className="px-2 py-1.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[11px] font-medium text-fg">
+            {row.name}
+          </span>
+          <span className="shrink-0 font-mono text-[10px] text-fg-subtle">
+            {row.symbol}
+          </span>
+        </span>
+      </td>
+      <td className="nums px-2 py-1.5 text-right text-[11px] text-fg">
+        $
+        {row.price.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: row.price < 1 ? 6 : 2,
+        })}
+      </td>
+      <td
+        className="nums px-2 py-1.5 text-right text-[11px]"
+        style={{ color: up ? "var(--up)" : "var(--down)" }}
+      >
+        {pct}
+      </td>
+    </tr>
+  );
+}
+
+function CryptoTape({ crypto }: { readonly crypto: CryptoView }) {
+  if (crypto.status === "loading") {
+    return (
+      <div
+        data-testid="crypto-skeleton"
+        aria-busy="true"
+        className="flex flex-col gap-2 px-2 py-3"
+      >
+        <span className="sr-only">Loading crypto tape</span>
+        {Array.from({ length: 6 }, (_, i) => (
+          <span
+            key={i}
+            aria-hidden="true"
+            className="block h-[12px] animate-pulse rounded-[1px] bg-surface-raised"
+            style={{ width: `${84 - i * 9}%` }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (crypto.status === "error") {
+    return (
+      <ErrorState
+        title="Crypto tape did not load."
+        error={crypto.error ?? "Unknown error"}
+        onRetry={crypto.retry}
+        testId="crypto-error"
+      />
+    );
+  }
+
+  if (crypto.rows.length === 0) {
+    return (
+      <div data-testid="crypto-empty" className="px-3 py-2">
+        <p className="text-[12px] text-fg">No crypto prices in this response.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="crypto-tape"
+      className="min-h-0 min-w-0 overflow-y-auto [scrollbar-width:thin]"
+    >
+      <table className="w-full table-fixed border-collapse text-[11px]">
+        <caption className="sr-only">
+          Crypto tape: symbol, price, 24h change
+        </caption>
+        <thead>
+          <tr className="border-b border-line text-[10px] uppercase tracking-[0.05em] text-fg-subtle">
+            <th scope="col" className="px-2 py-1 text-left font-medium">
+              Coin
+            </th>
+            <th scope="col" className="px-2 py-1 text-right font-medium">
+              Price
+            </th>
+            <th scope="col" className="px-2 py-1 text-right font-medium">
+              24h
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {crypto.rows.map((row) => (
+            <CryptoRowView key={row.symbol} row={row} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  NewsPage                                                           */
+/* ------------------------------------------------------------------ */
+
 export interface NewsPageProps {
-  /**
-   * Today, as `YYYY-MM-DD` in UTC. Omitted in the app; pinned by tests and
-   * previews so `Today`/`Yesterday` do not depend on the wall clock.
-   */
   readonly today?: string;
-  /** The endpoint's cap; 60 unless a preview asks otherwise. */
   readonly limit?: number;
 }
 
 export function NewsPage({ today, limit }: NewsPageProps = {}) {
-  const news = useNews({ limit });
-  const [query, setQuery] = React.useState("");
+  const [category, setCategory] = React.useState<CategoryTab>("market-news");
+  const [timeWindow, setTimeWindow] = React.useState<TimeWindow>("all");
+  const [sourceFilter, setSourceFilter] = React.useState("");
 
   const day = today ?? todayUtc();
-  const report = news.report;
-  const items = React.useMemo(() => report?.items ?? [], [report]);
-  const visible = React.useMemo(() => filterItems(items, query), [items, query]);
-  const groups = React.useMemo(() => groupByDay(visible, day), [visible, day]);
+  const news = useNews({ limit });
+  const crypto = useCrypto();
 
-  const trimmedQuery = query.trim();
-  const filtered = trimmedQuery.length > 0;
-  const resultText = filtered
-    ? `${formatCount(visible.length)} of ${formatCount(items.length)} match “${trimmedQuery}”`
-    : `${formatCount(items.length)} headlines`;
+  // Notification on error
+  React.useEffect(() => {
+    if (news.status === "error" && news.error) {
+      notify.warn("News feed failed", news.error);
+    }
+  }, [news.status, news.error]);
+
+  const isNewsTab = category === "market-news" || category === "stocks" || category === "etf";
+
+  // Compute sources list for the active feed
+  const items = React.useMemo(() => news.report?.items ?? [], [news.report]);
+  const byCategory = React.useMemo(
+    () => filterByCategory(items, category),
+    [items, category],
+  );
+  const byTime = React.useMemo(
+    () => filterByTime(byCategory, timeWindow),
+    [byCategory, timeWindow],
+  );
+  const visible = React.useMemo(() => {
+    if (sourceFilter === "") return byTime;
+    return byTime.filter((item) => item.source === sourceFilter);
+  }, [byTime, sourceFilter]);
+  const sources = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const item of byTime) {
+      if (item.source.length > 0) set.add(item.source);
+    }
+    return [...set].sort();
+  }, [byTime]);
 
   return (
     <main
       data-testid="news-page"
-      className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2"
+      className="min-h-0 flex-1 overflow-y-auto px-2 py-3"
+      style={{ background: "#000" }}
     >
-      <header className="mb-1.5 px-0.5">
-        <h1 className="text-ui font-medium text-fg">News</h1>
-        <p className="mt-0.5 text-data text-fg-muted">
-          Headlines about the largest index funds and companies, newest first. Times are
-          UTC.
-        </p>
-      </header>
+      <SectionTitle variant={6} count={category !== "crypto" ? formatCount(items.length) : undefined}>
+        News
+      </SectionTitle>
 
-      {news.status === "ready" && items.length > 0 ? (
-        <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-2 px-0.5">
-          <label htmlFor="news-filter" className="sr-only">
-            Filter headlines
-          </label>
-          <input
-            id="news-filter"
-            data-testid="news-filter"
-            type="search"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Filter by headline or symbol"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="focus-ring h-6 w-[240px] rounded-sm border border-line bg-surface px-2 text-data text-fg placeholder:text-fg-disabled"
-          />
-          <p
-            data-testid="news-filter-status"
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            className="min-w-0 truncate text-data text-fg-subtle"
-          >
-            {resultText}
-          </p>
-        </div>
-      ) : null}
+      <CategoryTabs active={category} onSelect={setCategory} />
+
+      {/* Filters only for news tabs */}
+      {isNewsTab && news.status !== "loading" && news.status !== "error" && items.length > 0 && (
+        <Filters
+          timeWindow={timeWindow}
+          onTimeWindow={setTimeWindow}
+          sourceFilter={sourceFilter}
+          onSourceFilter={setSourceFilter}
+          sources={sources}
+          visibleCount={visible.length}
+          totalCount={byCategory.length}
+        />
+      )}
 
       <div
         data-testid="news-frame"
-        style={{ minHeight: NEWS_RESERVED_HEIGHT }}
         className="rounded-md border border-line bg-surface"
       >
-        {news.status === "loading" ? (
-          <Skeleton />
-        ) : news.status === "error" ? (
-          <div
-            data-testid="news-error"
-            role="alert"
-            className="flex items-start justify-between gap-3 px-3 py-2"
-          >
-            <div className="min-w-0">
-              <p className="text-data text-fg">The news feed did not load.</p>
-              <p className="mt-0.5 text-data text-fg-muted">{news.error}</p>
-            </div>
-            <button
-              type="button"
-              onClick={news.retry}
-              className="focus-ring shrink-0 rounded-sm border border-line px-2 py-0.5 text-data text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
-            >
-              Retry
-            </button>
-          </div>
-        ) : items.length === 0 ? (
-          <div data-testid="news-empty" className="px-3 py-2">
-            <p className="text-data text-fg">The feeds returned no headlines.</p>
-            <p className="mt-0.5 text-data text-fg-muted">
-              Nothing arrived from the index or company feeds on this refresh.
-            </p>
-          </div>
-        ) : visible.length === 0 ? (
-          <div data-testid="news-filter-empty" className="px-3 py-2">
-            <p className="text-data text-fg">
-              No headlines match “{trimmedQuery}”.
-            </p>
-            <p className="mt-0.5 text-data text-fg-muted">
-              Filter by a word in the headline or by a ticker in the chips.
-            </p>
-          </div>
+        {category === "market-pulse" ? (
+          <MarketPulsePanel />
+        ) : category === "crypto" ? (
+          <CryptoTape crypto={crypto} />
         ) : (
-          <div data-testid="news-groups" className="px-1 py-0.5">
-            {groups.map((group) => (
-              <Day key={group.key ?? "undated"} group={group} />
-            ))}
-
-            {report && report.providerErrors.length > 0 ? (
-              // Quiet, but not silent: a partial feed is a different claim
-              // from a complete one, and the reader is told the list may be
-              // missing rows without every provider error being printed.
-              <p
-                data-testid="news-provider-errors"
-                className="px-1 py-1 text-label text-fg-subtle"
-              >
-                {formatCount(report.providerErrors.length)}{" "}
-                {report.providerErrors.length === 1 ? "feed" : "feeds"} did not answer;
-                this list may be missing headlines.
-              </p>
-            ) : null}
-          </div>
+          <FeedList
+            view={news}
+            category={category}
+            timeWindow={timeWindow}
+            sourceFilter={sourceFilter}
+            today={day}
+          />
         )}
       </div>
     </main>

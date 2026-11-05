@@ -5,20 +5,30 @@
  * keeps that import to one line and one name.
  */
 
-export { NewsPage, NEWS_RESERVED_HEIGHT, NEWS_SKELETON_ROWS, type NewsPageProps } from "./NewsPage";
+export { NewsPage, NEWS_SKELETON_ROWS, type NewsPageProps } from "./NewsPage";
 export {
+  CryptoMalformed,
   NEWS_LIMIT,
   NewsMalformed,
+  cryptoPath,
+  filterByCategory,
+  filterByTime,
   filterItems,
   groupByDay,
+  isIndexFundSymbol,
   newsPath,
+  readCrypto,
   readNews,
   sortNewestFirst,
+  sourceColor,
+  type CategoryTab,
+  type CryptoRow,
   type NewsGroup,
   type NewsItem,
   type NewsReport,
+  type TimeWindow,
 } from "./news";
-export { useNews, type NewsQuery, type NewsStatus, type NewsView } from "./useNews";
+export { useCrypto, useNews, type CryptoView, type NewsQuery, type NewsStatus, type NewsView } from "./useNews";
 export {
   dayKeyOf,
   dayLabel,
@@ -26,6 +36,7 @@ export {
   itemClock,
   matchesQuery,
   previousDay,
+  relativeTime,
   safeExternalHref,
   todayUtc,
   type ItemClock,

@@ -15,7 +15,17 @@ import * as React from "react";
 
 import { ApiError, getJson } from "@/lib/api";
 
-import { NEWS_LIMIT, NewsMalformed, newsPath, readNews, type NewsReport } from "./news";
+import {
+  CryptoMalformed,
+  type CryptoRow,
+  cryptoPath,
+  NEWS_LIMIT,
+  NewsMalformed,
+  newsPath,
+  readCrypto,
+  readNews,
+  type NewsReport,
+} from "./news";
 
 export type NewsStatus = "loading" | "ready" | "error";
 
@@ -65,6 +75,61 @@ export function useNews(query: NewsQuery = {}): NewsView {
                 : cause instanceof Error
                   ? cause.message
                   : "Request failed",
+        });
+      });
+
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [path, attempt]);
+
+  const retry = React.useCallback(() => setAttempt((value) => value + 1), []);
+  return { ...state, retry };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Crypto tape hook — GET /market/alt?class=crypto                   */
+/* ------------------------------------------------------------------ */
+
+export interface CryptoView {
+  readonly status: NewsStatus;
+  readonly rows: readonly CryptoRow[];
+  readonly error: string | null;
+  readonly retry: () => void;
+}
+
+export function useCrypto(): CryptoView {
+  const path = cryptoPath();
+
+  const [state, setState] = React.useState<Omit<CryptoView, "retry">>({
+    status: "loading",
+    rows: [],
+    error: null,
+  });
+  const [attempt, setAttempt] = React.useState(0);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    setState((previous) => ({ ...previous, status: "loading", error: null }));
+
+    getJson(path, controller.signal)
+      .then((body) => {
+        if (!live) return;
+        setState({ status: "ready", rows: readCrypto(body), error: null });
+      })
+      .catch((cause: unknown) => {
+        if (!live || controller.signal.aborted) return;
+        setState({
+          status: "error",
+          rows: [],
+          error:
+            cause instanceof CryptoMalformed
+              ? "The crypto payload could not be read."
+              : cause instanceof Error
+                ? cause.message
+                : "Request failed",
         });
       });
 
