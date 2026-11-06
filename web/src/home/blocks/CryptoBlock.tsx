@@ -44,13 +44,6 @@ function compactCap(value: number | null): string {
   return formatMoney(value, true);
 }
 
-/**
- * How many coins the home card shows: the top of the list, as a peek. The full
- * universe is the crypto page, which the section's "Crypto page" link opens.
- * Capped so the home board never carries a coin list that scrolls of its own.
- */
-const CRYPTO_HOME_LIMIT = 12;
-
 /** `54.31%` — a share, never a signed move. */
 function dominance(value: number | null): string {
   if (value === null) return "—";
@@ -152,7 +145,6 @@ export function CryptoBlock({
   }
 
   const loading = status === "loading";
-  const coins = rows.slice(0, CRYPTO_HOME_LIMIT);
   const pulse = (
     <div data-testid="crypto-pulse" className="grid shrink-0 grid-cols-3 gap-3 border-b border-line px-2 py-1.5">
       {loading ? (
@@ -181,7 +173,7 @@ export function CryptoBlock({
   );
 
   return (
-    <Card id="crypto" title="Crypto" hideTitle className={cn("bg-surface", className)}>
+    <Card id="crypto" title="Crypto" hideTitle className={cn("bg-surface", className)} height={392}>
       {pulse}
       {loading ? (
         <div aria-hidden="true" data-testid="crypto-skeleton" className="flex flex-col gap-2 p-2 [&>span]:animate-pulse">
@@ -198,12 +190,7 @@ export function CryptoBlock({
               Meta is unavailable — caps, ranks and 7-day moves print without it.
             </p>
           ) : null}
-          {rows.length > coins.length ? (
-            <p className="px-2 pt-1 text-[10px] text-fg-subtle">
-              Top {coins.length} of {rows.length} coins. Full list on the crypto page.
-            </p>
-          ) : null}
-          <div data-testid="crypto-coins" className="min-h-0 min-w-0">
+          <div data-testid="crypto-coins" className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
             <table className="w-full table-fixed border-collapse text-[11px]">
               <caption className="sr-only">Crypto: price, 24h, 7 days, capitalisation, rank</caption>
               <thead>
@@ -217,7 +204,7 @@ export function CryptoBlock({
                 </tr>
               </thead>
               <tbody>
-                {coins.map((row) => (
+                {rows.map((row) => (
                   <tr
                     key={row.symbol}
                     data-crypto-row={row.symbol}

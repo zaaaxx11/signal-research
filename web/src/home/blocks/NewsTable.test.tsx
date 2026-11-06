@@ -25,13 +25,13 @@ describe("whenLabel", () => {
 });
 
 describe("NewsTable", () => {
-  it("draws the top of the wire as a peek, with no scroll of its own", () => {
+  it("draws every story in one scrollable table", () => {
     const report = readHome(homeDocument());
     render(<NewsTable state={READY} news={report.news} />);
 
     const rows = screen.getAllByTestId("news-row");
     expect(rows).toHaveLength(8);
-    expect(screen.getByTestId("news-table").className).not.toContain("overflow-y-auto");
+    expect(screen.getByTestId("news-table").className).toContain("overflow-y-auto");
     expect(rows[0]?.textContent).toContain("Futures slide");
     expect(rows[0]?.querySelector("a")?.getAttribute("target")).toBe("_blank");
     expect(rows[0]?.querySelector("a")?.getAttribute("rel")).toBe("noopener noreferrer");

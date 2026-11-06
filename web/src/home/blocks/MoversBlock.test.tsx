@@ -38,7 +38,7 @@ describe("moverRows", () => {
 });
 
 describe("MoversBlock", () => {
-  it("draws a peek of the movers in a fixed 420 px box with no scroll", () => {
+  it("draws forty rows in a table with a caption and four headers", () => {
     const report = readHome(homeDocument());
     render(<MoversBlock state={READY} movers={report.movers} />);
 
@@ -52,10 +52,8 @@ describe("MoversBlock", () => {
       "Change",
       "Signal",
     ]);
-    // The home card is a peek, not the full screen: capped, and no scroll of its own.
-    expect(card.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(18);
+    expect(card.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
     expect(card.style.height).toBe("420px");
-    expect(card.querySelector("[class*='overflow-y-auto']")).toBeNull();
   });
 
   it("names the screen each row came from and links the ticker", () => {

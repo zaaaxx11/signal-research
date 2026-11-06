@@ -1,19 +1,18 @@
 /**
- * The movers list: the top names across four screens, in one table.
+ * The movers list: up to forty names across four groups, in one table.
  *
  * A table, not a list of divs, because the four things on a row are four columns
- * with a shared header - and because a caption is the only way to say to a
+ * with a shared header — and because a caption is the only way to say to a
  * screen reader what the numbers are before it starts reading them. The caption
  * is visually hidden (the card's `<h2>` already names the block on screen) and
  * still present in the accessibility tree.
  *
- * The card is a fixed box with no scroll of its own. It shows the top of the
- * movers as a peek (`MOVERS_HOME_LIMIT` rows, strong moves first); the full
- * screen is the screener, which the "See all" link opens. A home page that
- * scrolls inside one of its own cards asks the reader for two scrollbars at
- * once; a peek plus a door does not. The box keeps its height, so the page does
- * not move when the payload lands and the card beside the map stays the same
- * height with a peek or the full screen.
+ * The body scrolls inside a fixed 420 px box. At 900 px the block is 8 of 12
+ * columns, and forty rows at 20 px would be an 800 px wall that pushes the map
+ * and the insider strip off the screen; scrolling keeps the block the same
+ * height with 4 rows or 40, so the page cannot move when the payload lands. The
+ * table is `table-fixed` with a declared `colgroup`, so a long company name
+ * truncates in its own column instead of widening the grid.
  *
  * Rows are sorted by group and then by the number they are about: gainers, new
  * highs and overbought read strongest-first, new lows weakest-first. Within a
@@ -35,13 +34,6 @@ const DESCENDING: Record<MoverKey, boolean> = {
   overbought: true,
   newLow: false,
 };
-
-/**
- * How many of the movers a home card shows: the top of the list, as a peek.
- * The full screen lives on the screener, which the card's "See all" opens.
- * Capped so the rows fill the card's fixed box with no scroll of their own.
- */
-const MOVERS_HOME_LIMIT = 18;
 
 function sorted(rows: readonly HomeMover[], descending: boolean): HomeMover[] {
   return [...rows].sort((left, right) => {
@@ -77,7 +69,7 @@ export interface MoversBlockProps {
 }
 
 export function MoversBlock({ state, movers, className, hideTitle = false }: MoversBlockProps) {
-  const rows = moverRows(movers).slice(0, MOVERS_HOME_LIMIT);
+  const rows = moverRows(movers);
   const count = movers?.total ?? 0;
 
   return (
@@ -111,7 +103,7 @@ export function MoversBlock({ state, movers, className, hideTitle = false }: Mov
           No names matched the four mover screens today.
         </p>
       ) : (
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <table className="w-full table-fixed border-collapse text-[11px]">
             <caption className="sr-only">
               Movers: top gainers, new highs, overbought and new lows

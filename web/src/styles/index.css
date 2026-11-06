@@ -135,6 +135,10 @@
     background-color: var(--bg);
     /* A 28 px pitch survives font scaling; a fixed px body does not. */
     -webkit-text-size-adjust: 100%;
+    /* `clip` — not `hidden` — so the viewport stays the single vertical
+     * scroller: `hidden` would make the root a scroll box and double the
+     * scrollbar. `clip` kills any horizontal overflow without nesting a scroll. */
+    overflow-x: clip;
   }
 
   body {
