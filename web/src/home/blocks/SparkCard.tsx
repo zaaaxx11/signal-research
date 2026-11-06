@@ -23,7 +23,7 @@ export function SparkCard({ spark }: SparkCardProps) {
   return (
     <div
       data-testid={`spark-card-${spark.symbol}`}
-      className="w-full min-w-0 flex flex-col gap-1 rounded-sm border border-line bg-surface-sunken p-1.5"
+      className="w-[156px] shrink-0 snap-start flex min-w-0 flex-col gap-1 rounded-sm border border-line bg-surface-sunken p-1.5"
     >
       <h3 className="flex min-w-0 items-baseline gap-1.5">
         <span className="truncate font-mono text-[11px] font-semibold text-fg">{spark.symbol}</span>

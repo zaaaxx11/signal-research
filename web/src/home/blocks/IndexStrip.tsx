@@ -39,22 +39,20 @@ import type { BlockState, HomeIndex, HomeSpark } from "../home";
 import { BLOCK_HEIGHT, BlockMessage, Card, SkeletonTiles } from "./HomeBlock";
 import { Delta, Price } from "./Values";
 import { SparkCard } from "./SparkCard";
-import { cn } from "@/lib/utils";
 
 const COLUMNS = "grid-cols-2 min-[700px]:grid-cols-4 min-[1100px]:grid-cols-8";
 
 /**
- * The strip reflows to the reader's window instead of scrolling.
+ * The strip scrolls sideways.
  *
- * Eight tiles at a comfortable width do not fit a narrow window. The old
- * answer was a horizontal scroll (a snap row the reader had to swipe), and a
- * swipe is the one thing a dashboard should not ask for. Instead the row is a
- * grid: two-up on a phone, four-up on a tablet and eight-up from 1100 px, so
- * every tile always fits the width and the page never grows a sideways
- * scrollbar. The same `COLUMNS` drives the skeleton, so the answer lands in
- * the same boxes the loading state reserved.
+ * Eight tiles at a comfortable width do not fit a 900 px window, and the two
+ * alternatives are worse: shrinking them turns a sparkline into a line, and
+ * wrapping them into a second row makes the strip claim two rows of the page's
+ * height for one idea. The tiles keep their width, the row scrolls, and the
+ * scroll snaps to a tile so a wheel or a swipe lands on a card rather than
+ * between two.
  */
-const TILE_WIDTH = "w-full";
+const TILE_WIDTH = "w-[148px] shrink-0 snap-start";
 
 /** The chart's height in the tile, and the box reserved before it arrives. */
 const TILE_CHART_HEIGHT = 36;
@@ -179,18 +177,18 @@ export function IndexStrip({
       ) : (
         <div
           data-testid="strip-scroll"
-          className={cn("grid gap-2 p-2", COLUMNS)}
+          className="flex snap-x snap-mandatory gap-2 overflow-x-auto p-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong"
         >
           {indices === null ? (
             <p
               data-testid="indices-reason"
               title={indicesState.reason ?? undefined}
-              className="col-span-full text-[11px] text-fg-subtle"
+              className="min-w-[220px] text-[11px] text-fg-subtle"
             >
               {indicesState.reason}
             </p>
           ) : indices.length === 0 ? (
-            <p className="col-span-full text-[11px] text-fg-subtle">
+            <p className="min-w-[220px] text-[11px] text-fg-subtle">
               No index quotes in this response.
             </p>
           ) : (
@@ -201,12 +199,12 @@ export function IndexStrip({
             <p
               data-testid="sparks-reason"
               title={sparksState.reason ?? undefined}
-              className="col-span-full text-[11px] text-fg-subtle"
+              className="min-w-[220px] text-[11px] text-fg-subtle"
             >
               {sparksState.reason}
             </p>
           ) : sparks.length === 0 ? (
-            <p className="col-span-full text-[11px] text-fg-subtle">
+            <p className="min-w-[220px] text-[11px] text-fg-subtle">
               No ticker sparks in this response.
             </p>
           ) : (

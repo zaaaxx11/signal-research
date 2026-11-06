@@ -135,10 +135,6 @@
     background-color: var(--bg);
     /* A 28 px pitch survives font scaling; a fixed px body does not. */
     -webkit-text-size-adjust: 100%;
-    /* `clip` — not `hidden` — so the viewport stays the single vertical
-     * scroller: `hidden` would make the root a scroll box and double the
-     * scrollbar. `clip` kills any horizontal overflow without nesting a scroll. */
-    overflow-x: clip;
   }
 
   body {
@@ -146,6 +142,11 @@
     font-size: 13px;
     line-height: 1.45;
     /* No external font request: the stack above resolves locally. */
+    /* Kill the page-level horizontal scrollbar (a marquee bleeds past the
+     * width). `hidden` on body locks horizontal at the document while the
+     * vertical scroll stays the single window scroller — the small tables
+     * keep their own internal scrollers, so no doubling. */
+    overflow-x: hidden;
   }
 
   /* Text selection is a rose fill of its own, not the row-selected surface:

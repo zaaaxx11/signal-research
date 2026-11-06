@@ -66,7 +66,10 @@ function Table({
   readonly testId: string;
 }) {
   return (
-    <div data-testid={testId} className="min-w-0 overflow-hidden rounded-sm border border-line">
+    <div
+      data-testid={testId}
+      className="min-w-0 max-h-[260px] overflow-y-auto rounded-sm border border-line [scrollbar-width:thin]"
+    >
       <table className="w-full border-collapse text-[11px] tabular-nums">{children}</table>
     </div>
   );
