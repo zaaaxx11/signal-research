@@ -136,6 +136,15 @@ async def insider_flow(symbol: str, request: Request, days: str | None = None) -
 _VALID_OWNER_TYPES = frozenset({"insiders", "managers", "funds"})
 _VALID_TRANSACTION_TYPES = frozenset({"all", "buy", "sell"})
 
+# The query param speaks plural ("insiders"); the role mapper speaks singular
+# ("insider") and that singular is what the row sends the client. The filter
+# has to compare in one vocabulary, or every row is skipped.
+_OWNER_TYPE_PLURAL: dict[str, str] = {
+    "insider": "insiders",
+    "manager": "managers",
+    "fund": "funds",
+}
+
 
 def _owner_type_from_role(role: str | None) -> str:
     """Derive owner_type from the role string the engine parser produced."""
@@ -197,7 +206,7 @@ async def market_insider(
         cache_dir = Path(cache_dir_raw) if cache_dir_raw else None
         from app.engine.insider import collect_insider
 
-        for symbol, record in list(master.items())[:60]:
+        for record in list(master.records())[:60]:
             if record.cik is None:
                 continue
             try:
@@ -217,7 +226,7 @@ async def market_insider(
                     continue
                 role = doc.get("role")
                 row_owner_type = _owner_type_from_role(str(role) if role else None)
-                if row_owner_type != ot:
+                if _OWNER_TYPE_PLURAL.get(row_owner_type, row_owner_type) != ot:
                     continue
                 if tt != "all" and ttype.casefold() != tt:
                     continue

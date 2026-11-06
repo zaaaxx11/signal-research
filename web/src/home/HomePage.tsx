@@ -95,7 +95,7 @@ export function HomePage() {
   void asOf;
 
   return (
-    <main data-testid="home" className="min-h-0 flex-1 bg-bg px-2 py-2">
+    <main data-testid="home" className="min-h-0 flex-1 overflow-hidden bg-bg px-2 py-2">
       <h1 className="sr-only">Market overview</h1>
 
       {status === "error" ? (

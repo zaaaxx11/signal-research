@@ -41,6 +41,7 @@ import {
   loadFuturesPage,
   loadGroupsPage,
   loadHomePage,
+  loadInsiderDetailPage,
   loadInsiderPage,
   loadMapPage,
   loadNewsPage,
@@ -125,6 +126,7 @@ export function App() {
       news: "News — Ztockz",
       groups: "Groups — Ztockz",
       insider: "Insider — Ztockz",
+      insiderDetail: "Form 4 filings — Ztockz",
       calendar: "Calendar — Ztockz",
       futures: "Futures — Ztockz",
       forex: "Forex — Ztockz",
@@ -147,6 +149,7 @@ export function App() {
   const CalendarPage = React.useMemo(() => React.lazy(loadCalendarPage), []);
   const ChartsPage = React.useMemo(() => React.lazy(loadChartsPage), []);
   const InsiderPage = React.useMemo(() => React.lazy(loadInsiderPage), []);
+  const InsiderDetailPage = React.useMemo(() => React.lazy(loadInsiderDetailPage), []);
   const CryptoPage = React.useMemo(() => React.lazy(loadCryptoPage), []);
   const CryptoDetailPage = React.useMemo(() => React.lazy(loadCryptoDetailPage), []);
   const FuturesPage = React.useMemo(() => React.lazy(loadFuturesPage), []);
@@ -237,6 +240,10 @@ export function App() {
       ) : route.kind === "insider" ? (
         <React.Suspense fallback={<PageSkeleton label="Loading insider activity" />}>
           <InsiderPage />
+        </React.Suspense>
+      ) : route.kind === "insiderDetail" ? (
+        <React.Suspense fallback={<PageSkeleton label={`Loading ${route.symbol} filings`} />}>
+          <InsiderDetailPage symbol={route.symbol} />
         </React.Suspense>
       ) : route.kind === "crypto" ? (
         <React.Suspense fallback={<PageSkeleton label="Loading crypto" />}>

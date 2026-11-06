@@ -71,6 +71,13 @@ describe("parseRoute", () => {
     expect(parseRoute("/app/stock/../etc")).toEqual({ kind: "notfound", path: "/stock/../etc" });
   });
 
+  it("reads a per-insider page off /insider/{ticker}, and keeps the list route", () => {
+    expect(parseRoute("/app/insider")).toEqual({ kind: "insider" });
+    expect(parseRoute("/app/insider/aapl")).toEqual({ kind: "insiderDetail", symbol: "AAPL" });
+    expect(parseRoute("/app/insider/BRK.B")).toEqual({ kind: "insiderDetail", symbol: "BRK.B" });
+    expect(parseRoute("/app/insider/")).toEqual({ kind: "insider" });
+  });
+
   it("returns a not-found route for anything else", () => {
     expect(parseRoute("/app/nope")).toEqual({ kind: "notfound", path: "/nope" });
     expect(parseRoute("/app/screener/etf/extra").kind).toBe("notfound");

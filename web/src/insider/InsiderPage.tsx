@@ -14,6 +14,7 @@ import { getJson, ApiError } from "@/lib/api";
 import { notify } from "@/lib/notify";
 import { quoteProps } from "@/lib/quoteAttrs";
 import { cn } from "@/lib/utils";
+import { Link } from "@/shell/routes";
 
 import {
   type InsiderRow,
@@ -198,7 +199,15 @@ function InsiderTable({ rows }: { readonly rows: readonly InsiderRow[] }) {
               {...quoteProps({ symbol: row.symbol })}
               className="border-b border-white/5 transition-colors hover:bg-white/[0.03]"
             >
-              <td className="px-3 py-2 font-mono text-white/80">{row.symbol}</td>
+              <td className="px-3 py-2 font-mono">
+                <Link
+                  to={`/insider/${encodeURIComponent(row.symbol)}`}
+                  data-testid="insider-row-link"
+                  className="text-white/80 underline-offset-2 transition-colors hover:text-white hover:underline"
+                >
+                  {row.symbol}
+                </Link>
+              </td>
               <td className="truncate px-3 py-2 text-white/70 max-w-[180px]" title={row.owner}>
                 {row.owner}
               </td>

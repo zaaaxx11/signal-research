@@ -10,6 +10,7 @@
  */
 
 export { InsiderPage } from "./InsiderPage";
+export { InsiderDetailPage } from "./InsiderDetailPage";
 export { InsiderDetail, INSIDER_DETAIL_NOTE, INSIDER_DETAIL_TITLE_ID } from "./InsiderDetail";
 export { FilingsMalformed, filingsPath, readFilings } from "./filings";
 export type { InsiderField, InsiderFiling, InsiderFilings } from "./filings";

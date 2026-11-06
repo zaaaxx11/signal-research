@@ -292,10 +292,15 @@ function TypeFilterBar({
 
 export interface InsiderDetailProps {
   readonly symbol: string;
-  readonly onClose: () => void;
+  /** Present in panel mode: draws the Close button. A page passes none. */
+  readonly onClose?: () => void;
+  /** Page mode: a plain block that flows with the page, not a sticky panel. */
+  readonly standalone?: boolean;
+  /** The page draws its own title; the panel's own header is omitted. */
+  readonly hideHeader?: boolean;
 }
 
-export function InsiderDetail({ symbol, onClose }: InsiderDetailProps) {
+export function InsiderDetail({ symbol, onClose, standalone = false, hideHeader = false }: InsiderDetailProps) {
   const view = useInsiderFilings(symbol);
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
   const [sortConfig, setSortConfig] = React.useState<SortConfig | null>({ key: "date", dir: "desc" });
@@ -325,32 +330,39 @@ export function InsiderDetail({ symbol, onClose }: InsiderDetailProps) {
     <aside
       data-testid="insider-detail"
       aria-labelledby={INSIDER_DETAIL_TITLE_ID}
-      className="flex min-h-0 min-w-0 flex-col self-start overflow-hidden rounded-md border border-line bg-surface xl:sticky xl:top-2 xl:max-h-[calc(100vh-120px)]"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-col self-start overflow-hidden rounded-md border border-line bg-surface",
+        !standalone && "xl:sticky xl:top-2 xl:max-h-[calc(100vh-120px)]",
+      )}
     >
-      <div className="flex items-start justify-between gap-2 border-b border-line-strong px-2 py-1.5">
-        <div className="min-w-0">
-          <h2
-            id={INSIDER_DETAIL_TITLE_ID}
-            className="flex min-w-0 items-baseline gap-1.5 text-ui font-medium text-fg"
-          >
-            <span className="font-mono">{symbol}</span>
-            <span className="text-fg-muted">Form 4 filings</span>
-          </h2>
-          <p data-testid="insider-detail-note" className="mt-0.5 text-label text-fg-subtle">
-            {INSIDER_DETAIL_NOTE}
-          </p>
+      {hideHeader ? null : (
+        <div className="flex items-start justify-between gap-2 border-b border-line-strong px-2 py-1.5">
+          <div className="min-w-0">
+            <h2
+              id={INSIDER_DETAIL_TITLE_ID}
+              className="flex min-w-0 items-baseline gap-1.5 text-ui font-medium text-fg"
+            >
+              <span className="font-mono">{symbol}</span>
+              <span className="text-fg-muted">Form 4 filings</span>
+            </h2>
+            <p data-testid="insider-detail-note" className="mt-0.5 text-label text-fg-subtle">
+              {INSIDER_DETAIL_NOTE}
+            </p>
+          </div>
+          {onClose ? (
+            <button
+              type="button"
+              data-testid="insider-detail-close"
+              onClick={onClose}
+              className="focus-ring shrink-0 rounded-sm border border-line px-2 py-0.5 text-data text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
+            >
+              Close
+            </button>
+          ) : null}
         </div>
-        <button
-          type="button"
-          data-testid="insider-detail-close"
-          onClick={onClose}
-          className="focus-ring shrink-0 rounded-sm border border-line px-2 py-0.5 text-data text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
-        >
-          Close
-        </button>
-      </div>
+      )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className={cn("min-h-0 flex-1", !standalone && "overflow-y-auto")}>
         {view.status === "loading" ? (
           <Skeleton symbol={symbol} />
         ) : view.status === "error" ? (

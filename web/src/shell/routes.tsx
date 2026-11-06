@@ -64,6 +64,7 @@ export type Route =
   | { kind: "calendar" }
   | { kind: "charts" }
   | { kind: "insider" }
+  | { kind: "insiderDetail"; symbol: string }
   | { kind: "crypto" }
   | { kind: "cryptoDetail"; symbol: string }
   | { kind: "futures" }
@@ -107,6 +108,17 @@ export function parseRoute(pathname: string): Route {
   if (path === "/calendar") return { kind: "calendar" };
   if (path === "/charts") return { kind: "charts" };
   if (path === "/insider") return { kind: "insider" };
+  if (path.startsWith("/insider/")) {
+    const raw = path.slice("/insider/".length);
+    let symbol = raw;
+    try {
+      symbol = decodeURIComponent(raw);
+    } catch {
+      return { kind: "notfound", path };
+    }
+    if (SYMBOL_PATTERN.test(symbol)) return { kind: "insiderDetail", symbol: symbol.toUpperCase() };
+    return { kind: "notfound", path };
+  }
   if (path === "/crypto") return { kind: "crypto" };
   if (path === "/futures") return { kind: "futures" };
   if (path === "/forex") return { kind: "forex" };
