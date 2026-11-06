@@ -28,6 +28,7 @@ import { ToastCenter } from "@/components/ToastCenter";
 import { ConfirmDialogCanvas } from "@/components/ConfirmDialog";
 import { HoverBubble } from "@/components/HoverBubble";
 import { HeaderBar } from "@/shell/HeaderBar";
+import { SiteFooter } from "@/shell/SiteFooter";
 import type { SymbolHit } from "@/lib/api";
 import { navigate, useRoute, useSearch } from "@/shell/routes";
 import {
@@ -274,6 +275,8 @@ export function App() {
       <ToastCenter />
       <ConfirmDialogCanvas />
       <HoverBubble />
+
+      <SiteFooter />
     </div>
   );
 }

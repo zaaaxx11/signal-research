@@ -18,6 +18,14 @@
 
 import type { BlockState, HomeNews } from "../home";
 import { BLOCK_HEIGHT, HomeBlock } from "./HomeBlock";
+import { Link } from "@/shell/routes";
+
+/**
+ * How many headlines the home card shows: the top of the wire, as a peek.
+ * The full news surface is the news page, which the card's "All news" opens.
+ * Capped so the list never needs a scroll of its own on the home board.
+ */
+const NEWS_HOME_LIMIT = 10;
 
 /** `05:13` for today (UTC), `Oct-31` for anything older. */
 export function whenLabel(iso: string | null, now: Date = new Date()): string {
@@ -42,6 +50,7 @@ export interface NewsTableProps {
 }
 
 export function NewsTable({ state, news, className, hideTitle = false }: NewsTableProps) {
+  const body = news === null ? [] : news.slice(0, NEWS_HOME_LIMIT);
   return (
     <HomeBlock
       id="news"
@@ -52,7 +61,16 @@ export function NewsTable({ state, news, className, hideTitle = false }: NewsTab
       minHeight={BLOCK_HEIGHT.headline}
       actions={
         news === null ? null : (
-          <span className="shrink-0 text-[10px] text-fg-subtle">{news.length}</span>
+          <div className="flex shrink-0 items-baseline gap-2">
+            <span className="text-[10px] text-fg-subtle">{news.length}</span>
+            <Link
+              to="/news"
+              className="text-[10px] text-accent-text hover:underline"
+              data-testid="news-see-all"
+            >
+              All news
+            </Link>
+          </div>
         )
       }
       skeleton={
@@ -70,11 +88,8 @@ export function NewsTable({ state, news, className, hideTitle = false }: NewsTab
       {news === null ? null : news.length === 0 ? (
         <p className="px-2 py-1 text-[11px] text-fg-subtle">No headlines in this cycle.</p>
       ) : (
-        <ul
-          data-testid="news-table"
-          className="max-h-[248px] min-w-0 overflow-y-auto [scrollbar-width:thin]"
-        >
-          {news.map((item, index) => (
+        <ul data-testid="news-table" className="min-w-0">
+          {body.map((item, index) => (
             <li
               key={`${item.url ?? item.headline}-${index}`}
               data-testid="news-row"

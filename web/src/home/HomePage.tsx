@@ -44,7 +44,6 @@ import { useHome } from "./useHome";
 import { useHomeCrypto } from "./useHomeCrypto";
 import { BreadthTiles } from "./blocks/BreadthTiles";
 import { CryptoBlock } from "./blocks/CryptoBlock";
-import { HomeFooter } from "./blocks/HomeFooter";
 import { HeadlineTicker } from "./blocks/HeadlineTicker";
 import { IndexStrip } from "./blocks/IndexStrip";
 import { InsiderLinksBlock } from "./blocks/InsiderLinksBlock";
@@ -96,7 +95,7 @@ export function HomePage() {
   void asOf;
 
   return (
-    <main data-testid="home" className="min-h-0 flex-1 overflow-y-auto bg-bg px-2 py-2">
+    <main data-testid="home" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-bg px-2 py-2">
       <h1 className="sr-only">Market overview</h1>
 
       {status === "error" ? (
@@ -275,11 +274,6 @@ export function HomePage() {
               economic={report?.economic ?? null}
             />
           </div>
-        </div>
-
-        {/* The desk sits directly above the footer: one table, scrolled, full. */}
-        <div className={SPAN.full}>
-          <HomeFooter />
         </div>
       </div>
     </main>

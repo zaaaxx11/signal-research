@@ -77,7 +77,7 @@ export function InsiderLinksBlock({ rows, state, className }: InsiderLinksBlockP
         className ?? "",
       ].join(" ")}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
+      <div className="min-h-0 flex-1">
         {loading ? (
           <div aria-hidden="true" data-testid="insider-links-skeleton" className="flex flex-col gap-2 p-2 [&>span]:animate-pulse">
             {Array.from({ length: 6 }, (_, index) => (

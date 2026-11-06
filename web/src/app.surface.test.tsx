@@ -163,7 +163,7 @@ describe("the front door", () => {
     );
     expect(screen.getByTestId("home-movers")).toBeTruthy();
     expect(screen.getByTestId("home-map")).toBeTruthy();
-    expect(screen.getByTestId("home-footer").textContent).toBe("ztockz");
+    expect(screen.getByTestId("site-footer").tagName).toBe("FOOTER");
     expect(urls(api).filter((url) => url === "/market/home?region=us")).toHaveLength(1);
     expect(urls(api).some((url) => url === "/screens/select")).toBe(false);
     expect(urls(api)).not.toContain("/health");

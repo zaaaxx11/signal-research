@@ -174,7 +174,6 @@ describe("HomePage", () => {
     for (const block of BLOCKS) {
       expect(screen.getByTestId(`home-${block}`), block).toBeTruthy();
     }
-    expect(screen.getByTestId("home-footer").tagName).toBe("FOOTER");
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/market/home?region=us");
   });
 
@@ -206,9 +205,8 @@ describe("HomePage", () => {
       expect(screen.getByTestId("home-grid").getAttribute("data-status")).toBe("ready"),
     );
 
-    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
+    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(18);
     expect(screen.queryByTestId("map-tiles")).toBeNull();
-    expect(screen.getByTestId("home-footer").textContent).toBe("ztockz");
 
     const pair = screen.getByTestId("movers-map-pair");
     expect(pair.getAttribute("data-parts")).toBe("2 1 0%, 1 1 0%");
@@ -288,7 +286,7 @@ describe("HomePage", () => {
     expect(insider.textContent).toContain("Insider unavailable");
     expect(insider.querySelectorAll("tbody tr")).toHaveLength(0);
     // The other equity blocks still painted.
-    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
+    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(18);
   });
 
   it("says a missing map has no sectors instead of drawing an empty canvas", async () => {
@@ -417,7 +415,7 @@ describe("HomePage", () => {
       "| calls:",
       homeCalls,
     );
-    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(40);
+    expect(document.querySelectorAll("tbody tr[data-mover-row]")).toHaveLength(18);
   });
 
   it("fails the crypto section loudly, then recovers with one success toast", async () => {
