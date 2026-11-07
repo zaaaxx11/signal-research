@@ -106,6 +106,12 @@ def main() -> int:
         action="store_true",
         help="also build the SEC bulk depth index (minutes of CPU; cap it)",
     )
+    parser.add_argument(
+        "--save-index",
+        default=None,
+        metavar="PATH",
+        help="with --sec-index: measure what persisting the index costs (JSON)",
+    )
     args = parser.parse_args()
 
     applied = load_env_file(ENV_FILE)
@@ -200,6 +206,35 @@ def main() -> int:
         if index is not None:
             tags = {fact.tag for facts in index.by_cik.values() for fact in facts}
             print(f"distinct concepts kept: {len(tags)}", flush=True)
+
+        if args.save_index and index is not None:
+            # What persisting the index would cost: the JSON document exists in
+            # memory once before it is written, so the spike is part of the price.
+            import json
+            import time
+
+            from app.engine.bulk_financials import save_snapshot
+
+            target = Path(args.save_index)
+            started = time.perf_counter()
+            document = index.to_document()
+            built = time.perf_counter()
+            payload = json.dumps(document)
+            dumped = time.perf_counter()
+            probe.stage(
+                "index document in memory",
+                lambda: len(payload),
+                lambda size: f"json={size / 1024 / 1024:.0f} MB (to_document {built - started:.1f}s, dumps {dumped - built:.1f}s)",
+            )
+            del document
+            del payload
+            gc.collect()
+            written = probe.stage(
+                "save index snapshot",
+                lambda: save_snapshot(index, target),
+                lambda _: f"wrote {target} ({target.stat().st_size / 1024 / 1024:.0f} MB, {time.perf_counter() - dumped:.1f}s)",
+            )
+            del written
 
     print("\n-- ordered by footprint --", flush=True)
     for label, delta, total, note in sorted(probe.rows, key=lambda row: -row[1]):
