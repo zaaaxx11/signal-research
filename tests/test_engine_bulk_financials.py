@@ -28,7 +28,9 @@ proves no test ever reaches sec.gov.
 
 from __future__ import annotations
 
+import gc
 import json
+import sys
 import zipfile
 from dataclasses import replace
 from datetime import date
@@ -1031,3 +1033,74 @@ def test_undimensioned_drops_the_segment_rows_the_mapper_never_reads(
 
     for cik in kept.by_cik:
         assert fundamentals_for_cik(kept, cik) == fundamentals_for_cik(dropped, cik)
+
+
+# ---------------------------------------------------------------------------
+# Packed rows — the representation that keeps 813,175 rows out of the heap
+# ---------------------------------------------------------------------------
+
+
+def test_the_rows_of_an_issuer_are_packed_not_materialised(zip_path: Path) -> None:
+    """No ``Fact`` per row may be resident: that is the whole point of packing.
+
+    The census of the live process found 813,175 ``Fact`` objects as its single
+    largest group (~117 MB of headers for ~20 B of payload each). After the
+    packing, the same census finds **zero** alive and the real index's buffers
+    are ~36 MB, so this asserts the representation *and* the count: building an
+    issuer must not leave its rows behind as objects. (The count is a delta,
+    because the modules carry a handful of example ``Fact`` values of their own.)
+    """
+
+    before = sum(
+        1 for obj in gc.get_objects() if isinstance(obj, Fact) and obj.cik == AAPL_CIK
+    )
+    index = FactIndex.build(zip_path)
+    rows = index.by_cik[AAPL_CIK]
+
+    assert not isinstance(rows, tuple), "an issuer's rows must be packed, not a tuple"
+    assert hasattr(rows, "_buf"), "an issuer's rows must be one packed buffer"
+    after = sum(
+        1 for obj in gc.get_objects() if isinstance(obj, Fact) and obj.cik == AAPL_CIK
+    )
+    assert after == before, f"the build left {after - before} of AAPL's rows as objects"
+    assert len(rows._buf) == len(rows) * 44, "one 44-byte record per row, nothing else"
+
+
+def test_a_packed_issuer_iterates_as_the_rows_it_always_did(index: FactIndex) -> None:
+    """Iteration and ``facts_for`` must keep answering real, complete rows."""
+
+    packed = list(index.by_cik[AAPL_CIK])
+    assert packed == list(index.facts_for(AAPL_CIK))
+    assert all(isinstance(row, Fact) for row in packed)
+    assert "NetIncomeLoss" in {row.tag for row in packed}, "a decoded tag must be real"
+    assert all(row.cik == AAPL_CIK for row in packed), "a packed row knows its issuer"
+
+
+def test_facts_for_repeats_the_same_answer_without_rebuilding_it(index: FactIndex) -> None:
+    """A ``fetch_many`` chunk walks one field at a time over the same issuer."""
+
+    first = index.facts_for(AAPL_CIK)
+    assert index.facts_for(AAPL_CIK) is first, "a repeated lookup must not rebuild the rows"
+    assert index.facts_for("9999999999") == ()
+    assert index.facts_for("not-a-cik") == ()
+
+
+def test_the_snapshot_document_survives_the_packing(index: FactIndex) -> None:
+    """A packed row must rebuild the same document the raw rows produced."""
+
+    document = index.to_document()
+    assert FactIndex.from_document(document).to_document() == document
+
+
+def test_a_build_hands_its_freed_pages_back() -> None:
+    """The build's peak must not become the process's floor.
+
+    Measured on the real four-quarter build (6,380 issuers, 813,175 rows): RSS
+    +131.0 MB right after the build with **zero** ``Fact`` alive, −5.0 MB after
+    ``gc.collect()``, **−53.6 MB** after ``malloc_trim(0)``. The helper reports a
+    libc without the symbol instead of raising, so it is safe to call anywhere.
+    """
+
+    assert isinstance(bf.release_free_arenas(), bool)
+    if sys.platform.startswith("linux"):
+        assert bf.release_free_arenas() is True, "glibc exposes malloc_trim(0)"

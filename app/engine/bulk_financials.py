@@ -51,14 +51,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
 import csv
+import gc
 import io
 import json
 import math
 import os
 import re
+import struct
 import sys
+import threading
 import zipfile
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
@@ -387,6 +392,262 @@ def prune_facts(facts: Iterable[Fact]) -> tuple[Fact, ...]:
 
 
 # ---------------------------------------------------------------------------
+# Packed rows — the resident form of ``FactIndex.by_cik``
+# ---------------------------------------------------------------------------
+#
+# Why this encoding exists, in numbers. The live deployment's heap census
+# (``GET /health/memory?objects=1``, RSS 647 MB) counted **813,175 live
+# ``Fact`` objects** — the single largest object group in the process. A frozen
+# slots dataclass with eleven fields costs 56 B of header plus 11 × 8 B of
+# slots ≈ 144 B/row, so the objects alone are ≈ 117 MB, while the payload they
+# carry (one float, a few small integers, and strings that are *already*
+# interned and shared) needs only ≈ 20 B. The other ~124 B/row is a per-object
+# header the interpreter charges for a row that a lookup reads at most once.
+#
+# So the rows are stored the way a database stores them: one ``bytearray`` per
+# CIK holding fixed 44-byte ``struct`` records, with every string replaced by a
+# 4-byte integer code into a **shared, per-index vocabulary**. Each field's
+# vocabulary is one ``sorted`` tuple of the distinct values in the index, so
+# its size is bounded by the *vocabulary* (a few dozen tags, a few thousand
+# period ends, a few hundred accessions), never by the row count. ``cik`` is
+# not stored per row at all — a CIK's rows live in that CIK's own buffer — so
+# an eight-byte slot per row is saved outright. A single buffer per CIK was
+# chosen over a set of ``array`` objects because one allocation per issuer,
+# with one stride, is both smaller and simpler to reason about than eleven
+# parallel arrays.
+#
+# **Code order is string order.** Every vocabulary is built with ``sorted()``
+# over its distinct values, so a code's integer value orders exactly as the
+# string it names: ``vocab.tag[a] < vocab.tag[b]`` iff ``a < b``. That keeps
+# ``prune_facts``'s ``(filed, adsh)`` survivor and ``_fact_sort_key`` valid
+# *on the codes* as well as on the materialised rows. In practice both already
+# run over materialised ``Fact`` values (``build``/``merge``/``pruned`` decode
+# before comparing), so no field is ever re-hydrated *mid-comparison*; the
+# ordering property is held anyway, so a later code-level comparison cannot
+# silently disagree with the string one. No field is left out of the guarantee.
+#
+# None of this changes an answer: ``facts_for`` materialises the same
+# ``tuple[Fact, ...]`` on demand (behind a small LRU), a packed CIK iterates as
+# the same ``Fact`` values, and the snapshot document is byte-for-byte
+# unchanged.
+
+#: One packed row: nine 4-byte vocabulary codes (``adsh``, ``tag``,
+#: ``version``, ``ddate``, ``uom``, ``segments``, ``coreg``, ``filed`` — eight
+#: strings plus... one int) laid out around a 4-byte ``qtrs`` and the 8-byte
+#: ``value``. ``cik`` is the buffer's own key and is not stored.
+_ROW = struct.Struct("<IIIIiIdIII")
+#: One row's stride in bytes (44): the whole per-row resident cost.
+_ROW_WIDTH = _ROW.size
+#: ``qtrs`` is a signed 32-bit int; a row with no duration uses this sentinel,
+#: which no real ``qtrs`` takes (a duration is a tiny non-negative quarter
+#: count). It keeps the field a plain int instead of a second presence byte.
+_QTRS_NONE = -(2**31)
+
+#: The string fields that get a vocabulary, in row order.
+_VOCAB_FIELDS = ("adsh", "tag", "version", "ddate", "uom", "segments", "coreg", "filed")
+
+
+@dataclass(frozen=True, slots=True)
+class _Vocab:
+    """One ``sorted`` tuple per coded string field; a code is a tuple position.
+
+    ``sorted`` is the whole contract: position order *is* string order, so two
+    codes compare the way the two strings they name compare.
+    """
+
+    adsh: tuple[str, ...] = ()
+    tag: tuple[str, ...] = ()
+    version: tuple[str, ...] = ()
+    ddate: tuple[str, ...] = ()
+    uom: tuple[str, ...] = ()
+    segments: tuple[str, ...] = ()
+    coreg: tuple[str, ...] = ()
+    filed: tuple[str, ...] = ()
+
+
+class _CikFacts:
+    """One issuer's packed rows: a single ``bytearray`` plus the shared vocab.
+
+    ``len()`` and iteration are the public surface the callers already used
+    (``app/api/health.py`` counts, ``scripts/facts_prune_diff.py`` and
+    ``tests/test_market_sec_fundamentals_depth.py`` iterate). Iteration yields
+    real :class:`Fact` values decoded from the buffer, so ``.tag``,
+    ``.segments``, ``.value`` and ``.cik`` read exactly what the materialised
+    form always carried.
+    """
+
+    __slots__ = ("cik", "count", "_buf", "vocab")
+
+    def __init__(self, cik: str, count: int, buf: bytearray, vocab: _Vocab) -> None:
+        self.cik = cik
+        self.count = count
+        self._buf = buf
+        self.vocab = vocab
+
+    def __len__(self) -> int:
+        return self.count
+
+    def _fact_at(self, position: int) -> Fact:
+        vocab = self.vocab
+        adsh, tag, version, ddate, qtrs, uom, value, segments, coreg, filed = (
+            _ROW.unpack_from(self._buf, position * _ROW_WIDTH)
+        )
+        return Fact(
+            adsh=vocab.adsh[adsh],
+            tag=vocab.tag[tag],
+            version=vocab.version[version],
+            ddate=vocab.ddate[ddate],
+            qtrs=None if qtrs == _QTRS_NONE else qtrs,
+            uom=vocab.uom[uom],
+            value=value,
+            cik=self.cik,
+            segments=vocab.segments[segments],
+            coreg=vocab.coreg[coreg],
+            filed=vocab.filed[filed],
+        )
+
+    def __getitem__(self, position: int) -> Fact:
+        if position < 0:
+            position += self.count
+        if not 0 <= position < self.count:
+            raise IndexError(position)
+        return self._fact_at(position)
+
+    def __iter__(self) -> Iterator[Fact]:
+        for position in range(self.count):
+            yield self._fact_at(position)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _CikFacts):
+            return NotImplemented
+        return (
+            self.cik == other.cik
+            and self.count == other.count
+            and (self.vocab is other.vocab or self.vocab == other.vocab)
+            and self._buf == other._buf
+        )
+
+    def __repr__(self) -> str:  # pragma: no cover - a debugging aid
+        return f"_CikFacts(cik={self.cik!r}, rows={self.count})"
+
+
+class _CikFactsMapping(Mapping):
+    """``FactIndex.by_cik``: CIK → :class:`_CikFacts`, on a shared vocabulary.
+
+    A ``Mapping`` subclass on purpose: ``len()``, ``in``, iteration over keys,
+    ``.keys()``/``.items()``/``.values()``/``.get()`` and content equality all
+    come from ``collections.abc``, so every caller that read the old plain
+    ``dict`` keeps working without a change — which is exactly the contract.
+    """
+
+    __slots__ = ("_items", "vocab")
+
+    def __init__(self, items: dict[str, _CikFacts], vocab: _Vocab) -> None:
+        self._items = items
+        self.vocab = vocab
+
+    def __getitem__(self, key: str) -> _CikFacts:
+        return self._items[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __repr__(self) -> str:  # pragma: no cover - a debugging aid
+        return f"_CikFactsMapping(issuers={len(self._items)})"
+
+
+_EMPTY_VOCAB = _Vocab()
+
+
+def _empty_cik_mapping() -> _CikFactsMapping:
+    """The default ``by_cik`` for an empty or hand-built index."""
+
+    return _CikFactsMapping({}, _EMPTY_VOCAB)
+
+
+def _pack_index(rows_by_cik: Mapping[str, tuple[Fact, ...]]) -> _CikFactsMapping:
+    """Encode sorted, pruned per-CIK rows into one vocabulary + one buffer each.
+
+    Each string field's vocabulary is ``sorted`` over the distinct values in
+    *this* index (so a code orders as its string — see the section comment),
+    ``cik`` is dropped per row (it is the buffer's own key), and the buffers
+    are deterministic: two calls over equal rows produce byte-identical bytes,
+    which is what lets ``FactIndex.__eq__`` stay a value comparison. The input
+    rows are assumed already in :func:`_fact_sort_key` order and already
+    pruned; this function only encodes.
+    """
+
+    seen: dict[str, set[str]] = {name: set() for name in _VOCAB_FIELDS}
+    for facts in rows_by_cik.values():
+        for fact in facts:
+            for name in _VOCAB_FIELDS:
+                seen[name].add(getattr(fact, name))
+    vocab = _Vocab(**{name: tuple(sorted(values)) for name, values in seen.items()})
+    code = {
+        name: {value: position for position, value in enumerate(getattr(vocab, name))}
+        for name in _VOCAB_FIELDS
+    }
+
+    items: dict[str, _CikFacts] = {}
+    for cik in sorted(rows_by_cik):
+        facts = rows_by_cik[cik]
+        buf = bytearray(_ROW_WIDTH * len(facts))
+        for position, fact in enumerate(facts):
+            _ROW.pack_into(
+                buf,
+                position * _ROW_WIDTH,
+                code["adsh"][fact.adsh],
+                code["tag"][fact.tag],
+                code["version"][fact.version],
+                code["ddate"][fact.ddate],
+                _QTRS_NONE if fact.qtrs is None else fact.qtrs,
+                code["uom"][fact.uom],
+                fact.value,
+                code["segments"][fact.segments],
+                code["coreg"][fact.coreg],
+                code["filed"][fact.filed],
+            )
+        items[cik] = _CikFacts(cik, len(facts), buf, vocab)
+    return _CikFactsMapping(items, vocab)
+
+
+class _FactsCache:
+    """A small bounded LRU over materialised ``tuple[Fact, ...]`` per CIK.
+
+    ``cap=256`` is one ``fetch_many`` chunk of the real universe: enough that a
+    chunk of symbol lookups never re-decodes the same issuer twice, small
+    enough that the cache cannot become the memory it exists to save. The lock
+    makes it safe from the event loop and a worker thread alike.
+    """
+
+    __slots__ = ("_items", "_lock", "_cap")
+
+    def __init__(self, cap: int = 256) -> None:
+        self._items: OrderedDict[str, tuple[Fact, ...]] = OrderedDict()
+        self._lock = threading.Lock()
+        self._cap = cap
+
+    def get(self, key: str) -> tuple[Fact, ...] | None:
+        with self._lock:
+            value = self._items.get(key)
+            if value is None:
+                return None
+            # ``None`` is "absent"; a cached empty result is ``()`` and counts.
+            self._items.move_to_end(key)
+            return value
+
+    def put(self, key: str, value: tuple[Fact, ...]) -> None:
+        with self._lock:
+            self._items[key] = value
+            self._items.move_to_end(key)
+            while len(self._items) > self._cap:
+                self._items.popitem(last=False)
+
+
+# ---------------------------------------------------------------------------
 # The index
 # ---------------------------------------------------------------------------
 
@@ -399,10 +660,26 @@ class FactIndex:
     ten-digit CIK → that issuer's facts in :func:`_fact_sort_key` order. The
     index is a frozen value: two builds of one ZIP compare equal, and the
     snapshot round-trip is exact.
+
+    ``by_cik``'s values are **packed** (:class:`_CikFacts`): a ``bytearray`` of
+    44-byte records plus a shared, sorted vocabulary, so the ~117 MB of live
+    ``Fact`` objects a four-quarter production index used to hold collapse to
+    ~36 MB of buffers (see the "Packed rows" section). The public surface is
+    unchanged — ``len()``, iteration yielding :class:`Fact`, ``.values()`` and
+    content equality all behave as they did on the old tuple-per-CIK mapping —
+    and :meth:`facts_for` still returns the same ``tuple[Fact, ...]``, now
+    materialised on demand behind a small LRU (``_materialized``).
     """
 
     submissions: Mapping[str, Submission] = field(default_factory=dict)
-    by_cik: Mapping[str, tuple[Fact, ...]] = field(default_factory=dict)
+    by_cik: Mapping[str, _CikFacts] = field(default_factory=_empty_cik_mapping)
+    #: The on-demand materialisation cache for :meth:`facts_for`. Excluded from
+    #: equality and representation: it is derived state, never part of the
+    #: index's value, and ``FactIndex.build(zip) == FactIndex.build(zip)`` must
+    #: stay true whether or not either side has been looked up.
+    _materialized: _FactsCache = field(
+        default_factory=_FactsCache, compare=False, repr=False
+    )
 
     @classmethod
     def build(
@@ -471,12 +748,13 @@ class FactIndex:
                 replace(fact, cik=cik, filed=submissions[fact.adsh].filed)
             )
 
-        by_cik = {
-            cik: tuple(sorted(facts, key=_fact_sort_key))
-            for cik, facts in sorted(buckets.items())
-        }
-        index = cls(submissions=submissions, by_cik=by_cik)
-        return index.pruned() if prune else index
+        # Encode straight into the packed form: prune (if asked) on the
+        # materialised rows *here*, so no fact object outlives this call.
+        rows_by_cik: dict[str, tuple[Fact, ...]] = {}
+        for cik, facts in buckets.items():
+            ordered = tuple(sorted(facts, key=_fact_sort_key))
+            rows_by_cik[cik] = prune_facts(ordered) if prune else ordered
+        return cls(submissions=submissions, by_cik=_pack_index(rows_by_cik))
 
     def pruned(self) -> "FactIndex":
         """The same index with each issuer's rows collapsed to the selectable one.
@@ -490,19 +768,35 @@ class FactIndex:
         filing map is tiny and the caller's provenance reads it.
         """
 
+        rows_by_cik = {
+            cik: prune_facts(tuple(facts)) for cik, facts in self.by_cik.items()
+        }
         return FactIndex(
             submissions=dict(self.submissions),
-            by_cik={cik: prune_facts(facts) for cik, facts in self.by_cik.items()},
+            by_cik=_pack_index(rows_by_cik),
         )
 
     def facts_for(self, cik: str) -> tuple[Fact, ...]:
-        """One issuer's facts; an unknown or malformed CIK is empty, not an error."""
+        """One issuer's facts; an unknown or malformed CIK is empty, not an error.
+
+        The rows are stored packed; this materialises the same
+        ``tuple[Fact, ...]`` the index always answered and keeps it in a small
+        LRU (:class:`_FactsCache`, 256 issuers), so a repeated lookup — a
+        ``fetch_many`` chunk walking one symbol at a time — decodes each issuer
+        once and never re-allocates the row objects for the next caller.
+        """
 
         try:
             key = normalize_cik(cik)
         except ValueError:
             return ()
-        return self.by_cik.get(key, ())
+        cached = self._materialized.get(key)
+        if cached is not None:
+            return cached
+        packed = self.by_cik.get(key)
+        facts = () if packed is None else tuple(packed)
+        self._materialized.put(key, facts)
+        return facts
 
     def merge(
         self,
@@ -539,12 +833,11 @@ class FactIndex:
                     fact for fact in facts if not (undimensioned and fact.segments)
                 )
 
-        by_cik = {
-            cik: tuple(sorted(facts, key=_fact_sort_key))
-            for cik, facts in sorted(merged.items())
-        }
-        index = FactIndex(submissions=submissions, by_cik=by_cik)
-        return index.pruned() if prune else index
+        rows_by_cik: dict[str, tuple[Fact, ...]] = {}
+        for cik, facts in merged.items():
+            ordered = tuple(sorted(facts, key=_fact_sort_key))
+            rows_by_cik[cik] = prune_facts(ordered) if prune else ordered
+        return FactIndex(submissions=submissions, by_cik=_pack_index(rows_by_cik))
 
     def submissions_for(self, cik: str) -> tuple[Submission, ...]:
         """One issuer's filings, in ``sub.txt`` order."""
@@ -635,7 +928,7 @@ class FactIndex:
             return cls()
 
         submissions: dict[str, Submission] = {}
-        by_cik: dict[str, tuple[Fact, ...]] = {}
+        rows_by_cik: dict[str, tuple[Fact, ...]] = {}
         for cik, payload in raw.items():
             try:
                 key = normalize_cik(cik)
@@ -652,11 +945,12 @@ class FactIndex:
                 fact = _fact_from(item, key)
                 if fact is not None:
                     facts.append(fact)
-            by_cik[key] = tuple(sorted(facts, key=_fact_sort_key))
-        # A snapshot written before the prune existed (or one built with
-        # ``prune=False``) still carries the older spellings; collapsing them on
-        # load keeps a restored index byte-identical to a freshly built one.
-        return cls(submissions=submissions, by_cik=by_cik).pruned()
+            # A snapshot written before the prune existed (or one built with
+            # ``prune=False``) still carries the older spellings; collapsing them
+            # on load keeps a restored index byte-identical to a freshly built
+            # one. Sorting happens first so the survivor is deterministic.
+            rows_by_cik[key] = prune_facts(tuple(sorted(facts, key=_fact_sort_key)))
+        return cls(submissions=submissions, by_cik=_pack_index(rows_by_cik))
 
 
 def _submission_from(item: object) -> Submission | None:
@@ -988,6 +1282,34 @@ def build_quarters(
     return index if index is not None else FactIndex()
 
 
+def release_free_arenas() -> bool:
+    """Hand the pages a build freed back to the OS; a no-op without the symbol.
+
+    ``build_quarters`` streams millions of rows and, by the time it returns, has
+    freed about one whole index worth of transient ``Fact`` values — so without
+    this the caller keeps the build's *peak* as its floor, because glibc holds
+    the freed arenas mapped. Measured on the real four-quarter build (6,380
+    issuers, 813,175 rows), the step over the pre-build baseline was:
+
+    * **+131.0 MB** immediately after the build, with **zero** live ``Fact``
+      objects (the rows are packed; the buffers themselves are only ~36 MB);
+    * **−5.0 MB** after ``gc.collect()``;
+    * **−53.6 MB** after ``malloc_trim(0)``, leaving **+72.3 MB** — the packed
+      buffers, the submissions map and the vocabularies, i.e. the data itself.
+
+    Returns whether the trim ran. A libc without the symbol (musl, macOS,
+    Windows) answers ``False`` rather than raising, so a caller can use this
+    unconditionally.
+    """
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):  # pragma: no cover - not glibc
+        return False
+    return True
+
+
 __all__ = [
     "BulkDownloadError",
     "CACHE_SUBDIR",
@@ -1012,6 +1334,7 @@ __all__ = [
     "parse_quarter",
     "prune_facts",
     "quarter_label",
+    "release_free_arenas",
     "save_snapshot",
     "snapshot_path",
 ]

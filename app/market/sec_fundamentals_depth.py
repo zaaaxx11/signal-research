@@ -68,6 +68,7 @@ from app.engine.bulk_financials import (
     dataset_cache_path,
     parse_quarter,
     quarter_label,
+    release_free_arenas,
 )
 from app.market.depth import DepthObservation, canonical_symbol
 from app.market.sec_fundamentals import MAPPED_CONCEPTS, fundamentals_for_symbol
@@ -360,6 +361,14 @@ class SecFundamentalsDepthSource:
             self.build_error = f"{type(exc).__name__}: {exc}"
             logger.info("sec bulk depth index failed: %s", self.build_error)
             self._index = None
+        if self._index is not None:
+            # The build streams a whole index of transient rows and frees them
+            # again; glibc keeps the arenas, so the process would sit at the
+            # build's peak instead of at the rows it kept. Measured -53.6 MB on
+            # the real four-quarter build. Off the loop, because it walks the
+            # heap; the helper reports instead of raising, so a libc without
+            # ``malloc_trim`` cannot cost us the index.
+            await asyncio.to_thread(release_free_arenas)
         return self._index
 
     # -- the reference maps -------------------------------------------------

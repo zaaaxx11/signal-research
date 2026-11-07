@@ -36,6 +36,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from app.engine.facts import _shared
 from app.engine.ingest import EngineDataset
 from app.engine.model import Cell, CellStatus, Provenance, SecurityRecord, Unit
 from app.engine.security import SecurityMaster
@@ -245,7 +246,11 @@ def _provenance(payload: object, *, where: str) -> Provenance:
         as_of=_require_text(entry.get("as_of"), where=f"{where}.as_of"),
         status=status,
         url=_optional_text(entry.get("url"), where=f"{where}.url"),
-        inputs=tuple(raw_inputs),
+        # ``inputs`` is the audit trail (a tag and an accession per source row),
+        # and a snapshot repeats the same accession across thousands of cells.
+        # Pooling each element shares one object per distinct value instead of
+        # one copy per row; the value and the order are unchanged.
+        inputs=tuple(_shared(item) for item in inputs),
     )
 
 

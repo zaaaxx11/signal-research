@@ -67,6 +67,7 @@ in ``tests/fixtures/sec_companyfacts_aapl.json``.
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -212,13 +213,13 @@ class FactObservation:
         if isinstance(self.value, bool):
             raise TypeError("a fact value must be a number, not a bool")
         object.__setattr__(self, "value", float(self.value))
-        object.__setattr__(self, "tag", _text(self.tag))
+        object.__setattr__(self, "tag", _shared(_text(self.tag)))
         object.__setattr__(self, "unit", _text(self.unit))
         object.__setattr__(self, "period_end", _text(self.period_end))
         object.__setattr__(self, "start", _optional_text(self.start))
         object.__setattr__(self, "form", _text(self.form))
         object.__setattr__(self, "filed", _text(self.filed))
-        object.__setattr__(self, "accession", _text(self.accession))
+        object.__setattr__(self, "accession", _shared(_text(self.accession)))
         object.__setattr__(self, "fiscal_period", _optional_text(self.fiscal_period))
         object.__setattr__(self, "frame", _optional_text(self.frame))
         if self.fiscal_year is not None:
@@ -234,6 +235,46 @@ def _text(value: Any) -> str:
     """The stripped string a JSON field holds, or ``""`` when it holds none."""
 
     return value.strip() if isinstance(value, str) else ""
+
+
+#: Longest string that may enter the intern pool. An accession is 20 characters
+#: and a us-gaap tag stays under 70; a document URL or a free-text description is
+#: well past this, and is exactly the kind of value that must stay out of the
+#: pool (see :func:`_shared`).
+_SHARED_MAX_LEN = 96
+
+
+def _shared(text: str) -> str:
+    """One object per distinct value, for a field that repeats row over row.
+
+    A symbol's facts quote the same handful of strings thousands of times: the
+    us-gaap ``tag`` comes from a vocabulary of a few dozen names, and the
+    ``accession`` number, once filed, is cited again by every row of that filing
+    and by every symbol whose cells were built from it. Parsed or restored row
+    by row, each occurrence allocates its own copy, and the copies -- not the
+    numbers -- are what the snapshot pays for (measured: 28,580 ``inputs``
+    strings over 400 symbols for 1,713 distinct values, 94% duplication).
+    Interning shares one object per distinct value, and the pool is bounded by
+    that vocabulary, so nothing unbounded is kept alive. The value is identical
+    either way; only the identity of the string object changes.
+
+    Boundary rule -- what may enter the pool:
+
+    * **Short, repeated tokens only**: ``tag``, ``accession`` and the elements of
+      :attr:`~app.engine.model.Provenance.inputs`, which are exactly those two
+      things. Each is at most :data:`_SHARED_MAX_LEN` characters and is drawn
+      from a closed vocabulary (concepts, accession numbers).
+    * **Never long or near-unique text**: a document ``url``, a free-text
+      description or a ``segments`` blob is long and almost always distinct, so
+      interning it would grow the pool for no reuse. Those are returned
+      untouched.
+
+    The empty string is returned as is: it is already a singleton.
+    """
+
+    if not text or len(text) > _SHARED_MAX_LEN:
+        return text
+    return sys.intern(text)
 
 
 def _optional_text(value: Any) -> str | None:
@@ -439,6 +480,7 @@ def _observation_cell(
     if not date_of_value:
         return None
     published = observation.value if value is None else value
+    trail = inputs or (observation.tag, observation.accession)
     return Cell(
         value=published,
         unit=_CELL_UNITS.get(observation.unit, Unit.UNKNOWN),
@@ -447,7 +489,7 @@ def _observation_cell(
             as_of=date_of_value,
             status=CellStatus.OK,
             url=None,
-            inputs=inputs or (observation.tag, observation.accession),
+            inputs=tuple(_shared(item) for item in trail),
         ),
     )
 
@@ -796,7 +838,10 @@ def observations_to_cells(
                 as_of=as_of,
                 status=CellStatus.OK,
                 url=None,
-                inputs=(observation.tag, observation.accession),
+                inputs=tuple(
+                    _shared(item)
+                    for item in (observation.tag, observation.accession)
+                ),
             ),
         )
     return cells

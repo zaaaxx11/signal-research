@@ -1301,3 +1301,39 @@ def test_the_later_accession_wins_when_two_filings_share_a_filed_date() -> None:
     assert cell.provenance is not None
     assert cell.provenance.inputs == ("Revenues", "0000320193-26-000020")
     assert cell.provenance.as_of == "2025-06-30"
+
+
+# ---------------------------------------------------------------------------
+# The string pool — one object per distinct value, in a bounded vocabulary
+# ---------------------------------------------------------------------------
+
+
+def test_the_audit_trail_shares_one_object_per_distinct_value() -> None:
+    """A snapshot repeats the same accession across thousands of cells.
+
+    Measured on 400 symbols: 28,580 ``inputs`` strings for 1,713 distinct values
+    (94% duplication), each one its own allocation when a document is parsed row
+    by row. Two cells built from the same filing must therefore point at the
+    *same* string objects — the values are identical either way, so only the
+    object count changes.
+    """
+
+    first = observations_to_cells(parse_companyfacts(facts()))
+    second = observations_to_cells(parse_companyfacts(facts()))
+    assert first == second, "sharing a string must not change a value"
+
+    a = next(iter(first.values())).provenance.inputs
+    b = next(iter(second.values())).provenance.inputs
+    assert a == b
+    assert a[0] is b[0] and a[1] is b[1], "a repeated tag/accession must be one object"
+
+
+def test_the_pool_leaves_long_and_unusual_text_alone() -> None:
+    """Only short, repeated tokens may enter the pool, or it would grow for nothing."""
+
+    from app.engine.facts import _shared
+
+    assert _shared("0001213900-26-050384") is _shared("0001213900-26-050384")
+    assert _shared("") == ""
+    long_text = "x" * 200
+    assert _shared(long_text) is long_text, "a long value must not be interned"
