@@ -105,16 +105,44 @@ Live after the swap, with the index built (813,175 facts / 6,380 issuers):
   start, −91.7%.
 - `/screens`, `/engine/snapshot/AAPL`, `/market/exchanges`, UI: all 200.
 
+## Done (C, third pass): the rows are packed, and the build's pages go back
+
+The heap census (`/health/memory?objects=1`, live 647 MB process) named the
+largest group: **813,175 `Fact` objects**. Three changes, each measured:
+
+1. **Packed rows** (`app/engine/bulk_financials.py`). One `bytearray` per issuer
+   of fixed 44-byte `struct` records; every string becomes a 4-byte code into a
+   per-index vocabulary built with `sorted()` (so code order *is* string order,
+   which keeps `prune_facts`'s `(filed, adsh)` survivor valid). `facts_for` still
+   returns `tuple[Fact, ...]`, materialised behind a 256-issuer LRU — no consumer
+   changed. Live heap: 813,175 `Fact` → **0**; buffers ~36 MB; index step
+   227.6 → **169.6 MB**.
+2. **`release_free_arenas()`** (`gc.collect()` + `malloc_trim(0)`), called off
+   the loop after the depth index builds. The build's transient rows left glibc
+   arenas mapped: +131.0 MB with zero `Fact` alive → **+72.3 MB** after the trim
+   (−53.6 MB). Live signature: cgroup peak 577 MB, current 413 MB.
+3. **Pooled dataset strings** (`app/engine/facts.py`, `store.py`). 307,178
+   `inputs` strings → **18,074 objects** (−17.6 MB live heap). The *load*-stage
+   RSS does not move (the stage is peak-bound); the win is the steady state.
+
+End to end: **service RSS 647 → 434 MB**, peak 577, swap 0, with 813,175 facts
+and 24,127 submissions resident. Equivalence: `facts_prune_diff.py` over the
+production shape — **identical: true**, 0 mismatches over 204,320 fields, 0 rows
+invented. Guards: 7 new tests (packing representation, LRU reuse, document
+round-trip, arena release, pooling + its boundary), 275 in the touched suites.
+
+Honest limit: `facts_for` may hold up to 256 issuers decoded, and the residual
++72 MB is buffers + submissions + vocabularies (data, not slack). The build still
+materialises rows transiently; encoding directly is the next ~50 MB.
+
 ## Follow-ups, ranked (not done)
 
-1. **Columnar index (the real ceiling).** Census of the pruned index: 813,175
-   rows, all float values; distinct values are tiny (37 tags, 62 versions, 142
-   period ends, 31 units, 22,274 accessions, 68,568 segments→0 kept). Object cost
-   is now the floor: `Fact` slots ≈ 112 MB + float objects ≈ 19 MB of the 227.6 MB
-   build. Storing value as an array and tag/unit/date as small int codes into the
-   shared vocabularies would cut most of that, but every consumer reads through
-   `facts_for()`/`map_fundamentals`, so it is a real refactor with a golden-diff
-   harness already in place (`scripts/facts_prune_diff.py`).
+1. **Direct-encode build (the remaining ~50 MB).** `build`/`pruned`/`merge` still
+   decode rows to `Fact` values while streaming, so the build's high-water mark is
+   one transient index; `release_free_arenas()` tidies after it instead of deleting
+   it. A provisional vocabulary + prune/sort on codes + a single encode would
+   remove the peak. Safe now because the sorted vocabularies make code comparison
+   equal string comparison; `scripts/facts_prune_diff.py` is the gate.
 2. **`--carry-enrichment-from` on `scripts/refresh-facts.py`.** The 2026-11-07
    swap needed a separate carry pass (34 records) because a chunked crawl's
    submissions fetch can skip or fail per issuer. Fold it into the script so the
