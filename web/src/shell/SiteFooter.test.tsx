@@ -49,12 +49,32 @@ describe("SiteFooter", () => {
     expect(ROUTE_PATHS).toContain("/compare");
   });
 
-  it("carries the brand, the data sources and one disclaimer", () => {
+  it("carries the brand and one disclaimer, and names no upstream source", () => {
     render(<SiteFooter />);
     const footer = screen.getByTestId("site-footer");
-    expect(footer.textContent).toContain("Ztockz");
-    expect(footer.textContent).toContain("Yahoo Finance");
-    expect(footer.textContent).toMatch(/not investment advice/i);
+    const text = footer.textContent ?? "";
+    expect(text).toContain("Ztockz");
+    expect(text).toMatch(/not investment advice/i);
+
+    // The supply chain is a kitchen secret: no "Powered by", no vendor name,
+    // in any case. The footer is the surface a screenshot of the product shows.
+    expect(text).not.toMatch(/powered by/i);
+    for (const vendor of [
+      "yahoo",
+      "coingecko",
+      "finnhub",
+      "edgar",
+      "sec ",
+      "stooq",
+      "finviz",
+      "tradingview",
+      "nasdaq",
+      "bloomberg",
+      "reuters",
+      "marketbeat",
+    ]) {
+      expect(text.toLowerCase()).not.toContain(vendor);
+    }
   });
 
   it("prints no version, no health check and no marketing link", () => {

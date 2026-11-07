@@ -546,10 +546,7 @@ export function CryptoDetailPage({
             {coin?.available && coin.description ? (
               <p>{coin.description}</p>
             ) : metaRow?.name ? (
-              <p>
-                {metaRow.name}
-                {metaRow.id ? ` · Tracked as "${metaRow.id}" on CoinGecko.` : ""}
-              </p>
+              <p>{metaRow.name}</p>
             ) : null}
             {coin?.available && coin.categories.length > 0 ? (
               <div

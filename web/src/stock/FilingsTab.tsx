@@ -49,7 +49,7 @@ export function FilingsTab({ symbol, state }: FilingsTabProps): React.ReactEleme
       <table className="w-full border-collapse text-data">
         <caption className="sr-only">
           Form 4 filings for {symbol}, newest first. The link opens the filing
-          on EDGAR. Other SEC form types are not served by the API yet.
+          itself. Other form types are not served by the API yet.
         </caption>
         <thead>
           <tr className="border-b border-line">
@@ -105,7 +105,7 @@ export function FilingsTab({ symbol, state }: FilingsTabProps): React.ReactEleme
         </tbody>
       </table>
       <p className="mt-2 text-label text-fg-subtle">
-        Form 4 filings only. Other SEC form types are not served by the API yet.
+        Form 4 filings only. Other form types are not served by the API yet.
       </p>
     </div>
   );

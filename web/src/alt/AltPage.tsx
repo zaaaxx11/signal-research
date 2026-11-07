@@ -1060,7 +1060,7 @@ export function AltPage({ marketClass }: AltPageProps) {
   // Notify on enrichment failure — once, not on every render
   React.useEffect(() => {
     if (enrich.status === "error" && isCrypto) {
-      notify.error("Crypto market data unavailable", "Showing price-only table from Yahoo");
+      notify.error("Crypto market data unavailable", "Showing the price-only table instead.");
     }
   }, [enrich.status, isCrypto]);
 

@@ -11,6 +11,11 @@
  * product copy. There is no version, no build stamp, no "as of" read and no
  * health line. A footer that says *what this is, where to go, who it is, and
  * one disclaimer* is the whole job.
+ *
+ * The upstreams are not product copy either: the footer names no data source
+ * ("Powered by X, Y, Z" was removed at the operator's request). Where the
+ * numbers come from is a kitchen secret — the reader sees the product, never
+ * the supply chain.
  */
 
 import { BrandMark } from "@/shell/BrandMark";
@@ -90,9 +95,6 @@ export function SiteFooter() {
           <p className="max-w-[42ch] text-[11px] leading-relaxed text-fg-muted">
             Free market research across US equities, ETFs, crypto, futures and
             forex. One dashboard, no account required.
-          </p>
-          <p className="text-[10px] text-fg-subtle">
-            Powered by Yahoo Finance, CoinGecko, Finnhub and SEC EDGAR.
           </p>
         </div>
 
