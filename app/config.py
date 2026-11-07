@@ -185,6 +185,13 @@ class Settings(BaseSettings):
         default=True,
         description="Overlay depth-store columns onto /screens rows.",
     )
+    #: Boot-time allocation tracing for the memory probe. Off by default: it
+    #: taxes a serving worker, and ``GET /health/memory`` answers RSS, the cgroup
+    #: and the live stores without it. ``MEE_TRACE_MEMORY=1`` turns it on.
+    trace_memory: bool = Field(
+        default=False,
+        description="Start tracemalloc at boot so /health/memory names its sites.",
+    )
     screen_depth_store_path: str | None = Field(
         default=None,
         description=(

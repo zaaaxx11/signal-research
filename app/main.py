@@ -669,7 +669,7 @@ async def _engine_lifespan(application: FastAPI):
     # await: the route answers honestly until the warm-up lands.
     news_task = asyncio.create_task(_warm_news(application))
 
-    _configure_memory_diagnostics()
+    _configure_memory_diagnostics(settings)
 
     try:
         yield
@@ -685,13 +685,14 @@ async def _engine_lifespan(application: FastAPI):
             application.state.depth = None
 
 
-def _configure_memory_diagnostics() -> None:
+def _configure_memory_diagnostics(settings: object = None) -> None:
     """Opt-in allocation tracing, then freeze what start-up built.
 
-    ``MEE_TRACE_MEMORY=1`` starts :mod:`tracemalloc` before the first request, so
-    ``GET /health/memory`` can name the file and line holding the heap. It is off
-    by default: tracing every allocation taxes a serving worker, and the endpoint
-    still reports RSS, the cgroup and the live stores without it.
+    ``MEE_TRACE_MEMORY=1`` (``settings.trace_memory``) starts :mod:`tracemalloc`
+    before the first request, so ``GET /health/memory`` can name the file and line
+    holding the heap. It is off by default: tracing every allocation taxes a
+    serving worker, and the endpoint still reports RSS, the cgroup and the live
+    stores without it.
 
     ``gc.freeze`` then moves everything start-up owns — settings, the identity
     dataset, the quote hub — into the permanent generation. Those objects live as
@@ -702,9 +703,8 @@ def _configure_memory_diagnostics() -> None:
     import gc
     import tracemalloc
 
-    if os.environ.get("MEE_TRACE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}:
-        if not tracemalloc.is_tracing():
-            tracemalloc.start(25)
+    if getattr(settings, "trace_memory", False) and not tracemalloc.is_tracing():
+        tracemalloc.start(25)
     gc.freeze()
 
 

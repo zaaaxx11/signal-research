@@ -1177,16 +1177,30 @@ def test_memory_tracing_starts_only_when_asked(monkeypatch: Any) -> None:
 
     from app.main import _configure_memory_diagnostics
 
-    monkeypatch.delenv("MEE_TRACE_MEMORY", raising=False)
-    _configure_memory_diagnostics()
+    _configure_memory_diagnostics(SimpleNamespace(trace_memory=False))
     assert not tracemalloc.is_tracing(), "tracing every allocation is opt-in"
 
-    monkeypatch.setenv("MEE_TRACE_MEMORY", "1")
     try:
-        _configure_memory_diagnostics()
+        _configure_memory_diagnostics(SimpleNamespace(trace_memory=True))
         assert tracemalloc.is_tracing()
 
         report = health_api.process_memory_report()
         assert report["tracemalloc_top"], "a tracing process names its top sites"
     finally:
         tracemalloc.stop()
+
+
+def test_the_tracing_switch_is_a_setting_not_a_stray_env_read() -> None:
+    """``MEE_TRACE_MEMORY`` is read through ``Settings`` like every other flag.
+
+    A direct ``os.environ`` read would be invisible to ``/health`` config
+    reporting and to the unknown-key check — the guard test in
+    ``tests/test_config_guard.py`` fails on exactly that.
+    """
+
+    from app.config import Settings
+    from app import config_guard
+
+    assert Settings().trace_memory is False
+    assert Settings(trace_memory=True).trace_memory is True
+    assert "MEE_TRACE_MEMORY" in config_guard.known_env_names()
