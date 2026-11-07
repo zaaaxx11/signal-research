@@ -35,13 +35,16 @@ worker thread; every later call — and every load-balancer poll — is stat-onl
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import logging
 import os
 import shutil
 import sqlite3
+import sys
 import threading
 import time
+import tracemalloc
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
@@ -1046,6 +1049,161 @@ def _log_transition(status: str, checks: list[Check], startup_error: str | None)
     logger.log(level, "health %s%s", status, f": {detail}" if detail else "")
 
 
+def _proc_status(path: Path = Path("/proc/self/status")) -> dict[str, int]:
+    """``VmRSS``/``VmSize``/``Threads`` from ``/proc/self/status``, in MB.
+
+    Read from ``/proc`` rather than from ``resource``: the deployment's questions
+    are "how much is resident" and "how many threads", and ``ru_maxrss`` answers
+    neither (it is the high-water mark of the whole process group).
+    """
+
+    wanted = {"VmRSS": "rss_mb", "VmSize": "vm_mb", "VmSwap": "swap_mb"}
+    found: dict[str, int] = {}
+    try:
+        text = path.read_text(encoding="ascii")
+    except OSError:
+        return found
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        if key in wanted:
+            value = rest.strip().split()
+            if value and value[0].isdigit():
+                found[wanted[key]] = int(value[0]) // 1024
+        elif key == "Threads" and rest.strip().isdigit():
+            found["threads"] = int(rest.strip())
+    return found
+
+
+def _cgroup_memory(
+    cgroup_file: Path = Path("/proc/self/cgroup"),
+    *,
+    root: Path = Path("/sys/fs/cgroup"),
+) -> dict[str, int]:
+    """The service cgroup's own accounting: current, high, max, peak (MB).
+
+    The unit sets ``MemoryHigh``/``MemoryMax``, so the cgroup's numbers — not the
+    host's — are what decide whether this process gets reclaimed or killed. A
+    path that cannot be read answers ``{}``: a diagnostic never raises.
+    """
+
+    try:
+        text = cgroup_file.read_text(encoding="ascii")
+    except OSError:
+        return {}
+    rel = ""
+    for line in text.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) == 3 and parts[2].strip():
+            rel = parts[2].strip()
+    if not rel:
+        return {}
+    here = root / rel.lstrip("/")
+    found: dict[str, int] = {}
+    for name, key in (
+        ("memory.current", "current_mb"),
+        ("memory.high", "high_mb"),
+        ("memory.max", "max_mb"),
+        ("memory.peak", "peak_mb"),
+    ):
+        try:
+            raw = (here / name).read_text(encoding="ascii").strip()
+        except OSError:
+            continue
+        if raw.isdigit():
+            found[key] = int(raw) // 1024 // 1024
+    return found
+
+
+def _store_census(state: Any) -> dict[str, object]:
+    """What the live objects cost, as counted sizes rather than guesses.
+
+    Only the stores this process genuinely holds: the engine dataset (identity +
+    facts), the depth collector's sources, and — for the SEC bulk source — its
+    built fact index, which is the one structure big enough to matter.
+    """
+
+    census: dict[str, object] = {}
+    engine = getattr(state, "engine", None)
+    dataset = getattr(engine, "dataset", None)
+    if dataset is not None:
+        facts = getattr(dataset, "facts", {}) or {}
+        census["engine_dataset"] = {
+            "facts_symbols": len(facts),
+            "cells": sum(len(row) for row in facts.values()),
+        }
+    collector = getattr(state, "depth", None)
+    sources = getattr(collector, "sources", None) or ()
+    entries: list[dict[str, object]] = []
+    for source in sources:
+        index = getattr(source, "fact_index", None)
+        entry: dict[str, object] = {"name": getattr(source, "name", type(source).__name__)}
+        if index is not None:
+            by_cik = getattr(index, "by_cik", {}) or {}
+            entry["fact_index"] = {
+                "issuers": len(by_cik),
+                "facts": sum(len(facts) for facts in by_cik.values()),
+                "submissions": len(getattr(index, "submissions", {}) or {}),
+            }
+        error = getattr(source, "build_error", None)
+        if error:
+            entry["build_error"] = error
+        entries.append(entry)
+    if entries:
+        census["depth_sources"] = entries
+    return census
+
+
+def process_memory_report(state: Any = None, *, objects: bool = False) -> dict[str, object]:
+    """One read-only answer to "where did the RAM go?" for this process.
+
+    ``/health/memory`` renders it. The document is deliberately about *this*
+    process: the resident set, the cgroup that reclaims it, the live object
+    count, the stores it holds, and — when ``MEE_TRACE_MEMORY=1`` turned on
+    tracing at boot — the top allocation sites by line.
+
+    ``objects=True`` adds a heap census by type. It walks every object the
+    collector tracks, which is why it is opt-in per request rather than always
+    on: an ops endpoint that costs 200 ms of a serving worker on every poll is
+    itself a memory problem.
+    """
+
+    report: dict[str, object] = {
+        "status": STATUS_OK,
+        "checked_at": datetime.now(UTC).isoformat(),
+        "pid": os.getpid(),
+        "python": sys.version.split()[0],
+    }
+    report.update(_proc_status())
+    report["cgroup"] = _cgroup_memory()
+    collected, uncollected, threshold = gc.get_count()
+    report["gc"] = {
+        "counts": [collected, uncollected, threshold],
+        "threshold": list(gc.get_threshold()),
+        "tracked_objects": len(gc.get_objects()) if objects else None,
+        "frozen": getattr(gc, "get_freeze_count", lambda: None)(),
+    }
+    if objects:
+        by_type: dict[str, int] = {}
+        for item in gc.get_objects():
+            name = type(item).__name__
+            by_type[name] = by_type.get(name, 0) + 1
+        report["top_types_by_count"] = sorted(
+            by_type.items(), key=lambda pair: -pair[1]
+        )[:15]
+    if state is not None:
+        report["stores"] = _store_census(state)
+    if tracemalloc.is_tracing():
+        snapshot = tracemalloc.take_snapshot()
+        report["tracemalloc_top"] = [
+            f"{stat.traceback[0].filename}:{stat.traceback[0].lineno} "
+            f"{stat.size / 1024 / 1024:.1f} MB ({stat.count} blocks)"
+            for stat in snapshot.statistics("lineno")[:10]
+        ]
+    else:
+        report["tracemalloc"] = "off (boot with MEE_TRACE_MEMORY=1 to trace)"
+    return report
+
+
 def build_health_report(
     settings: Settings,
     *,
@@ -1392,6 +1550,28 @@ async def health(request: Request) -> JSONResponse:
     )
 
 
+@router.get("/health/memory")
+async def health_memory(request: Request) -> JSONResponse:
+    """Where this process's RAM goes: RSS, cgroup accounting, store census.
+
+    An ops surface, never product chrome — the interface does not call it. It
+    exists because "6.8 GB and we do not know why" is answered by numbers, not by
+    a guess: the engine snapshot, the depth store and the SEC bulk index each
+    report their own size here, and ``gc`` reports the live object counts.
+
+    Read-only and bounded: one ``/proc`` read, one cgroup read, one ``gc`` count,
+    and the sizes of objects the app already holds. ``?objects=1`` adds a heap
+    census by type, which walks every tracked object — useful once, not per poll.
+    ``tracemalloc`` is opt-in at boot (``MEE_TRACE_MEMORY=1``) because tracing
+    every allocation costs CPU on a serving worker; when it is on, the document
+    carries the top allocation sites as well.
+    """
+
+    objects = request.query_params.get("objects") in {"1", "true", "yes"}
+    report = await asyncio.to_thread(process_memory_report, request.app.state, objects=objects)
+    return JSONResponse(status_code=200, content=report)
+
+
 @router.get("/health/deep")
 async def health_deep(request: Request) -> JSONResponse:
     """Upstream reachability. Bounded to ``health_deep_budget_s``; never a 503.
@@ -1412,6 +1592,7 @@ __all__ = [
     "build_is_stale",
     "deep_health_report",
     "newest_build_input",
+    "process_memory_report",
     "resolve_web_ui",
     "router",
     "web_ui_check",

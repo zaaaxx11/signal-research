@@ -299,10 +299,12 @@ def test_the_index_is_built_once_on_the_first_fetch(tmp_path: Path, monkeypatch:
     _write_quarter(tmp_path, "2026q3")
     real = module.build_quarters
     calls: list[tuple[str, ...]] = []
+    seen_tags: list[Any] = []
 
-    def counting(paths: Sequence[Any], *, ciks: Any = None) -> Any:
+    def counting(paths: Sequence[Any], *, ciks: Any = None, tags: Any = None) -> Any:
         calls.append(tuple(str(path) for path in paths))
-        return real(paths, ciks=ciks)
+        seen_tags.append(tags)
+        return real(paths, ciks=ciks, tags=tags)
 
     monkeypatch.setattr(module, "build_quarters", counting)
     source = module.SecFundamentalsDepthSource(
@@ -317,6 +319,19 @@ def test_the_index_is_built_once_on_the_first_fetch(tmp_path: Path, monkeypatch:
 
     assert len(calls) == 1, "the index is built once and reused"
     assert source.fact_index is not None
+
+    # The filter is the whole reason the six-quarter universe index fits in the
+    # worker: built unfiltered it is ~3.9 GB. It must be the mapper's own
+    # concept set, so a field added to TAG_MAP cannot be dropped here.
+    from app.market.sec_fundamentals import MAPPED_CONCEPTS
+
+    assert seen_tags == [MAPPED_CONCEPTS]
+    kept = {
+        fact.tag
+        for facts in source.fact_index.by_cik.values()
+        for fact in facts
+    }
+    assert kept <= MAPPED_CONCEPTS, f"unmapped concepts survived the build: {kept - MAPPED_CONCEPTS}"
 
 
 # ---------------------------------------------------------------------------

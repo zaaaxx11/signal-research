@@ -70,7 +70,7 @@ from app.engine.bulk_financials import (
     quarter_label,
 )
 from app.market.depth import DepthObservation, canonical_symbol
-from app.market.sec_fundamentals import fundamentals_for_symbol
+from app.market.sec_fundamentals import MAPPED_CONCEPTS, fundamentals_for_symbol
 
 logger = logging.getLogger("mee.depth.sec_bulk")
 
@@ -343,8 +343,14 @@ class SecFundamentalsDepthSource:
         try:
             # The stream is minutes of CPU/IO; a worker thread keeps the
             # collector's loop (and its chunk deadlines) alive meanwhile.
+            #
+            # ``tags`` is not optional in spirit: the six-quarter index carries
+            # the mapper's concepts and nothing else. Built unfiltered it is
+            # ~3.9 GB for this universe — the worker's memory ceiling — while a
+            # filtered build answers exactly the same rows for the fields the
+            # mapper publishes.
             self._index = await asyncio.to_thread(
-                build_quarters, paths, ciks=wanted
+                build_quarters, paths, ciks=wanted, tags=MAPPED_CONCEPTS
             )
         except Exception as exc:  # noqa: BLE001 - a broken cache is no rows
             self.build_error = f"{type(exc).__name__}: {exc}"

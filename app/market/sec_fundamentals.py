@@ -262,6 +262,18 @@ UOM_BY_FIELD: Mapping[str, str] = {
 #: single reported concept.
 DERIVED_FIELDS: frozenset[str] = frozenset(FIELDS) - frozenset(TAG_MAP)
 
+#: Every XBRL concept :data:`TAG_MAP` may select, as one set.
+#:
+#: This is the index's filter. The bulk depth index streams six cached quarterly
+#: ZIPs for the whole universe; keeping every filed concept builds ~3.9 GB and
+#: gets the worker cgroup OOM-killed, while the mapper only ever reads these
+#: concepts. Derived from :data:`TAG_MAP` rather than written out a second time,
+#: so a field cannot be added to the map and then silently dropped by the index
+#: that is supposed to feed it.
+MAPPED_CONCEPTS: frozenset[str] = frozenset(
+    tag for tags in TAG_MAP.values() for tag in tags
+)
+
 #: ``qtrs`` values this module selects on.
 _ANNUAL_QTRS = 4
 _INSTANT_QTRS = 0
@@ -877,6 +889,7 @@ __all__ = [
     "FLOW_FIELDS",
     "IFRS_ONLY_TAGS",
     "INSTANT_FIELDS",
+    "MAPPED_CONCEPTS",
     "MUST_NOT_MAP",
     "TAG_MAP",
     "UOM_BY_FIELD",

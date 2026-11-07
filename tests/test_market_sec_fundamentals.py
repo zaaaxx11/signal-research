@@ -44,6 +44,7 @@ from app.market.sec_fundamentals import (
     FIELDS,
     FLOW_FIELDS,
     INSTANT_FIELDS,
+    MAPPED_CONCEPTS,
     MUST_NOT_MAP,
     TAG_MAP,
     UOM_BY_FIELD,
@@ -1384,3 +1385,19 @@ def test_the_cik_entry_points_forward_the_share_reference() -> None:
             raise
         assert fields["enterprise_value"] == pytest.approx(expected_ev)
         assert fields["shares_outstanding"] == pytest.approx(2_500_000_000)
+
+
+def test_the_mapped_concept_set_is_derived_from_the_tag_map() -> None:
+    """The index filter is the mapper's own vocabulary, never a second list.
+
+    ``MAPPED_CONCEPTS`` decides which XBRL concepts the bulk depth index keeps,
+    so a tag that is in ``TAG_MAP`` but missing from the set would be filtered
+    out of the index and the field it answers would silently read as absent —
+    the exact failure mode a hand-written list produces.
+    """
+
+    expected = frozenset(tag for tags in TAG_MAP.values() for tag in tags)
+    assert MAPPED_CONCEPTS == expected
+    assert MAPPED_CONCEPTS, "an empty filter would build an index with no facts"
+    # A concept the mapper refuses must not buy memory in the index either.
+    assert not (MAPPED_CONCEPTS & frozenset(MUST_NOT_MAP.values()))

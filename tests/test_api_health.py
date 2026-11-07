@@ -27,6 +27,7 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Callable, Iterator
 
 import pytest
@@ -1083,3 +1084,109 @@ def test_an_out_of_process_observer_is_not_told_the_collector_is_missing(
     ) or inside.document["collector"] == "missing"
     assert outside.document["collector"] == "not_observable"
     assert outside.document["ok"] is True, outside.document
+
+
+# ---------------------------------------------------------------------------
+# /health/memory — the answer to "where did the RAM go?"
+# ---------------------------------------------------------------------------
+
+
+def test_the_memory_report_reads_the_process_without_tracing() -> None:
+    report = health_api.process_memory_report()
+
+    assert report["status"] == "ok"
+    assert report["pid"] == os.getpid()
+    assert report["rss_mb"] > 0, "a live process has a resident set"
+    assert report["threads"] >= 1
+    assert len(report["gc"]["counts"]) == 3
+    assert report["gc"]["threshold"], "the GC thresholds are always set"
+    # Tracing is opt-in at boot, and the document says so rather than lying.
+    assert "MEE_TRACE_MEMORY" in str(report["tracemalloc"])
+    # No app state, no store census: the route passes state, the function needn't.
+    assert "stores" not in report
+
+
+def test_the_memory_report_counts_the_stores_it_holds() -> None:
+    index = SimpleNamespace(by_cik={"0000320193": (object(), object(), object())}, submissions={"a": 1})
+    state = SimpleNamespace(
+        engine=SimpleNamespace(dataset=SimpleNamespace(facts={"AAPL": {"pe": object()}})),
+        depth=SimpleNamespace(
+            sources=[
+                SimpleNamespace(name="sec_bulk", fact_index=index, build_error=None),
+                SimpleNamespace(name="finviz"),
+            ]
+        ),
+    )
+
+    report = health_api.process_memory_report(state, objects=True)
+
+    assert report["stores"]["engine_dataset"] == {"facts_symbols": 1, "cells": 1}
+    entries = report["stores"]["depth_sources"]
+    assert entries[0]["name"] == "sec_bulk"
+    assert entries[0]["fact_index"] == {"issuers": 1, "facts": 3, "submissions": 1}
+    assert entries[1] == {"name": "finviz"}
+    assert report["gc"]["tracked_objects"] > 0
+    assert report["top_types_by_count"], "an object census names the top types"
+
+
+def test_proc_status_converts_kilobytes_to_megabytes(tmp_path: Path) -> None:
+    status = tmp_path / "status"
+    status.write_text(
+        "Name:\tuvicorn\nVmSize:\t 1048576 kB\nVmRSS:\t   7168 kB\nThreads:\t10\n",
+        encoding="ascii",
+    )
+
+    assert health_api._proc_status(status) == {"vm_mb": 1024, "rss_mb": 7, "threads": 10}
+
+
+def test_a_proc_status_that_cannot_be_read_is_an_empty_answer(tmp_path: Path) -> None:
+    assert health_api._proc_status(tmp_path / "missing") == {}
+
+
+def test_the_cgroup_numbers_come_from_the_service_cgroup(tmp_path: Path) -> None:
+    cgroup = tmp_path / "cgroup"
+    cgroup.write_text("0::/system.slice/ztockz.service\n", encoding="ascii")
+    scope = tmp_path / "sys" / "system.slice" / "ztockz.service"
+    scope.mkdir(parents=True)
+    (scope / "memory.current").write_text("2411724800\n", encoding="ascii")
+    (scope / "memory.high").write_text("8589934592\n", encoding="ascii")
+    (scope / "memory.max").write_text("10737418240\n", encoding="ascii")
+    (scope / "memory.peak").write_text("max\n", encoding="ascii")
+
+    got = health_api._cgroup_memory(cgroup, root=tmp_path / "sys")
+
+    assert got["current_mb"] == 2300
+    assert got["high_mb"] == 8192
+    assert got["max_mb"] == 10240
+    # ``max`` is "no limit", not a number: it is reported as absent.
+    assert "peak_mb" not in got
+
+
+async def test_the_memory_route_answers_for_the_running_app(tmp_path: Path) -> None:
+    async with _client(_settings(tmp_path)) as (client, _app):
+        response = await client.get("/health/memory")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rss_mb"] > 0
+    assert body["status"] == "ok"
+
+
+def test_memory_tracing_starts_only_when_asked(monkeypatch: Any) -> None:
+    import tracemalloc
+
+    from app.main import _configure_memory_diagnostics
+
+    monkeypatch.delenv("MEE_TRACE_MEMORY", raising=False)
+    _configure_memory_diagnostics()
+    assert not tracemalloc.is_tracing(), "tracing every allocation is opt-in"
+
+    monkeypatch.setenv("MEE_TRACE_MEMORY", "1")
+    try:
+        _configure_memory_diagnostics()
+        assert tracemalloc.is_tracing()
+
+        report = health_api.process_memory_report()
+        assert report["tracemalloc_top"], "a tracing process names its top sites"
+    finally:
+        tracemalloc.stop()

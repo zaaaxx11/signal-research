@@ -600,6 +600,24 @@ def _fact_from(item: object, cik: str) -> Fact | None:
 # ---------------------------------------------------------------------------
 
 
+def _shared(text: str) -> str:
+    """One object per distinct value, for a field that repeats row over row.
+
+    A quarterly ``num.txt`` is ~3.9 M rows over a vocabulary of a few dozen tags,
+    a few units, a few thousand period dates and the accessions ``sub.txt``
+    already holds. Parsed row by row, each row allocates its own copy of every
+    one of those strings, and the copies — not the facts — are what the index
+    pays for: measured at 1,466 MB for the four cached quarters with the tag
+    filter on. Interning shares one object per distinct value; the pool is
+    bounded by that vocabulary, so nothing unbounded is kept alive.
+
+    ``segments`` is deliberately NOT passed through here: it is long, and it is
+    near-unique per row, so interning it would grow the pool for no reuse.
+    """
+
+    return sys.intern(text) if text else text
+
+
 def iter_submissions(zip_path: Path | str) -> Iterator[Submission]:
     """Stream ``sub.txt``: one :class:`Submission` per filing.
 
@@ -617,15 +635,15 @@ def iter_submissions(zip_path: Path | str) -> Iterator[Submission]:
         except ValueError:
             continue
         yield Submission(
-            adsh=adsh,
-            cik=cik,
+            adsh=_shared(adsh),
+            cik=_shared(cik),
             name=row.get("name", "").strip(),
-            form=row.get("form", "").strip(),
-            period=_iso_date(row.get("period", "")),
+            form=_shared(row.get("form", "").strip()),
+            period=_shared(_iso_date(row.get("period", ""))),
             fy=_to_int(row.get("fy", "")),
-            fp=row.get("fp", "").strip(),
-            filed=_iso_date(row.get("filed", "")),
-            sic=row.get("sic", "").strip(),
+            fp=_shared(row.get("fp", "").strip()),
+            filed=_shared(_iso_date(row.get("filed", ""))),
+            sic=_shared(row.get("sic", "").strip()),
         )
 
 
@@ -646,15 +664,15 @@ def iter_facts(zip_path: Path | str) -> Iterator[Fact]:
         if not adsh or not tag or not ddate or value is None:
             continue
         yield Fact(
-            adsh=adsh,
-            tag=tag,
-            version=row.get("version", "").strip(),
-            ddate=ddate,
+            adsh=_shared(adsh),
+            tag=_shared(tag),
+            version=_shared(row.get("version", "").strip()),
+            ddate=_shared(ddate),
             qtrs=_to_int(row.get("qtrs", "")),
-            uom=row.get("uom", "").strip(),
+            uom=_shared(row.get("uom", "").strip()),
             value=value,
             segments=row.get("segments", "").strip(),
-            coreg=row.get("coreg", "").strip(),
+            coreg=_shared(row.get("coreg", "").strip()),
         )
 
 

@@ -43,6 +43,7 @@ from app.engine.bulk_financials import (
     Submission,
     _fact_sort_key,
     build_quarters,
+    iter_facts,
 )
 from app.providers import http as provider_http
 
@@ -826,3 +827,31 @@ def test_a_filtered_index_answers_the_same_mapped_values(tmp_path: Path) -> None
         FactIndex.build(zip_path, tags=needed), AAPL_CIK, price=250.0
     )
     assert filtered == full
+
+
+def test_repeated_fields_share_one_string_object(zip_path: Path) -> None:
+    """The index pays for string copies, not facts — so the copies are shared.
+
+    Four cached quarters filtered to the mapper's concepts measured 1,466 MB
+    resident, and most of that is one allocated ``str`` per field per row. The
+    parse interns the fields whose vocabulary repeats (tag, unit, period date,
+    version, accession, CIK) and leaves ``segments`` alone: it is long and
+    near-unique, so a pool would grow for no reuse. Interning is invisible in the
+    values, which is why this test pins identity.
+    """
+
+    import sys
+
+    facts = list(iter_facts(zip_path))
+    assert facts, "the fixture has rows"
+
+    grouped: dict[str, list[Any]] = {}
+    for fact in facts:
+        grouped.setdefault(fact.tag, []).append(fact)
+    for tag, group in grouped.items():
+        assert all(item.tag is group[0].tag for item in group), f"{tag} is copied per row"
+        assert tag is sys.intern(tag)
+
+    for fact in facts:
+        for value in (fact.ddate, fact.adsh, fact.uom, fact.version):
+            assert sys.intern(value) is value, f"{value!r} is not the shared object"
