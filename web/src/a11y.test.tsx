@@ -274,11 +274,14 @@ describe("the keyboard path", () => {
     await renderShell();
     const user = userEvent.setup();
     const trace: string[] = [];
+    /** The elements themselves: the uniqueness check is on identity, not label. */
+    const visited: Element[] = [];
     for (let press = 0; press < 80; press += 1) {
       await user.tab();
       const active = document.activeElement;
       if (!active || active === document.body) break;
       trace.push(describeFocus(active));
+      visited.push(active);
     }
 
     // The order the shell promises: skip link, the masthead's controls (the
@@ -310,9 +313,12 @@ describe("the keyboard path", () => {
       );
     }
 
-    // One stop per row, one stop per control: a repeated entry would mean two
-    // DOM nodes competing for the same Tab press.
-    expect(new Set(trace).size).toBe(trace.length);
+    // One stop per control: no DOM node may be visited twice, or two nodes are
+    // competing for the same Tab press. The check is on the ELEMENT, never on
+    // the description — the global footer legitimately repeats the masthead's
+    // section names (Maps, Charts, News, ...), so a label appearing twice is
+    // the footer doing its job, not a duplicate stop.
+    expect(new Set(visited).size).toBe(visited.length);
 
     const rowAt = trace.findIndex((entry) => entry.startsWith("row "));
     expect(rowAt).toBeGreaterThan(0);

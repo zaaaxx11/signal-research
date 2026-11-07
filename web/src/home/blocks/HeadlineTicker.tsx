@@ -15,7 +15,10 @@
  *   Hovering or focusing anywhere in the line pauses it (the reader is reading),
  *   and `@media (prefers-reduced-motion: reduce)` removes the animation
  *   entirely, leaving a normal horizontally scrollable row. The duplicate copy
- *   is `aria-hidden`, so a screen reader hears each story once.
+ *   is `aria-hidden` AND `tabIndex={-1}`: a screen reader hears each story once
+ *   and a keyboard reader reaches each headline once. `aria-hidden` alone does
+ *   not remove a node from the Tab order, which is what made every keyboard
+ *   user tab through the line twice (`src/a11y.test.tsx` counts the stops).
  */
 
 import type { BlockState, HomeNews } from "../home";
@@ -32,7 +35,7 @@ export interface HeadlineTickerProps {
   readonly className?: string;
 }
 
-function Item({ item }: { readonly item: HomeNews }) {
+function Item({ item, tabbable = true }: { readonly item: HomeNews; readonly tabbable?: boolean }) {
   const label = item.source.length > 0 ? `${item.headline} — ${item.source}` : item.headline;
   return (
     <li className="flex shrink-0 items-center gap-2">
@@ -47,6 +50,10 @@ function Item({ item }: { readonly item: HomeNews }) {
           target="_blank"
           rel="noopener noreferrer"
           title={label}
+          // `aria-hidden` hides a node from assistive tech but does NOT take it
+          // out of the Tab order: the decorative copy needs `tabIndex={-1}` or
+          // every keyboard reader tabs through the headlines twice.
+          tabIndex={tabbable ? undefined : -1}
           className="whitespace-nowrap text-[11px] text-fg-muted hover:text-accent-text"
         >
           {item.headline}
@@ -90,10 +97,11 @@ export function HeadlineTicker({ state, news, className }: HeadlineTickerProps) 
           ))}
         </ul>
         {/* The second copy is what makes the loop seamless; it is decoration for
-            the eye, so a screen reader is not read the news twice. */}
+            the eye, so a screen reader is not read the news twice — and it is
+            not a Tab stop either (`tabbable={false}`). */}
         <ul aria-hidden="true" className="flex shrink-0 items-center gap-6">
           {stories.map((item, index) => (
-            <Item key={`b-${item.url ?? item.headline}-${index}`} item={item} />
+            <Item key={`b-${item.url ?? item.headline}-${index}`} item={item} tabbable={false} />
           ))}
         </ul>
       </div>
