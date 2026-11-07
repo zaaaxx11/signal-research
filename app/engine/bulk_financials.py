@@ -361,18 +361,36 @@ def _prune_key(fact: Fact) -> tuple[str, str, str, int | None, str, str, str]:
     )
 
 
+def _survivor_key(filed: Any, adsh: Any, value: float) -> tuple[Any, Any, float]:
+    """The **one** rule that picks the survivor of a prune-key group.
+
+    Newest ``filed`` first, the larger accession breaking that tie, and — only
+    when ``filed`` *and* accession agree — the **smaller** ``value``. A build
+    that sorted before pruning already kept the smaller value on such a tie,
+    so this is the rule every path must agree on; there is exactly one copy of
+    it, :func:`prune_facts` and the packed paths both call it, and no path may
+    spell the comparison out again (that is how the two drift apart).
+
+    ``filed`` and ``adsh`` may be the strings or their packed-vocabulary codes:
+    every vocabulary is ``sorted`` (see the "Packed rows" section), so code
+    order *is* string order and one rule serves both representations.
+    """
+
+    return (filed, adsh, -value)
+
+
 def prune_facts(facts: Iterable[Fact]) -> tuple[Fact, ...]:
     """Drop every row the mapper could never select, keeping the winner.
 
-    One row per :func:`_prune_key` survives — the one with the newest ``filed``,
-    the larger accession breaking a tie. That is the restatement rule: a
-    restated comparative replaces the figure it restates, and the discarded
-    spellings are the older ``filed`` and the same-quarter duplicates a merged
-    index carries. Rows that differ in period end, duration, unit, segment or
-    co-registrant are all kept, so a trailing-twelve-month roll-forward and a
-    season-over-season pair still have every period they read. The output is
-    re-sorted by :func:`_fact_sort_key`, so a pruned index is indistinguishable
-    from a build over the surviving rows.
+    One row per :func:`_prune_key` survives — the winner by :func:`_survivor_key`
+    (newest ``filed``, larger accession, then smaller value). That is the
+    restatement rule: a restated comparative replaces the figure it restates,
+    and the discarded spellings are the older ``filed`` and the same-quarter
+    duplicates a merged index carries. Rows that differ in period end, duration,
+    unit, segment or co-registrant are all kept, so a trailing-twelve-month
+    roll-forward and a season-over-season pair still have every period they
+    read. The output is re-sorted by :func:`_fact_sort_key`, so a pruned index
+    is indistinguishable from a build over the surviving rows.
 
     The stream is a single ``O(n)`` walk with one small dict; a caller that
     already sorted its rows keeps a fully deterministic survivor on a complete
@@ -383,10 +401,9 @@ def prune_facts(facts: Iterable[Fact]) -> tuple[Fact, ...]:
     for fact in facts:
         key = _prune_key(fact)
         current = winners.get(key)
-        if current is None or (fact.filed, fact.adsh) > (
-            current.filed,
-            current.adsh,
-        ):
+        if current is None or _survivor_key(
+            fact.filed, fact.adsh, fact.value
+        ) > _survivor_key(current.filed, current.adsh, current.value):
             winners[key] = fact
     return tuple(sorted(winners.values(), key=_fact_sort_key))
 
@@ -419,12 +436,13 @@ def prune_facts(facts: Iterable[Fact]) -> tuple[Fact, ...]:
 # **Code order is string order.** Every vocabulary is built with ``sorted()``
 # over its distinct values, so a code's integer value orders exactly as the
 # string it names: ``vocab.tag[a] < vocab.tag[b]`` iff ``a < b``. That keeps
-# ``prune_facts``'s ``(filed, adsh)`` survivor and ``_fact_sort_key`` valid
-# *on the codes* as well as on the materialised rows. In practice both already
-# run over materialised ``Fact`` values (``build``/``merge``/``pruned`` decode
-# before comparing), so no field is ever re-hydrated *mid-comparison*; the
-# ordering property is held anyway, so a later code-level comparison cannot
-# silently disagree with the string one. No field is left out of the guarantee.
+# ``_survivor_key``'s ``(filed, adsh, value)`` survivor and ``_fact_sort_key``
+# valid *on the codes* as well as on the materialised rows: ``prune_facts`` and
+# ``_fact_sort_key`` run on strings, ``_prune_coded`` and ``_packed_sort_key``
+# run on the codes, and both compare the same way because of this property. The
+# packed paths (``merge``, ``pruned``) therefore never decode a row — they
+# prune, sort and re-encode the codes directly — so no field is ever re-hydrated
+# *mid-comparison*. No field is left out of the guarantee.
 #
 # None of this changes an answer: ``facts_for`` materialises the same
 # ``tuple[Fact, ...]`` on demand (behind a small LRU), a packed CIK iterates as
@@ -445,6 +463,29 @@ _QTRS_NONE = -(2**31)
 
 #: The string fields that get a vocabulary, in row order.
 _VOCAB_FIELDS = ("adsh", "tag", "version", "ddate", "uom", "segments", "coreg", "filed")
+
+#: Field slots inside one packed row, in :data:`_ROW` order. A packed row is
+#: read as a tuple with the same layout as ``_pack_into``'s arguments, so a
+#: slot name indexes the right column without a re-``unpack`` helper.
+_ADSH, _TAG, _VERSION, _DDATE, _QTRS, _UOM, _VALUE, _SEGMENTS, _COREG, _FILED = (
+    range(10)
+)
+
+#: Vocabulary field name → its slot inside a packed row.
+_VOCAB_SLOTS: dict[str, int] = {
+    "adsh": _ADSH,
+    "tag": _TAG,
+    "version": _VERSION,
+    "ddate": _DDATE,
+    "uom": _UOM,
+    "segments": _SEGMENTS,
+    "coreg": _COREG,
+    "filed": _FILED,
+}
+
+#: The prune key's slot positions inside a packed row, in :func:`_prune_key`
+#: order — one definition of the key, usable on codes as well as on strings.
+_PRUNE_SLOTS: tuple[int, ...] = (_TAG, _VERSION, _DDATE, _QTRS, _UOM, _SEGMENTS, _COREG)
 
 
 @dataclass(frozen=True, slots=True)
@@ -614,6 +655,122 @@ def _pack_index(rows_by_cik: Mapping[str, tuple[Fact, ...]]) -> _CikFactsMapping
     return _CikFactsMapping(items, vocab)
 
 
+# ---------------------------------------------------------------------------
+# Merging on codes — a packed row never becomes a ``Fact``
+# ---------------------------------------------------------------------------
+#
+# A merge used to decode both sides into ``Fact`` objects and re-encode the
+# result, so its peak was one whole index of objects (~117 MB on the real
+# four-quarter build). These helpers keep the rows in their packed form: the
+# two vocabularies are unioned **once**, a per-field translation table maps each
+# old code to its new one (an index into a list, never a re-interned string),
+# and the prune runs on the codes directly. Every vocabulary stays ``sorted``,
+# so a code orders exactly as the string it names and the string-keyed rules
+# (``_survivor_key``, ``_fact_sort_key``) hold unchanged on codes.
+
+
+def _union_vocab(*vocabs: _Vocab) -> _Vocab:
+    """The ``sorted`` union of every field's vocabulary across ``vocabs``.
+
+    ``sorted`` is preserved on purpose: the merged vocabulary is what makes a
+    remapped code compare the way its string does.
+    """
+
+    merged: dict[str, tuple[str, ...]] = {}
+    for name in _VOCAB_FIELDS:
+        values: set[str] = set()
+        for vocab in vocabs:
+            values.update(getattr(vocab, name))
+        merged[name] = tuple(sorted(values))
+    return _Vocab(**merged)
+
+
+def _translation(source: _Vocab, target: _Vocab) -> dict[str, tuple[int, ...]]:
+    """Map each of ``source``'s codes to the ``target`` vocabulary's code.
+
+    ``table[field][old_code]`` is the new code, computed once per field; a row
+    is then remapped by one index into a tuple, so merging never re-interns a
+    string. Both vocabularies are ``sorted``, so the map is order-preserving.
+    """
+
+    code = {
+        name: {value: position for position, value in enumerate(getattr(target, name))}
+        for name in _VOCAB_FIELDS
+    }
+    return {
+        name: tuple(code[name][value] for value in getattr(source, name))
+        for name in _VOCAB_FIELDS
+    }
+
+
+def _remap_row(row: tuple[Any, ...], table: dict[str, tuple[int, ...]]) -> tuple[Any, ...]:
+    """``row``'s string codes translated into the target vocabulary."""
+
+    out = list(row)
+    for name in _VOCAB_FIELDS:
+        slot = _VOCAB_SLOTS[name]
+        out[slot] = table[name][out[slot]]
+    return tuple(out)
+
+
+def _packed_sort_key(row: tuple[Any, ...]) -> tuple[Any, ...]:
+    """``_fact_sort_key`` on codes: ``(tag, ddate, qtrs, uom, adsh, value)``.
+
+    Slot order mirrors :func:`_fact_sort_key` and the ``qtrs`` sentinel maps to
+    the ``-1`` an absent duration sorts as, so a packed row sorts exactly where
+    the materialised :class:`Fact` did.
+    """
+
+    qtrs = row[_QTRS]
+    return (
+        row[_TAG],
+        row[_DDATE],
+        -1 if qtrs == _QTRS_NONE else qtrs,
+        row[_UOM],
+        row[_ADSH],
+        row[_VALUE],
+    )
+
+
+def _prune_coded(rows: Iterable[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+    """``prune_facts`` on codes: one survivor per :func:`_prune_key`, sorted.
+
+    The key is the same slot tuple as :func:`_prune_key` and the survivor is
+    chosen by the same :func:`_survivor_key`, so the packed path cannot drift
+    from the materialised one. Input must already be in :func:`_packed_sort_key`
+    order, exactly as :func:`prune_facts` wants its input sorted.
+    """
+
+    winners: dict[tuple[Any, ...], tuple[Any, ...]] = {}
+    for row in rows:
+        key = tuple(row[slot] for slot in _PRUNE_SLOTS)
+        current = winners.get(key)
+        if current is None or _survivor_key(
+            row[_FILED], row[_ADSH], row[_VALUE]
+        ) > _survivor_key(current[_FILED], current[_ADSH], current[_VALUE]):
+            winners[key] = row
+    return sorted(winners.values(), key=_packed_sort_key)
+
+
+def _encode_buffer(rows: Iterable[tuple[Any, ...]]) -> bytearray:
+    """One CIK's code-tuples into the single 44-byte-record ``bytearray``."""
+
+    rows = list(rows)
+    buf = bytearray(_ROW_WIDTH * len(rows))
+    for position, row in enumerate(rows):
+        _ROW.pack_into(buf, position * _ROW_WIDTH, *row)
+    return buf
+
+
+def _coded_rows(packed: _CikFacts) -> list[tuple[Any, ...]]:
+    """One packed issuer's rows as code tuples, in their stored order."""
+
+    return [
+        _ROW.unpack_from(packed._buf, position * _ROW_WIDTH)
+        for position in range(packed.count)
+    ]
+
+
 class _FactsCache:
     """A small bounded LRU over materialised ``tuple[Fact, ...]`` per CIK.
 
@@ -672,7 +829,7 @@ class FactIndex:
     """
 
     submissions: Mapping[str, Submission] = field(default_factory=dict)
-    by_cik: Mapping[str, _CikFacts] = field(default_factory=_empty_cik_mapping)
+    by_cik: _CikFactsMapping = field(default_factory=_empty_cik_mapping)
     #: The on-demand materialisation cache for :meth:`facts_for`. Excluded from
     #: equality and representation: it is derived state, never part of the
     #: index's value, and ``FactIndex.build(zip) == FactIndex.build(zip)`` must
@@ -730,7 +887,13 @@ class FactIndex:
             submissions[submission.adsh] = submission
             accession_cik[submission.adsh] = submission.cik
 
-        buckets: dict[str, list[Fact]] = {}
+        # Stream ``num.txt`` once and keep only what can survive. With ``prune``
+        # on, each CIK carries a dict keyed by :func:`_prune_key` holding the
+        # running survivor, so a quarter's raw rows (≈674k rows, ≈97 MB of
+        # objects) are never all resident before the prune — the dedup happens
+        # here, row by row, and only the survivors are encoded below.
+        # ``prune=False`` (the fixture/analysis mode) still keeps every row.
+        buckets: dict[str, Any] = {}
         for fact in iter_facts(zip_path):
             if allowed is not None and fact.tag not in allowed:
                 continue
@@ -744,16 +907,28 @@ class FactIndex:
             cik = accession_cik.get(fact.adsh)
             if cik is None:
                 continue
-            buckets.setdefault(cik, []).append(
-                replace(fact, cik=cik, filed=submissions[fact.adsh].filed)
-            )
+            row = replace(fact, cik=cik, filed=submissions[fact.adsh].filed)
+            if prune:
+                # One survivor per `_prune_key` per CIK, chosen by the shared
+                # `_survivor_key` rule — the exact rule `prune_facts` applies,
+                # only run while streaming instead of over a resident list.
+                inner = buckets.setdefault(cik, {})
+                key = _prune_key(row)
+                current = inner.get(key)
+                if current is None or _survivor_key(
+                    row.filed, row.adsh, row.value
+                ) > _survivor_key(current.filed, current.adsh, current.value):
+                    inner[key] = row
+            else:
+                buckets.setdefault(cik, []).append(row)
 
-        # Encode straight into the packed form: prune (if asked) on the
-        # materialised rows *here*, so no fact object outlives this call.
+        # Encode straight into the packed form: no fact object outlives this
+        # call. Survivors are re-sorted by :func:`_fact_sort_key`, so the order
+        # is the one a build-then-prune always produced.
         rows_by_cik: dict[str, tuple[Fact, ...]] = {}
-        for cik, facts in buckets.items():
-            ordered = tuple(sorted(facts, key=_fact_sort_key))
-            rows_by_cik[cik] = prune_facts(ordered) if prune else ordered
+        for cik, bucket in buckets.items():
+            rows = bucket.values() if prune else bucket
+            rows_by_cik[cik] = tuple(sorted(rows, key=_fact_sort_key))
         return cls(submissions=submissions, by_cik=_pack_index(rows_by_cik))
 
     def pruned(self) -> "FactIndex":
@@ -768,12 +943,15 @@ class FactIndex:
         filing map is tiny and the caller's provenance reads it.
         """
 
-        rows_by_cik = {
-            cik: prune_facts(tuple(facts)) for cik, facts in self.by_cik.items()
-        }
+        vocab = self.by_cik.vocab
+        items: dict[str, _CikFacts] = {}
+        for cik in sorted(self.by_cik):
+            packed = self.by_cik[cik]
+            kept = _prune_coded(sorted(_coded_rows(packed), key=_packed_sort_key))
+            items[cik] = _CikFacts(cik, len(kept), _encode_buffer(kept), vocab)
         return FactIndex(
             submissions=dict(self.submissions),
-            by_cik=_pack_index(rows_by_cik),
+            by_cik=_CikFactsMapping(items, vocab),
         )
 
     def facts_for(self, cik: str) -> tuple[Fact, ...]:
@@ -826,18 +1004,37 @@ class FactIndex:
         submissions: dict[str, Submission] = dict(self.submissions)
         submissions.update(other.submissions)
 
-        merged: dict[str, list[Fact]] = {}
-        for index_source in (self, other):
-            for cik, facts in index_source.by_cik.items():
-                merged.setdefault(cik, []).extend(
-                    fact for fact in facts if not (undimensioned and fact.segments)
-                )
+        # Merge on the packed rows: the two vocabularies are unioned once, a
+        # per-field translation table remaps every code, and the dedup/prune
+        # runs on the codes. No row is ever decoded into a ``Fact``, so the
+        # merge's peak is the packed buffers instead of one whole index of
+        # objects (the ~117 MB the decoded merge used to hold).
+        left, right = self.by_cik, other.by_cik
+        vocab = _union_vocab(left.vocab, right.vocab)
+        empty_segments = vocab.segments.index("") if "" in vocab.segments else -1
+        sources = (
+            (left, _translation(left.vocab, vocab)),
+            (right, _translation(right.vocab, vocab)),
+        )
 
-        rows_by_cik: dict[str, tuple[Fact, ...]] = {}
-        for cik, facts in merged.items():
-            ordered = tuple(sorted(facts, key=_fact_sort_key))
-            rows_by_cik[cik] = prune_facts(ordered) if prune else ordered
-        return FactIndex(submissions=submissions, by_cik=_pack_index(rows_by_cik))
+        items: dict[str, _CikFacts] = {}
+        for cik in sorted(set(left) | set(right)):
+            rows: list[tuple[Any, ...]] = []
+            for source, table in sources:
+                packed = source.get(cik)
+                if packed is None:
+                    continue
+                for position in range(packed.count):
+                    row = _remap_row(
+                        _ROW.unpack_from(packed._buf, position * _ROW_WIDTH), table
+                    )
+                    if undimensioned and row[_SEGMENTS] != empty_segments:
+                        continue
+                    rows.append(row)
+            ordered = sorted(rows, key=_packed_sort_key)
+            kept = _prune_coded(ordered) if prune else ordered
+            items[cik] = _CikFacts(cik, len(kept), _encode_buffer(kept), vocab)
+        return FactIndex(submissions=submissions, by_cik=_CikFactsMapping(items, vocab))
 
     def submissions_for(self, cik: str) -> tuple[Submission, ...]:
         """One issuer's filings, in ``sub.txt`` order."""

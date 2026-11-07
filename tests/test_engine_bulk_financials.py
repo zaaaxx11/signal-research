@@ -72,6 +72,8 @@ AAPL_ADSH_K = "0000320193-25-000079"
 MSFT_ADSH = "0000789019-26-000045"
 AAPL_CIK = "0000320193"
 MSFT_CIK = "0000789019"
+#: One accession carrying two spellings of a value — the exact-tie case.
+TIE_ADSH = "0000320193-26-000077"
 
 
 def sub_row(
@@ -1104,3 +1106,93 @@ def test_a_build_hands_its_freed_pages_back() -> None:
     assert isinstance(bf.release_free_arenas(), bool)
     if sys.platform.startswith("linux"):
         assert bf.release_free_arenas() is True, "glibc exposes malloc_trim(0)"
+
+
+# ---------------------------------------------------------------------------
+# Merging and pruning on codes — a packed row never becomes a ``Fact``
+# ---------------------------------------------------------------------------
+
+
+def test_merge_and_pruned_never_materialise_a_fact(tmp_path: Path) -> None:
+    """The merge and the prune must compare **codes**, not re-decode rows.
+
+    The old merge decoded both sides into ``Fact`` objects and re-encoded the
+    result — ~117 MB of headers on the real four-quarter build. This pins that
+    the packed paths allocate none: a build, a merge and a ``pruned`` must all
+    leave the number of live ``Fact`` objects for the issuer unchanged.
+    """
+
+    early = _quarter_zip(
+        tmp_path,
+        "early.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K", "20250927", 2025, "FY", "20251031")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 400_000_000_000)],
+    )
+    late = _quarter_zip(
+        tmp_path,
+        "late.zip",
+        sub_rows=[sub_row(AAPL_ADSH_Q, 320193, "Apple Inc.", "10-Q", "20260630", 2026, "Q3", "20260731")],
+        num_rows=[num_row(AAPL_ADSH_Q, "Revenues", "20260627", 3, "USD", 300_000_000_000)],
+    )
+    first = FactIndex.build(early)
+    second = FactIndex.build(late)
+
+    gc.collect()
+    before = sum(
+        1 for obj in gc.get_objects() if isinstance(obj, Fact) and obj.cik == AAPL_CIK
+    )
+    merged = first.merge(second)
+    pruned = merged.pruned()
+    gc.collect()
+    after = sum(
+        1 for obj in gc.get_objects() if isinstance(obj, Fact) and obj.cik == AAPL_CIK
+    )
+
+    assert after == before, f"merge/pruned left {after - before} of AAPL's rows as objects"
+    # The answers are unchanged: both quarters' rows survive one merge + prune.
+    assert len(merged.facts_for(AAPL_CIK)) == 2
+    assert len(pruned.facts_for(AAPL_CIK)) == 2
+
+
+def test_a_streamed_prune_is_the_index_a_prune_after_the_build_produced(
+    zip_path: Path,
+) -> None:
+    """Pruning while streaming must equal building everything and pruning after.
+
+    A quarter's raw rows cost ~97 MB of ``Fact`` objects, so ``build`` now
+    collapses each issuer's rows *as it streams* instead of after. The rule is
+    shared with :func:`prune_facts` (:func:`_survivor_key`), so the two orders
+    must land on the same index — same rows, same order, same document.
+    """
+
+    streamed = FactIndex.build(zip_path, prune=True)
+    materialised = FactIndex.build(zip_path, prune=False).pruned()
+
+    assert streamed.to_document() == materialised.to_document()
+    assert streamed.facts_for(AAPL_CIK) == materialised.facts_for(AAPL_CIK)
+
+
+def test_an_exact_filing_tie_keeps_the_smaller_value(tmp_path: Path) -> None:
+    """Same ``filed`` *and* same accession: the smaller value is the survivor.
+
+    Two spellings of one accession can only differ by value, and the build that
+    sorted before pruning already kept the smaller one — so the shared
+    :func:`_survivor_key` says ``-value`` and both paths must agree with it.
+    """
+
+    quarter = _quarter_zip(
+        tmp_path,
+        "tie.zip",
+        sub_rows=[
+            sub_row(TIE_ADSH, 320193, "Apple Inc.", "10-Q", "20260630", 2026, "Q3", "20260731")
+        ],
+        num_rows=[
+            num_row(TIE_ADSH, "Revenues", "20260627", 3, "USD", 200.0),
+            num_row(TIE_ADSH, "Revenues", "20260627", 3, "USD", 100.0),
+        ],
+    )
+
+    rows = FactIndex.build(quarter, prune=True).facts_for(AAPL_CIK)
+
+    assert len(rows) == 1, "one accession spelling must survive"
+    assert rows[0].value == 100.0

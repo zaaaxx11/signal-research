@@ -132,17 +132,48 @@ invented. Guards: 7 new tests (packing representation, LRU reuse, document
 round-trip, arena release, pooling + its boundary), 275 in the touched suites.
 
 Honest limit: `facts_for` may hold up to 256 issuers decoded, and the residual
-+72 MB is buffers + submissions + vocabularies (data, not slack). The build still
-materialises rows transiently; encoding directly is the next ~50 MB.
++72 MB is buffers + submissions + vocabularies (data, not slack). (The build's own
+transient — a quarter of raw rows and a decoding merge — went away in the next
+pass, below.)
+
+## Done (C, fourth pass): the build never holds a whole index
+
+The remaining transient was inside `build`/`merge`: a quarter's raw rows as
+`list[Fact]` (~674k rows, ~97 MB) and a merge that decoded both sides (~117 MB).
+
+- `build(prune=True)` now dedups **while streaming** — a per-CIK dict keyed by
+  `_prune_key` holding the running survivor — then sorts and encodes once.
+- `merge` never decodes: the two vocabularies are unioned, per-field
+  **translation tables** remap codes, the dedup/prune runs on the codes
+  (`_prune_coded`) and the survivors are re-encoded.
+- One rule, one place: `_survivor_key(filed, adsh, value) -> (filed, adsh, -value)`
+  is called by `prune_facts`, `_prune_coded` and the streaming build — no path
+  re-spells the comparison. (The `-value` tail is the tie-break the old
+  sort-then-prune already produced; the document hashes below prove it.)
+
+Measured (`mem_probe.py --sec-index`, 4 quarters, 6,380 issuers, 813,175 rows):
+
+| | pass 3 | pass 4 |
+|---|---|---|
+| index step (pre-trim) | +169.6 MB | **+57.4 MB** |
+| cgroup peak on restart | 577 MB | **482 MB** |
+| steady RSS | 509 MB | **410 MB** |
+
+Independent equivalence (my own check, not the agent's): a `git worktree` of the
+pre-change commit and the working tree, same inputs — 1 quarter and a 2-quarter
+merge — produce **byte-identical documents**
+(`1q b6bd5489…`, `merge bf8e02cf…`; 258,120 / 506,259 rows). Full harness over
+the production shape: `identical: true`, 204,320 fields, 0 mismatches. 368 tests
+in the touched suites; 2 more guards of mine added (streamed prune ≡
+materialise-then-prune; the exact-filing tie keeps the smaller value).
 
 ## Follow-ups, ranked (not done)
 
-1. **Direct-encode build (the remaining ~50 MB).** `build`/`pruned`/`merge` still
-   decode rows to `Fact` values while streaming, so the build's high-water mark is
-   one transient index; `release_free_arenas()` tidies after it instead of deleting
-   it. A provisional vocabulary + prune/sort on codes + a single encode would
-   remove the peak. Safe now because the sorted vocabularies make code comparison
-   equal string comparison; `scripts/facts_prune_diff.py` is the gate.
+1. **A columnar disk artifact, if the build time ever matters.** The build now
+   costs ~57 MB and ~160 s of CPU per restart, so persisting it buys nothing
+   today. If a restart budget ever appears, the packed rows are already a
+   fixed-stride buffer — a memoryview over a file would read them without
+   decoding.
 2. **`--carry-enrichment-from` on `scripts/refresh-facts.py`.** The 2026-11-07
    swap needed a separate carry pass (34 records) because a chunked crawl's
    submissions fetch can skip or fail per issuer. Fold it into the script so the
