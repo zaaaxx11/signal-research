@@ -65,10 +65,22 @@ went wrong, not the fix.
    the newest `filed` is selected; keeping every restatement multiplies rows. Guard it
    with a golden-diff test: build both indexes over one cached quarter and assert
    `fundamentals_for_cik` returns identical fields for all 6,414 issuers.
-2. **Persist the built index** (`save_snapshot`/`load_snapshot` exist) so a restart loads
-   instead of re-streaming minutes of ZIPs — a CPU/availability win.
-3. Missing cached quarters (2026q4, 2025q1–q3) make the window unreliable per the
-   collector's own warning; re-download is a separate decision.
+2. **Persisting the index — measured 2026-11-07, rejected.** `to_document()` on the real
+   index costs **25.8 s and +1,433 MB resident**, dumps to 674 MB of JSON in 6.2 s, and
+   leaves a 674 MB file, to save the 233 s the build costs once per restart. A lazy
+   per-CIK read is the shape that would pay (it drops the standing 640 MB too).
+   `scripts/mem_probe.py --sec-index --save-index <path>` reproduces the numbers.
+
+## Blocked: the stale identity snapshot
+
+`/health` is `degraded` on `snapshot=stale` (350,324 s old, budget 172,800 s). The daily
+backup timer writes byte-identical copies; nothing re-generates the snapshot. The crawl
+that would: 10,433 symbols − 904 cached `companyfacts` documents = ~9,529 documents at
+2.15 MB avg ≈ **20.5 GB**, against **19 GB free**. Options: trim the cache
+(`python -m app.engine.ops retention`) and then crawl; refresh identity only (2 requests,
+but the file-age check would then be measuring something other than the facts); or make
+`/health` age facts by their own `as_of`. Repointing the symlink at an existing backup is
+not a fix — the bytes are identical and the warning is correct.
 
 ## Pre-existing, unrelated
 

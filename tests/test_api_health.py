@@ -1204,3 +1204,106 @@ def test_the_tracing_switch_is_a_setting_not_a_stray_env_read() -> None:
     assert Settings().trace_memory is False
     assert Settings(trace_memory=True).trace_memory is True
     assert "MEE_TRACE_MEMORY" in config_guard.known_env_names()
+
+
+# ---------------------------------------------------------------------------
+# the facts clock: an identity refresh must not hide stale numbers
+# ---------------------------------------------------------------------------
+
+
+def test_the_facts_clock_reads_the_newest_cached_companyfacts_document(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    now = time.time()
+    old = cache / "CIK0000320193-companyfacts.json"
+    old.write_text("{}", encoding="utf-8")
+    fresh = cache / "CIK0000789019-companyfacts.json"
+    fresh.write_text("{}", encoding="utf-8")
+    os.utime(old, (now - 300_000, now - 300_000))
+    os.utime(fresh, (now - 60, now - 60))
+    # A submissions body is not a facts document and must not set the clock.
+    (cache / "CIK0000320193-submissions.json").write_text("{}", encoding="utf-8")
+
+    age, observed = health_api._facts_observed(cache, now=now)
+
+    assert age == pytest.approx(60, abs=5)
+    assert observed is not None and observed.startswith("20")
+
+
+def test_an_absent_or_empty_cache_is_unknown_never_stale(tmp_path: Path) -> None:
+    empty = tmp_path / "cache"
+    empty.mkdir()
+
+    assert health_api._facts_observed(empty, now=time.time()) == (None, None)
+    assert health_api._facts_observed(None, now=time.time()) == (None, None)
+    assert health_api._facts_observed(tmp_path / "missing", now=time.time()) == (None, None)
+
+
+def test_a_fresh_identity_file_does_not_hide_stale_facts(tmp_path: Path) -> None:
+    """The case the identity-only refresh creates, pinned on purpose."""
+
+    path = tmp_path / "engine-snapshot.json"
+    _write_snapshot(path)
+    now = time.time()
+
+    check = health_api._check_snapshot(
+        path,
+        budget_s=200_000.0,
+        has_dataset=True,
+        now=now,
+        facts_age_s=350_400,
+        facts_observed_at="2026-11-03T03:48:41+00:00",
+    )
+
+    assert check.ok is False
+    assert check.document["status"] == "stale"
+    assert check.document["age_s"] <= 200_000, "the file itself is young"
+    assert check.document["facts_age_s"] == 350_400
+    assert "facts last read" in str(check.document["error"])
+    assert "identity last read" not in str(check.document["error"])
+
+
+def test_snapshot_is_ok_when_both_clocks_are_young(tmp_path: Path) -> None:
+    path = tmp_path / "engine-snapshot.json"
+    _write_snapshot(path)
+    now = time.time()
+
+    check = health_api._check_snapshot(
+        path,
+        budget_s=200_000.0,
+        has_dataset=True,
+        now=now,
+        facts_age_s=120,
+        facts_observed_at="2026-11-07T03:00:00+00:00",
+    )
+
+    assert check.ok is True
+    assert check.document["status"] == "ok"
+    assert check.document["error"] is None
+
+
+async def test_health_names_the_facts_clock_from_the_configured_cache(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    now = time.time()
+    stale = cache / "CIK0000320193-companyfacts.json"
+    stale.write_text("{}", encoding="utf-8")
+    os.utime(stale, (now - 350_400, now - 350_400))
+    settings = _healthy(tmp_path)
+    monkeypatch.setenv("MEE_ENGINE_CACHE_DIR", str(cache))
+
+    async with _client(settings) as (client, _app):
+        response = await client.get("/health")
+
+    body = response.json()
+    snapshot = body["checks"]["snapshot"]
+    assert response.status_code == 200
+    assert body["status"] == "degraded"
+    assert snapshot["ok"] is False
+    assert snapshot["facts_observed_at"] is not None
+    assert snapshot["facts_age_s"] == pytest.approx(350_400, abs=30)
+    assert "facts last read" in snapshot["error"]

@@ -721,6 +721,97 @@ async def load_sec_dataset(
     )
 
 
+async def refresh_identity(
+    snapshot_path: Path | str,
+    *,
+    output: Path | str | None = None,
+    client: Any = None,
+    as_of: str | None = None,
+    max_removed_fraction: float = 0.25,
+) -> dict[str, object]:
+    """Re-read EDGAR's identity documents and carry every fact the snapshot holds.
+
+    A snapshot's *facts* are per-issuer documents: re-reading 10,433 of them is
+    tens of gigabytes and hours (measured: 904 documents cached at 2.15 MB each,
+    ~20 GB missing). Its *identity* — who is listed, under which name, venue and
+    CIK — is two bulk documents. This function separates the two, so a deployment
+    that cannot afford the crawl can still see a new listing or a delisting.
+
+    What it does **not** do is call the carried facts fresh. Each carried cell
+    keeps the provenance it was read with, ``fetched_at`` names this run (an EDGAR
+    identity read), and the report says how many fact rows came from the previous
+    snapshot rather than from the network. ``/health`` ages the facts by the
+    ``companyfacts`` documents on disk for the same reason: a refresh must not be
+    able to hide stale numbers behind a new file.
+
+    Fail-closed rules:
+
+    * an identity read that answers no registrant raises (nothing is written);
+    * a master that would remove more than ``max_removed_fraction`` of the known
+      symbols raises — a truncated document is a broken read, not a mass
+      delisting, and the operator should look before publishing it;
+    * the written file is loaded back and verified before this returns, so a
+      corrupt write can never be the file a restart picks up.
+    """
+
+    from app.engine.store import EngineStore
+
+    source = Path(snapshot_path).expanduser()
+    previous = EngineStore(source).load()
+    fetched_at = _utc_now()
+    observed = _observed_on(as_of)
+    master = await _identity_master(client=client, observed=observed)
+
+    before = set(previous.security_master.symbols())
+    after = set(master.symbols())
+    removed = before - after
+    if before and len(removed) > max_removed_fraction * len(before):
+        raise SecIngestError(
+            "identity_refresh_implausible: the new index drops "
+            f"{len(removed)} of {len(before)} known symbols "
+            f"({len(removed) / len(before):.1%}, limit {max_removed_fraction:.0%}); "
+            "the document is probably truncated — re-run, or pass a higher limit"
+        )
+
+    kept_facts: dict[str, Mapping[str, Cell]] = {
+        symbol: facts for symbol, facts in previous.facts.items() if symbol in master
+    }
+    kept_errors = {
+        key: message for key, message in previous.errors.items() if key in master
+    }
+    dataset = EngineDataset(
+        fetched_at=fetched_at,
+        security_master=master,
+        facts=kept_facts,
+        errors=kept_errors,
+    )
+
+    target = Path(output).expanduser() if output is not None else source
+    EngineStore(target).save(dataset)
+    verified = EngineStore(target).load()
+
+    return {
+        "target": str(target),
+        "fetched_at": fetched_at,
+        "identity_observed_as_of": observed,
+        "symbols_before": len(before),
+        "symbols_after": len(after),
+        "symbols_added_count": len(after - before),
+        "symbols_added": sorted(after - before)[:20],
+        "symbols_removed_count": len(removed),
+        "symbols_removed": sorted(removed)[:20],
+        "facts_carried": len(kept_facts),
+        "facts_dropped_count": len(previous.facts) - len(kept_facts),
+        "facts_read_from_network": 0,
+        "identity_documents_read": 1,
+        "note": (
+            "facts are carried from the previous snapshot with their provenance "
+            "unchanged; only identity was re-read"
+        ),
+        "verified": len(verified.security_master.symbols()) == len(after),
+    }
+
+
 __all__ = [
     "COMPANYFACTS_URL",
     "DEFAULT_USER_AGENT",
@@ -734,5 +825,6 @@ __all__ = [
     "fetch_submissions",
     "load_cached_companyfacts",
     "load_sec_dataset",
+    "refresh_identity",
     "submissions_cache_path",
 ]

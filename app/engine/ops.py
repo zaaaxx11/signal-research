@@ -969,6 +969,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     reseal.add_argument("--snapshot", required=True, help="snapshot file to re-seal")
 
+    refresh = commands.add_parser(
+        "refresh-identity",
+        help="re-read SEC identity, carrying the facts already in the snapshot",
+    )
+    refresh.add_argument(
+        "--snapshot", default=None, help="snapshot to refresh (default: env/data)"
+    )
+    refresh.add_argument(
+        "--output",
+        default=None,
+        help="write here instead of over --snapshot (the safe way: verify, then swap)",
+    )
+    refresh.add_argument("--as-of", default=None, help="override the observation date")
+    refresh.add_argument(
+        "--max-removed-fraction",
+        type=float,
+        default=0.25,
+        help="refuse when the new index drops more than this share of symbols",
+    )
+
     restore = commands.add_parser("restore", help="verify and restore a snapshot")
     restore.add_argument("--backup", required=True, help="backup file to restore")
     restore.add_argument("--target", required=True, help="file to write the snapshot to")
@@ -1082,6 +1102,18 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
         )
     if args.command == "reseal":
         return reseal_snapshot(Path(args.snapshot))
+    if args.command == "refresh-identity":
+        from app.engine.ingest import refresh_identity
+
+        snapshot = Path(args.snapshot) if args.snapshot else paths.snapshot_path()
+        return asyncio.run(
+            refresh_identity(
+                snapshot,
+                output=Path(args.output) if args.output else None,
+                as_of=args.as_of,
+                max_removed_fraction=float(args.max_removed_fraction),
+            )
+        )
     if args.command == "backup":
         snapshot = (
             Path(args.snapshot) if args.snapshot else paths.snapshot_path()

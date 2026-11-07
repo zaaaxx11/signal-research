@@ -425,8 +425,56 @@ def _snapshot_verdict(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+def _engine_cache_dir() -> Path | None:
+    """``MEE_ENGINE_CACHE_DIR`` as a path, or ``None`` when unset.
+
+    The same deployment setting ``/engine/insider`` and ``/engine/fundamentals``
+    read for their per-CIK document cache, stated here because a route module may
+    not import another route (see ``app.api.engine._engine_cache_dir``). Unset
+    means "no cache": ``/health`` then reports the facts clock as unknown rather
+    than inventing an age.
+    """
+
+    raw = os.environ.get("MEE_ENGINE_CACHE_DIR", "").strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def _facts_observed(cache_dir: Path | None, *, now: float) -> tuple[int | None, str | None]:
+    """``(facts_age_s, observed_at)`` — when EDGAR documents were last read.
+
+    The snapshot's own mtime answers *"when did we last read EDGAR's identity
+    documents"*. It does not answer *"how old are the accounting numbers"*, and an
+    identity-only refresh (`ops refresh-identity`) makes the file look young while
+    every fact stays as old as the last crawl. The documents on disk are the
+    honest clock: the newest ``CIK*-companyfacts.json`` in the engine cache is the
+    last time an issuer's facts were read from EDGAR.
+
+    An absent or empty cache answers ``(None, None)`` — unknown is not zero, and a
+    deployment that ingested without a cache must not be reported as stale.
+    """
+
+    if cache_dir is None:
+        return None, None
+    try:
+        newest = max(
+            (entry.stat().st_mtime for entry in cache_dir.glob("CIK*-companyfacts.json")),
+            default=None,
+        )
+    except OSError:
+        return None, None
+    if newest is None:
+        return None, None
+    return _age_seconds(newest, now), datetime.fromtimestamp(newest, UTC).isoformat()
+
+
 def _check_snapshot(
-    path: Path | None, *, budget_s: float, has_dataset: bool, now: float
+    path: Path | None,
+    *,
+    budget_s: float,
+    has_dataset: bool,
+    now: float,
+    facts_age_s: int | None = None,
+    facts_observed_at: str | None = None,
 ) -> Check:
     """Does the dataset the engine serves verify, and is it young enough?
 
@@ -439,6 +487,12 @@ def _check_snapshot(
     * *not configured* — a bare checkout, or an engine that ingested over EDGAR.
       It is ``degraded`` when the engine holds no dataset at all (every
       ``/engine/*`` route would answer 503) and ``not_applicable`` when it does.
+
+    The verdict ages **both** clocks and reports which one is old: the file
+    (identity last read) and the cached ``companyfacts`` documents (facts last
+    read). One budget covers both because the question is the same — is the data
+    this deployment serves current — and an identity refresh alone must not be
+    able to silence the warning.
     """
 
     document: dict[str, object] = {
@@ -448,6 +502,8 @@ def _check_snapshot(
         "checksum": "unverified",
         "age_s": None,
         "budget_s": budget_s,
+        "facts_age_s": facts_age_s,
+        "facts_observed_at": facts_observed_at,
         "error": None,
     }
     if path is None:
@@ -480,15 +536,17 @@ def _check_snapshot(
     if not valid:
         document.update(status="invalid", ok=False, checksum="invalid", error=error)
         return Check("snapshot", document, fatal=True)
-    if age > budget_s:
-        document.update(
-            status="stale",
-            ok=False,
-            checksum="valid",
-            error=f"the snapshot is {age}s old; the budget is {budget_s:.0f}s",
-        )
-        return Check("snapshot", document)
     document["checksum"] = "valid"
+
+    # Both clocks are aged and both are reported: an identity refresh must not be
+    # able to hide facts that were last read days ago.
+    stale: list[str] = []
+    if age > budget_s:
+        stale.append(f"identity last read {age}s ago (budget {budget_s:.0f}s)")
+    if facts_age_s is not None and facts_age_s > budget_s:
+        stale.append(f"facts last read {facts_age_s}s ago (budget {budget_s:.0f}s)")
+    if stale:
+        document.update(status="stale", ok=False, error="; ".join(stale))
     return Check("snapshot", document)
 
 
@@ -1213,6 +1271,7 @@ def build_health_report(
     now: float | None = None,
     observe_runtime: bool = True,
     web_ui: WebUiState | None = None,
+    facts_dir: Path | None = None,
 ) -> dict[str, object]:
     """Build the ``/health`` document from the filesystem and the live objects.
 
@@ -1244,6 +1303,11 @@ def build_health_report(
     depth_budget = float(settings.depth_refresh_s) + float(
         settings.health_depth_budget_slack_s
     )
+    # Facts age by the documents on disk, not by the snapshot file: an
+    # identity-only refresh moves the file and nothing else, and the check must
+    # keep saying so. ``facts_dir`` lets a test (or a caller) name the cache.
+    facts_dir = facts_dir if facts_dir is not None else _engine_cache_dir()
+    facts_age_s, facts_observed_at = _facts_observed(facts_dir, now=clock)
 
     checks = [
         _guarded(
@@ -1264,6 +1328,8 @@ def build_health_report(
                 budget_s=float(settings.health_snapshot_budget_s),
                 has_dataset=engine_dataset is not None,
                 now=clock,
+                facts_age_s=facts_age_s,
+                facts_observed_at=facts_observed_at,
             ),
         ),
         _guarded(
