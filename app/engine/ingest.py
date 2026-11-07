@@ -70,11 +70,12 @@ No database, no scheduler, no sleeps: a dataset is one pass over a universe.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -83,7 +84,7 @@ from typing import Any
 from app.engine.facts import fact_ttm_summary
 from app.engine.model import Cell, Provenance
 from app.engine.ratelimit import sec_get
-from app.engine.security import SecurityMaster
+from app.engine.security import SecurityConflict, SecurityMaster
 from app.engine.sources.sec import (
     SOURCE_NAME,
     TICKERS_EXCHANGE_URL,
@@ -94,6 +95,8 @@ from app.engine.sources.sec import (
     submissions_url,
 )
 from app.providers import http as provider_http
+
+logger = logging.getLogger("mee.engine.ingest")
 
 #: EDGAR's fair-access policy requires an identifying User-Agent **with a
 #: contact**. An anonymous or library default is answered ``403``.
@@ -779,6 +782,43 @@ async def refresh_identity(
     kept_errors = {
         key: message for key, message in previous.errors.items() if key in master
     }
+
+    # Identity says *who is listed*; the submissions pass says where they are and
+    # what they do. This pass re-reads identity only, so a refreshed record must
+    # not throw away enrichment an earlier crawl already paid for — measured on
+    # the live snapshot: 5,389 records carried a country and 5,379 an industry,
+    # and neither field is in the identity documents. The old provenance is
+    # attached in memory (the document that asserted the field), but the snapshot
+    # format records one provenance for the whole file — the values are what the
+    # file can carry.
+    carried_fields = ("country", "sector", "industry")
+    enrichment_carried = 0
+    enrichment_conflicts: list[str] = []
+    for symbol in sorted(after):
+        fresh = master.get(symbol)
+        prior = previous.security_master.get(symbol)
+        if fresh is None or prior is None:
+            continue
+        updates = {
+            field: getattr(prior, field)
+            for field in carried_fields
+            if getattr(fresh, field) is None and getattr(prior, field) is not None
+        }
+        if not updates:
+            continue
+        merged = replace(fresh, **updates)
+        for provenance in previous.security_master.provenance(symbol):
+            try:
+                master.add(merged, provenance)
+            except SecurityConflict as exc:
+                enrichment_conflicts.append(symbol)
+                logger.warning(
+                    "identity refresh kept no enrichment for %s: %s", symbol, exc
+                )
+                break
+        else:
+            enrichment_carried += 1
+
     dataset = EngineDataset(
         fetched_at=fetched_at,
         security_master=master,
@@ -804,9 +844,12 @@ async def refresh_identity(
         "facts_dropped_count": len(previous.facts) - len(kept_facts),
         "facts_read_from_network": 0,
         "identity_documents_read": 1,
+        "enrichment_carried": enrichment_carried,
+        "enrichment_conflicts": enrichment_conflicts[:20],
         "note": (
             "facts are carried from the previous snapshot with their provenance "
-            "unchanged; only identity was re-read"
+            "unchanged; only identity was re-read, and country/sector/industry "
+            "(which the identity documents do not state) travel with it"
         ),
         "verified": len(verified.security_master.symbols()) == len(after),
     }

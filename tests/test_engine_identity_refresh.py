@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -84,13 +85,30 @@ def _cell(value: float, *, source: str = "sec") -> Cell:
     )
 
 
-def _write_snapshot(path: Path, symbols: dict[str, str]) -> None:
-    """A snapshot whose facts carry ``symbols`` — the state a refresh starts from."""
+def _write_snapshot(
+    path: Path,
+    symbols: dict[str, str],
+    *,
+    countries: dict[str, str] | None = None,
+) -> None:
+    """A snapshot whose facts carry ``symbols`` — the state a refresh starts from.
+
+    ``countries`` stands in for the submissions enrichment a crawl adds: the field
+    is not in the identity documents, which is exactly why a refresh has to carry
+    it instead of rebuilding identity from scratch.
+    """
 
     master = SecurityMaster.from_company_tickers(
         legacy_index(tuple((int(cik), symbol, f"{symbol} Inc") for symbol, cik in symbols.items())),
         as_of=AS_OF,
     )
+    for symbol, country in (countries or {}).items():
+        record = master.get(symbol)
+        assert record is not None
+        master.add(
+            replace(record, country=country, industry="Software"),
+            Provenance(source="sec", as_of=AS_OF, status=CellStatus.OK),
+        )
     dataset = EngineDataset(
         fetched_at=FETCHED_AT,
         security_master=master,
@@ -253,3 +271,40 @@ def test_the_saved_file_is_loaded_back_before_the_report_says_verified(tmp_path:
     assert body["schema_version"] == 1
     assert report["verified"] is True
     assert len(EngineStore(output).load().security_master.symbols()) == 1
+
+
+def test_refresh_carries_enrichment_the_identity_documents_do_not_state(
+    tmp_path: Path,
+) -> None:
+    """``country``/``sector``/``industry`` come from submissions, not identity.
+
+    Rebuilding identity from the bulk document alone dropped 5,389 countries and
+    5,379 industries on the live snapshot. The refresh carries them, and the old
+    provenance travels with the value so the field still names its document.
+    """
+
+    known = _ten_symbols()
+    survivors = {key: value for key, value in known.items() if key != "MSFT"}
+    web = Web()
+    web.route(TICKERS_EXCHANGE_URL, exchange_document(_exchange_rows(survivors)))
+    source = tmp_path / "engine-snapshot.json"
+    output = tmp_path / "engine-snapshot.new.json"
+    _write_snapshot(source, known, countries={"SYM00": "United States", "SYM01": "Canada"})
+
+    report = asyncio.run(
+        refresh_identity(source, output=output, client=web.client(), as_of=AS_OF)
+    )
+
+    assert report["enrichment_carried"] == 2
+    assert report["enrichment_conflicts"] == []
+    refreshed = EngineStore(output).load()
+    record = refreshed.security_master.require("SYM00")
+    assert record.country == "United States"
+    assert record.industry == "Software"
+    # The snapshot format itself records ONE provenance for the whole file
+    # (``snapshot``, stamped at save/load), so the carried fields keep their
+    # original document only inside the refresh run. The values are what the file
+    # carries; the per-field history was never in this format.
+    assert [item.source for item in refreshed.security_master.provenance("SYM00")] == [
+        "snapshot"
+    ]
