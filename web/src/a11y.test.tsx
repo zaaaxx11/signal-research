@@ -359,8 +359,17 @@ describe("the keyboard path", () => {
     }
     const headerButtons = table.querySelectorAll("thead th button");
     expect(headerButtons.length).toBeGreaterThan(0);
-    expect(tabbables(screen.getByTestId("grid-scroll"))).toHaveLength(
-      headerButtons.length + 1 + (rows.length === 0 ? 0 : 1),
+    // The reference — the header's sort buttons — is static markup, while the
+    // body's tab stops arrive with the rows. Under a parallel suite the two
+    // counts can land on different frames, which failed as "expected 59 to be
+    // 70" on a loaded box. Wait for one consistent frame and keep asserting the
+    // exact number: a genuinely missing stop still fails, just after the wait.
+    await waitFor(() =>
+      expect(tabbables(screen.getByTestId("grid-scroll"))).toHaveLength(
+        table.querySelectorAll("thead th button").length +
+          1 +
+          (rows.length === 0 ? 0 : 1),
+      ),
     );
     // Eighty real Tab presses through `userEvent` is a second of work on an
     // idle machine and more when the suite runs its files in parallel; the
