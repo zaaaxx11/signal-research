@@ -40,3 +40,9 @@ research/fv-measure/*.json
 # scratch probes
 .probe_*.py
 node_modules/
+
+# Local working note: the pipeline blueprint WITH the upstream names spelled out.
+# The sanitized copy that may live in history is docs/blueprint.md; this one
+# stays on the box ("rahasia dapur" — the reader sees the product, never the
+# supply chain).
+ztockz.txt
