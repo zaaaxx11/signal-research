@@ -350,7 +350,11 @@ class SecFundamentalsDepthSource:
             # filtered build answers exactly the same rows for the fields the
             # mapper publishes.
             self._index = await asyncio.to_thread(
-                build_quarters, paths, ciks=wanted, tags=MAPPED_CONCEPTS
+                build_quarters,
+                paths,
+                ciks=wanted,
+                tags=MAPPED_CONCEPTS,
+                undimensioned=True,
             )
         except Exception as exc:  # noqa: BLE001 - a broken cache is no rows
             self.build_error = f"{type(exc).__name__}: {exc}"

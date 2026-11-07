@@ -297,6 +297,28 @@ def test_a_later_filed_restatement_replaces_the_original() -> None:
     assert map_fundamentals(backward)["net_income"] == pytest.approx(91.0), "order is not the rule"
 
 
+def test_the_engine_prune_leaves_the_mapped_fields_untouched() -> None:
+    """``bulk_financials.prune_facts`` is this module's rule, applied once.
+
+    The prune keeps the newest ``filed`` per ``(tag, version, period, duration,
+    unit, segment, co-registrant)`` — the very row ``_fact_key``'s ``max`` would
+    pick — so the fields a pruned list produces must equal the fields the raw
+    list produces, restatement and all. A differing dict would mean the prune
+    took a row the mapper would have read.
+    """
+
+    from app.engine.bulk_financials import prune_facts
+
+    facts = [
+        fact(REVENUE, 100.0, adsh=AAPL_K, filed="2025-10-31"),
+        fact(REVENUE, 91.0, adsh=AAPL_Q, filed="2026-07-31"),
+        fact(REVENUE, 30.0, ddate="2026-06-27", qtrs=3, adsh=AAPL_Q, filed="2026-07-31"),
+    ]
+    pruned = list(prune_facts(facts))
+    assert len(pruned) == 2, "one key, two filed dates: the older spelling is gone"
+    assert map_fundamentals(pruned) == map_fundamentals(facts)
+
+
 def test_a_newer_period_beats_a_later_filed_older_period() -> None:
     facts = [
         fact("NetIncomeLoss", 100.0, ddate="2025-09-27", adsh=AAPL_K, filed="2025-10-31"),

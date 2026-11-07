@@ -471,6 +471,12 @@ def _rows_for(facts: list[Any], name: str) -> list[Any]:
     alone: a company-specific extension named ``Revenue`` is not the IFRS
     concept, and letting it win would be a private tag answering a public
     field.
+
+    The ``item.segments`` guard is the reason the depth collector builds its
+    index with ``undimensioned=True`` (see ``app.market.sec_fundamentals_depth``):
+    a dimensional row can never answer a published field, so keeping it costs
+    memory and buys nothing. Keep the two in sync — if this guard is ever
+    loosened, that build flag has to be revisited.
     """
 
     tags = TAG_MAP[name]

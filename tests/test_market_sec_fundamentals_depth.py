@@ -300,11 +300,26 @@ def test_the_index_is_built_once_on_the_first_fetch(tmp_path: Path, monkeypatch:
     real = module.build_quarters
     calls: list[tuple[str, ...]] = []
     seen_tags: list[Any] = []
+    seen_flags: list[dict[str, Any]] = []
 
-    def counting(paths: Sequence[Any], *, ciks: Any = None, tags: Any = None) -> Any:
+    def counting(
+        paths: Sequence[Any],
+        *,
+        ciks: Any = None,
+        tags: Any = None,
+        prune: bool = True,
+        undimensioned: bool = False,
+    ) -> Any:
         calls.append(tuple(str(path) for path in paths))
         seen_tags.append(tags)
-        return real(paths, ciks=ciks, tags=tags)
+        seen_flags.append({"prune": prune, "undimensioned": undimensioned})
+        return real(
+            paths,
+            ciks=ciks,
+            tags=tags,
+            prune=prune,
+            undimensioned=undimensioned,
+        )
 
     monkeypatch.setattr(module, "build_quarters", counting)
     source = module.SecFundamentalsDepthSource(
@@ -326,12 +341,18 @@ def test_the_index_is_built_once_on_the_first_fetch(tmp_path: Path, monkeypatch:
     from app.market.sec_fundamentals import MAPPED_CONCEPTS
 
     assert seen_tags == [MAPPED_CONCEPTS]
+    # Dimensional rows are 63.85% of one quarter's mapped rows and the mapper
+    # skips them, so the depth build must ask for them to be dropped.
+    assert seen_flags == [{"prune": True, "undimensioned": True}]
     kept = {
         fact.tag
         for facts in source.fact_index.by_cik.values()
         for fact in facts
     }
     assert kept <= MAPPED_CONCEPTS, f"unmapped concepts survived the build: {kept - MAPPED_CONCEPTS}"
+    assert not any(
+        fact.segments for facts in source.fact_index.by_cik.values() for fact in facts
+    ), "a dimensional row survived the depth build"
 
 
 # ---------------------------------------------------------------------------

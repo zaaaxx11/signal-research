@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -855,3 +856,178 @@ def test_repeated_fields_share_one_string_object(zip_path: Path) -> None:
     for fact in facts:
         for value in (fact.ddate, fact.adsh, fact.uom, fact.version):
             assert sys.intern(value) is value, f"{value!r} is not the shared object"
+
+
+# ---------------------------------------------------------------------------
+# Pruning — one selectable row per key
+# ---------------------------------------------------------------------------
+#
+# The mapper can never pick two rows that differ only in *which filing* carried
+# them: its selection is a max over (ddate, filed, adsh) inside a candidate set
+# it filters by tag, taxonomy, period, duration, unit, segment and
+# co-registrant. So every key but the newest `filed` is dead weight, and the
+# build drops it. These tests pin that the drop is exactly the mapper's own
+# choice and nothing a roll-forward still reads.
+
+
+def _prune_fact(
+    *,
+    adsh: str = "0001-26-000001",
+    tag: str = "Revenues",
+    version: str = "us-gaap/2026",
+    ddate: str = "20250927",
+    qtrs: int | None = 4,
+    uom: str = "USD",
+    value: float = 1.0,
+    segments: str = "",
+    coreg: str = "",
+    filed: str = "2026-07-31",
+) -> Fact:
+    """One :class:`Fact` with the prune key's dimensions defaulted to one group."""
+
+    return Fact(
+        adsh=adsh,
+        tag=tag,
+        version=version,
+        ddate=ddate,
+        qtrs=qtrs,
+        uom=uom,
+        value=value,
+        cik=AAPL_CIK,
+        segments=segments,
+        coreg=coreg,
+        filed=filed,
+    )
+
+
+def test_prune_keeps_only_the_newest_filing_of_one_key() -> None:
+    """Two rows, one key, two ``filed`` dates: the restated figure wins."""
+
+    older = _prune_fact(adsh="0001-25-000079", value=112_010_000_000, filed="2025-10-31")
+    newer = _prune_fact(adsh="0001-26-000020", value=111_000_000_000, filed="2026-07-31")
+
+    assert bf.prune_facts([older, newer]) == (newer,)
+    # The input order must not matter: the winner follows `filed`, not position.
+    assert bf.prune_facts([newer, older]) == (newer,)
+
+
+def test_prune_breaks_a_filed_tie_on_the_larger_accession() -> None:
+    """Same ``filed`` date: the larger accession is the reproducible winner."""
+
+    low = _prune_fact(adsh="0001-26-000010", value=1.0, filed="2026-07-31")
+    high = _prune_fact(adsh="0001-26-000019", value=2.0, filed="2026-07-31")
+
+    assert bf.prune_facts([high, low]) == (high,)
+
+
+def test_prune_keeps_a_literal_duplicate_row_once() -> None:
+    """A row repeated verbatim across quarters collapses to a single survivor."""
+
+    once = _prune_fact(adsh="0001-26-000001", value=5.0, filed="2026-07-31")
+    again = _prune_fact(adsh="0001-26-000001", value=5.0, filed="2026-07-31")
+
+    assert bf.prune_facts([once, again]) == (once,)
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        # A trailing-twelve-month roll-forward reads several period ends and a
+        # quarter reads two durations — neither may be collapsed to one.
+        (_prune_fact(ddate="20250927"), _prune_fact(ddate="20260627")),
+        (_prune_fact(qtrs=4), _prune_fact(qtrs=3)),
+        # An instant and a duration of the same concept are different facts.
+        (_prune_fact(qtrs=0), _prune_fact(qtrs=None)),
+        # A wrong-unit spelling is a different fact, not a stale copy.
+        (_prune_fact(uom="USD"), _prune_fact(uom="EUR")),
+        # A segment row is not the consolidated one; a co-registrant is a
+        # different member's figure. Both survive beside the total.
+        (_prune_fact(), _prune_fact(segments="SEG-1")),
+        (_prune_fact(), _prune_fact(coreg="Subsidiary")),
+        # The IFRS guard reads the taxonomy, so the two spellings are distinct.
+        (_prune_fact(version="us-gaap/2026"), _prune_fact(version="ifrs/2026")),
+    ],
+)
+def test_prune_keeps_rows_a_roll_forward_still_reads(left: Fact, right: Fact) -> None:
+    """Any key dimension that differs keeps both rows, whatever ``filed`` says."""
+
+    # The right-hand row is the *newer* filing, yet it must not evict the left.
+    right = replace(right, filed="2026-08-01")
+    kept = bf.prune_facts([left, right])
+    assert set(kept) == {left, right}
+
+
+def test_pruning_does_not_change_the_mapped_fields(zip_path: Path) -> None:
+    """``prune=True`` drops rows but answers exactly the ``prune=False`` fields."""
+
+    from app.market.sec_fundamentals import fundamentals_for_cik
+
+    full = FactIndex.build(zip_path, prune=False)
+    pruned = FactIndex.build(zip_path, prune=True)
+
+    assert len(pruned.facts_for(AAPL_CIK)) < len(full.facts_for(AAPL_CIK)), (
+        "the restated row was dropped"
+    )
+    for cik in full.ciks():
+        assert fundamentals_for_cik(pruned, cik, price=250.0) == fundamentals_for_cik(
+            full, cik, price=250.0
+        )
+
+
+def test_pruning_survives_a_merge_of_two_quarters(tmp_path: Path) -> None:
+    """A period end carried by two quarters collapses to the newest ``filed``."""
+
+    early = _quarter_zip(
+        tmp_path,
+        "early.zip",
+        sub_rows=[sub_row(AAPL_ADSH_K, 320193, "Apple Inc.", "10-K", "20250927", 2025, "FY", "20251031")],
+        num_rows=[num_row(AAPL_ADSH_K, "Revenues", "20250927", 4, "USD", 400_000_000_000)],
+    )
+    late = _quarter_zip(
+        tmp_path,
+        "late.zip",
+        sub_rows=[sub_row(AAPL_ADSH_Q, 320193, "Apple Inc.", "10-Q", "20260630", 2026, "Q3", "20260731")],
+        num_rows=[num_row(AAPL_ADSH_Q, "Revenues", "20250927", 4, "USD", 401_000_000_000)],
+    )
+
+    merged = FactIndex.build(early).merge(FactIndex.build(late))
+    facts = merged.facts_for(AAPL_CIK)
+    assert len(facts) == 1, "one period end, one survivor"
+    assert facts[0].value == 401_000_000_000, "the later quarter's filing wins"
+
+
+def test_a_pruned_snapshot_round_trips(tmp_path: Path) -> None:
+    """``to_document``/``from_document`` still agree on a pruned index."""
+
+    zip_path = write_fixture_zip(tmp_path / "q.zip")
+    index = FactIndex.build(zip_path)
+    restored = FactIndex.from_document(index.to_document())
+    assert restored == index
+    assert restored.facts_for(AAPL_CIK) == index.facts_for(AAPL_CIK)
+
+
+def test_undimensioned_drops_the_segment_rows_the_mapper_never_reads(
+    zip_path: Path,
+) -> None:
+    """The fixture carries one segmented revenue row (``segments="SEG-1"``).
+
+    ``app.market.sec_fundamentals._rows_for`` skips a row whose ``segments`` is
+    non-empty, so a dimensional row can never answer a published field — and on
+    a real cached quarter 63.85% of the mapped rows are dimensional (502,194 of
+    786,489, measured 2026-11-07). Keeping them costs memory and buys nothing;
+    this pins both halves: the rows go, and no mapped answer moves.
+    """
+
+    from app.market.sec_fundamentals import fundamentals_for_cik
+
+    kept = build_quarters([zip_path], prune=False)
+    dropped = build_quarters([zip_path], prune=False, undimensioned=True)
+
+    assert any(fact.segments for facts in kept.by_cik.values() for fact in facts)
+    assert all(not fact.segments for facts in dropped.by_cik.values() for fact in facts)
+    assert sum(len(facts) for facts in dropped.by_cik.values()) < sum(
+        len(facts) for facts in kept.by_cik.values()
+    )
+
+    for cik in kept.by_cik:
+        assert fundamentals_for_cik(kept, cik) == fundamentals_for_cik(dropped, cik)

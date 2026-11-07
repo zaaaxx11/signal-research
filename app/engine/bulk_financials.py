@@ -330,6 +330,62 @@ def _fact_sort_key(fact: Fact) -> tuple[str, str, int, str, str, float]:
     )
 
 
+def _prune_key(fact: Fact) -> tuple[str, str, str, int | None, str, str, str]:
+    """The identity of one *selectable* row: everything but the value.
+
+    Two rows sharing this key are the same concept, taxonomy, period end,
+    duration, unit, segment and co-registrant — the one difference left is
+    *which filing* carried the number, and the mapper never reads both. Its
+    selection is a ``max`` over ``(ddate, filed, adsh)`` (``_fact_key`` in
+    ``app.market.sec_fundamentals``) inside a candidate set it filters by
+    exactly these dimensions, so the newest ``filed`` (then the largest
+    accession) is the only row that can ever win. ``version`` is part of the
+    key on purpose: the mapper's IFRS guard accepts an IFRS-only concept only
+    under an ``ifrs/`` taxonomy, so a US-GAAP spelling and an IFRS spelling of
+    one tag are *not* interchangeable even when they share a period end.
+    """
+
+    return (
+        fact.tag,
+        fact.version,
+        fact.ddate,
+        fact.qtrs,
+        fact.uom,
+        fact.segments,
+        fact.coreg,
+    )
+
+
+def prune_facts(facts: Iterable[Fact]) -> tuple[Fact, ...]:
+    """Drop every row the mapper could never select, keeping the winner.
+
+    One row per :func:`_prune_key` survives — the one with the newest ``filed``,
+    the larger accession breaking a tie. That is the restatement rule: a
+    restated comparative replaces the figure it restates, and the discarded
+    spellings are the older ``filed`` and the same-quarter duplicates a merged
+    index carries. Rows that differ in period end, duration, unit, segment or
+    co-registrant are all kept, so a trailing-twelve-month roll-forward and a
+    season-over-season pair still have every period they read. The output is
+    re-sorted by :func:`_fact_sort_key`, so a pruned index is indistinguishable
+    from a build over the surviving rows.
+
+    The stream is a single ``O(n)`` walk with one small dict; a caller that
+    already sorted its rows keeps a fully deterministic survivor on a complete
+    tie (identical ``filed`` *and* accession — a literal duplicate row).
+    """
+
+    winners: dict[tuple[str, str, str, int | None, str, str, str], Fact] = {}
+    for fact in facts:
+        key = _prune_key(fact)
+        current = winners.get(key)
+        if current is None or (fact.filed, fact.adsh) > (
+            current.filed,
+            current.adsh,
+        ):
+            winners[key] = fact
+    return tuple(sorted(winners.values(), key=_fact_sort_key))
+
+
 # ---------------------------------------------------------------------------
 # The index
 # ---------------------------------------------------------------------------
@@ -355,6 +411,8 @@ class FactIndex:
         *,
         ciks: Iterable[str] | None = None,
         tags: Iterable[str] | None = None,
+        prune: bool = True,
+        undimensioned: bool = False,
     ) -> FactIndex:
         """Stream ``sub.txt`` then ``num.txt`` into a CIK-keyed index.
 
@@ -371,6 +429,17 @@ class FactIndex:
         ``TAG_MAP``, so filtering at build time cuts the index by orders of
         magnitude without changing an answer. ``tags=None`` keeps every
         concept — the fixture/analysis mode.
+
+        ``prune`` (the default) then collapses each issuer's rows to the one
+        per :func:`_prune_key` a mapper can select — the newest ``filed``. It
+        is the restatement rule applied once at build time instead of on every
+        lookup, and it changes no mapped field; ``prune=False`` keeps every
+        raw row for tools that want the restatement history itself.
+
+        ``undimensioned`` drops the dimensional rows (``segments`` non-empty).
+        It is off by default because a caller analysing segments wants them; the
+        fundamentals mapper passes it on, since ``_rows_for`` skips exactly those
+        rows and 63.85% of one quarter's mapped rows are dimensional.
         """
 
         wanted = None if ciks is None else {normalize_cik(cik) for cik in ciks}
@@ -388,6 +457,13 @@ class FactIndex:
         for fact in iter_facts(zip_path):
             if allowed is not None and fact.tag not in allowed:
                 continue
+            if undimensioned and fact.segments:
+                # A dimensional row (a segment/axis breakdown) can never answer
+                # a published field: `app.market.sec_fundamentals._rows_for`
+                # skips `item.segments`. Dropped here it costs no memory and no
+                # sort; measured on one cached quarter, 63.85% of the mapped rows
+                # are dimensional (502,194 of 786,489).
+                continue
             cik = accession_cik.get(fact.adsh)
             if cik is None:
                 continue
@@ -399,7 +475,25 @@ class FactIndex:
             cik: tuple(sorted(facts, key=_fact_sort_key))
             for cik, facts in sorted(buckets.items())
         }
-        return cls(submissions=submissions, by_cik=by_cik)
+        index = cls(submissions=submissions, by_cik=by_cik)
+        return index.pruned() if prune else index
+
+    def pruned(self) -> "FactIndex":
+        """The same index with each issuer's rows collapsed to the selectable one.
+
+        One row per :func:`_prune_key` per CIK survives — the newest ``filed``,
+        the larger accession breaking a tie (see :func:`prune_facts`). It is
+        the mapper's own choice, taken once, so every field
+        ``app.market.sec_fundamentals`` publishes stays exactly the same while
+        the restatement history, the older spellings and the cross-quarter
+        duplicates fall away. ``submissions`` is untouched: the accession →
+        filing map is tiny and the caller's provenance reads it.
+        """
+
+        return FactIndex(
+            submissions=dict(self.submissions),
+            by_cik={cik: prune_facts(facts) for cik, facts in self.by_cik.items()},
+        )
 
     def facts_for(self, cik: str) -> tuple[Fact, ...]:
         """One issuer's facts; an unknown or malformed CIK is empty, not an error."""
@@ -410,7 +504,13 @@ class FactIndex:
             return ()
         return self.by_cik.get(key, ())
 
-    def merge(self, other: "FactIndex") -> "FactIndex":
+    def merge(
+        self,
+        other: "FactIndex",
+        *,
+        prune: bool = True,
+        undimensioned: bool = False,
+    ) -> "FactIndex":
         """Union two quarterly indexes into one fact list per CIK.
 
         The TTM arithmetic in ``app.market.sec_fundamentals`` needs the annual
@@ -421,22 +521,30 @@ class FactIndex:
         indistinguishable from one built over both ZIPs at once; submissions
         are unioned with ``other`` winning an accession collision, because the
         later quarter's filing date is the one that matters.
+
+        ``prune`` (the default) collapses the survivors again: two quarters
+        that both carry one period end, or an accession refiled in a later
+        quarter, land as one selectable row — the newest ``filed`` — exactly as
+        a single build over the concatenated rows would. ``prune=False`` keeps
+        both, so a caller comparing restatement histories can still see them.
         """
 
         submissions: dict[str, Submission] = dict(self.submissions)
         submissions.update(other.submissions)
 
         merged: dict[str, list[Fact]] = {}
-        for cik, facts in self.by_cik.items():
-            merged.setdefault(cik, []).extend(facts)
-        for cik, facts in other.by_cik.items():
-            merged.setdefault(cik, []).extend(facts)
+        for index_source in (self, other):
+            for cik, facts in index_source.by_cik.items():
+                merged.setdefault(cik, []).extend(
+                    fact for fact in facts if not (undimensioned and fact.segments)
+                )
 
         by_cik = {
             cik: tuple(sorted(facts, key=_fact_sort_key))
             for cik, facts in sorted(merged.items())
         }
-        return FactIndex(submissions=submissions, by_cik=by_cik)
+        index = FactIndex(submissions=submissions, by_cik=by_cik)
+        return index.pruned() if prune else index
 
     def submissions_for(self, cik: str) -> tuple[Submission, ...]:
         """One issuer's filings, in ``sub.txt`` order."""
@@ -545,7 +653,10 @@ class FactIndex:
                 if fact is not None:
                     facts.append(fact)
             by_cik[key] = tuple(sorted(facts, key=_fact_sort_key))
-        return cls(submissions=submissions, by_cik=by_cik)
+        # A snapshot written before the prune existed (or one built with
+        # ``prune=False``) still carries the older spellings; collapsing them on
+        # load keeps a restored index byte-identical to a freshly built one.
+        return cls(submissions=submissions, by_cik=by_cik).pruned()
 
 
 def _submission_from(item: object) -> Submission | None:
@@ -846,6 +957,8 @@ def build_quarters(
     *,
     ciks: Iterable[str] | None = None,
     tags: Iterable[str] | None = None,
+    prune: bool = True,
+    undimensioned: bool = False,
 ) -> FactIndex:
     """Build one index over several quarterly ZIPs, merged.
 
@@ -857,13 +970,21 @@ def build_quarters(
 
     ``tags`` is passed to every build: the six-quarter universe index only
     fits in the worker's memory when it carries the mapper's ~30 concepts
-    instead of every filed concept.
+    instead of every filed concept. ``prune`` (the default) passes through to
+    every build and merge, so the merged index is collapsed the same way a
+    single build is; ``prune=False`` keeps every raw row.
     """
 
     index: FactIndex | None = None
     for path in paths:
-        built = FactIndex.build(path, ciks=ciks, tags=tags)
-        index = built if index is None else index.merge(built)
+        built = FactIndex.build(
+            path, ciks=ciks, tags=tags, prune=prune, undimensioned=undimensioned
+        )
+        index = (
+            built
+            if index is None
+            else index.merge(built, prune=prune, undimensioned=undimensioned)
+        )
     return index if index is not None else FactIndex()
 
 
@@ -889,6 +1010,7 @@ __all__ = [
     "main",
     "normalize_cik",
     "parse_quarter",
+    "prune_facts",
     "quarter_label",
     "save_snapshot",
     "snapshot_path",
