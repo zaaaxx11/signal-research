@@ -71,16 +71,30 @@ went wrong, not the fix.
    per-CIK read is the shape that would pay (it drops the standing 640 MB too).
    `scripts/mem_probe.py --sec-index --save-index <path>` reproduces the numbers.
 
-## Blocked: the stale identity snapshot
+## Done (B): identity refreshed, both clocks on /health
 
-`/health` is `degraded` on `snapshot=stale` (350,324 s old, budget 172,800 s). The daily
-backup timer writes byte-identical copies; nothing re-generates the snapshot. The crawl
-that would: 10,433 symbols − 904 cached `companyfacts` documents = ~9,529 documents at
-2.15 MB avg ≈ **20.5 GB**, against **19 GB free**. Options: trim the cache
-(`python -m app.engine.ops retention`) and then crawl; refresh identity only (2 requests,
-but the file-age check would then be measuring something other than the facts); or make
-`/health` age facts by their own `as_of`. Repointing the symlink at an existing backup is
-not a fix — the bytes are identical and the warning is correct.
+- New command: `python -m app.engine.ops refresh-identity --snapshot <file> [--output <new>]`.
+  Live run: 10,433 → 10,409 symbols (44 added, 68 delisted), 4,197 facts carried
+  **byte-identically**, 5,454 records' country/industry carried, 0 conflicts, one request.
+- Swapped via the symlink + restart; `/symbols/search`, `/screens`, `/engine/snapshot/AAPL`
+  and the UI all answer 200; RSS 1,115 MB with the SEC index built (up from 1,016 MB
+  because the refreshed file is written with `indent=2`: 40 MB vs 23 MB).
+- `/health` now ages **two** clocks and names the stale one:
+  `degraded | snapshot: stale | age_s=18739 | facts_age_s=461908 |
+  reason: facts last read 461908s ago (budget 172800s)`. Identity is fresh; the facts
+  are honestly old — that is the state until the crawl in (A) can run.
+
+Pitfall found the hard way: rebuilding identity from the bulk document alone deleted
+`country`/`sector`/`industry` (they come from the per-CIK submissions pass — country
+5,389 → 0). The refresh now carries them; `enrichment_carried` in the report is the
+check. Do not repoint the symlink at an older byte-identical backup to silence the
+warning: the bytes are the same and the warning is correct.
+
+## Not done (A): the facts crawl is still disk-blocked
+
+10,433 symbols − 904 cached `companyfacts` documents ≈ 9,529 documents at 2.15 MB avg
+≈ **20.5 GB**, against **19 GB free**. Options: trim the cache
+(`python -m app.engine.ops retention`), then crawl; or accept the degraded verdict.
 
 ## Pre-existing, unrelated
 
