@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { getJson } from "@/lib/api";
 import { parseQuoteAttr, QUOTE_ATTR, type QuoteInfo } from "@/lib/quoteAttrs";
 
 /**
@@ -68,9 +69,9 @@ export function parseSeries(payload: unknown): Sparkline | null {
 async function fetchSparkline(symbol: string, signal: AbortSignal): Promise<Sparkline | null> {
   if (sparkCache.has(symbol)) return sparkCache.get(symbol) ?? null;
   const url = `/market/chart/${encodeURIComponent(symbol)}?window=1d`;
-  const response = await fetch(url, { signal });
-  if (!response.ok) return null;
-  const parsed = parseSeries(await response.json());
+  // The read goes through the API client, never the global: `api.ts` is the
+  // shell's one network surface (the mount test refuses a second direct read).
+  const parsed = parseSeries(await getJson(url, signal));
   if (sparkCache.size >= CACHE_LIMIT) {
     sparkCache.delete(sparkCache.keys().next().value as string);
   }
