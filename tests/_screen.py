@@ -416,6 +416,12 @@ async def screen_client(
     monkeypatch.setenv("MEE_DB_PATH", str(tmp_path / "mee.db"))
     monkeypatch.setenv("MEE_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("MEE_PROVIDER_MODE", "live")
+    # The deployment's own store is not a fixture. Without this the app reads the
+    # live ``data/depth.json`` (4,217 symbols on the box) and every "no store"
+    # assertion is a lie — it answered 8 rows where the harness promised none,
+    # and the byte counts in the payload tests measured production data. A test
+    # that wants depth columns writes its own file and sets this variable itself.
+    monkeypatch.setenv("MEE_SCREEN_DEPTH_STORE", str(tmp_path / "depth.json"))
     install_web(monkeypatch, transport_web)
 
     from httpx2 import ASGITransport, AsyncClient

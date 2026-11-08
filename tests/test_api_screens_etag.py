@@ -404,6 +404,12 @@ async def test_a_hundred_rows_of_twelve_columns_in_one_small_response(
     measurement of a real panel.
     """
 
+    # ``screen_client`` does not isolate the depth store, so this test would read
+    # the deployment's own ``data/depth.json``. That fills the three store-owned
+    # columns for the real tickers on the page, which is neither "empty" nor the
+    # fixture's nulls — point the reader at a path that does not exist so the
+    # panel below is exactly the one this harness answers.
+    monkeypatch.setenv("MEE_SCREEN_DEPTH_STORE", str(tmp_path / "depth.json"))
     async with S.screen_client(tmp_path, monkeypatch, web=populated_web()) as harness:
         response = await harness.client.post(
             "/screens/select",

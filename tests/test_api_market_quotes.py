@@ -157,19 +157,23 @@ async def test_a_stock_the_scanner_could_not_price_is_missing(
 async def test_an_alt_symbol_outside_the_catalogue_takes_its_name_from_the_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # PEPE-USD is in the crypto catalogue (122 coins), so its name comes from the
+    # curated list, not the provider. This contract is about a symbol the
+    # catalogue does *not* carry: WOJAK-USD is outside it, and the -USD suffix is
+    # what still classes it as crypto.
     body = A.chart_body(
-        "PEPE-USD", closes=(0.0000012,), previous_close=0.0000011,
-        meta={"shortName": "Pepe USD"},
+        "WOJAK-USD", closes=(0.0000012,), previous_close=0.0000011,
+        meta={"shortName": "Wojak USD"},
     )
     async with A.alt_client(
         tmp_path,
         monkeypatch,
         rows=[],
-        transport=A.FakeTransport(bodies={"PEPE-USD": body}),
+        transport=A.FakeTransport(bodies={"WOJAK-USD": body}),
     ) as harness:
-        answer = (await harness.get("/market/quotes", symbols="PEPE-USD")).json()
+        answer = (await harness.get("/market/quotes", symbols="WOJAK-USD")).json()
 
-    assert answer["rows"][0]["name"] == "Pepe USD"
+    assert answer["rows"][0]["name"] == "Wojak USD"
     assert answer["rows"][0]["class"] == "crypto"
 
 
