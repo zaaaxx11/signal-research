@@ -30,6 +30,7 @@ from starlette.types import Scope
 from app import __version__
 from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
 from app.api import alt as alt_api
+from app.api import crawl as crawl_api
 from app.api import enrich as enrich_api
 from app.api import market_news as market_news_api
 from app.api import calendar as calendar_api
@@ -916,6 +917,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #: projection carries none of its bytes and every row still has a ``src``.
     mount_router(application, logos_api.router)
     mount_router(application, sources_router)
+    #: ``GET /robots.txt`` + ``/sitemap.xml``: the two documents a crawler asks for
+    #: at the origin root. Built from the request's own host, so no deployment
+    #: name is committed and the box answers correctly under any domain.
+    mount_router(application, crawl_api.router)
     mount_router(application, engine_api.router)
 
     ui_dir = Path(__file__).resolve().parent.parent / "ui"
