@@ -58,6 +58,11 @@ fi
 
 # 2. Build the shell.  The API serves web/dist from disk, so a failed build
 #    must not restart the service onto a half-built bundle.
+#
+#    ``VITE_PUBLIC_ORIGIN`` is the one thing the build has to be told: the two
+#    link-preview tags need absolute URLs, and the repository names no host.  It
+#    comes from the box's own environment file, never from the checkout.
+export VITE_PUBLIC_ORIGIN="${MEE_PUBLIC_ORIGIN:-}"
 if ! (cd web && npm run build >/dev/null 2>&1); then
   log "FAIL: frontend build failed; the previous bundle is still in place"
   git checkout --quiet "$local_sha" 2>/dev/null
@@ -66,7 +71,25 @@ if ! (cd web && npm run build >/dev/null 2>&1); then
 fi
 log "deploy: frontend built"
 
-# 3. Restart the API.  systemd restarts it on failure; a failed restart leaves
+# 3. Gate on the tests before touching the running service.  The fast contract
+#    set — the audit, the config guard, the served schema, the shell mount, the
+#    crawler documents — runs in under a minute, which is what makes it usable on
+#    a five-minute poll.  A failure here leaves the previous release serving: an
+#    unreviewed commit on main must not become the running service because a
+#    build happened to succeed.
+#
+#    The full suite stays the operator's step before pushing; this is the net
+#    under an automatic deploy, not a replacement for it.
+GATE="tests/test_engine_audit.py tests/test_config_guard.py tests/test_screen_schema.py tests/test_web_app_mount.py tests/test_api_health.py tests/test_api_crawl_documents.py"
+if ! (.venv/bin/python -m pytest -q --tb=no -x $GATE >/dev/null 2>&1); then
+  log "FAIL: the test gate failed ($GATE); the previous release keeps serving"
+  git checkout --quiet "$local_sha" 2>/dev/null
+  (cd web && VITE_PUBLIC_ORIGIN="${MEE_PUBLIC_ORIGIN:-}" npm run build >/dev/null 2>&1)
+  exit 1
+fi
+log "deploy: test gate passed"
+
+# 4. Restart the API.  systemd restarts it on failure; a failed restart leaves
 #    the previous workers serving until they are killed.
 if ! sudo -n systemctl restart ztockz; then
   log "FAIL: systemctl restart failed"

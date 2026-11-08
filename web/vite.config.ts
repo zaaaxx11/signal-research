@@ -3,6 +3,7 @@ import { fileURLToPath, URL } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
 import { API_PREFIXES } from "./vite.prefixes";
@@ -20,9 +21,37 @@ const pkg = JSON.parse(
 const BASE = "/app/";
 const API_ORIGIN = "http://127.0.0.1:8099";
 
+/**
+ * The link-preview tags a static document cannot state: `og:url` and `og:image`
+ * require absolute URLs, and this repository deliberately names no host (the
+ * deployment can move domains, and the shell must not carry infrastructure).
+ *
+ * So the markup carries a marker, and a build that is told its public origin —
+ * `VITE_PUBLIC_ORIGIN=https://… npm run build`, set by `scripts/deploy.sh` from
+ * the box's own environment — replaces it with the two tags. A build without the
+ * variable ships no absolute URL at all: no preview image, and nothing wrong.
+ */
+function socialPreviewTags(): Plugin {
+  const origin = (process.env.VITE_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "");
+  return {
+    name: "ztockz-social-preview",
+    transformIndexHtml: {
+      order: "pre",
+      handler(html: string) {
+        if (!origin) return html;
+        return html.replace(
+          "<!-- og:origin -->",
+          `<meta property="og:url" content="${origin}/" />\n` +
+            `    <meta property="og:image" content="${origin}/favicon.svg" />`,
+        );
+      },
+    },
+  };
+}
+
 export default defineConfig({
   base: BASE,
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), socialPreviewTags()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

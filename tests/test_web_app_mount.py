@@ -496,11 +496,33 @@ def test_budget_script_is_wired_into_check_and_fails_when_lowered() -> None:
 
 
 def test_shell_has_no_third_party_origins() -> None:
-    """No CDN, no analytics, no hosted font: the document is self-contained."""
+    """No CDN, no analytics, no hosted font: the only absolute URL is this origin.
+
+    ``og:url``/``og:image`` are injected at build time from ``VITE_PUBLIC_ORIGIN``
+    (``scripts/deploy.sh`` reads it from the box's environment): a link preview
+    needs absolute URLs, and the repository names no host. Those two carry the
+    *self* origin — the one the reader is already looking at — so the rule is "no
+    third-party origin", and every other absolute URL is still a failure. The
+    source document names none at all, which is what keeps a host out of the
+    checkout.
+    """
+
+    assert "https://" not in (WEB_DIR / "index.html").read_text(encoding="utf-8"), (
+        "the source shell names no host: the build injects it, if it is given one"
+    )
 
     html = INDEX.read_text(encoding="utf-8")
-    assert "http://" not in html
-    assert "https://" not in html
+
+    declared = re.findall(r'<meta property="og:url" content="([^"]+)"', html)
+    assert len(declared) <= 1, "one document, one declared origin"
+    own = declared[0].rstrip("/") if declared else None
+
+    absolute = re.findall(r"""https?://[^\s"')>]+""", html)
+    outsiders = [url for url in absolute if own is None or not url.startswith(own)]
+    assert outsiders == [], (
+        f"absolute URLs that are not this deployment's own ({own}): {outsiders}"
+    )
+
     assert "//cdn" not in html
     assert "@import url(" not in html
 
