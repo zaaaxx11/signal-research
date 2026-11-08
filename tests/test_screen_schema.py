@@ -176,13 +176,20 @@ def test_the_published_filter_vocabulary_is_the_validator_vocabulary() -> None:
         f"them: {sorted(accepted & refused)}"
     )
 
-    assert document["x-filter-key-count"] == len(document["x-filter-keys"]) == 82, (
-        "the Finviz table is still the 82 keys, with their disposition"
-    )
+    # The served count, the served table and the module must agree. The number is
+    # not pinned as a literal on purpose: `etf_heldby` grew the catalogue and the
+    # literal (plus the served artifact) stayed behind, which turned 27 tests red
+    # over a stale number rather than a broken one. The vocabulary *set* is pinned
+    # by the accepted/published comparison above; this pins that nothing vanished.
+    from app.screen.filters import FILTER_KEYS
+
+    assert document["x-filter-key-count"] == len(document["x-filter-keys"]) == len(
+        FILTER_KEYS
+    ), "the served count, the served table and the module must agree"
     assert document["x-filter-alias-count"] == len(aliases), (
         "the alias count must be the size of the table it counts"
     )
-    assert len(usable) + len(refused) == 82
+    assert len(usable) + len(refused) == len(FILTER_KEYS)
     assert len(usable) + len(aliases) == len(accepted), (
         "the two tables together are exactly the keys a filter may name"
     )
@@ -216,7 +223,9 @@ def test_the_published_description_names_both_vocabularies() -> None:
     assert "x-filter-aliases" in key_help, (
         "a client author has to be told where the catalogue spellings live"
     )
-    assert "82 filter keys" in document["description"]
+    from app.screen.filters import FILTER_KEYS
+
+    assert f"{len(FILTER_KEYS)} filter keys" in document["description"]
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +292,10 @@ def test_the_index_key_is_published_as_a_bucket_not_a_column() -> None:
         "field": None,
         "bucket": True,
     }
-    assert document["x-filter-key-count"] == 82
-    assert len(document["x-filter-keys"]) == 82
+    from app.screen.filters import FILTER_KEYS
+
+    assert document["x-filter-key-count"] == len(FILTER_KEYS)
+    assert len(document["x-filter-keys"]) == len(FILTER_KEYS)
     # The eleven bucket-driven columns are still columns *and* buckets.
     assert document["x-filter-keys"]["sh_price"]["field"] == "price"
     assert document["x-filter-keys"]["sh_price"]["bucket"] is True
@@ -310,7 +321,12 @@ def test_the_served_schema_and_the_artifact_are_one_document() -> None:
     assert artifact["properties"]["signal"]["enum"] == [item.id for item in SIGNALS]
     assert artifact["x-filter-keys"]["idx"]["bucket"] is True
     assert artifact["x-filter-keys"]["idx"]["field"] is None
-    assert artifact["x-filter-key-count"] == 82
+
+    from app.screen.filters import FILTER_KEYS
+
+    assert artifact["x-filter-key-count"] == len(FILTER_KEYS), (
+        "the artifact's count must be the catalogue it publishes, not a literal"
+    )
 
 
 async def test_the_served_request_schema_is_the_repo_artifact(

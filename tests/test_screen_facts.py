@@ -724,9 +724,20 @@ def test_the_schema_artifact_is_the_served_document_and_counts_the_facts_keys() 
 
     predicate = SELECTION_REQUEST_SCHEMA["$defs"]["filter"]["properties"]  # type: ignore[index]
     description = predicate["key"]["description"]
-    assert "The 48 that resolve to one row column" in description
-    assert "the 6 that are refused" in description
-    assert "25 bucket-only key" in description and "idx" in description
+    # The sentence is generated from the tables these counts are read from
+    # (app.screen.selection), so it is checked against them rather than against a
+    # transcription of them: `fa_fcfmargin` moved 48 to 49 and the literal here
+    # stayed behind while the served text was already right.
+    bucket_only = {
+        key
+        for key, entry in published.items()
+        if entry.get("bucket") is True and entry["field"] is None and "choice" not in entry
+    }
+    assert set(bucket_only) <= set(bucketed)
+    assert f"The {len(mapped)} that resolve to one row column" in description
+    assert f"the {len(refused)} that are refused" in description
+    assert f"the {len(bucket_only)} bucket-only key" in description
+    assert "idx" in description
 
 
 # ---------------------------------------------------------------------------

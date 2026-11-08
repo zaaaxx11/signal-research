@@ -1,10 +1,12 @@
-"""Screen F1 — the 82-key Finviz filter catalogue and the ``field op value`` DSL.
+"""Screen F1 — the Finviz filter catalogue and the ``field op value`` DSL.
 
 Gate (PLAN-finviz-parity.md §5 P0, §6 gates 3 and 6):
 
-* the catalogue carries exactly the 82 keys the probe found, with the probe's
-  label/tab/control/option vocabulary untouched — a missing key is a parity hole
-  and an extra key is a filter Finviz does not have;
+* the catalogue carries exactly the keys the probe found — in the probe's order,
+  with its label/tab/control/option vocabulary untouched — plus the keys it
+  declares in ``PROBE_EXTENSION_KEYS``. A missing key is a parity hole, an
+  undeclared extra key is a filter Finviz does not have, and a declared extra key
+  is a decision that was written down;
 * every key names a real canonical row column or ``None``, never a placeholder:
   filtering on a metric the light universe does not carry must fail loudly
   instead of returning an empty page that reads as "no matches";
@@ -31,6 +33,7 @@ from app.screen.filters import (
     FILTER_CATALOG,
     FILTER_KEYS,
     FILTER_TABS,
+    PROBE_EXTENSION_KEYS,
     UI_TYPES,
     Filter,
     FilterSpec,
@@ -125,17 +128,33 @@ def _clone(region: str, source: str, **overrides: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_catalogue_has_the_eighty_two_probed_keys_in_panel_order() -> None:
-    expected = [entry["key"] for entry in probe()]
+def test_the_catalogue_is_the_probe_plus_its_declared_extensions() -> None:
+    """The probe's keys in the probe's order, plus the extensions it declares.
 
+    ``fa_fcfmargin`` joined the catalogue after both recorded probes were taken,
+    so it has no probe row to be compared with — it is named in
+    :data:`PROBE_EXTENSION_KEYS` instead. Naming it is what lets this test fail
+    on a key that is outside the probe **and** outside the declaration (a retyped
+    key someone left behind) rather than quietly accepting every extra key the
+    catalogue grows.
+    """
+
+    expected = [entry["key"] for entry in probe()]
+    declared = tuple(PROBE_EXTENSION_KEYS)
+
+    assert declared, "an empty declaration would make the checks below vacuous"
+    assert not set(declared) & set(expected), (
+        "a key the probe carries must not be declared an extension: "
+        f"{sorted(set(declared) & set(expected))}"
+    )
     missing = sorted(set(expected) - set(FILTER_KEYS))
-    extra = sorted(set(FILTER_KEYS) - set(expected))
+    extra = sorted(set(FILTER_KEYS) - set(expected) - set(declared))
     assert not missing and not extra, f"missing keys: {missing}; extra keys: {extra}"
-    assert len(FILTER_KEYS) == len(set(FILTER_KEYS)) == 82, (
-        f"the catalogue must hold 82 unique keys, got {len(FILTER_KEYS)} "
+    assert len(FILTER_KEYS) == len(set(FILTER_KEYS)), (
+        f"the catalogue must hold unique keys, got {len(FILTER_KEYS)} "
         f"({len(set(FILTER_KEYS))} unique)"
     )
-    assert FILTER_KEYS == tuple(expected), (
+    assert tuple(key for key in FILTER_KEYS if key not in declared) == tuple(expected), (
         "the catalogue must keep the probe's panel order; a different order means "
         "the metadata was retyped instead of copied"
     )
@@ -221,9 +240,10 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
         "fa_ps": "ps",
         "fa_payoutratio": "payout_ratio",
         # -- computed by the same join from the snapshot's own cells (P11I):
-        # the store keeps the inputs of these two ratios, not the ratios
+        # the store keeps the inputs of these ratios, not the ratios
         "fa_pc": "price_to_cash",
         "fa_evsales": "ev_to_sales",
+        "fa_fcfmargin": "fcf_margin",
         # -- joined from the screen facts store (P11J): the percentage cells the
         # Finviz stock page prints and the bulk scan has no metric for
         "sh_short": "short_float",
@@ -250,7 +270,7 @@ def test_only_sourced_metrics_carry_a_row_field() -> None:
     )
 
     unsourced = [spec.key for spec in FILTER_CATALOG.values() if spec.field is None]
-    assert len(unsourced) == 82 - len(mapped) == 34
+    assert len(unsourced) == len(FILTER_KEYS) - len(mapped) == 34
     # A key with no single column is still available if it answers its Finviz
     # vocabulary: the three option-driven keys compile one token per predicate
     # (app.screen.choice_filters), and 19 more answer bucket ids over the depth

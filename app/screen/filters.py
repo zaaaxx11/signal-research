@@ -6,7 +6,9 @@ Two decisions shape this module, and the rest follows from them.
 is a probe of Finviz's own filter panel: 82 keys with their label, tab, UI control
 and option vocabulary. :class:`FilterSpec` copies that metadata verbatim, so the
 parity gate is checked against the artefact the probe produced instead of a
-hand-written list of filters that "look about right". The catalogue answers one
+hand-written list of filters that "look about right". The one key the probe does
+not carry is named in :data:`PROBE_EXTENSION_KEYS`, so an extension is a declared
+decision and never a key that merely slipped in. The catalogue answers one
 question — does Ztockz accept the same filter keys as Finviz — and it does not
 claim that the metric behind every key is already sourced.
 
@@ -859,7 +861,8 @@ def apply_filters(
 
 
 # ---------------------------------------------------------------------------
-# The catalogue (82 keys, probe order, metadata verbatim)
+# The catalogue (the probe's keys in panel order, metadata verbatim, plus the
+# extensions declared in PROBE_EXTENSION_KEYS)
 # ---------------------------------------------------------------------------
 
 #: Finviz key → spec, in the order the probe returned them (the panel's own
@@ -1866,11 +1869,31 @@ FILTER_CATALOG: Mapping[str, FilterSpec] = MappingProxyType(
 )
 FILTER_KEYS: tuple[str, ...] = tuple(FILTER_CATALOG)
 
+#: The catalogue keys the recorded probes do **not** carry, named one by one.
+#:
+#: Two documents are the source of truth for the panel metadata: the probe
+#: fixture (``tests/fixtures/finviz_filters.json``, what a live pass returned)
+#: and the vendored UI capture
+#: (``research/finviz-ui-raw/views/v111-filters.json``). ``fa_fcfmargin``
+#: (Finviz's "FCF Margin") was added to the catalogue afterwards, so neither
+#: document has a row to compare its label, tab, control or options against —
+#: there is no fourth place to copy the metadata from.
+#:
+#: It is listed here rather than quietly dropped from the probe comparisons for
+#: one reason: a test has to be able to tell an **intentional** extension from a
+#: key someone retyped and left behind. A key outside the probe and outside this
+#: tuple is a drift; a key in this tuple is a decision, whose metadata lives in
+#: ``_CATALOG_SPECS`` alone and is pinned there by hand. If a future probe does
+#: capture the key, the entry must leave this tuple — the tests assert both
+#: directions, so the list cannot grow stale in silence.
+PROBE_EXTENSION_KEYS: tuple[str, ...] = ("fa_fcfmargin",)
+
 __all__ = [
     "FIELDS",
     "FILTER_CATALOG",
     "FILTER_KEYS",
     "FILTER_TABS",
+    "PROBE_EXTENSION_KEYS",
     "PROVIDER_CODE",
     "Filter",
     "FilterSpec",

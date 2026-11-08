@@ -96,10 +96,28 @@ def test_every_control_id_is_unique_and_starts_with_its_namespace() -> None:
 
 
 def test_every_published_label_comes_from_the_probe_not_a_hand_typed_string() -> None:
-    """The vendored labels are Finviz's own; a retyped one drifts on relabel."""
+    """The vendored labels are Finviz's own; a retyped one drifts on relabel.
+
+    One key has no row in this capture: ``fa_fcfmargin`` was added to the
+    catalogue after the probe was taken, and it is named in
+    :data:`app.screen.filters.PROBE_EXTENSION_KEYS` for exactly that reason. The
+    declaration cannot hide a drift, though — the key must be **absent** from the
+    probe for the exemption to hold, so a key the probe does carry can never be
+    excused from the comparison.
+    """
+
+    from app.screen.filters import PROBE_EXTENSION_KEYS
 
     probe = json.loads(PROBE.read_text(encoding="utf-8"))
+    declared = set(PROBE_EXTENSION_KEYS)
     for key in buckets.KEYS:
+        if key in declared:
+            assert key not in probe, (
+                f"{key} is in the probe, so it cannot be declared an extension"
+            )
+            for token in buckets._tokens(key):
+                assert buckets._label(key, token).strip(), (key, token)
+            continue
         options = {
             option["value"]: option["label"]
             for option in probe[key]["options"]

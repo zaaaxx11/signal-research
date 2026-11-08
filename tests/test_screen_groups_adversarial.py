@@ -373,7 +373,14 @@ def test_the_column_cap_still_refuses_41() -> None:
 
 
 def test_no_catalogue_key_lost_its_binding_or_its_tab() -> None:
-    assert len(FILTER_CATALOG) == 82
-    assert len(filter_fields.CATALOGUE) == 82
+    from app.screen.filters import FILTER_KEYS
+
+    assert len(FILTER_CATALOG) == len(FILTER_KEYS), (
+        "the binding catalogue and the published key list must be one catalogue"
+    )
+    assert len(filter_fields.CATALOGUE) == len(FILTER_KEYS), (
+        "the disposition table must cover the catalogue exactly once"
+    )
+    assert set(spec.key for spec in filter_fields.CATALOGUE) == set(FILTER_KEYS)
     for key, spec in FILTER_CATALOG.items():
         assert spec.tab in {"descriptive", "fundamental", "technical", "news", "etf"}, key

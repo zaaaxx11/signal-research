@@ -464,7 +464,10 @@ def _validate() -> None:
             raise RuntimeError(f"filter key {key!r} has an empty unavailability reason")
     for key in BUCKET_KEYS:
         if key not in keys:
-            raise RuntimeError(f"bucket key {key!r} is not one of the 82 filter keys")
+            raise RuntimeError(
+                f"bucket key {key!r} is not one of the "
+                f"{len(FILTER_CATALOG)} filter keys"
+            )
         if key in buckets.DYNAMIC_KEYS:
             # A dynamic control has no enumerable vocabulary: `bucket()` asks its
             # resolver, which validates the token (a keyword's alphabet, a fund's
@@ -570,7 +573,8 @@ def binding(key: object) -> Binding:
     if found is None:
         raise UnknownFilterKey(
             key,
-            f"unknown filter key {key!r}: it is not one of the 82 filter keys. "
+            f"unknown filter key {key!r}: it is not one of the "
+            f"{len(FILTER_CATALOG)} filter keys. "
             f"Keys that can filter a row today: {', '.join(ROW_FIELDS)}; "
             f"option-driven keys: {', '.join(CHOICE_FIELDS)}; "
             f"bucket-driven keys: {', '.join(BUCKET_KEYS)}. "

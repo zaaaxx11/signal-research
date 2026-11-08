@@ -103,7 +103,10 @@ def test_every_control_and_option_states_one_of_the_two_tiers() -> None:
                 assert option["tier"] == control["tier"], (control["id"], option["id"])
                 seen["options"] += 1
                 seen["premium_options"] += option["tier"] == "premium"
-    assert seen["controls"] == 85, seen
+    # 86, not 85: `fa_fcfmargin` added the FCF Margin control to the
+    # fundamental group. The five premium controls the source panel charges for
+    # are unchanged.
+    assert seen["controls"] == 86, seen
     assert seen["premium"] == 5, "the five controls the source panel charges for"
     assert seen["premium_options"] > 0
 

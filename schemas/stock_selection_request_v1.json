@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ztockz.local/schemas/stock-selection-request-v1.json",
   "title": "StockSelectionRequestV1",
-  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 100 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`, in request order, with its own `limit`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 100-row panel never claims to be a 100-stock market. A filter key may be one of the 83 filter keys (`x-filter-keys`) or one of the catalogue spellings in `x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to one row column, and a key no column can answer is a 422 that names it. The two tables together are the vocabulary a filter picker is built from. `criteria.sort` orders by any comparable row column \u2014 its own name (`pe_ttm`), the catalogue/UI spelling the screener sends (`perf_4w`, `pe`, `sma50`, `company`) or a legacy name (`gainers`) \u2014 with `-field` ascending; a text column sorts alphabetically and `no` is client-only and refused. The top-level `signal` narrows the whole query to one of the signal populations. `GET /screens/filters` publishes the Descriptive group itself \u2014 every control, its options, its availability and the predicate each option compiles to \u2014 so a panel never hardcodes a vocabulary the server owns.",
+  "description": "A stock selection in one of two modes. `criteria` is a query over a region's universe: filters are ANDed, `sort` orders the matches and `limit` caps the page at 100 rows. `symbols` is an explicit ticker list resolved inside the universe addressed by `snapshot_id`, in request order, with its own `limit`. The response carries `total` (every row that matched) separately from `returned` (the page), so a 100-row panel never claims to be a 100-stock market. A filter key may be one of the 83 filter keys (`x-filter-keys`) or one of the catalogue spellings in `x-filter-aliases` (`pe`, `roic`, `market_cap`); both are resolved to one row column, and a key no column can answer is a 422 that names it. The two tables together are the vocabulary a filter picker is built from. `criteria.sort` orders by any comparable row column — its own name (`pe_ttm`), the catalogue/UI spelling the screener sends (`perf_4w`, `pe`, `sma50`, `company`) or a legacy name (`gainers`) — with `-field` ascending; a text column sorts alphabetically and `no` is client-only and refused. The top-level `signal` narrows the whole query to one of the signal populations. `GET /screens/filters` publishes the Descriptive group itself — every control, its options, its availability and the predicate each option compiles to — so a panel never hardcodes a vocabulary the server owns.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -62,7 +62,7 @@
         "etf"
       ],
       "default": "stock",
-      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes \u2014 `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
+      "description": "Both modes: the instrument family. `stock` (default) and `etf` are different universes — `us_etf` implies `etf`, and `global` is stock-only. The ETF universe is `type=fund` + `subtype=etf` with no market-cap floor and the same OTC exclusion."
     },
     "view": {
       "enum": [
@@ -91,7 +91,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Both modes: the exact cells each row returns, in order. `symbol` and `as_of` are always present; a requested cell the row does not carry is null. Omit it for the historical light row. `logo` is an accepted column name (a vendored asset path or an offline monogram data URI) and is the one cell that is opt-in: a 100-row panel that did not ask for it does not carry 100 base64 marks. Mutually exclusive with `view` \u2014 two ways to name the same output is a question with two answers."
+      "description": "Both modes: the exact cells each row returns, in order. `symbol` and `as_of` are always present; a requested cell the row does not carry is null. Omit it for the historical light row. `logo` is an accepted column name (a vendored asset path or an offline monogram data URI) and is the one cell that is opt-in: a 100-row panel that did not ask for it does not carry 100 base64 marks. Mutually exclusive with `view` — two ways to name the same output is a question with two answers."
     },
     "limit": {
       "type": "integer",
@@ -115,7 +115,7 @@
             "$ref": "#/$defs/filter"
           },
           "default": [],
-          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric \u2014 never ignored, because an ignored filter returns the unfiltered screen."
+          "description": "ANDed predicates; an empty list is the identity. A key with no light row column is refused with a 422 naming the missing metric — never ignored, because an ignored filter returns the unfiltered screen."
         },
         "sort": {
           "enum": [
@@ -427,7 +427,7 @@
             "week52_low"
           ],
           "default": "market_cap",
-          "description": "The one metric the page is ordered by: any comparable catalog column, descending, or `-<field>` for ascending (the panel's own `o=-marketcap`). A column may be named by its row field (`ret_1m`), by the catalogue/UI spelling the screener sends (`perf_4w`, `pe`, `sma50`, `company`, `ticker`) or by a legacy name (`market_cap`, `turnover`, `gainers`); every spelling resolves to the same column. A text column sorts alphabetically (A-Z / Z-A), and a missing value sorts last in both directions. `no` is client-only \u2014 the row number comes from the page offset \u2014 and an unknown spelling is a 422 `unknown_sort` naming the accepted fields. When `signal` is named and this is absent, the signal's own measure becomes the order; an explicit sort always wins."
+          "description": "The one metric the page is ordered by: any comparable catalog column, descending, or `-<field>` for ascending (the panel's own `o=-marketcap`). A column may be named by its row field (`ret_1m`), by the catalogue/UI spelling the screener sends (`perf_4w`, `pe`, `sma50`, `company`, `ticker`) or by a legacy name (`market_cap`, `turnover`, `gainers`); every spelling resolves to the same column. A text column sorts alphabetically (A-Z / Z-A), and a missing value sorts last in both directions. `no` is client-only — the row number comes from the page offset — and an unknown spelling is a 422 `unknown_sort` naming the accepted fields. When `signal` is named and this is absent, the signal's own measure becomes the order; an explicit sort always wins."
         },
         "limit": {
           "type": "integer",
@@ -451,7 +451,7 @@
             "free",
             "premium"
           ],
-          "description": "The tier this request asks to be judged at. It can only **narrow** the caller's plan \u2014 resolved from the `x-plan` header or from the plan the `x-api-key` key carries, with `free` for an anonymous caller. A request naming a tier above its plan is a 403 `premium_required`, and so is any filter key whose tier in app/screen/data/entitlements.json is `premium` while the request's entitlement is `free`: refused by name, never answered with an empty page and never silently downgraded. Omit it to be judged at the plan."
+          "description": "The tier this request asks to be judged at. It can only **narrow** the caller's plan — resolved from the `x-plan` header or from the plan the `x-api-key` key carries, with `free` for an anonymous caller. A request naming a tier above its plan is a 403 `premium_required`, and so is any filter key whose tier in app/screen/data/entitlements.json is `premium` while the request's entitlement is `free`: refused by name, never answered with an empty page and never silently downgraded. Omit it to be judged at the plan."
         }
       }
     },
@@ -474,7 +474,7 @@
     "snapshot_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices \u2014 the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
+      "description": "Symbols only: the snapshot whose region and rule version the tickers are resolved against. It fixes *which* universe, not the prices — the rows are read fresh and dated by the response's `as_of`, never by the snapshot's."
     }
   },
   "allOf": [
@@ -711,7 +711,7 @@
           ]
         },
         "value": {
-          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. For an option-driven key (ta_perf, ta_perf2, ta_volatility) the value is the source-panel option token itself (`1w10u`, `dup`, `wo2`), and the predicate each token compiles to is published under `x-filter-keys.<key>.choice.options`. For a key whose entry carries `bucket: true` the value is one of the bucket ids that key publishes (`price:u5`, `cap:mega`, `idx:sp500`), with `op: eq`; the predicate each id runs is in `GET /screens/filters` and in the key's own `x-filter-keys` entry. For `exch` the value is a MIC (`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published under `x-filter-keys.exch.aliases`; any other value on the US tabs is a 422 `unknown_value` whose message lists the accepted codes, while a non-US region (`global`) accepts a provider code matching `[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it names \u2014 zero when it names none. Everywhere else the source panel's option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
+          "description": "The comparison value. `in` and `between` take an array (`between` exactly two numbers); every other operator takes one scalar. For an option-driven key (ta_perf, ta_perf2, ta_volatility) the value is the source-panel option token itself (`1w10u`, `dup`, `wo2`), and the predicate each token compiles to is published under `x-filter-keys.<key>.choice.options`. For a key whose entry carries `bucket: true` the value is one of the bucket ids that key publishes (`price:u5`, `cap:mega`, `idx:sp500`), with `op: eq`; the predicate each id runs is in `GET /screens/filters` and in the key's own `x-filter-keys` entry. For `exch` the value is a MIC (`XNAS`, `XNYS`, `XASE`, `XCBO`) or one of the spellings published under `x-filter-keys.exch.aliases`; any other value on the US tabs is a 422 `unknown_value` whose message lists the accepted codes, while a non-US region (`global`) accepts a provider code matching `[A-Z0-9]{1,8}` (e.g. `SIX`, `XLON`) and answers with the rows it names — zero when it names none. Everywhere else the source panel's option tokens (`mega`, `u5`, `ob70`) are display buckets, not values: send the number the bucket means.",
           "oneOf": [
             {
               "type": "number"
@@ -848,7 +848,7 @@
       "label": "Trades",
       "tab": "descriptive",
       "field": null,
-      "reason": "no trade-count feed; Finra publishes short-sale volume, not trade counts \u2014 the scan carries volume in shares and turnover in currency, the depth store has no print count, and deriving a trade count from volume would be a fabricated number (Polygon.io aggregates, IEX HIST or Databento would answer it). The control is premium-tier like the rest of the source panel's paid set; this refusal is about the missing feed, not about the tier"
+      "reason": "no trade-count feed; Finra publishes short-sale volume, not trade counts — the scan carries volume in shares and turnover in currency, the depth store has no print count, and deriving a trade count from volume would be a fabricated number (Polygon.io aggregates, IEX HIST or Databento would answer it). The control is premium-tier like the rest of the source panel's paid set; this refusal is about the missing feed, not about the tier"
     },
     "sh_price": {
       "label": "Price $",
@@ -888,13 +888,13 @@
       "label": "Theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme/sub-theme classification: no layer carries a theme column \u2014 not the scan, not the depth store's 106 cells, not the snapshot, not SQLite \u2014 so the source panel's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
+      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so the source panel's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
     },
     "subtheme": {
       "label": "Sub-theme",
       "tab": "descriptive",
       "field": null,
-      "reason": "needs theme/sub-theme classification: no layer carries a theme column \u2014 not the scan, not the depth store's 106 cells, not the snapshot, not SQLite \u2014 so the source panel's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
+      "reason": "needs theme/sub-theme classification: no layer carries a theme column — not the scan, not the depth store's 106 cells, not the snapshot, not SQLite — so the source panel's 40 theme and 268 sub-theme tokens name a taxonomy nothing in this deployment speaks"
     },
     "fa_pe": {
       "label": "P/E",
@@ -1592,7 +1592,7 @@
       "label": "Pattern",
       "tab": "technical",
       "field": null,
-      "reason": "needs a chart-pattern detector: the depth store's `candlestick_pattern` flag has three classes (doji/engulfing/hammer) but no price series, and the source panel's 28 chart-pattern tokens need daily bars to detect \u2014 no bars store is ingested"
+      "reason": "needs a chart-pattern detector: the depth store's `candlestick_pattern` flag has three classes (doji/engulfing/hammer) but no price series, and the source panel's 28 chart-pattern tokens need daily bars to detect — no bars store is ingested"
     },
     "ta_candlestick": {
       "label": "Candlestick",
@@ -2300,7 +2300,7 @@
       "etf_heldby": "premium",
       "sh_trades": "premium"
     },
-    "note": "Tier is configured in app/screen/data/entitlements.json, not in code: a feature set to `free` there is answered to every caller on the next request. A premium feature the deployment cannot source is still refused by its own reason (x-filter-keys.<key>.reason) \u2014 tier and availability are different facts."
+    "note": "Tier is configured in app/screen/data/entitlements.json, not in code: a feature set to `free` there is answered to every caller on the next request. A premium feature the deployment cannot source is still refused by its own reason (x-filter-keys.<key>.reason) — tier and availability are different facts."
   },
   "views": [
     {
