@@ -45,6 +45,7 @@ newest date rather than a clock this server happens to have.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -57,6 +58,8 @@ from app.market.insider_flow import (
     collect_rows,
     parse_days,
 )
+
+logger = logging.getLogger("mee.api.insider")
 
 router = APIRouter(tags=["market"])
 
@@ -216,7 +219,8 @@ async def market_insider(
                     cache_dir=cache_dir,
                     limit=5,
                 )
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - one issuer must not sink the page
+                logger.info("insider %s could not be collected: %s", record.symbol, exc)
                 continue
             for item in items:
                 doc = item.document()

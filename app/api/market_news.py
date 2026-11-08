@@ -43,6 +43,7 @@ inside the window is a 304 decided before any work.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any, Iterable, Mapping, Sequence
@@ -51,6 +52,8 @@ from fastapi import APIRouter, Query, Request
 
 from app.auth import ApiError
 from app.news.service import AllNewsProvidersFailed, InvalidNewsSymbol
+
+logger = logging.getLogger("mee.api.news")
 
 router = APIRouter(tags=["news"])
 
@@ -165,7 +168,8 @@ async def warm_market_news(application: Any, limit: int = 60) -> bool:
             service = build_news_service()
             application.state.news = service
         document = await _build(service, limit, moment)
-    except Exception:  # noqa: BLE001 - a warm-up must never break startup
+    except Exception as exc:  # noqa: BLE001 - a warm-up must never break startup
+        logger.info("news warm-up failed: %s", exc)
         return False
     cache.put(limit, moment, document)
     return True

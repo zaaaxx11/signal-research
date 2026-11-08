@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -73,6 +74,8 @@ from app.news.rss import (
     parse_google_news,
 )
 from app.providers import http as provider_http
+
+logger = logging.getLogger("mee.news")
 
 #: Fifteen minutes: a headline set is a slow-moving picture, and both wires are
 #: rate-limited (GDELT answers 429 above one request per five seconds).
@@ -514,13 +517,19 @@ class FinnhubNewsProvider:
         return getattr(response, "text", "") or ""
 
     async def fetch(self, symbol: str) -> Sequence[NewsItem]:
+        # One dead wire is "no items for this symbol", never a failed merge. But
+        # "quiet" and "refused" are different facts, so the reason is logged: an
+        # empty source that says nothing is indistinguishable from a healthy one
+        # that has nothing, which is the silence the engine audit forbids.
         try:
             body = await self.document(symbol)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - one wire must not sink the merge
+            logger.info("news %s could not read %s: %s", self.name, symbol, exc)
             return ()
         try:
             return tuple(_parse_finnhub_news(body))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - an unreadable body is no items
+            logger.info("news %s could not parse %s: %s", self.name, symbol, exc)
             return ()
 
 
@@ -624,13 +633,17 @@ class CoinGeckoNewsProvider:
         return getattr(response, "text", "") or ""
 
     async def fetch(self, symbol: str) -> Sequence[NewsItem]:
+        # Same contract as the other wires: empty is not an error, but a refusal
+        # must leave a trace (see the comment on the first ``fetch``).
         try:
             body = await self.document(symbol)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - one wire must not sink the merge
+            logger.info("news %s could not read %s: %s", self.name, symbol, exc)
             return ()
         try:
             return tuple(_parse_coingecko_news(body))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - an unreadable body is no items
+            logger.info("news %s could not parse %s: %s", self.name, symbol, exc)
             return ()
 
 
@@ -732,15 +745,19 @@ class MarketWatchNewsProvider:
         return getattr(response, "text", "") or ""
 
     async def fetch(self, symbol: str) -> Sequence[NewsItem]:
+        # Same contract as the other wires: an empty feed is a normal answer, a
+        # refusal or an unreadable body is logged (see the first ``fetch``).
         try:
             body = await self.document(symbol)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - one wire must not sink the merge
+            logger.info("news %s could not read %s: %s", self.name, symbol, exc)
             return ()
         if not _looks_like_a_feed(body):
             return ()
         try:
             return tuple(parse_google_news(body, limit=None))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - an unreadable body is no items
+            logger.info("news %s could not parse %s: %s", self.name, symbol, exc)
             return ()
 
 

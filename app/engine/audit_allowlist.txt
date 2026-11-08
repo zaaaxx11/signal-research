@@ -6,17 +6,31 @@
 # tests/test_engine_audit.py::test_allowlist_has_no_stale_entries — the reason
 # is documentation, the location is the key.
 #
+# Re-keyed 2026-11-07: five entries below had drifted because a line number is
+# the key and the files grew around them (api/engine.py +340, ingest.py +17,
+# market/depth.py +19, market/yahoo_batch.py +13, market/yahoo_depth.py +5). The
+# handlers are the same ones, at their new addresses — checked one by one against
+# the reason on each line before moving it. A key made of the handler's own body
+# signature would not need this; that is the follow-up, not this edit.
+#
+# The bar for an entry: an *independent* mechanism must already report the same
+# fact to the operator (a per-symbol coverage record, the response's own source
+# list, an HTTP status the caller records). A failure that leaves no trace
+# anywhere is not "handled", it is lost — those get a log line, not an entry.
+#
 # "PENDING" marks an entry that is accepted only because the fix belongs to a
 # different owner (a parser/API change outside this file's scope). Everything
 # else is genuinely optional telemetry whose absence the caller already reports.
 #
-app/api/engine.py:728:accepted: a quote outage must not fail the screen; the endpoint returns two empty maps and its empty-state contract (not a swallowed exception) carries the absence to the client
-app/engine/ingest.py:693:PENDING: enrichment is optional next to the fact fetch, but a wholesale failure of the enrichment step is exactly the "rung went dark" incident from §1 of the plan; this needs a warning plus a health-ledger counter
+app/api/engine.py:1068:accepted: a quote outage must not fail the screen; the endpoint returns two empty maps and its empty-state contract (not a swallowed exception) carries the absence to the client
+app/api/enrich.py:336:accepted: "a refused source is a null field, not a 500" (the method's own docstring) — and the response carries the per-coin `sources` list, so which wire answered is reported independently of the exception
+app/api/enrich.py:342:accepted: an unreadable body is the same fact as a refused read — a null field plus the `sources` list the response publishes; no number is ever invented
+app/engine/ingest.py:710:PENDING: enrichment is optional next to the fact fetch, but a wholesale failure of the enrichment step is exactly the "rung went dark" incident from §1 of the plan; this needs a warning plus a health-ledger counter
 app/enrich/orchestrator.py:104:accepted: an unknown provider name is a caller typo, not a runtime failure; the job spec resolves to None and the job's own schema validation reports the missing provider
-app/market/depth.py:938:accepted: an HTML statistics page that will not feed is zero rows for one symbol, and the depth collector records the symbol's coverage per cycle; the alternative (raising) would sink a whole chunk
-app/market/yahoo_batch.py:331:accepted: the cookie/crumb warm-up is auth plumbing, not the quote pass; a transport failure there is followed by an unauthenticated request whose 401 is reported as a per-symbol error by the caller
-app/market/yahoo_depth.py:804:accepted: same as yahoo_batch.py:331 — the crumb exchange reports its own refusals (non-200, non-token body) and the data requests downstream answer 401, which is where the batch's failure is recorded
-app/market/yahoo_depth.py:859:accepted: a non-JSON body is a consent/challenge page, not data; the caller turns the absent payload into zero rows and the 401/429 status is already reported by the request layer
+app/market/depth.py:957:accepted: an HTML statistics page that will not feed is zero rows for one symbol, and the depth collector records the symbol's coverage per cycle; the alternative (raising) would sink a whole chunk
+app/market/yahoo_batch.py:344:accepted: the cookie/crumb warm-up is auth plumbing, not the quote pass; a transport failure there is followed by an unauthenticated request whose 401 is reported as a per-symbol error by the caller
+app/market/yahoo_depth.py:804:accepted: same as yahoo_batch.py:344 — the crumb exchange reports its own refusals (non-200, non-token body) and the data requests downstream answer 401, which is where the batch's failure is recorded
+app/market/yahoo_depth.py:864:accepted: a non-JSON body is a consent/challenge page, not data; the caller turns the absent payload into zero rows and the 401/429 status is already reported by the request layer
 app/providers/adapters/finviz.py:248:accepted: a broken quote page is "no rows" for one symbol; the adapter's caller records the symbol as a failed source with the transport verdict
 app/providers/adapters/finviz.py:629:accepted: the Jina reader is a documented fallback rung; when it raises, the primary transport's own verdict is the one the ladder records for that source
 app/providers/adapters/yahoo.py:618:accepted: cookie/crumb warm-up retried twice inside a loop; the loop's own exit is an empty crumb, and the quoteSummary request that follows reports 401/403 as a per-symbol capability failure

@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     #: store. It is daily, opt-in, and deliberately separate from the quote
     #: hub so a slow page cannot delay a price.
     depth: bool = False
+    #: Warm the market-news document in the background at start-up. A deployment
+    #: that does not serve `/news` can skip it, and a test that is not about it
+    #: turns it off rather than let a background task reach the network.
+    warm_news: bool = True
     depth_finviz: bool = True
     depth_chart: bool = False
     depth_finra: bool = True

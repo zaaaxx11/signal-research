@@ -217,7 +217,14 @@ def test_known_limit_a_debug_log_counts_as_a_signal() -> None:
 # The tree: pinned count + allowlist discipline
 # ---------------------------------------------------------------------------
 
-CURRENT_SILENT_COUNT = 11
+#: Silent handlers the tree is allowed to carry. It moves together with the
+#: allowlist (``test_allowlist_matches_the_pinned_count``), and every entry's own
+#: reason is the argument for it — see ``app/engine/audit_allowlist.txt``. Raised
+#: from 11 on 2026-11-07 after the five drifted entries were re-keyed to their new
+#: line numbers, two documented entries were added for ``enrich._get``, and nine
+#: genuinely silent handlers were replaced by log lines instead (the news wires,
+#: the two news warm-ups, the insider per-issuer skip, the dilution precompute).
+CURRENT_SILENT_COUNT = 13
 
 
 def test_the_tree_scan_finds_the_pinned_number_of_silent_handlers() -> None:

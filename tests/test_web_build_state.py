@@ -130,6 +130,10 @@ def _settings(tmp_path: Path) -> Settings:
         health_data_dir=tmp_path / "data",
         health_screen_db_path=tmp_path / "ztockz.db",
         depth=False,
+        # These tests are about the `/app` mount, not about the news warm-up: with
+        # it on, a background task reaches for the news wires and the suite's
+        # outbound gate fails every test in this file at teardown.
+        warm_news=False,
     )
 
 

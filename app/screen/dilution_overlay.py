@@ -54,16 +54,26 @@ def precompute(
             symbol_cik[symbol] = entry["cik"]
 
     result: dict[str, float | None] = {}
+    missing = 0
     for symbol, cik in symbol_cik.items():
         try:
             series = shares_outstanding_series(cache_dir, cik)
             result[symbol] = series.pct_change
         except Exception:
+            # No share-count series for this CIK is an ordinary gap (a fund, a
+            # brand-new listing), so the column is null rather than invented —
+            # but the count is reported below: "this symbol has no series" and
+            # "the read broke for most of the universe" must not look alike.
             result[symbol] = None
+            missing += 1
 
     _current.clear()
     _current.update(result)
-    logger.info("Dilution precomputed for %d symbols", len(result))
+    logger.info(
+        "Dilution precomputed for %d symbols (%d without a share-count series)",
+        len(result),
+        missing,
+    )
     return dict(_current)
 
 

@@ -667,14 +667,27 @@ async def _engine_lifespan(application: FastAPI):
     # Warm the market-news document in the background so the first reader of
     # /news does not pay for every provider round trip.  It is a task, not an
     # await: the route answers honestly until the warm-up lands.
-    news_task = asyncio.create_task(_warm_news(application))
+    news_task = (
+        asyncio.create_task(_warm_news(application))
+        if getattr(settings, "warm_news", True)
+        else None
+    )
 
     _configure_memory_diagnostics(settings)
 
     try:
         yield
     finally:
-        news_task.cancel()
+        if news_task is not None:
+            news_task.cancel()
+            # `cancel()` only *schedules* the cancellation: a task still unwinding
+            # keeps its sockets, and its DNS lookups, alive past shutdown. Await it
+            # so the app is quiet when the lifespan returns — a test's
+            # outbound-network gate reads a live lookup as a leak, and rightly so.
+            try:
+                await news_task
+            except asyncio.CancelledError:
+                pass
         if depth is not None:
             await depth.stop()
         if hub is not None:
@@ -709,7 +722,12 @@ def _configure_memory_diagnostics(settings: object = None) -> None:
 
 
 async def _warm_news(application: Any) -> None:
-    """Build the market-news document once, quietly."""
+    """Build the market-news document once, quietly.
+
+    "Quietly" is about the caller's boot, not about the operator: a warm-up that
+    fails must not stop start-up, but it must leave a line saying so — otherwise
+    the first request pays for the whole build and nobody can tell why.
+    """
 
     try:
         from app.api.market_news import warm_market_news
@@ -717,7 +735,8 @@ async def _warm_news(application: Any) -> None:
         await warm_market_news(application)
     except asyncio.CancelledError:
         raise
-    except Exception:  # noqa: BLE001 - a warm-up must never break startup
+    except Exception as exc:  # noqa: BLE001 - a warm-up must never break startup
+        logger.info("news warm-up failed: %s", exc)
         return
 
 
