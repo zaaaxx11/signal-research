@@ -21,6 +21,16 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$LOG"; }
 
 cd "$REPO" || { log "FATAL: no repo at $REPO"; exit 1; }
 
+# The box's environment file.  A timer run inherits no shell, and the build needs
+# ``MEE_PUBLIC_ORIGIN`` from here (the link-preview tags) — reading it in the
+# script keeps that fact reviewable in the checkout instead of hidden in a unit.
+if [ -f /home/ubuntu/ztockz-data/engine.env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /home/ubuntu/ztockz-data/engine.env
+  set +a
+fi
+
 # What GitHub has, and what is running.
 remote_sha=$(git ls-remote origin refs/heads/main | cut -f1) || {
   log "WARN: cannot reach origin; keeping the current release"
