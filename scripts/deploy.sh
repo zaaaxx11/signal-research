@@ -1,15 +1,21 @@
 #!/bin/bash
-# Ztockz auto-deploy — pull, build the shell, restart the API, smoke it.
+# Ztockz deploy — pull, build the shell, gate it, restart the API, smoke it.
 #
-# One command, run by ztockz-deploy.timer every five minutes.  It is a poll,
-# not a webhook: the box pulls what GitHub already accepted, so a deploy needs
-# no SSH key in GitHub's secrets and no public endpoint that could restart the
-# service.  The cost is up to five minutes of latency, which the timer's
-# OnUnitActiveSec sets.
+# **Operator-invoked.** `ztockz-deploy.timer` exists but is deliberately not
+# enabled: the box carries a crawl and a minutes-long index rebuild, so a restart
+# is a decision, not a schedule. Run it by hand:
 #
-# Every step is guarded.  A failed pull, a failed build or a failed smoke test
-# leaves the previous release serving — the script exits non-zero and the
-# timer logs it, but the service is never stopped on a broken tree.
+#     sudo systemctl start ztockz-deploy.service     # this script, with the gate
+#
+# The poll shape is kept because it costs nothing and can be switched on later:
+# the box pulls what GitHub already accepted, so a deploy needs no SSH key in
+# GitHub's secrets and no public endpoint that could restart the service. The
+# price of the timer would be up to five minutes of latency.
+#
+# Every step is guarded.  A failed pull, a failed build, a failed test gate or a
+# failed smoke test leaves the previous release serving — the script exits
+# non-zero and the timer logs it, but the service is never stopped on a broken
+# tree.
 
 set -uo pipefail
 
