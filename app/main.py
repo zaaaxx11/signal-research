@@ -28,6 +28,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
+from app import http_hardening
 from app.api import discovery, exchanges, health, market, markets, news, providers, requests, screens
 from app.api import alt as alt_api
 from app.api import crawl as crawl_api
@@ -835,6 +836,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=_engine_lifespan,
     )
     application.state.runtime = runtime
+    #: Response policy + request cap, in front of every route *and* the `/app`
+    #: mount. A public, keyless API still owes the browser a CSP and a size
+    #: limit — see app/http_hardening.py for each exception and why it exists.
+    http_hardening.install(application)
     #: Read-only engine projections (catalog/identity). The full ingestion
     #: service will replace this object when the source adapters land; the
     #: route contract does not change.

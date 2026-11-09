@@ -24,6 +24,12 @@ web/tsconfig.tsbuildinfo
 
 # Local agent scratch (not part of the product)
 .hermes/cache/
+#: Audit findings: they map the holes that are not patched yet, so they stay on
+#: the box. The plans above are history and stay tracked; this directory is not.
+.hermes/audit/
+
+# Runtime stores: the service writes these, a checkout should not carry them
+app/screen/data/saved_screens.json
 
 # Third-party captures: derived JSON is committed, the raw assets are not
 research/finviz-ui-raw/*.css
