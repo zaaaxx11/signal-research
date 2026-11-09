@@ -1,7 +1,48 @@
-# Going public — the switches to flip
+# Before going live — the checklist
 
-Written 2026-11-08, while the deployment is still private. Nothing here is urgent
-today; it is the list to run through the day the site is meant to be found.
+The single pre-live list for this deployment: the edge switch that unshadows our
+own files, the security decisions that are **deliberately still open** (each one
+waits on the operator, not on a missing capability), and the verification commands
+for everything already in place. Written 2026-11-08 while the site is still
+private; `docs/` — not a second file — is where it stays, so the list cannot drift
+against itself.
+
+**The three open decisions, in the order they must be taken:**
+
+1. **Caller identity, then a rate limit.** Today every public caller reaches the
+   app as `127.0.0.1` (the tunnel), so the one limiter that exists collapses into a
+   single shared bucket and the cheap read paths are unmetered. Identity first —
+   trust `CF-Connecting-IP` from the tunnel (or `--proxy-headers` with
+   `forwarded_allow_ips`) — *then* a per-IP bucket. A limiter built on the current
+   identity would lock out honest users before it inconvenienced an abuser.
+2. **Host firewall.** `ufw` is off and the ruleset is 23 `ACCEPT`s deep; `:22`,
+   `:80` and `:8080` are reachable. This box also serves other projects, so a
+   default-deny is a decision, not a chore: allow 22/80/443, confirm the others
+   are meant to be closed.
+3. **SSH passwords.** Effective config is `PasswordAuthentication yes` (the
+   `00-hermes-password.conf` drop-in wins by being read first) with
+   `PermitRootLogin no` and `fail2ban` active as mitigation. Install a key, prove
+   it, then turn passwords off — in that order, or the operator locks themselves
+   out.
+
+**Already handled by the 2026-11-08 security pass** (do not re-open these):
+
+- `engine.env` is mode 600 (it holds the upstream keys and shipped 664).
+- Every response carries the policy: CSP (`script-src 'self'`), `nosniff`,
+  `frame-ancestors 'none'`, referrer policy, permissions policy; HSTS over HTTPS
+  only — `app/http_hardening.py`, proven in a real browser.
+- Request bodies over 1 MiB are refused before they are read (house envelope
+  `payload_too_large`, not `{"detail": ...}`).
+- `rpcbind` is masked, so `0.0.0.0:111` no longer answers.
+- Dependencies: `npm audit --omit=dev` reports 0 vulnerabilities and the four
+  installed Python packages carry no known advisory (queried against OSV).
+- Findings and the surfaces nobody has read yet: `.hermes/audit/2026-11-08_security.md`
+  (gitignored — it maps holes that are not patched, so it stays on the box).
+
+**Still optional, on purpose:** masking the raw echo in error messages (LOW; the
+client escapes it and it aids diagnosis), and the second tier of systemd
+sandboxing (`ProtectSystem=strict` + `ReadWritePaths`) — worth doing, needs a
+careful test because the service writes to its data directories.
 
 ## 1. Turn off Cloudflare's managed `robots.txt`
 
