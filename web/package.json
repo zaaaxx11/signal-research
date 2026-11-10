@@ -1,9 +1,9 @@
 {
-  "name": "ztockz-web",
+  "name": "signal-research-web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Ztockz screener shell — dark-first React SPA served by FastAPI at /app",
+  "description": "Signal Research screener shell — dark-first React SPA served by FastAPI at /app",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=22.12.0"

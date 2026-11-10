@@ -1,4 +1,4 @@
-# Third-party notices — Ztockz web
+# Third-party notices — Signal Research web
 
 ## shadcn/ui (MIT)
 

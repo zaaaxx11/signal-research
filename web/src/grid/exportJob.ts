@@ -351,7 +351,7 @@ export async function requestExport(
 
   return {
     blob: answer.blob,
-    filename: filenameFrom(answer.contentDisposition) ?? `ztockz-export.${body.format}`,
+    filename: filenameFrom(answer.contentDisposition) ?? `signal-research-export.${body.format}`,
     rowCount: answer.rowCount ?? 0,
   };
 }

@@ -115,13 +115,13 @@ export function HeaderBar({ route, search, onSelect, inputRef }: HeaderBarProps)
       >
         <Link
           to="/"
-          aria-label="Ztockz home"
+          aria-label="Signal Research home"
           className="flex shrink-0 items-center gap-1.5 pr-1 text-[13px] font-semibold text-fg"
         >
           <BrandMark size={18} className="text-accent-text" />
           {/* Below 640 px the 18 px monogram is the whole brand: five letters of
               tracking is 60 px the search field needs more. */}
-          <span className="hidden uppercase tracking-[0.16em] sm:inline">ZTOCKZ</span>
+          <span className="hidden uppercase tracking-[0.16em] sm:inline">SIGNAL</span>
         </Link>
 
         {/*

@@ -16,7 +16,7 @@
 import { createLocalStore } from "@/lists/storage";
 
 /** The one key this feature owns. */
-export const ALERTS_KEY = "ztockz.alerts.v1";
+export const ALERTS_KEY = "signal-research.alerts.v1";
 
 export const ALERT_CONDITIONS = [
   "price_above",

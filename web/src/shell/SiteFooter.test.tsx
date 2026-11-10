@@ -53,7 +53,7 @@ describe("SiteFooter", () => {
     render(<SiteFooter />);
     const footer = screen.getByTestId("site-footer");
     const text = footer.textContent ?? "";
-    expect(text).toContain("Ztockz");
+    expect(text).toContain("Signal Research");
     expect(text).toMatch(/not investment advice/i);
 
     // The supply chain is a kitchen secret: no "Powered by", no vendor name,

@@ -27,7 +27,7 @@ describe("queryCache", () => {
   });
 
   it("handles sessionStorage corruption gracefully", () => {
-    sessionStorage.setItem("ztockz:query-cache", "not-json");
+    sessionStorage.setItem("signal-research:query-cache", "not-json");
     expect(cacheGet("any")).toBeNull();
     expect(cacheGet("another")).toBeNull(); // store still functional after corruption
   });

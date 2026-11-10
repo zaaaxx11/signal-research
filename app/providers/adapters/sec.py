@@ -88,7 +88,7 @@ FACTS_PATH = "/api/xbrl/companyfacts/CIK{cik}.json"
 #: contact. An anonymous or library UA is answered ``403``. Overridable so an
 #: operator can put a real address here without a code change.
 USER_AGENT_ENV = "MEE_SEC_USER_AGENT"
-DEFAULT_USER_AGENT = "ztockz-market-engine/1.0 (market-engine@ztockz.local)"
+DEFAULT_USER_AGENT = "signal-research-market-engine/1.0 (market-engine@signal-research.local)"
 
 #: Only the periodic reports are accounting facts. ``8-K`` carries exhibits and
 #: pro-forma numbers, ``20-F``/``40-F`` are foreign private issuers with a

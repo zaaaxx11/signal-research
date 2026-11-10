@@ -22,14 +22,14 @@
 import * as React from "react";
 
 /** The one key this feature owns. */
-export const USER_PRESETS_KEY = "ztockz.screens.v1";
+export const USER_PRESETS_KEY = "signal-research.screens.v1";
 
 /**
  * The key this feature shipped under first. Read once when the new key is
  * empty, written to the new key, left in place: a reader who saved screens
  * before this build must not open the box to an empty list.
  */
-export const LEGACY_PRESETS_KEY = "ztockz.columns.v1";
+export const LEGACY_PRESETS_KEY = "signal-research.columns.v1";
 
 /** The default entry: always present, never renamed or deleted. */
 export const DEFAULT_PRESET_ID = "my-stock-presets";

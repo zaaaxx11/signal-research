@@ -119,26 +119,26 @@ export function App() {
   // Per-route <title> so the browser tab, history and bookmarks say where you are.
   React.useEffect(() => {
     const titles: Record<string, string> = {
-      home: "Ztockz",
-      screener: "Stock Screener — Ztockz",
-      map: "Maps — Ztockz",
-      charts: "Charts — Ztockz",
-      news: "News — Ztockz",
-      groups: "Groups — Ztockz",
-      insider: "Insider — Ztockz",
-      insiderDetail: "Form 4 filings — Ztockz",
-      calendar: "Calendar — Ztockz",
-      futures: "Futures — Ztockz",
-      forex: "Forex — Ztockz",
-      crypto: "Crypto — Ztockz",
-      cryptoDetail: "Ztockz",
-      watchlist: "Watchlist — Ztockz",
-      portfolio: "Portfolio — Ztockz",
-      compare: "Compare — Ztockz",
-      stock: "Ztockz",
-      notfound: "Not Found — Ztockz",
+      home: "Signal Research",
+      screener: "Stock Screener — Signal Research",
+      map: "Maps — Signal Research",
+      charts: "Charts — Signal Research",
+      news: "News — Signal Research",
+      groups: "Groups — Signal Research",
+      insider: "Insider — Signal Research",
+      insiderDetail: "Form 4 filings — Signal Research",
+      calendar: "Calendar — Signal Research",
+      futures: "Futures — Signal Research",
+      forex: "Forex — Signal Research",
+      crypto: "Crypto — Signal Research",
+      cryptoDetail: "Signal Research",
+      watchlist: "Watchlist — Signal Research",
+      portfolio: "Portfolio — Signal Research",
+      compare: "Compare — Signal Research",
+      stock: "Signal Research",
+      notfound: "Not Found — Signal Research",
     };
-    document.title = titles[route.kind] ?? "Ztockz";
+    document.title = titles[route.kind] ?? "Signal Research";
     const og = document.head.querySelector("meta[property='og:title']") as HTMLMetaElement|null;
     if (og) { og.content = document.title; }
     const desc = document.head.querySelector("meta[property='og:description']") as HTMLMetaElement|null;

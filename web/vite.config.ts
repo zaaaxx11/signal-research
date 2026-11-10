@@ -34,7 +34,7 @@ const API_ORIGIN = "http://127.0.0.1:8099";
 function socialPreviewTags(): Plugin {
   const origin = (process.env.VITE_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "");
   return {
-    name: "ztockz-social-preview",
+    name: "signal-research-social-preview",
     transformIndexHtml: {
       order: "pre",
       handler(html: string) {

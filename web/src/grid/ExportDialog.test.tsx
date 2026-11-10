@@ -95,7 +95,7 @@ function fileResponse(rows = 200): Response {
     status: 200,
     headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": 'attachment; filename="ztockz-criteria-20261102-120000.csv"',
+      "content-disposition": 'attachment; filename="signal-research-criteria-20261102-120000.csv"',
       "x-row-count": String(rows),
     },
   });

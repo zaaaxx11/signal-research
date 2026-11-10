@@ -6,7 +6,7 @@
  * instrument the reader is looking at, so none of them may ask for that symbol
  * again. These cases prove the seeding *and* the effect: the star writes the
  * real watchlist key, Portfolio opens the quantity/cost form and writes a
- * holding, the bell saves an alert under `ztockz.alerts.v1`, and Escape hands
+ * the bell saves an alert under ``signal-research.alerts.v1``, and Escape hands
  * focus back to whatever opened the dialog.
  */
 
@@ -185,7 +185,7 @@ describe("Set alert", () => {
       version: number;
       alerts: Array<Record<string, unknown>>;
     };
-    expect(ALERTS_KEY).toBe("ztockz.alerts.v1");
+    expect(ALERTS_KEY).toBe("signal-research.alerts.v1");
     expect(saved.version).toBe(1);
     expect(saved.alerts).toHaveLength(1);
     expect(saved.alerts[0]).toMatchObject({

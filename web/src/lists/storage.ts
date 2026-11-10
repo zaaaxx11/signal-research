@@ -10,7 +10,7 @@
  *
  * Four rules, each of which has a test:
  *
- * * **A versioned key.** `ztockz.watchlist.v1` / `ztockz.portfolio.v1`. A future
+ * * **A versioned key.** ``signal-research.watchlist.v1`` / ``signal-research.portfolio.v1``. A future
  *   shape can ship beside this one instead of silently reinterpreting it.
  * * **A tolerant read.** Corrupt JSON, a non-array, a number where a symbol
  *   belongs — all read as `[]`/dropped rows. A hand-edited or half-written key
@@ -41,8 +41,8 @@ export interface Holding {
   readonly cost: number;
 }
 
-export const WATCHLIST_KEY = "ztockz.watchlist.v1";
-export const PORTFOLIO_KEY = "ztockz.portfolio.v1";
+export const WATCHLIST_KEY = "signal-research.watchlist.v1";
+export const PORTFOLIO_KEY = "signal-research.portfolio.v1";
 
 /** The quote endpoint's ceiling; also this list's, so a full list still asks once. */
 export const MAX_SYMBOLS = MAX_QUOTE_SYMBOLS;

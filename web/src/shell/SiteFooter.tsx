@@ -90,7 +90,7 @@ export function SiteFooter() {
         <div className="flex flex-col gap-3 sm:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
             <BrandMark size={18} className="text-accent-text" />
-            <span className="uppercase tracking-[0.16em]">Ztockz</span>
+            <span className="uppercase tracking-[0.16em]">Signal Research</span>
           </div>
           <p className="max-w-[42ch] text-[11px] leading-relaxed text-fg-muted">
             Free market research across US equities, ETFs, crypto, futures and
@@ -104,7 +104,7 @@ export function SiteFooter() {
       </div>
 
       <div className="mx-auto mt-6 flex w-full max-w-[1280px] flex-col gap-1 border-t border-line pt-4 text-[10px] text-fg-subtle sm:flex-row sm:items-center sm:justify-between">
-        <span>© 2026 Ztockz, a Customin product.</span>
+        <span>© 2026 Signal Research, a Customin product.</span>
         <span>Market data may be delayed. For informational purposes only, not investment advice.</span>
       </div>
     </footer>

@@ -21,7 +21,7 @@ export const DEFAULT_TTL_MS = 300_000;
 /** Maximum entries before oldest is evicted (a memory budget, not a hit target). */
 const MAX_ENTRIES = 128;
 
-const STORE_KEY = "ztockz:query-cache";
+const STORE_KEY = "signal-research:query-cache";
 
 function readStore(): Map<string, CacheEntry> {
   try {

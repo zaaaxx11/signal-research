@@ -1,4 +1,4 @@
-# Ztockz web — Phase 1 shell
+# Signal Research web — Phase 1 shell
 
 The new screener interface: Vite 7 + React 19 + TypeScript (strict) + Tailwind v4
 + vendored shadcn/ui. Built to static assets and served by FastAPI at `/app`

@@ -40,7 +40,7 @@ import * as React from "react";
 export type Theme = "dark" | "light";
 
 /** The one key. Versioned so a future shape change cannot be read as this one. */
-export const THEME_KEY = "ztockz.theme.v1";
+export const THEME_KEY = "signal-research.theme.v1";
 
 /** The product is dark-first: the OS is only consulted when nothing is stored. */
 const LIGHT_QUERY = "(prefers-color-scheme: light)";
