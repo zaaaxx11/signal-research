@@ -365,5 +365,5 @@ Honest list — each is a known boundary with a reason:
 ---
 
 <p align="center">
-  <em>Built by <a href="https://github.com/zaaaxx11">zaaaxx11</a> · A Customin product</em>
+  <em>Built by <a href="https://github.com/zaaaxx11">zaaaxx11</a></em>
 </p>
