@@ -1,6 +1,9 @@
 /**
- * BubbleView: scatter plot — x = change%, y = market cap, radius = cap.
- * Each stock is a circle colored by its change%. Hover shows a tooltip.
+ * BubbleView: a packed bubble chart — radius = market cap, fill = change%.
+ *
+ * Bubbles are placed largest-first with a spiral search so they never
+ * overlap (collision avoidance), and any bubble with r >= 8 gets a ticker
+ * label painted on the canvas so the chart is readable without hovering.
  */
 
 import * as React from "react";
@@ -23,7 +26,12 @@ interface BubblePoint {
 }
 
 const MIN_RADIUS = 2;
-const MAX_RADIUS = 24;
+const MAX_RADIUS = 32;
+
+const LABEL_MIN_RADIUS = 8;
+
+/** Maximum spiral steps to attempt for one bubble before giving up. */
+const MAX_SPIRAL_STEPS = 400;
 
 function flattenSorted(payload: MapPayload): MapStock[] {
   return payload.sectors.flatMap((s) => [...s.stocks]).sort((a, b) => b.cap - a.cap);
@@ -33,6 +41,54 @@ function mapRadius(cap: number, maxCap: number): number {
   if (maxCap <= 0) return MIN_RADIUS;
   const log = Math.log1p(cap) / Math.log1p(maxCap);
   return MIN_RADIUS + log * (MAX_RADIUS - MIN_RADIUS);
+}
+
+/**
+ * Place one bubble with spiral collision avoidance.
+ *
+ * Starts at the ideal (x₀, y₀) and walks an Archimedean spiral outward
+ * until a position is found whose distance to every already-placed circle
+ * is >= r + that circle's radius, or until MAX_SPIRAL_STEPS is exhausted.
+ */
+function placeBubble(
+  x0: number,
+  y0: number,
+  r: number,
+  placed: readonly BubblePoint[],
+): { cx: number; cy: number } | null {
+  // The ideal spot works in a sparse chart; try it first.
+  if (!collision(x0, y0, r, placed)) return { cx: x0, cy: y0 };
+
+  // Spiral: radius grows linearly, each lap has ~2π * radius steps at density 1/r.
+  // Step size is max(2, r * 0.7) so packed bubbles resolve quickly.
+  const step = Math.max(2, r * 0.7);
+  let angle = 0;
+  let spiralR = step;
+  for (let i = 0; i < MAX_SPIRAL_STEPS; i += 1) {
+    angle += step / Math.max(1, spiralR);
+    spiralR = step * Math.sqrt(i + 1);
+    const dx = spiralR * Math.cos(angle);
+    const dy = spiralR * Math.sin(angle);
+    if (!collision(x0 + dx, y0 + dy, r, placed)) {
+      return { cx: x0 + dx, cy: y0 + dy };
+    }
+  }
+  return null;
+}
+
+function collision(
+  cx: number,
+  cy: number,
+  r: number,
+  placed: readonly BubblePoint[],
+): boolean {
+  for (const p of placed) {
+    const dx = p.cx - cx;
+    const dy = p.cy - cy;
+    const minDist = p.r + r + 1; // 1 px gap
+    if (dx * dx + dy * dy < minDist * minDist) return true;
+  }
+  return false;
 }
 
 export function BubbleView({ payload, onOpenSymbol, className }: BubbleViewProps) {
@@ -48,19 +104,25 @@ export function BubbleView({ payload, onOpenSymbol, className }: BubbleViewProps
 
   const stocks = React.useMemo(() => flattenSorted(payload), [payload]);
 
-  // Layout
+  // Layout with collision avoidance
   const points = React.useMemo(() => {
     if (stocks.length === 0 || size.w <= 0 || size.h <= 0) return [];
     const maxCap = stocks[0]?.cap ?? 1;
     const pad = MAX_RADIUS + 4;
     const plotW = size.w - pad * 2;
     const plotH = size.h - pad * 2;
-    // x: change% -6 .. +6, y: cap descending (log scale)
+    if (plotW <= 0 || plotH <= 0) return [];
+
     const result: BubblePoint[] = [];
     for (const stock of stocks) {
-      const cx = pad + ((Math.max(-6, Math.min(6, stock.change)) + 6) / 12) * plotW;
-      const cy = pad + (1 - Math.log1p(stock.cap) / Math.log1p(maxCap)) * plotH;
-      result.push({ stock, cx, cy, r: mapRadius(stock.cap, maxCap) });
+      const r = mapRadius(stock.cap, maxCap);
+      // Ideal position: x = change% (-6..+6), y = log(cap) descending
+      const x0 = pad + ((Math.max(-6, Math.min(6, stock.change)) + 6) / 12) * plotW;
+      const y0 = pad + (1 - Math.log1p(stock.cap) / Math.log1p(maxCap)) * plotH;
+      const placed = placeBubble(x0, y0, r, result);
+      if (placed) {
+        result.push({ stock, cx: placed.cx, cy: placed.cy, r });
+      }
     }
     return result;
   }, [stocks, size]);
@@ -86,6 +148,16 @@ export function BubbleView({ payload, onOpenSymbol, className }: BubbleViewProps
       ctx.beginPath();
       ctx.arc(p.cx, p.cy, p.r, 0, Math.PI * 2);
       ctx.fill();
+
+      // Ticker label for larger bubbles
+      if (p.r >= LABEL_MIN_RADIUS) {
+        ctx.fillStyle = fill.ink;
+        ctx.font = fontForRadius(p.r);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const text = p.stock.symbol.slice(0, 6);
+        ctx.fillText(text, p.cx, p.cy);
+      }
     }
   }, [points, size, palette]);
 
@@ -195,4 +267,15 @@ export function BubbleView({ payload, onOpenSymbol, className }: BubbleViewProps
       {tooltip}
     </div>
   );
+}
+
+/**
+ * Font sizing for ticker labels painted inside bubbles.
+ *
+ * Radius r → a font-size string that fits comfortably.
+ */
+function fontForRadius(r: number): string {
+  if (r >= 20) return "bold 9px monospace";
+  if (r >= 14) return "bold 7px monospace";
+  return "bold 6px monospace";
 }

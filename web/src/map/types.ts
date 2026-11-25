@@ -190,3 +190,23 @@ export function sectorCap(sector: MapSector): number {
   for (const stock of sector.stocks) total += stock.cap;
   return total;
 }
+
+/** The sentinel value for the "All Sectors" option in the filter-maps select. */
+export const ALL_SECTORS = "all";
+
+/**
+ * Narrow a payload to the sectors whose id is in `selected`.
+ *
+ * An empty selection means "everything" — the map is never blanked by having
+ * unticked every box, which a first-time visitor would read as a broken page.
+ * The returned payload recomputes `mapped` from the surviving rows so the
+ * footer count matches what is actually drawn; `universeTotal` is left alone
+ * because it describes the whole market, not the current selection.
+ */
+export function filterPayload(payload: MapPayload, selected: ReadonlySet<string>): MapPayload {
+  if (selected.size === 0) return payload;
+  const sectors = payload.sectors.filter((sector) => selected.has(sector.id));
+  let mapped = 0;
+  for (const sector of sectors) mapped += sector.stocks.length;
+  return { ...payload, sectors, mapped };
+}

@@ -203,7 +203,8 @@ describe("MapPage — map filter", () => {
     expect(select).toBeTruthy();
     const options = Array.from(select.options).map((o) => o.textContent);
     expect(options).toContain("Technology");
-    expect(options).toContain("Healthcare");
+    expect(options).toContain("Financials");
+    expect(options).toContain("Energy");
     expect(options).toContain("All Sectors");
   });
 });

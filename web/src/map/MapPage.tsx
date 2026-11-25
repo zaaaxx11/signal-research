@@ -24,38 +24,21 @@ import { GridView } from "./GridView";
 import { MapCanvas, type MapCanvasStats } from "./MapCanvas";
 import { MatrixView } from "./MatrixView";
 import { readTheme, swatch } from "./theme";
-import { sectorCap } from "./types";
+import { ALL_SECTORS, filterPayload, sectorCap } from "./types";
 import {
   useMapData,
-  useMarketGroups,
   TIMEFRAMES,
   TIMEFRAME_LABELS,
   TIMEFRAME_METRIC_LABELS,
   type Timeframe,
 } from "./useMapData";
 
-// ── map filter checkboxes ──
+// ── map filter checkboxes (asset-class toggles; the map is US equities) ──
 const MAP_FILTERS = [
   { value: "stocks", label: "Stocks" },
   { value: "futures", label: "Futures" },
   { value: "forex", label: "Forex" },
   { value: "crypto", label: "Crypto" },
-] as const;
-
-// ── filter maps select options ──
-const FILTER_MAPS_OPTIONS = [
-  { value: "all", label: "All Sectors" },
-  { value: "Technology", label: "Technology" },
-  { value: "Financial", label: "Financial" },
-  { value: "Healthcare", label: "Healthcare" },
-  { value: "Consumer Cyclical", label: "Consumer Cyclical" },
-  { value: "Industrials", label: "Industrials" },
-  { value: "Energy", label: "Energy" },
-  { value: "Utilities", label: "Utilities" },
-  { value: "Real Estate", label: "Real Estate" },
-  { value: "Basic Materials", label: "Basic Materials" },
-  { value: "Communication", label: "Communication Services" },
-  { value: "Consumer Defensive", label: "Consumer Defensive" },
 ] as const;
 
 type ViewId = "treemap" | "matrix" | "bubble" | "grid";
@@ -120,11 +103,11 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [activeFilters, setActiveFilters] = React.useState<Set<string>>(new Set(["stocks"]));
-  const [filterMap, setFilterMap] = React.useState("all");
+  const [filterMap, setFilterMap] = React.useState<string>(ALL_SECTORS);
+  const [selectedSectors, setSelectedSectors] = React.useState<Set<string>>(new Set());
   const [sizeBy, setSizeBy] = React.useState<"cap" | "equal">("cap");
 
   const mapView = useMapData({ timeframe });
-  const { groups } = useMarketGroups();
   const theme = React.useMemo(() => readTheme(), []);
   const [stats, setStats] = React.useState<MapCanvasStats | null>(null);
 
@@ -136,17 +119,34 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
     );
   }, []);
 
-  const payload = mapView.payload;
+  const rawPayload = mapView.payload;
   const metricLabelText = TIMEFRAME_METRIC_LABELS[timeframe] ?? "Performance";
 
-  // Sectors sorted by cap
+  // Combine the filter-maps select (single sector or all) with the sector
+  // checkbox multi-select into one "which sectors are visible" decision, then
+  // narrow the payload every view renders from. An empty checkbox set means
+  // "all sectors", so the map is never blanked by unticking every box.
+  const visibleSectors = React.useMemo<Set<string>>(() => {
+    const selected = new Set(selectedSectors);
+    if (filterMap !== ALL_SECTORS) {
+      selected.add(filterMap);
+    }
+    return selected;
+  }, [selectedSectors, filterMap]);
+
+  const payload = React.useMemo(
+    () => (rawPayload === null ? null : filterPayload(rawPayload, visibleSectors)),
+    [rawPayload, visibleSectors],
+  );
+
+  // Sectors offered by the filter UI, sorted by cap (largest first).
   const sectors = React.useMemo(() => {
-    if (payload === null) return [];
-    return [...payload.sectors].sort((a, b) => {
+    if (rawPayload === null) return [];
+    return [...rawPayload.sectors].sort((a, b) => {
       const c = sectorCap(b) - sectorCap(a);
       return c !== 0 ? c : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
-  }, [payload]);
+  }, [rawPayload]);
 
   // Flattened stocks for sidebar list
   const allStocks = React.useMemo(() => {
@@ -294,7 +294,7 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
               </div>
             </div>
 
-            {/* Filter maps — sector/industry select */}
+            {/* Filter maps — single-sector select, options from the live payload */}
             <div>
               <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
                 Filter maps
@@ -305,38 +305,50 @@ export function MapPage({ region: _region, onOpenSymbol }: MapPageProps) {
                 onChange={(e) => setFilterMap(e.target.value)}
                 className="mt-1 w-full rounded-sm border border-line bg-surface px-2 py-1 font-mono text-label text-fg"
               >
-                {FILTER_MAPS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
+                <option value={ALL_SECTORS}>All Sectors</option>
+                {sectors.map((sector) => (
+                  <option key={sector.id} value={sector.id}>
+                    {sector.label}
                   </option>
                 ))}
               </select>
             </div>
 
-                        {/* Sector filter */}
-                        <div className="min-h-0">
-                          <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
-                            Sector filter
-                          </p>
-                          <div className="mt-1 max-h-[180px] space-y-0.5 overflow-y-auto">
-                            {groups.map((g) => (
-                              <label
-                                key={g.id}
-                                data-testid={`map-filter-group-${g.id}`}
-                                className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 text-data text-fg hover:bg-row-hover"
-                              >
-                                <input
-                                  type="checkbox"
-                                  defaultChecked={g.id === "Technology"}
-                                  onChange={() => { /* sector filter — client-side only until backend supports per-sector map */ }}
-                                  className="size-3 accent-brand"
-                                />
-                    <span className="flex-1 truncate">{g.label}</span>
-                    <span className="font-mono text-label text-fg-subtle">
-                      {formatCount(g.count)}
-                    </span>
-                  </label>
-                ))}
+            {/* Sector filter — multi-select checkboxes over live payload sectors */}
+            <div className="min-h-0">
+              <p className="text-label uppercase tracking-[0.1em] text-fg-subtle">
+                Sector filter
+              </p>
+              <div className="mt-1 max-h-[180px] space-y-0.5 overflow-y-auto">
+                {sectors.length === 0 ? (
+                  <p className="px-1 py-0.5 text-label text-fg-subtle">No sectors</p>
+                ) : (
+                  sectors.map((sector) => (
+                    <label
+                      key={sector.id}
+                      data-testid={`map-filter-group-${sector.id}`}
+                      className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 text-data text-fg hover:bg-row-hover"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSectors.has(sector.id)}
+                        onChange={() =>
+                          setSelectedSectors((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(sector.id)) next.delete(sector.id);
+                            else next.add(sector.id);
+                            return next;
+                          })
+                        }
+                        className="size-3 accent-brand"
+                      />
+                      <span className="flex-1 truncate">{sector.label}</span>
+                      <span className="font-mono text-label text-fg-subtle">
+                        {formatCount(sector.count)}
+                      </span>
+                    </label>
+                  ))
+                )}
               </div>
             </div>
 
