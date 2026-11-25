@@ -199,7 +199,7 @@ describe("the filter document", () => {
     const registry = buildRegistry(filterSchemaFixture(), publishedFilters(filterDocument()));
     expect(registry.published.get("cap")?.values.get("mega")).toBe("Mega ($200bln and more)");
     // A key with no published vocabulary keeps the schema's own fallback.
-    expect(registry.published.has("sec")).toBe(true);
-    expect(registry.published.get("sec")?.values.size).toBe(0);
+    expect(registry.published.has("geo")).toBe(true);
+    expect(registry.published.get("geo")?.values.size).toBe(0);
   });
 });

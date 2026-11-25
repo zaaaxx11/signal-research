@@ -14,15 +14,15 @@ import { resetFiltersDocumentCache } from "@/screener/filtersDocument";
  *
  * The panel used to carry a 21-name `<select>` fed by `GET /market/breadth`,
  * with a source badge beside it. Both are gone: the header's filter document is
- * the only vocabulary, and it publishes the Sector control with no values yet
- * (`options_source: /market/sectors`). So the honest contract is:
+ * the only vocabulary, and it publishes the Sector control referencing a census
+ * (`options_source: /market/sectors`). The header merges that census —
+ * `GET /screens/options/sector` — into the control, so the panel draws a real
+ * select of the sector names. So the honest contract is:
  *
  *   * the removed select and its badge stay removed;
- *   * the header still draws the Sector control, and says why it is empty
- *     instead of offering an empty menu that looks broken;
- *   * a `sec` predicate that arrives in a link — the one way to name a sector
- *     this build cannot list — is sent unchanged, chipped, and survives a
- *     reload;
+ *   * the header still draws the Sector control, now with the census's values;
+ *   * a `sec` predicate that arrives in a link is sent unchanged, chipped, and
+ *     survives a reload;
  *   * removing its chip leaves the reader's other filters alone.
  */
 
@@ -53,12 +53,37 @@ function page(count: number) {
   };
 }
 
+/** The sector census `GET /screens/options/sector` answers with. */
+function sectorCensus() {
+  return {
+    key: "sector",
+    options: [
+      { id: "Electronic Technology", label: "Electronic Technology", predicate: "Electronic Technology", count: 120 },
+      { id: "Finance", label: "Finance", predicate: "Finance", count: 340 },
+    ],
+    as_of: "2026-11-01T10:00:00Z",
+  };
+}
+
+/** The industry census `GET /screens/options/industry` answers with. */
+function industryCensus() {
+  return {
+    key: "industry",
+    options: [
+      { id: "Semiconductors", label: "Semiconductors", predicate: "Semiconductors", count: 60 },
+    ],
+    as_of: "2026-11-01T10:00:00Z",
+  };
+}
+
 function stubApi() {
   const selects: WireBody[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === "/screens/select/schema") return json(filterSchemaWire());
     if (url === "/screens/filters") return json(filterDocumentWire());
+    if (url === "/screens/options/sector") return json(sectorCensus());
+    if (url === "/screens/options/industry") return json(industryCensus());
     if (url === "/screens/select" && init?.method === "POST") {
       selects.push(JSON.parse(String(init.body)) as WireBody);
       return json(page(20));
@@ -95,7 +120,7 @@ describe("the sector control that was removed", () => {
 });
 
 describe("the header's sector control", () => {
-  it("is drawn from the document, and says why it has no values", async () => {
+  it("is drawn from the document with the census's values", async () => {
     stubApi();
     const user = userEvent.setup();
     render(<App />);
@@ -105,10 +130,10 @@ describe("the header's sector control", () => {
     const control = await screen.findByTestId("control-sec");
 
     const select = within(control).getByRole("combobox") as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
-    expect(select.textContent).toContain("No values published");
-    // Not an empty menu: the closed control carries the reason it is closed.
-    expect(select.getAttribute("title")).toContain("/market/sectors");
+    expect(select.disabled).toBe(false);
+    // The census's labels are the options, not a disabled placeholder.
+    expect(select.textContent).toContain("Electronic Technology");
+    expect(select.textContent).toContain("Finance");
     // One field per control, named — never a second, bespoke sector menu.
     expect(within(control).getByText("Sector")).toBeTruthy();
   });

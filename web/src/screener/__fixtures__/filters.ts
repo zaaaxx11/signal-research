@@ -114,15 +114,24 @@ export function filterDocumentWire(): Record<string, unknown> {
             control: "select",
             form: "multi",
             op: "in",
-            options: [],
+            options: [
+              option("sec:tech", "Electronic Technology", "Electronic Technology", "sector eq 'Electronic Technology'"),
+              option("sec:finance", "Finance", "Finance", "sector eq 'Finance'"),
+            ],
             options_source: "/market/sectors",
           }),
           control({
             id: "industry",
             label: "Industry",
             key: "industry",
-            control: "text",
+            control: "select",
+            form: "single",
             op: "contains",
+            options: [
+              option("industry:semi", "Semiconductors", "Semiconductors", "industry contains 'Semiconductors'"),
+              option("industry:software", "Software", "Software", "industry contains 'Software'"),
+            ],
+            options_source: "/screens/options/industry",
           }),
           control({
             id: "geo",

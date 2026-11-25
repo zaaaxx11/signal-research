@@ -18,7 +18,7 @@ import { isClientColumn } from "@/grid/columnMeta";
 
 import { ScreenerScreen } from "./ScreenerScreen";
 import { defaultColumns } from "./defaultColumns";
-import { resetFiltersDocumentCache } from "./filtersDocument";
+import { resetFiltersDocumentCache, resetMergedFiltersDocumentCache } from "./filtersDocument";
 import { USER_PRESETS_KEY } from "./userPresets";
 import { CAP_MEGA } from "./__fixtures__/filters";
 import { filterDocumentWire } from "./__fixtures__/filters";
@@ -119,6 +119,7 @@ beforeEach(() => {
   } as DOMRect);
   resetFilterSchemaCache();
   resetFiltersDocumentCache();
+  resetMergedFiltersDocumentCache();
   window.localStorage.clear();
   window.history.replaceState(null, "", "/app/screener");
 });
@@ -253,6 +254,7 @@ describe("the screener screen", () => {
     first.unmount();
     resetFilterSchemaCache();
     resetFiltersDocumentCache();
+    resetMergedFiltersDocumentCache();
     api.selects.length = 0;
     render(<ScreenerScreen assetClass="stock" />);
 

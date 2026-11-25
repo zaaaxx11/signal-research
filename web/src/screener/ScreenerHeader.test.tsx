@@ -272,14 +272,17 @@ describe("the panel is one field per control", () => {
     expect((theme as HTMLSelectElement).disabled).toBe(true);
     expect(theme.getAttribute("title")).toMatch(/no row carries a theme/);
 
-    // A select with nothing published says so instead of opening an empty menu.
+    // Sector and Industry publish their values now, so both draw a real select
+    // rather than a disabled placeholder or a free-text input.
     const sector = within(screen.getByTestId("control-sec")).getByRole("combobox", {
       name: "Sector",
     });
-    expect((sector as HTMLSelectElement).disabled).toBe(true);
+    expect((sector as HTMLSelectElement).disabled).toBe(false);
+    const industry = within(screen.getByTestId("control-industry")).getByRole("combobox", {
+      name: "Industry",
+    });
+    expect((industry as HTMLSelectElement).disabled).toBe(false);
 
-    const industry = screen.getByTestId("control-input-industry") as HTMLInputElement;
-    expect(industry.type).toBe("text");
     const volume = screen.getByTestId("control-input-sh_curvol") as HTMLInputElement;
     expect(volume.type).toBe("number");
   });
@@ -300,7 +303,10 @@ describe("the panel is one field per control", () => {
       value: ["nyse"],
     });
 
-    await user.type(screen.getByTestId("control-input-industry"), "Semiconductors{Enter}");
+    await user.selectOptions(
+      screen.getByTestId("control-select-industry"),
+      "industry\u0000industry:semi",
+    );
     expect(spies.onAddFilter).toHaveBeenLastCalledWith({
       key: "industry",
       op: "contains",

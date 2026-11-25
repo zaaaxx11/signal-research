@@ -51,7 +51,7 @@ import { navigate } from "@/shell/routes";
 import { ScreenerHeader } from "./ScreenerHeader";
 import type { ResolvedPreset } from "./columnPresets";
 import { defaultColumns } from "./defaultColumns";
-import { isFilterControl, publishedFilters, useFiltersDocument } from "./filtersDocument";
+import { isFilterControl, publishedFilters, useMergedFiltersDocument } from "./filtersDocument";
 import { useUserColumnPresets } from "./userPresets";
 
 export interface ScreenerScreenProps {
@@ -63,8 +63,10 @@ export function ScreenerScreen({ assetClass }: ScreenerScreenProps) {
   const schema = useFilterSchema();
   // The filter document is one more boot read. It is memoised in its module, so
   // this hook, a StrictMode double-effect and a retry share one request; the
-  // vocabulary it carries also names the values a chip prints.
-  const vocabulary = useFiltersDocument();
+  // vocabulary it carries also names the values a chip prints. The sector and
+  // industry censuses the document references are merged in before it lands
+  // here, so the panel draws real selects for both.
+  const vocabulary = useMergedFiltersDocument();
   const registry = React.useMemo(
     () =>
       schema.schema

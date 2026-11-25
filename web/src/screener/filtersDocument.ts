@@ -240,6 +240,95 @@ export function resetFiltersDocumentCache(): void {
   cached = null;
 }
 
+// ---------------------------------------------------------------------------
+// Merging a live census into the controls that reference one
+// ---------------------------------------------------------------------------
+
+/**
+ * The key at the end of an `options_source` path.
+ *
+ * `options_source` is a same-origin path the document references its values
+ * through (`/screens/options/industry`, `/market/sectors`). The census route is
+ * keyed by the last segment — `industry`, `sector` — so that segment is the key
+ * a control is merged by. A source with no path segment yields null, and a
+ * control with no source is never merged.
+ */
+function optionSourceKey(source: string): string | null {
+  const segments = source.split("/").filter((segment) => segment.length > 0);
+  const last = segments[segments.length - 1];
+  return last && last.length > 0 ? last : null;
+}
+
+/**
+ * The served census body → the options a select draws.
+ *
+ * `GET /screens/options/{key}` answers `{key, options: [{id, label, predicate,
+ * count}], as_of}`. Each option becomes a `FilterOption` whose `token` is the
+ * id (the value a request sends) and whose `predicate` is the published
+ * predicate — the row's own cell, never a cleaned variant. A body without an
+ * options array is an empty list, not a parse failure.
+ */
+export function parseOptionsDocument(body: unknown): FilterOption[] {
+  if (!isRecord(body)) return [];
+  const rawOptions = Array.isArray(body["options"]) ? body["options"] : [];
+  const options: FilterOption[] = [];
+  for (const raw of rawOptions) {
+    if (!isRecord(raw)) continue;
+    const id = text(raw["id"]);
+    if (id.length === 0) continue;
+    options.push({
+      id,
+      label: text(raw["label"], id).replace(/\s+/g, " ").trim() || id,
+      token: id,
+      predicate: textOrNull(raw["predicate"]),
+      available: true,
+      reason: null,
+    });
+  }
+  return options;
+}
+
+/**
+ * Merge a live census into the controls that reference one, without mutating
+ * the document that was passed in.
+ *
+ * WHAT: every filter control whose `options_source` names `key` (its last path
+ *       segment) has its `options` replaced by the census's, and a control that
+ *       published none becomes available so the header draws a real select
+ *       instead of a disabled placeholder.
+ * WHY: `sec` and `industry` ship referencing a source rather than carrying
+ *      their values (the document is built from memory and may not scan); the
+ *      census is where those values live, and a picker that never merges them
+ *      can only offer a disabled control or a free-text guess.
+ *
+ * A key the census does not name, or an empty census, leaves the document
+ * untouched — a control keeps the values it published rather than losing them
+ * to a source that answered nothing. The merge is pure: the input document and
+ * its controls are never mutated.
+ */
+export function mergeOptionCensus(
+  doc: FiltersDocument,
+  key: string,
+  options: FilterOption[],
+): FiltersDocument {
+  if (options.length === 0) return doc;
+  let changed = false;
+  const groups = doc.groups.map((group) => {
+    let groupChanged = false;
+    const controls = group.controls.map((control) => {
+      if (!isFilterControl(control)) return control;
+      const source = control.optionsSource;
+      if (source === null || optionSourceKey(source) !== key) return control;
+      groupChanged = true;
+      return { ...control, options, available: true, status: "available", reason: null };
+    });
+    if (!groupChanged) return group;
+    changed = true;
+    return { ...group, controls };
+  });
+  return changed ? { ...doc, groups } : doc;
+}
+
 export interface FiltersDocumentResult {
   doc: FiltersDocument | null;
   status: "loading" | "ready" | "error";
@@ -383,4 +472,142 @@ export function parseOptionKey(value: string): { controlId: string; optionId: st
 /** The control in a group with this id, if it is still published. */
 export function controlById(group: FilterGroup, id: string): FilterControl | null {
   return group.controls.find((control) => control.id === id) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// The document with its referenced censuses merged in
+// ---------------------------------------------------------------------------
+
+/** One control that references a live census, and the key it is merged by. */
+interface CensusReference {
+  controlId: string;
+  key: string;
+}
+
+/**
+ * The distinct census keys a document's filter controls reference through their
+ * `options_source` (`sector`, `industry`…), in first-seen order.
+ *
+ * A key is the source path's last segment — the same segment the census route
+ * is keyed by — so a control that references `/screens/options/industry` and
+ * one that references `/market/sectors` name `industry` and `sector`.
+ */
+export function censusReferences(doc: FiltersDocument): CensusReference[] {
+  const seen = new Set<string>();
+  const references: CensusReference[] = [];
+  for (const group of doc.groups) {
+    for (const control of group.controls) {
+      if (!isFilterControl(control) || control.optionsSource === null) continue;
+      const key = optionSourceKey(control.optionsSource);
+      if (key === null || seen.has(key)) continue;
+      seen.add(key);
+      references.push({ controlId: control.id, key });
+    }
+  }
+  return references;
+}
+
+/**
+ * One census read: `GET /screens/options/{key}` → the options a select draws.
+ *
+ * A failed or empty read is an empty list rather than a throw: the control
+ * keeps whatever it published and the header falls back to its disabled
+ * placeholder, which is the same honest state the document shipped in.
+ */
+export async function loadOptionCensus(key: string, signal?: AbortSignal): Promise<FilterOption[]> {
+  const body = await getJson(`/screens/options/${encodeURIComponent(key)}`, signal);
+  return parseOptionsDocument(body);
+}
+
+/**
+ * The served document with every referenced census merged into its controls.
+ *
+ * The reads run once per key, share one abort signal, and are memoised for the
+ * page load — a second caller, a StrictMode double-effect and a retry all reuse
+ * the first read. A key that fails to load leaves its control as published; the
+ * merge never costs the screen its document.
+ */
+let censusCache: Promise<FiltersDocument> | null = null;
+
+export function loadMergedFiltersDocument(): Promise<FiltersDocument> {
+  if (censusCache === null) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FILTERS_TIMEOUT_MS);
+    censusCache = loadFiltersDocument()
+      .then(async (doc) => {
+        let merged = doc;
+        const references = censusReferences(doc);
+        const censuses = await Promise.all(
+          references.map((reference) =>
+            loadOptionCensus(reference.key, controller.signal).catch(() => [] as FilterOption[]),
+          ),
+        );
+        references.forEach((reference, index) => {
+          merged = mergeOptionCensus(merged, reference.key, censuses[index] ?? []);
+        });
+        return merged;
+      })
+      .catch((error: unknown) => {
+        censusCache = null;
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new Error("The filter document took too long to load");
+        }
+        throw error;
+      })
+      .finally(() => clearTimeout(timer));
+  }
+  return censusCache;
+}
+
+/** Test seam and the retry path: forget the merged document. */
+export function resetMergedFiltersDocumentCache(): void {
+  censusCache = null;
+}
+
+/**
+ * The header's vocabulary: the served document with its `sector` and
+ * `industry` censuses merged in.
+ *
+ * The panel draws nothing but this object, exactly as it drew the raw
+ * document — the merge happens here so `ScreenerHeader` stays a pure renderer
+ * of `vocabulary.doc`, and a test hands it a fixture without a network stub.
+ */
+export function useMergedFiltersDocument(): FiltersDocumentResult {
+  const [state, setState] = React.useState<Omit<FiltersDocumentResult, "retry">>({
+    doc: null,
+    status: "loading",
+    error: null,
+  });
+  const [attempt, setAttempt] = React.useState(0);
+
+  React.useEffect(() => {
+    let alive = true;
+    setState((previous) => ({ ...previous, status: "loading", error: null }));
+
+    loadMergedFiltersDocument().then(
+      (doc) => {
+        if (alive) setState({ doc, status: "ready", error: null });
+      },
+      (error: unknown) => {
+        if (!alive) return;
+        setState({
+          doc: null,
+          status: "error",
+          error: error instanceof Error ? error.message : "Could not load the filter document",
+        });
+      },
+    );
+
+    return () => {
+      alive = false;
+    };
+  }, [attempt]);
+
+  const retry = React.useCallback(() => {
+    resetFiltersDocumentCache();
+    resetMergedFiltersDocumentCache();
+    setAttempt((value) => value + 1);
+  }, []);
+
+  return { ...state, retry };
 }
